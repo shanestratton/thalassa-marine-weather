@@ -1,0 +1,7 @@
+{
+  "name": "Thalassa Marine Weather",
+  "description": "A premium, aesthetically driven marine weather application providing real-time wind, wave, and forecast data using Gemini Search Grounding.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

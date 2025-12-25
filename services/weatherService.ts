@@ -1,0 +1,1171 @@
+
+import { MarineWeatherReport, HourlyForecast, ForecastDay, WeatherMetrics, Tide, TidePoint, StormGlassHour, StormGlassResponse, BuoyStation, WeatherModel, GridPoint } from "../types";
+import { generateSafetyAlerts, getBeaufort, expandCompassDirection, generateTacticalAdvice } from "../utils";
+import { findNearestCoastalPoint, suggestLocationCorrection } from "./geminiService";
+
+const BASE_URL = 'https://api.stormglass.io/v2';
+
+const logConfig = (msg: string) => console.log(`[Stormglass Config] ${msg}`);
+
+const STATE_ABBREVIATIONS: Record<string, string> = {
+    "New South Wales": "NSW", "Queensland": "QLD", "Victoria": "VIC", "Tasmania": "TAS", 
+    "Western Australia": "WA", "South Australia": "SA", "Northern Territory": "NT", 
+    "Australian Capital Territory": "ACT",
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA", 
+    "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA", 
+    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", 
+    "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD", 
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS", 
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH", 
+    "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", 
+    "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA", 
+    "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", "Tennessee": "TN", 
+    "Texas": "TX", "Utah": "UT", "Vermont": "VT", "Virginia": "VA", "Washington": "WA", 
+    "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY"
+};
+
+// GLOBAL BUOY LIST (Curated for Major Maritime Approaches)
+export const MAJOR_BUOYS: BuoyStation[] = [
+    // --- AUSTRALIA (East Coast) ---
+    { id: 'Moreton', name: 'Cape Moreton (QLD)', lat: -27.031, lon: 153.562, type: 'bom' },
+    { id: 'Mooloolaba', name: 'Mooloolaba Wave (QLD)', lat: -26.66, lon: 153.18, type: 'bom' },
+    { id: 'GoldCoast', name: 'Gold Coast Seaway', lat: -27.93, lon: 153.43, type: 'bom' },
+    { id: 'Tweed', name: 'Tweed Heads (NSW)', lat: -28.18, lon: 153.58, type: 'bom' },
+    { id: 'Byron', name: 'Cape Byron (NSW)', lat: -28.64, lon: 153.63, type: 'bom' },
+    { id: 'Coffs', name: 'Coffs Harbour (NSW)', lat: -30.30, lon: 153.27, type: 'bom' },
+    { id: 'Crowdy', name: 'Crowdy Head (NSW)', lat: -31.83, lon: 152.87, type: 'bom' },
+    { id: 'Syd', name: 'Sydney Heads (NSW)', lat: -33.77, lon: 151.42, type: 'bom' },
+    { id: 'Syd2', name: 'Botany Bay (NSW)', lat: -34.00, lon: 151.22, type: 'bom' },
+    { id: 'Batemans', name: 'Batemans Bay (NSW)', lat: -35.71, lon: 150.32, type: 'bom' },
+    { id: 'Eden', name: 'Eden Coastal (NSW)', lat: -37.26, lon: 150.25, type: 'bom' },
+    { id: 'Melb', name: 'Port Phillip Heads (VIC)', lat: -38.29, lon: 144.62, type: 'bom' },
+    { id: 'Hob', name: 'Storm Bay (TAS)', lat: -43.05, lon: 147.5, type: 'bom' },
+    { id: 'Lord', name: 'Lord Howe Island', lat: -31.55, lon: 159.08, type: 'bom' },
+
+    // --- MORETON BAY LOCALS (Startup Options) ---
+    { id: 'MB_Cent', name: 'Moreton Bay Central', lat: -27.25, lon: 153.20, type: 'bom' },
+    { id: 'Spitfire', name: 'Spitfire Channel', lat: -27.05, lon: 153.25, type: 'bom' },
+    { id: 'Rous', name: 'Rous Channel', lat: -27.38, lon: 153.40, type: 'bom' },
+    { id: 'Banana', name: 'Banana Bank', lat: -27.50, lon: 153.30, type: 'bom' },
+    { id: 'NW_Chan', name: 'North West Channel', lat: -26.90, lon: 153.20, type: 'bom' },
+    { id: 'Cal_Wide', name: 'Caloundra Wide', lat: -26.85, lon: 153.25, type: 'bom' },
+
+    // --- AUSTRALIA (West/North) ---
+    { id: 'Cott', name: 'Cottesloe (WA)', lat: -31.98, lon: 115.73, type: 'bom' },
+    { id: 'Jurien', name: 'Jurien Bay (WA)', lat: -30.28, lon: 114.98, type: 'bom' },
+    { id: 'Darwin', name: 'Beagle Gulf (NT)', lat: -12.18, lon: 130.6, type: 'bom' },
+    { id: 'Grokote', name: 'Groote Eylandt (NT)', lat: -13.97, lon: 136.42, type: 'bom' },
+
+    // --- NEW ZEALAND ---
+    { id: 'Baring', name: 'Baring Head (Wellington)', lat: -41.41, lon: 174.87, type: 'other' },
+    { id: 'Auck', name: 'Hauraki Gulf (Auckland)', lat: -36.70, lon: 175.00, type: 'other' },
+    { id: 'Foveaux', name: 'Foveaux Strait (Bluff)', lat: -46.60, lon: 168.30, type: 'other' },
+
+    // --- USA (West Coast) ---
+    { id: '46013', name: 'Bodega Bay (CA)', lat: 38.2, lon: -123.3, type: 'noaa' },
+    { id: '46026', name: 'San Francisco (CA)', lat: 37.759, lon: -122.833, type: 'noaa' },
+    { id: '46012', name: 'Half Moon Bay (CA)', lat: 37.36, lon: -122.88, type: 'noaa' },
+    { id: '46042', name: 'Monterey Bay (CA)', lat: 36.75, lon: -122.42, type: 'noaa' },
+    { id: '46011', name: 'Santa Maria (CA)', lat: 34.88, lon: -120.87, type: 'noaa' },
+    { id: '46025', name: 'Santa Monica Basin (CA)', lat: 33.749, lon: -119.053, type: 'noaa' },
+    { id: '46086', name: 'San Clemente Basin', lat: 32.50, lon: -118.00, type: 'noaa' },
+    { id: '46047', name: 'Tanner Bank', lat: 32.43, lon: -119.53, type: 'noaa' },
+    { id: '46050', name: 'Stonewall Bank (OR)', lat: 44.639, lon: -124.534, type: 'noaa' },
+    { id: '46041', name: 'Cape Elizabeth (WA)', lat: 47.353, lon: -124.731, type: 'noaa' },
+    { id: '46088', name: 'Juan de Fuca', lat: 48.30, lon: -123.20, type: 'noaa' },
+    
+    // --- CANADA (West) ---
+    { id: '46146', name: 'Halibut Bank (BC)', lat: 49.34, lon: -123.72, type: 'other' },
+    { id: '46206', name: 'La Perouse Bank (BC)', lat: 48.83, lon: -125.99, type: 'other' },
+
+    // --- USA (Alaska/Hawaii) ---
+    { id: '46001', name: 'Gulf of Alaska', lat: 56.304, lon: -148.018, type: 'noaa' },
+    { id: '51001', name: 'Northwest Hawaii', lat: 24.325, lon: -162.002, type: 'noaa' },
+    { id: '51003', name: 'Western Hawaii', lat: 19.164, lon: -160.776, type: 'noaa' },
+
+    // --- USA (East Coast) ---
+    { id: '44013', name: 'Boston Approach (MA)', lat: 42.346, lon: -70.651, type: 'noaa' },
+    { id: '44097', name: 'Block Island (RI)', lat: 40.97, lon: -71.13, type: 'noaa' },
+    { id: '44017', name: 'Montauk Point (NY)', lat: 40.693, lon: -72.049, type: 'noaa' },
+    { id: '44025', name: 'Long Island Offshore', lat: 40.25, lon: -73.17, type: 'noaa' },
+    { id: '44065', name: 'New York Harbor Entrance', lat: 40.369, lon: -73.703, type: 'noaa' },
+    { id: '44009', name: 'Delaware Bay Entrance', lat: 38.46, lon: -74.70, type: 'noaa' },
+    { id: '44091', name: 'Barnegat (NJ)', lat: 39.76, lon: -73.77, type: 'noaa' },
+    { id: '41002', name: 'South Hatteras (NC)', lat: 31.759, lon: -74.936, type: 'noaa' },
+    { id: '41004', name: 'Edisto (SC)', lat: 32.501, lon: -79.099, type: 'noaa' },
+    { id: '41008', name: 'Grays Reef (GA)', lat: 31.40, lon: -80.87, type: 'noaa' },
+    { id: '41009', name: 'Canaveral (FL)', lat: 28.508, lon: -80.185, type: 'noaa' },
+    
+    // --- USA (Gulf/Atlantic) ---
+    { id: '42001', name: 'Mid Gulf (US)', lat: 25.942, lon: -89.657, type: 'noaa' },
+    { id: '42035', name: 'Galveston (TX)', lat: 29.232, lon: -94.413, type: 'noaa' },
+    { id: '41047', name: 'Northeast Bahamas', lat: 26.50, lon: -77.50, type: 'noaa' },
+    { id: '41048', name: 'West Bermuda', lat: 31.95, lon: -69.60, type: 'noaa' },
+    { id: '41043', name: 'NE Puerto Rico', lat: 21.05, lon: -64.78, type: 'noaa' },
+
+    // --- UK & EUROPE ---
+    { id: '62001', name: 'Gascogne (Biscay)', lat: 45.2, lon: -5.00, type: 'other' },
+    { id: '62103', name: 'Channel Lightship (UK)', lat: 49.9, lon: -2.9, type: 'other' },
+    { id: '62304', name: 'Sandettie Light (Dover)', lat: 51.15, lon: 1.80, type: 'other' },
+    { id: '62305', name: 'Greenwich Light', lat: 50.40, lon: 0.00, type: 'other' },
+    { id: '62107', name: 'Seven Stones (Scilly)', lat: 50.1, lon: -6.1, type: 'other' },
+    { id: '62027', name: 'Start Point (Devon)', lat: 50.15, lon: -3.65, type: 'other' },
+    { id: '62029', name: 'K1 Buoy (Ireland)', lat: 51.19, lon: -10.53, type: 'other' },
+    { id: '62023', name: 'M4 Donegal (Ireland)', lat: 54.99, lon: -9.99, type: 'other' },
+    { id: '62163', name: 'Brittany Buoy (FR)', lat: 47.5, lon: -7.5, type: 'other' },
+    { id: '64045', name: 'North Sea (Ekofisk)', lat: 56.5, lon: 3.2, type: 'other' },
+    { id: '64046', name: 'North Sea (Haltenbanken)', lat: 64.50, lon: 7.00, type: 'other' },
+    { id: '61001', name: 'Nice (Mediterranean)', lat: 43.38, lon: 7.83, type: 'other' },
+    { id: '61004', name: 'Portoferraio (Italy)', lat: 42.80, lon: 10.30, type: 'other' },
+    { id: '61002', name: 'Lion Buoy (Gulf of Lion)', lat: 42.1, lon: 4.7, type: 'other' },
+
+    // --- ASIA ---
+    { id: '21001', name: 'Kuroshio (Japan)', lat: 28.1, lon: 134.3, type: 'other' },
+    { id: '21004', name: 'East China Sea', lat: 29.5, lon: 126.5, type: 'other' },
+    { id: '22101', name: 'Donghae (Korea)', lat: 37.5, lon: 130.0, type: 'other' },
+    { id: 'HK1', name: 'Hong Kong (Waglan)', lat: 22.18, lon: 114.30, type: 'other' },
+    { id: 'HK2', name: 'Lamma Channel', lat: 22.10, lon: 114.10, type: 'other' },
+    { id: '23001', name: 'Phuket (Thailand)', lat: 7.8, lon: 98.3, type: 'other' },
+    { id: 'SNG', name: 'Singapore Strait', lat: 1.20, lon: 103.80, type: 'other' },
+
+    // --- AFRICA / SOUTH AMERICA ---
+    { id: '14001', name: 'Cape Point (SA)', lat: -34.35, lon: 18.48, type: 'other' },
+    { id: '14003', name: 'Richards Bay (SA)', lat: -28.8, lon: 32.1, type: 'other' },
+    { id: '31001', name: 'Santos (Brazil)', lat: -25.3, lon: -45.1, type: 'other' },
+    { id: '32012', name: 'Chilean Coast (Humboldt)', lat: -20.5, lon: -72.0, type: 'other' }
+];
+
+const getApiKey = () => {
+    let key = "";
+    
+    // 1. Try Vite native
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY) {
+        key = import.meta.env.VITE_STORMGLASS_API_KEY as string;
+    }
+    
+    // 2. Try Process Env (Direct access required for replacement)
+    // Only try if not already found to avoid overwriting with potentially empty process.env in some builds
+    if (!key) {
+        try {
+            // @ts-ignore
+            if (typeof process !== 'undefined' && process.env && process.env.STORMGLASS_API_KEY) {
+                // @ts-ignore
+                key = process.env.STORMGLASS_API_KEY;
+            }
+        } catch (e) {}
+    }
+    
+    // Clean up quotes if they got injected by build process
+    if (key) {
+        const cleanKey = key.replace(/["']/g, "").trim();
+        if (cleanKey.length > 20) {
+            return cleanKey;
+        }
+    }
+
+    return "";
+};
+
+const getOpenMeteoKey = () => {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY) {
+        return import.meta.env.VITE_OPEN_METEO_API_KEY as string;
+    }
+    try {
+        // @ts-ignore
+        if (typeof process !== 'undefined' && process.env) {
+            // @ts-ignore
+            if (process.env.OPEN_METEO_API_KEY) return process.env.OPEN_METEO_API_KEY;
+        }
+    } catch (e) {}
+    return null;
+};
+
+// --- STARTUP LOG ---
+const sgKey = getApiKey();
+// Log masked key to help debugging
+const maskedKey = sgKey && sgKey.length > 5 ? `...${sgKey.slice(-4)}` : "None";
+if (sgKey && sgKey.length > 20) {
+    console.log(`Stormglass Status: Active (${maskedKey})`);
+} else {
+    console.log(`Stormglass Status: Free Mode (Open-Meteo)`);
+}
+
+export const getApiKeySuffix = () => {
+    const key = getApiKey();
+    if (!key || key.length < 5) return "NONE";
+    return "..." + key.slice(-4);
+}
+
+export const isStormglassKeyPresent = () => {
+    const key = getApiKey();
+    return key && key.length > 20;
+};
+
+// Returns RAW string for debugging UI
+export const debugStormglassConnection = async (): Promise<string> => {
+    const apiKey = getApiKey();
+    const now = new Date().toISOString();
+    // Minimal request for debugging
+    const url = `${BASE_URL}/weather/point?lat=0&lng=0&params=windSpeed&source=sg&start=${now}&end=${now}`;
+    
+    let log = `--- STORMGLASS DIAGNOSTIC ---\nTime: ${now}\nKey Suffix: ${apiKey ? apiKey.slice(-4) : 'MISSING'}\nURL: ${url}\n`;
+    
+    if (!apiKey) {
+        return log + "\nINFO: API Key not found. App is running in Free Mode (OpenMeteo). This is normal if you haven't purchased a Stormglass key.";
+    }
+
+    try {
+        const res = await fetch(url, { 
+            headers: { 'Authorization': apiKey },
+            cache: 'no-store' 
+        });
+        log += `Status: ${res.status} ${res.statusText}\n`;
+        res.headers.forEach((val, key) => log += `  ${key}: ${val}\n`);
+        const body = await res.text();
+        log += `\nResponse Body:\n${body.substring(0, 500)}${body.length > 500 ? '...' : ''}`;
+        return log;
+    } catch (e: any) {
+        log += `\nFATAL EXCEPTION:\n${e.message}\n${e.stack || ''}`;
+        return log;
+    }
+}
+
+export const checkStormglassStatus = async (): Promise<{ status: 'OK' | 'ERROR' | 'MISSING_KEY', message: string, code?: number }> => {
+    const apiKey = getApiKey();
+    if (!apiKey) return { status: 'MISSING_KEY', message: 'Free Tier (Open-Meteo)', code: 200 };
+
+    const now = new Date().toISOString();
+    const url = `${BASE_URL}/weather/point?lat=0&lng=0&params=windSpeed&source=sg&start=${now}&end=${now}`;
+    try {
+        const res = await fetch(url, { headers: { 'Authorization': apiKey } });
+        if (res.ok) return { status: 'OK', message: 'Active' };
+        if (res.status === 402) return { status: 'ERROR', message: 'Quota/Plan Limit', code: 402 };
+        if (res.status === 401 || res.status === 403) return { status: 'ERROR', message: 'Invalid Key', code: 403 };
+        return { status: 'ERROR', message: `HTTP ${res.status}`, code: res.status };
+    } catch (e: any) {
+        return { status: 'ERROR', message: 'Network Connection Failed', code: 0 };
+    }
+};
+
+const msToKnots = (ms: number | null) => (ms !== null && ms !== undefined) ? ms * 1.94384 : null;
+const mToFt = (m: number | null) => (m !== null && m !== undefined) ? m * 3.28084 : null;
+
+const degreesToCardinal = (deg: number): string => {
+    if (deg === undefined || deg === null) return 'N';
+    const val = Math.floor((deg / 22.5) + 0.5);
+    const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    return arr[val % 16] || "N";
+};
+
+const getCondition = (cloudCover: number, precip: number, isDay: boolean): string => {
+    if (precip > 0.5) return 'Rain';
+    if (cloudCover <= 20) return isDay ? 'Sunny' : 'Clear';
+    if (cloudCover <= 50) return isDay ? 'Mostly Sunny' : 'Mostly Clear';
+    if (cloudCover <= 85) return 'Partly Cloudy';
+    return 'Overcast';
+};
+
+const generateDescription = (condition: string, windSpeed: number | null, windDir: string, waveHeight: number | null): string => {
+    const windDesc = getBeaufort(windSpeed).desc;
+    const fullDir = expandCompassDirection(windDir);
+    const waveStr = waveHeight !== null && waveHeight > 0 ? `Seas ${waveHeight.toFixed(1)}ft.` : '';
+    return `${condition}. ${windDesc} from the ${fullDir}. ${waveStr}`;
+};
+
+const abbreviate = (val: string): string => {
+    if (!val) return "";
+    return STATE_ABBREVIATIONS[val] || val.substring(0, 3).toUpperCase();
+};
+
+export const reverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+        const data = await res.json();
+        const addr = data.address;
+        
+        if (!addr) return null;
+        
+        // Identify specific locality (City, Town, Village, Suburb, Island)
+        const locality = addr.suburb || addr.town || addr.city_district || addr.village || addr.city || addr.hamlet || addr.island;
+        
+        if (!locality) return null;
+
+        const stateFull = addr.state || addr.province || "";
+        const state = abbreviate(stateFull);
+        const country = addr.country_code ? addr.country_code.toUpperCase() : "";
+
+        const parts = [locality, state, country].filter(part => part && part.trim().length > 0);
+        
+        if (parts.length === 0) return null;
+        return parts.join(", ");
+    } catch {
+        return null;
+    }
+}
+
+const parseLocation = async (location: string): Promise<{lat: number, lon: number, name: string}> => {
+    if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: "Invalid Location" };
+
+    const searchStr = location.toLowerCase().trim();
+
+    // 1. EXACT MATCH on Buoy ID or Name (Priority)
+    const exactBuoy = MAJOR_BUOYS.find(b => 
+        b.name.toLowerCase() === searchStr || 
+        b.id.toLowerCase() === searchStr
+    );
+    if (exactBuoy) {
+        return { lat: exactBuoy.lat, lon: exactBuoy.lon, name: exactBuoy.name };
+    }
+
+    // 2. FUZZY MATCH on Buoy Name
+    const fuzzyBuoy = MAJOR_BUOYS.find(b => 
+        b.name.toLowerCase().includes(searchStr) && searchStr.length > 4
+    );
+    if (fuzzyBuoy) {
+        return { lat: fuzzyBuoy.lat, lon: fuzzyBuoy.lon, name: fuzzyBuoy.name };
+    }
+
+    let lat = 0;
+    let lon = 0;
+    let name = location; 
+    
+    // 3. Check for Coordinate String
+    const coordMatch = location.match(/([+-]?\d+(\.\d+)?)[,\s]+([+-]?\d+(\.\d+)?)/);
+    
+    if (coordMatch) {
+        lat = parseFloat(coordMatch[1]);
+        lon = parseFloat(coordMatch[3]);
+    } else {
+        // 4. Fallback to Nominatim Search
+        const fetchNominatim = async (query: string) => {
+             try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`);
+                return await res.json();
+             } catch { return []; }
+        }
+
+        let searchData = await fetchNominatim(location);
+        
+        // AUTOCORRECT LOGIC
+        if (!searchData || searchData.length === 0) {
+            console.log(`Location "${location}" not found. Attempting AI Autocorrect...`);
+            const corrected = await suggestLocationCorrection(location);
+            
+            if (corrected) {
+                console.log(`AI suggested: "${corrected}"`);
+                searchData = await fetchNominatim(corrected);
+                if (searchData && searchData.length > 0) {
+                    name = corrected; 
+                }
+            }
+        }
+        
+        if (!searchData || searchData.length === 0) throw new Error(`Location "${location}" not found.`);
+        
+        lat = parseFloat(searchData[0].lat);
+        lon = parseFloat(searchData[0].lon);
+        
+        if (searchData[0].address) {
+            const a = searchData[0].address;
+            const city = a.city || a.town || a.village || a.suburb || a.hamlet || a.county || "";
+            const stateFull = a.state || a.province || a.region || "";
+            const state = abbreviate(stateFull) || stateFull;
+            const country = (a.country_code || "").toUpperCase();
+            
+            const parts = [city, state, country].filter(p => p && p.trim().length > 0);
+            if (parts.length > 0) {
+                name = parts.join(", ");
+            } else if (searchData[0].display_name) {
+                name = searchData[0].display_name.split(',')[0];
+            }
+        } else if (searchData[0].display_name) {
+             name = searchData[0].display_name.split(',')[0];
+        }
+    }
+
+    return { lat, lon, name };
+}
+
+export const attemptGridSearch = async (centerLat: number, centerLon: number, name: string): Promise<MarineWeatherReport | null> => {
+    // Only used for free/fallback users who get Inland errors from OpenMeteo
+    const logs: string[] = ["Starting Background Grid Search..."];
+    const offset = 0.05; 
+    
+    const candidates = [
+        { lat: centerLat, lon: centerLon + offset, label: "East (5km)" },
+        { lat: centerLat, lon: centerLon - offset, label: "West (5km)" },
+        { lat: centerLat + offset, lon: centerLon, label: "North (5km)" },
+        { lat: centerLat - offset, lon: centerLon, label: "South (5km)" },
+    ];
+
+    const promises = candidates.map(c => 
+        fetchOpenMeteo(c.lat, c.lon, name, false)
+            .then(data => ({ data, candidate: c }))
+            .catch(() => null)
+    );
+
+    const results = await Promise.all(promises);
+    const valid = results.find(r => r && r.data && !r.data.isLandlocked);
+    
+    if (valid) {
+        const report = valid.data;
+        report.modelUsed = `Open-Meteo Commercial (Grid)`; 
+        report.locationName = name; 
+        report.debugInfo = {
+            logs: [...logs, "Grid Search Successful"],
+            candidatesChecked: 5,
+            finalLocation: report.coordinates || { lat: centerLat, lon: centerLon },
+            attemptedLocations: []
+        };
+        return report;
+    }
+    return null;
+};
+
+export const fetchActiveBuoys = async (centerLat?: number, centerLon?: number): Promise<BuoyStation[]> => {
+    let buoys = [...MAJOR_BUOYS];
+    if (centerLat !== undefined && centerLon !== undefined) {
+        buoys.sort((a, b) => {
+            const distA = Math.pow(a.lat - centerLat, 2) + Math.pow(a.lon - centerLon, 2);
+            const distB = Math.pow(b.lat - centerLat, 2) + Math.pow(b.lon - centerLon, 2);
+            return distA - distB;
+        });
+    }
+    return Promise.resolve(buoys);
+};
+
+export const fetchFastWeather = async (location: string, coords?: { lat: number, lon: number }): Promise<MarineWeatherReport> => {
+    const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error("Fast Fetch Timeout")), 5000)
+    );
+
+    try {
+        const fetchPromise = (async () => {
+            let lat, lon, name;
+
+            if (coords) {
+                lat = coords.lat;
+                lon = coords.lon;
+                name = location; 
+            } else {
+                const parsed = await parseLocation(location);
+                lat = parsed.lat;
+                lon = parsed.lon;
+                name = parsed.name;
+            }
+
+            const logs: string[] = [`[FAST] Lookup for ${name} (${lat.toFixed(4)}, ${lon.toFixed(4)})`];
+            let data = await fetchOpenMeteo(lat, lon, name, true);
+            
+            data.debugInfo = {
+                logs: [...logs, "Direct Fetch Complete"],
+                candidatesChecked: 1,
+                finalLocation: { lat, lon },
+                attemptedLocations: []
+            };
+            return data;
+        })();
+
+        return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (e: any) {
+        throw new Error(`Weather Fetch Failed: ${e.message}`);
+    }
+};
+
+interface StormGlassTideData {
+    time: string;
+    height: number;
+    type?: string;
+    sg?: number;
+    noaa?: number;
+    [key: string]: number | string | undefined;
+}
+
+const fetchSG = async <T>(endpoint: string, params: Record<string, any>, apiKey: string): Promise<T> => {
+    const url = new URL(`${BASE_URL}${endpoint}`);
+    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+    try {
+        const res = await fetch(url.toString(), { headers: { 'Authorization': apiKey } });
+        if (!res.ok) {
+            const body = await res.text();
+            console.error(`Stormglass API Error (${res.status}):`, body);
+            
+            if (res.status === 402 || res.status === 429) {
+                throw new Error(`SG_QUOTA: ${res.status} - ${body}`);
+            }
+            throw new Error(`SG_HTTP_${res.status}: ${body}`);
+        }
+        return await res.json() as T;
+    } catch (e: any) {
+        throw e;
+    }
+};
+
+const fetchSeaLevels = async (lat: number, lon: number, apiKey: string): Promise<StormGlassTideData[]> => {
+    try {
+        const now = new Date();
+        const start = new Date(now);
+        start.setHours(0, 0, 0, 0); 
+        
+        const end = new Date(start.getTime() + 25 * 60 * 60 * 1000); 
+        
+        const data = await fetchSG<{data: StormGlassTideData[]}>('/tide/sea_level/point', { lat, lng: lon, start: start.toISOString(), end: end.toISOString(), datum: 'MLLW' }, apiKey);
+        return data.data || [];
+    } catch (e) {
+        return [];
+    }
+};
+
+const fetchRealTides = async (lat: number, lon: number, apiKey: string): Promise<Tide[]> => {
+    try {
+        const now = new Date();
+        const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const end = new Date(now.getTime() + 48 * 60 * 60 * 1000); 
+        
+        const data = await fetchSG<{data: StormGlassTideData[]}>('/tide/extremes/point', { lat, lng: lon, start: start.toISOString(), end: end.toISOString(), datum: 'MLLW' }, apiKey);
+        
+        if (data && data.data && data.data.length > 0) {
+            return data.data.map((t) => ({
+                time: t.time, 
+                type: t.type === 'high' ? 'High' : 'Low',
+                height: parseFloat((t.height * 3.28084).toFixed(2))
+            }));
+        }
+        return [];
+    } catch (e) {
+        return [];
+    }
+};
+
+const interpolateTideHeight = (timestamp: number, extremes: Tide[]): number | undefined => {
+    if (!extremes || extremes.length < 2) return undefined;
+    
+    const sorted = [...extremes].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    
+    let t1: Tide | null = null;
+    let t2: Tide | null = null;
+    
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const tA = new Date(sorted[i].time).getTime();
+        const tB = new Date(sorted[i+1].time).getTime();
+        if (timestamp >= tA && timestamp <= tB) {
+            t1 = sorted[i];
+            t2 = sorted[i+1];
+            break;
+        }
+    }
+    
+    if (!t1 || !t2) return undefined;
+    
+    const timeA = new Date(t1.time).getTime();
+    const timeB = new Date(t2.time).getTime();
+    const duration = timeB - timeA;
+    const elapsed = timestamp - timeA;
+    
+    const phase = (elapsed / duration) * Math.PI;
+    
+    const h1 = t1.height;
+    const h2 = t2.height;
+    
+    return (h1 + h2) / 2 + (h1 - h2) / 2 * Math.cos(phase);
+};
+
+export const fetchOpenMeteo = async (
+    lat: number, 
+    lon: number, 
+    locationName: string, 
+    isFast: boolean
+): Promise<MarineWeatherReport> => {
+    const now = new Date();
+    const apiKey = getOpenMeteoKey();
+    const isCommercial = !!apiKey && apiKey.length > 5;
+    
+    const baseUrl = isCommercial 
+        ? "https://customer-api.open-meteo.com/v1/forecast" 
+        : "https://api.open-meteo.com/v1/forecast";
+
+    const params = new URLSearchParams({
+        latitude: lat.toFixed(4),
+        longitude: lon.toFixed(4),
+        current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
+        hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index",
+        daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
+        timezone: "auto",
+        forecast_days: "10",
+        models: "best_match"
+    });
+
+    if (isCommercial) {
+        params.append("apikey", apiKey!);
+    }
+
+    try {
+        const res = await fetch(`${baseUrl}?${params.toString()}`);
+        if(!res.ok) throw new Error(`OpenMeteo ${res.status}`);
+        const wData = await res.json();
+
+        // Marine Data Fetch (Waves)
+        let waveData: any = null;
+        try {
+             const marineUrl = isCommercial 
+                ? "https://customer-api.open-meteo.com/v1/marine" 
+                : "https://marine-api.open-meteo.com/v1/marine";
+             
+             const marineParams = new URLSearchParams({
+                latitude: lat.toFixed(4),
+                longitude: lon.toFixed(4),
+                current: "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,swell_wave_direction",
+                hourly: "wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction",
+                daily: "wave_height_max,wave_direction_dominant,wave_period_max",
+                timezone: "auto",
+                forecast_days: "10"
+             });
+             if (isCommercial) marineParams.append("apikey", apiKey!);
+
+             const mRes = await fetch(`${marineUrl}?${marineParams.toString()}`);
+             if (mRes.ok) waveData = await mRes.json();
+        } catch (e) {
+            console.warn("Marine data fetch failed", e);
+        }
+
+        // Helper for condition text
+        const getWmoCondition = (code: number) => {
+            const map: Record<number, string> = {
+                0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
+                45: 'Fog', 48: 'Depositing Rime Fog',
+                51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
+                61: 'Slight Rain', 63: 'Moderate Rain', 65: 'Heavy Rain',
+                80: 'Slight Showers', 81: 'Moderate Showers', 82: 'Violent Showers',
+                95: 'Thunderstorm', 96: 'Thunderstorm with Hail', 99: 'Heavy Thunderstorm'
+            };
+            return map[code] || 'Unknown';
+        };
+
+        const current = wData.current;
+        const currentMarine = waveData?.current;
+        
+        const windSpeed = current.wind_speed_10m ? current.wind_speed_10m * 0.539957 : 0; // kmh to knots
+        const windGust = current.wind_gusts_10m ? current.wind_gusts_10m * 0.539957 : 0;
+        
+        const waveHeight = currentMarine ? currentMarine.wave_height * 3.28084 : 0; // m to ft
+        const isLandlocked = !currentMarine || currentMarine.wave_height === null;
+
+        const currentMetrics: WeatherMetrics = {
+            windSpeed: parseFloat(windSpeed.toFixed(1)),
+            windGust: parseFloat(windGust.toFixed(1)),
+            windDirection: degreesToCardinal(current.wind_direction_10m),
+            windDegree: current.wind_direction_10m,
+            waveHeight: waveHeight ? parseFloat(waveHeight.toFixed(1)) : 0,
+            swellPeriod: currentMarine?.swell_wave_period || null,
+            swellDirection: currentMarine ? degreesToCardinal(currentMarine.swell_wave_direction) : undefined,
+            airTemperature: current.temperature_2m,
+            waterTemperature: null, 
+            pressure: current.pressure_msl,
+            cloudCover: current.cloud_cover,
+            visibility: null,
+            precipitation: current.precipitation,
+            humidity: current.relative_humidity_2m,
+            uvIndex: wData.daily?.uv_index_max?.[0] || 0,
+            condition: getWmoCondition(current.weather_code),
+            description: `${getWmoCondition(current.weather_code)}. Wind ${windSpeed.toFixed(0)}kts.`,
+            day: "Today",
+            date: now.toLocaleDateString(),
+            feelsLike: current.apparent_temperature,
+            isEstimated: false
+        };
+
+        // Find index of current hour
+        const nowMs = Date.now();
+        // OpenMeteo returns time in ISO (e.g. "2023-10-27T00:00")
+        // We look for the first hour that is greater than (now - 1 hour) to include current hour
+        const startIndex = wData.hourly.time.findIndex((t: string) => new Date(t).getTime() >= nowMs - 3600000);
+        const safeStartIndex = startIndex !== -1 ? startIndex : 0;
+
+        const hourly: HourlyForecast[] = wData.hourly.time.slice(safeStartIndex, safeStartIndex + 24).map((t: string, idx: number) => {
+             const i = safeStartIndex + idx; // Use absolute index for data arrays
+             const hMarine = waveData?.hourly;
+             return {
+                 time: new Date(t).toLocaleTimeString([], {hour: 'numeric', hour12: true}),
+                 windSpeed: wData.hourly.wind_speed_10m[i] * 0.539957,
+                 windGust: wData.hourly.wind_gusts_10m[i] * 0.539957,
+                 waveHeight: hMarine ? hMarine.wave_height[i] * 3.28084 : 0,
+                 temperature: wData.hourly.temperature_2m[i],
+                 precipitation: wData.hourly.precipitation[i],
+                 cloudCover: wData.hourly.cloud_cover[i],
+                 condition: getWmoCondition(wData.hourly.weather_code[i]),
+                 swellPeriod: hMarine ? hMarine.swell_wave_period[i] : null,
+                 isEstimated: false
+             };
+        });
+
+        const forecast: ForecastDay[] = wData.daily.time.map((t: string, i: number) => {
+             const dMarine = waveData?.daily;
+             return {
+                 day: new Date(t).toLocaleDateString('en-US', {weekday: 'long'}),
+                 date: new Date(t).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}),
+                 highTemp: wData.daily.temperature_2m_max[i],
+                 lowTemp: wData.daily.temperature_2m_min[i],
+                 windSpeed: wData.daily.wind_speed_10m_max[i] * 0.539957,
+                 windGust: wData.daily.wind_gusts_10m_max[i] * 0.539957,
+                 waveHeight: dMarine ? dMarine.wave_height_max[i] * 3.28084 : 0,
+                 condition: getWmoCondition(wData.daily.weather_code[i]),
+                 precipitation: wData.daily.precipitation_sum[i],
+                 uvIndex: wData.daily.uv_index_max[i],
+                 sunrise: new Date(wData.daily.sunrise[i]).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+                 sunset: new Date(wData.daily.sunset[i]).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+                 isEstimated: false
+             };
+        });
+
+        // Use Robust Tactical Advice generator instead of generic "Conditions valid"
+        const robustAdvice = generateTacticalAdvice(currentMetrics, isLandlocked);
+
+        return {
+            locationName,
+            coordinates: { lat, lon },
+            current: currentMetrics,
+            forecast,
+            hourly,
+            tides: [], // No tides in OM basic
+            boatingAdvice: robustAdvice,
+            alerts: generateSafetyAlerts(currentMetrics, forecast[0]?.highTemp, forecast),
+            generatedAt: now.toISOString(),
+            modelUsed: isCommercial ? "Open-Meteo Commercial" : "Open-Meteo (Free)",
+            groundingSource: "Open-Meteo",
+            isLandlocked,
+            timeZone: wData.timezone,
+            utcOffset: wData.utc_offset_seconds ? wData.utc_offset_seconds / 3600 : 0
+        };
+
+    } catch (e: any) {
+        throw new Error(`OpenMeteo Failed: ${e.message}`);
+    }
+};
+
+export const fetchPrecisionWeather = async (
+    location: string, 
+    existingReport?: MarineWeatherReport
+): Promise<MarineWeatherReport> => {
+    
+    const logs: string[] = ["Initializing Precision Upgrade..."];
+    const attempts: any[] = [];
+    const addLog = (m: string) => { console.log(`[Precision] ${m}`); logs.push(m); };
+
+    try {
+        let lat, lon, name, timeZone, utcOffset;
+
+        if (existingReport && existingReport.coordinates) {
+            lat = existingReport.coordinates.lat;
+            lon = existingReport.coordinates.lon;
+            name = existingReport.locationName;
+            timeZone = existingReport.timeZone;
+            utcOffset = existingReport.utcOffset;
+            addLog(`Using confirmed target: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+        } else {
+            const loc = await parseLocation(location);
+            lat = loc.lat;
+            lon = loc.lon;
+            name = loc.name;
+            addLog(`Parsed fresh coordinates: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+        }
+        
+        attempts.push({ label: "Primary SG", lat, lon, status: "Pending" });
+
+        try {
+            // STEP 1: FORCE STORMGLASS (Precision Data)
+            // PASS EXISTING FORECAST to preserve Astronomy/UV data if available
+            const data = await fetchStormglassData(lat, lon, name, false, existingReport?.forecast);
+            attempts[0].status = "Success";
+            
+            // Preserve Timezone Data from initial Basic Lookup if available
+            if (timeZone) {
+                data.timeZone = timeZone;
+                data.utcOffset = utcOffset;
+            }
+
+            data.debugInfo = { logs, finalLocation: { lat, lon }, candidatesChecked: 1, attemptedLocations: attempts };
+            return data;
+
+        } catch (err: any) {
+            attempts[0].status = "Failed";
+            const msg = err.message || "";
+            addLog(`Primary SG Failed: ${msg}`);
+
+            // STEP 2: Smart Snap
+            const isQuotaError = msg.includes("Quota") || msg.includes("402") || msg.includes("429");
+
+            if (!isQuotaError && (msg.includes("SG_CONNECTION_FAILED") || msg.includes("422"))) {
+                try {
+                    addLog("Initiating Smart Snap to Deep Water...");
+                    const coastal = await findNearestCoastalPoint(lat, lon, name);
+                    
+                    addLog(`AI found candidate: ${coastal.lat.toFixed(4)}, ${coastal.lon.toFixed(4)}`);
+                    attempts.push({ label: "Smart Snap", lat: coastal.lat, lon: coastal.lon, status: "Pending" });
+                    
+                    const nudgedData = await fetchStormglassData(coastal.lat, coastal.lon, name, false, existingReport?.forecast);
+                    
+                    nudgedData.locationName = `${name} (Offshore)`;
+                    nudgedData.modelUsed = "STORMGLASS PRO (Smart Snap)";
+                    nudgedData.coordinates = { lat: coastal.lat, lon: coastal.lon }; 
+                    
+                    if (timeZone) {
+                        nudgedData.timeZone = timeZone;
+                        nudgedData.utcOffset = utcOffset;
+                    }
+
+                    attempts[1].status = "Success";
+                    
+                    nudgedData.debugInfo = {
+                        logs: [...logs, "Smart Snap Successful"],
+                        finalLocation: { lat: coastal.lat, lon: coastal.lon },
+                        candidatesChecked: 2,
+                        attemptedLocations: attempts
+                    };
+                    
+                    return nudgedData;
+                } catch (nudgeErr) {
+                    addLog("Smart Snap failed or returned Basic data.");
+                    if (attempts[1]) attempts[1].status = "Failed";
+                }
+            }
+
+            // STEP 3: Fallback to OpenMeteo (Commercial)
+            addLog("Reverting to Open-Meteo (Commercial) due to API failure.");
+            
+            const fallbackData = await fetchOpenMeteo(lat, lon, name, true);
+            
+            if (timeZone) {
+                fallbackData.timeZone = timeZone;
+                fallbackData.utcOffset = utcOffset;
+            }
+
+            fallbackData.modelUsed = "Open-Meteo Commercial";
+            
+            fallbackData.debugInfo = {
+                logs: [...logs, `Reverted to Commercial Provider due to ${msg}`],
+                finalLocation: { lat, lon },
+                candidatesChecked: 2,
+                attemptedLocations: attempts
+            };
+            
+            return fallbackData;
+        }
+
+    } catch (e: any) {
+        addLog(`Precision Upgrade Failed: ${e.message}`);
+        if (existingReport) return existingReport;
+        throw e;
+    }
+};
+
+export const fetchStormglassData = async (
+    lat: number, 
+    lon: number, 
+    locationName: string, 
+    allowFallback: boolean = true,
+    baseForecast?: ForecastDay[]
+): Promise<MarineWeatherReport> => {
+    const apiKey = getApiKey();
+    
+    // Check if we are using the secure environment variable
+    const isSecureEnv = !!apiKey;
+    let usedModelLabel = isSecureEnv ? 'STORMGLASS PRO (SECURE)' : 'STORMGLASS PRO'; 
+
+    if (!apiKey) {
+        // Force fallback if no key
+        if (!allowFallback) throw new Error("No Stormglass Key configured.");
+        console.warn("No Stormglass Key, failing over to Open-Meteo or NOAA if available.");
+        // We throw here to trigger the catch block in the caller (weatherService) to try standard fallbacks
+        throw new Error("Missing API Key"); 
+    }
+
+    const now = new Date();
+    const endDate = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+    const startStr = now.toISOString();
+    const endStr = endDate.toISOString();
+
+    const fullParams = [
+        'windSpeed', 'windDirection', 'gust', 
+        'waveHeight', 'wavePeriod', 'waveDirection', 
+        'swellHeight', 'swellPeriod', 
+        'airTemperature', 'pressure', 
+        'cloudCover', 'visibility', 'precipitation', 
+        'waterTemperature', 'humidity'
+    ];
+    
+    let weatherData: StormGlassResponse | undefined;
+
+    try {
+        weatherData = await fetchSG<StormGlassResponse>('/weather/point', { 
+            lat, lng: lon, 
+            params: fullParams.join(','), 
+            source: 'sg', 
+            start: startStr, end: endStr 
+        }, apiKey);
+    } catch (e: any) {
+        if (e.message.includes("SG_QUOTA") || e.message.includes("402") || e.message.includes("429")) {
+            throw e;
+        }
+
+        if (!allowFallback) throw e;
+        
+        try {
+            console.warn("SG Source Unreachable, trying NOAA GFS...");
+            weatherData = await fetchSG<StormGlassResponse>('/weather/point', { 
+                lat, lng: lon, 
+                params: fullParams.join(','), 
+                source: 'noaa', 
+                start: startStr, end: endStr 
+            }, apiKey);
+            usedModelLabel = 'NOAA GFS (Official)';
+        } catch (e2: any) {
+            throw new Error(`Data Source Failure: ${e.message}`);
+        }
+    }
+    
+    let tideData: Tide[] = [];
+    let seaLevelData: StormGlassTideData[] = [];
+    
+    const extremesPromise = fetchRealTides(lat, lon, apiKey).catch(() => []);
+    const seaLevelPromise = fetchSeaLevels(lat, lon, apiKey).catch(() => []);
+
+    [tideData, seaLevelData] = await Promise.all([extremesPromise, seaLevelPromise]);
+    
+    if (!weatherData || !weatherData.hours) throw new Error("Invalid Response Structure");
+    
+    const hours = weatherData.hours;
+    const currentHour = hours[0];
+    
+    const getValue = (dataPoint: StormGlassHour, param: string, fallback: number | null = null): number | null => {
+        if (!dataPoint || !dataPoint[param]) return fallback;
+        const obj = dataPoint[param] as any;
+        if (typeof obj.sg === 'number') return obj.sg;
+        if (typeof obj.noaa === 'number') return obj.noaa;
+        const keys = Object.keys(obj);
+        if (keys.length > 0 && typeof obj[keys[0]] === 'number') return obj[keys[0]];
+        return fallback;
+    };
+
+    const windSpdRaw = getValue(currentHour, 'windSpeed', null);
+    const windSpd = msToKnots(windSpdRaw);
+    const windGustRaw = getValue(currentHour, 'gust', null);
+    const windGust = windGustRaw !== null ? msToKnots(windGustRaw) : (windSpd ? windSpd * 1.3 : null);
+    
+    const waveM = getValue(currentHour, 'waveHeight', getValue(currentHour, 'swellHeight', null));
+    const waveHeightFt = mToFt(waveM);
+    
+    const hasAirData = windSpd !== null && getValue(currentHour, 'airTemperature', null) !== null;
+    const isLandlocked = hasAirData && (waveM === null || waveM === 0);
+
+    const nowHour = now.getHours();
+    const isDayCurrent = nowHour >= 6 && nowHour <= 18;
+
+    const condition = getCondition(getValue(currentHour, 'cloudCover', 0) || 0, getValue(currentHour, 'precipitation', 0) || 0, isDayCurrent);
+    const windDir = degreesToCardinal(getValue(currentHour, 'windDirection', 0) || 0);
+    
+    const baseCurrentDay = baseForecast ? baseForecast[0] : null;
+    let uvCurrent = getValue(currentHour, 'uvIndex', null);
+    
+    let dewPointCurrent = getValue(currentHour, 'dewPointTemperature', null);
+    if (dewPointCurrent === null) {
+        const t = getValue(currentHour, 'airTemperature', null);
+        const h = getValue(currentHour, 'humidity', null);
+        if (t !== null && h !== null) {
+            dewPointCurrent = t - ((100 - h) / 5);
+        }
+    }
+
+    if (uvCurrent === null && baseCurrentDay) {
+        const maxUV = baseCurrentDay.uvIndex || 0;
+        let sunriseHour = 6;
+        let sunsetHour = 18;
+        
+        if (baseCurrentDay.sunrise && baseCurrentDay.sunset && baseCurrentDay.sunrise !== '--:--') {
+            try {
+                const parseTime = (t: string) => {
+                    const [time, period] = t.split(' ');
+                    let [h] = time.split(':').map(Number);
+                    if (period === 'PM' && h !== 12) h += 12;
+                    if (period === 'AM' && h === 12) h = 0;
+                    return h;
+                }
+                sunriseHour = parseTime(baseCurrentDay.sunrise);
+                sunsetHour = parseTime(baseCurrentDay.sunset);
+            } catch (e) {}
+        }
+
+        if (nowHour < sunriseHour || nowHour >= sunsetHour) {
+            uvCurrent = 0;
+        } else {
+            const solarNoon = sunriseHour + (sunsetHour - sunriseHour) / 2;
+            const distFromNoon = Math.abs(nowHour - solarNoon);
+            const maxDist = (sunsetHour - sunriseHour) / 2;
+            const radians = (distFromNoon / maxDist) * (Math.PI / 2);
+            const factor = Math.max(0, Math.cos(radians));
+            uvCurrent = parseFloat((maxUV * factor).toFixed(1));
+        }
+    } else if (uvCurrent === null) {
+        uvCurrent = 0;
+    }
+
+    const currentMetrics: WeatherMetrics = {
+        windSpeed: windSpd !== null ? parseFloat(windSpd.toFixed(1)) : null,
+        windGust: windGust !== null ? parseFloat(windGust.toFixed(1)) : null,
+        windDirection: windDir,
+        windDegree: getValue(currentHour, 'windDirection', 0) || 0,
+        waveHeight: waveHeightFt !== null ? parseFloat(waveHeightFt.toFixed(1)) : null,
+        swellPeriod: getValue(currentHour, 'wavePeriod', null),
+        swellDirection: degreesToCardinal(getValue(currentHour, 'waveDirection', 0) || 0),
+        waterTemperature: getValue(currentHour, 'waterTemperature', null), 
+        airTemperature: getValue(currentHour, 'airTemperature', null),
+        dewPoint: dewPointCurrent, 
+        pressure: getValue(currentHour, 'pressure', null),
+        cloudCover: getValue(currentHour, 'cloudCover', null),
+        visibility: getValue(currentHour, 'visibility', null),
+        precipitation: getValue(currentHour, 'precipitation', null),
+        humidity: getValue(currentHour, 'humidity', null),
+        uvIndex: uvCurrent,
+        condition: condition,
+        description: generateDescription(condition, windSpd, windDir, waveHeightFt),
+        day: "Today",
+        date: now.toLocaleDateString(),
+        feelsLike: getValue(currentHour, 'airTemperature', null), 
+        pressureTrend: 'steady',
+        sunrise: baseCurrentDay?.sunrise || '--:--', 
+        sunset: baseCurrentDay?.sunset || '--:--',
+        moonPhase: 'Unknown',
+        isEstimated: false
+    };
+
+    const hourly: HourlyForecast[] = hours.slice(0, 24).map((h: StormGlassHour) => {
+        const hTime = new Date(h.time).getTime();
+        const matchingTide = seaLevelData.find((sl) => Math.abs(new Date(sl.time).getTime() - hTime) < 30 * 60 * 1000);
+        let tideHeightInFeet = undefined;
+        
+        if (matchingTide) {
+            let valM = matchingTide.sg;
+            if (valM === undefined) valM = matchingTide.noaa;
+            if (valM === undefined) {
+                const keys = Object.keys(matchingTide);
+                for (const k of keys) if(typeof matchingTide[k] === 'number') { valM = matchingTide[k] as number; break; }
+            }
+            if (valM !== undefined) {
+                tideHeightInFeet = valM * 3.28084;
+            }
+        }
+        
+        if (tideHeightInFeet === undefined && tideData.length > 0) {
+            tideHeightInFeet = interpolateTideHeight(hTime, tideData);
+        }
+
+        return {
+            time: new Date(h.time).toLocaleTimeString([], { hour: 'numeric', hour12: true }),
+            windSpeed: msToKnots(getValue(h, 'windSpeed', 0)) || 0,
+            windGust: msToKnots(getValue(h, 'gust', 0)),
+            waveHeight: mToFt(getValue(h, 'waveHeight', 0)) || 0,
+            temperature: getValue(h, 'airTemperature', 0) || 0,
+            precipitation: getValue(h, 'precipitation', 0),
+            cloudCover: getValue(h, 'cloudCover', 0),
+            condition: getCondition(getValue(h, 'cloudCover', 0) || 0, getValue(h, 'precipitation', 0) || 0, true),
+            tideHeight: tideHeightInFeet,
+            isEstimated: false
+        };
+    });
+
+    const tideHourly: TidePoint[] = seaLevelData.map((sl) => {
+        let val = sl.sg;
+        if (val === undefined) val = sl.noaa;
+        if (val === undefined) {
+             const keys = Object.keys(sl);
+             for (const k of keys) {
+                 if (typeof sl[k] === 'number') { val = sl[k] as number; break; }
+             }
+        }
+        return {
+            time: sl.time,
+            height: val ? val * 3.28084 : 0
+        };
+    });
+
+    const dailyMap = new Map<string, ForecastDay>();
+    hours.forEach((h: StormGlassHour) => {
+        const date = new Date(h.time);
+        const dayKey = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+        const temp = getValue(h, 'airTemperature', 0) || 0;
+        const wind = msToKnots(getValue(h, 'windSpeed', 0)) || 0;
+        const gust = msToKnots(getValue(h, 'gust', 0)) || 0; 
+        const wave = mToFt(getValue(h, 'waveHeight', 0)) || 0;
+        const precip = getValue(h, 'precipitation', 0) || 0;
+        const cloud = getValue(h, 'cloudCover', 0) || 0;
+        const uv = getValue(h, 'uvIndex', 0) || 0;
+        const baseDay = baseForecast?.find(d => d.date === dayKey);
+        
+        if (!dailyMap.has(dayKey)) {
+            dailyMap.set(dayKey, {
+                day: dayName, date: dayKey,
+                lowTemp: temp, highTemp: temp,
+                windSpeed: wind, windGust: gust,
+                waveHeight: wave,
+                condition: getCondition(cloud, precip, true),
+                precipitation: precip, cloudCover: cloud, 
+                uvIndex: Math.max(uv, baseDay?.uvIndex || 0),
+                sunrise: baseDay?.sunrise || '--:--', 
+                sunset: baseDay?.sunset || '--:--', 
+                isEstimated: false
+            });
+        } else {
+            const d = dailyMap.get(dayKey)!;
+            d.lowTemp = Math.min(d.lowTemp, temp);
+            d.highTemp = Math.max(d.highTemp, temp);
+            d.windSpeed = Math.max(d.windSpeed, wind);
+            if (gust > (d.windGust || 0)) d.windGust = gust;
+            d.waveHeight = Math.max(d.waveHeight, wave);
+            d.precipitation = (d.precipitation || 0) + precip;
+            d.uvIndex = Math.max(d.uvIndex || 0, uv, baseDay?.uvIndex || 0);
+            if (precip > 0.5) d.condition = 'Rain';
+            if (d.sunrise === '--:--' && baseDay?.sunrise) d.sunrise = baseDay.sunrise;
+            if (d.sunset === '--:--' && baseDay?.sunset) d.sunset = baseDay.sunset;
+        }
+    });
+
+    const forecast = Array.from(dailyMap.values()).slice(0, 10);
+    const todayHigh = forecast.length > 0 ? forecast[0].highTemp : undefined;
+
+    // Use Robust Tactical Advice generator instead of generic "Watch set."
+    const robustAdvice = generateTacticalAdvice(currentMetrics, isLandlocked);
+
+    return {
+        locationName,
+        coordinates: { lat, lon },
+        current: currentMetrics,
+        forecast: forecast,
+        hourly,
+        tides: tideData,
+        tideHourly, 
+        boatingAdvice: robustAdvice,
+        alerts: generateSafetyAlerts(currentMetrics, todayHigh, forecast), 
+        generatedAt: now.toISOString(),
+        modelUsed: usedModelLabel,
+        groundingSource: usedModelLabel,
+        isLandlocked: isLandlocked,
+        debugInfo: {
+            logs: ["Fetched from Stormglass"],
+            candidatesChecked: 1,
+            finalLocation: { lat, lon }
+        }
+    };
+};
+
+export const fetchBaseWeather = async (
+    location: string, 
+    forecastDays: number = 10, 
+    tempUnit: 'C' | 'F' = 'C', 
+    modelPreference: WeatherModel = 'THALASSA_AI'
+): Promise<MarineWeatherReport> => {
+    return fetchFastWeather(location);
+};
+
+export const fetchAccurateMarineGrid = async (lat: number, lon: number): Promise<GridPoint[]> => {
+    return [];
+};
