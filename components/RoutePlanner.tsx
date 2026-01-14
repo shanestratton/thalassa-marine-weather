@@ -1,43 +1,24 @@
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { VoyagePlan, VoyageHazard, Waypoint, DeepAnalysisReport } from '../types';
-import { fetchVoyagePlan, fetchDeepVoyageAnalysis } from '../services/geminiService';
-import { reverseGeocode } from '../services/weatherService';
-import { formatLocationInput } from '../utils';
-import { 
-    ArrowRightIcon, SailBoatIcon, PowerBoatIcon, MapPinIcon, MapIcon, 
-    RouteIcon, CheckIcon, XIcon, BellIcon, CompassIcon, 
-    CalendarIcon, GearIcon, DiamondIcon, LockIcon, BugIcon, 
-    RadioTowerIcon, WaveIcon, WindIcon, ClockIcon, CrosshairIcon, BoatIcon, AlertTriangleIcon, FlagIcon, PhoneIcon 
+import {
+    ArrowRightIcon, SailBoatIcon, PowerBoatIcon, MapPinIcon, MapIcon,
+    RouteIcon, CheckIcon, XIcon, BellIcon, CompassIcon,
+    CalendarIcon, GearIcon, DiamondIcon, LockIcon, BugIcon,
+    RadioTowerIcon, WaveIcon, WindIcon, ClockIcon, CrosshairIcon, BoatIcon, AlertTriangleIcon, FlagIcon, PhoneIcon
 } from './Icons';
 import { WeatherMap } from './WeatherMap';
-import { useThalassa } from '../context/ThalassaContext';
 
 const SEA_QUOTES = [
-  { text: "The pessimist complains about the wind; the optimist expects it to change; the realist adjusts the sails.", author: "William Arthur Ward" },
-  { text: "At sea, I learned how little a person needs, not how much.", author: "Robin Lee Graham" },
-  { text: "The cure for anything is salt water: sweat, tears or the sea.", author: "Isak Dinesen" },
-  { text: "Man cannot discover new oceans unless he has the courage to lose sight of the shore.", author: "André Gide" },
-  { text: "There is nothing - absolutely nothing - half so much worth doing as simply messing about in boats.", author: "Kenneth Grahame" },
-  { text: "The sea, once it casts its spell, holds one in its net of wonder forever.", author: "Jacques Cousteau" }
+    { text: "The pessimist complains about the wind; the optimist expects it to change; the realist adjusts the sails.", author: "William Arthur Ward" },
+    { text: "At sea, I learned how little a person needs, not how much.", author: "Robin Lee Graham" },
+    { text: "The cure for anything is salt water: sweat, tears or the sea.", author: "Isak Dinesen" },
+    { text: "Man cannot discover new oceans unless he has the courage to lose sight of the shore.", author: "André Gide" },
+    { text: "There is nothing - absolutely nothing - half so much worth doing as simply messing about in boats.", author: "Kenneth Grahame" },
+    { text: "The sea, once it casts its spell, holds one in its net of wonder forever.", author: "Jacques Cousteau" }
 ];
 
-const LOADING_PHASES = [
-    "Querying Bathymetric Charts...",
-    "Analyzing Local Currents...",
-    "Identifying Hazards...",
-    "Plotting Waypoints...",
-    "Simulating Voyage Duration...",
-    "Optimizing Land Avoidance Algorithms...", 
-    "Computing Keel Clearance...",
-    "Complex Route Geometry Detected...",
-    "Running Deep Water Physics Engine...",
-    "Verifying Safety Protocols...",
-    "Cross-referencing Pilot Charts...",
-    "Generating Tactical Brief...",
-    "Finalizing Mission Parameters...",
-    "Still Computing (Deep Reasoning)..."
-];
+
 
 const CHECKLIST_DATA = [
     {
@@ -63,7 +44,7 @@ const CHECKLIST_DATA = [
 // --- MICRO COMPONENTS ---
 
 const getStatusClasses = (status?: string) => {
-    switch(status) {
+    switch (status) {
         case 'SAFE': return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
         case 'CAUTION': return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
         case 'UNSAFE': return 'bg-red-500/10 border-red-500/30 text-red-400';
@@ -100,7 +81,7 @@ const WaypointNode: React.FC<{ wp: Waypoint, index: number, total: number, isLas
             {!isLast && (
                 <div className="absolute left-[11px] top-7 bottom-[-16px] w-[2px] bg-gradient-to-b from-sky-500/30 to-slate-800/30 group-hover:from-sky-500 group-hover:to-sky-500/50 transition-colors"></div>
             )}
-            
+
             {/* Node Dot */}
             <div className="relative z-10 w-6 h-6 rounded-full bg-slate-900 border-2 border-sky-500/30 flex items-center justify-center shrink-0 group-hover:border-sky-400 group-hover:scale-110 transition-all mt-1.5 shadow-lg shadow-sky-900/20">
                 <div className="w-2 h-2 bg-sky-500 rounded-full group-hover:bg-white transition-colors"></div>
@@ -111,9 +92,9 @@ const WaypointNode: React.FC<{ wp: Waypoint, index: number, total: number, isLas
                 <div className="bg-slate-800/40 border border-white/5 rounded-xl p-3 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 transition-all shadow-sm">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2 gap-1">
                         <h4 className="text-xs font-bold text-white tracking-wide break-words pr-2 leading-tight">{wp.name}</h4>
-                        <span className="text-[9px] font-mono text-gray-500 opacity-60 shrink-0">WP-{String(index+1).padStart(2,'0')}</span>
+                        <span className="text-[9px] font-mono text-gray-500 opacity-60 shrink-0">WP-{String(index + 1).padStart(2, '0')}</span>
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-2 text-[10px] font-mono text-gray-500 mb-2">
                         {wp.coordinates && <span>{wp.coordinates.lat.toFixed(3)}N {Math.abs(wp.coordinates.lon).toFixed(3)}W</span>}
                     </div>
@@ -142,20 +123,20 @@ interface InputFieldProps {
 }
 
 const InputField: React.FC<InputFieldProps> = ({ icon, value, onChange, placeholder, type = "text", min, className, subText, onBlur }) => (
-    <div className={`relative w-full ${className || ''}`}>
+    <div className={`relative w-full min-w-0 ${className || ''}`}>
         <div className="relative group">
             <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
                 {icon}
             </div>
-            <input 
+            <input
                 type={type}
                 min={min}
-                value={value} 
+                value={value}
                 onChange={onChange}
-                onBlur={onBlur} 
-                placeholder={placeholder} 
+                onBlur={onBlur}
+                placeholder={placeholder}
                 autoComplete="off"
-                className="w-full h-14 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner hover:bg-slate-900/80"
+                className="w-full min-w-0 max-w-full h-14 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner hover:bg-slate-900/80"
             />
         </div>
         {subText && <div className="absolute top-full left-4 mt-1 text-[10px] text-gray-400 font-medium truncate">{subText}</div>}
@@ -164,157 +145,112 @@ const InputField: React.FC<InputFieldProps> = ({ icon, value, onChange, placehol
 
 // --- MAIN COMPONENT ---
 
-export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTriggerUpgrade }) => {
-    const { settings, weatherData, voyagePlan, saveVoyagePlan } = useThalassa();
-    const { vessel, vesselUnits, units: generalUnits, isPro, mapboxToken } = settings;
+import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 
-    const [origin, setOrigin] = useState(voyagePlan?.origin || weatherData?.locationName || '');
-    const [destination, setDestination] = useState(voyagePlan?.destination || '');
-    const [via, setVia] = useState(''); // New "Via" state
-    const [departureDate, setDepartureDate] = useState(voyagePlan?.departureDate || new Date().toISOString().split('T')[0]);
-    
-    const minDate = new Date().toISOString().split('T')[0];
-    const [isMapOpen, setIsMapOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [analyzingDeep, setAnalyzingDeep] = useState(false);
-    const [deepReport, setDeepReport] = useState<DeepAnalysisReport | null>(null);
-    const [loadingStep, setLoadingStep] = useState(0);
-    const [error, setError] = useState<string | null>(null);
-    const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
-    const [activeChecklistTab, setActiveChecklistTab] = useState('systems');
+// ... (keep Imports and Sea Quotes, removing extracted ones if needed)
+
+// --- MAIN COMPONENT ---
+
+export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTriggerUpgrade }) => {
+    // Custom Hook
+    const {
+        origin, setOrigin,
+        destination, setDestination,
+        via, setVia,
+        departureDate, setDepartureDate,
+        isMapOpen, setIsMapOpen,
+        mapSelectionTarget, setMapSelectionTarget,
+        loading, loadingStep,
+        error,
+        analyzingDeep, deepReport,
+
+        handleCalculate,
+        handleDeepAnalysis,
+        handleOriginLocation,
+        handleMapSelect,
+        openMap,
+
+        routeCoords,
+        isShortTrip,
+
+        voyagePlan,
+        vessel,
+        isPro,
+        mapboxToken,
+
+        // Missing props
+        minDate,
+        checklistState, toggleCheck,
+        activeChecklistTab, setActiveChecklistTab
+    } = useVoyageForm(onTriggerUpgrade);
+
     const [quote, setQuote] = useState(SEA_QUOTES[0]);
+    const [tempMapSelection, setTempMapSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
 
     useEffect(() => { setQuote(SEA_QUOTES[Math.floor(Math.random() * SEA_QUOTES.length)]); }, []);
 
-    useEffect(() => {
-        if (voyagePlan?.origin !== origin || voyagePlan?.destination !== destination) {
-            setDeepReport(null);
-        }
-    }, [voyagePlan]);
-
-    useEffect(() => {
-        let interval: any;
-        if (loading) {
-            setLoadingStep(0);
-            interval = setInterval(() => {
-                setLoadingStep(s => {
-                    if (s >= LOADING_PHASES.length - 1) return LOADING_PHASES.length - 3 + ((s - (LOADING_PHASES.length - 3) + 1) % 3);
-                    return s + 1;
-                });
-            }, 1800);
-        }
-        return () => clearInterval(interval);
-    }, [loading]);
-
-    const handleCalculate = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        
-        // PAYWALL INTERCEPTION
-        if (!isPro) { 
-            onTriggerUpgrade(); 
-            return; 
-        }
-        
-        if (!origin || !destination) return;
-        
-        // SAFEGUARD: Ensure vessel profile exists before calculation
-        if (!vessel) {
-            setError("Vessel profile missing. Please configure in settings.");
-            return;
-        }
-        
-        // Auto-Format inputs before submission
-        const fmtOrigin = formatLocationInput(origin);
-        const fmtDest = formatLocationInput(destination);
-        const fmtVia = via ? formatLocationInput(via) : '';
-        
-        setOrigin(fmtOrigin);
-        setDestination(fmtDest);
-        setVia(fmtVia);
-
-        setLoading(true);
-        setError(null);
-        setDeepReport(null);
-        try {
-            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia);
-            saveVoyagePlan(result);
-        } catch (err: any) {
-            setError(err.message || 'Calculation Systems Failure');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDeepAnalysis = async () => {
-        if (!voyagePlan || !vessel) return;
-        setAnalyzingDeep(true);
-        try {
-            const report = await fetchDeepVoyageAnalysis(voyagePlan, vessel);
-            setDeepReport(report);
-        } catch (err: any) {
-            setError('Deep analysis unavailable. Please retry.');
-        } finally {
-            setAnalyzingDeep(false);
-        }
-    };
-
-    const handleOriginLocation = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.preventDefault();
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const name = await reverseGeocode(position.coords.latitude, position.coords.longitude);
-                setOrigin(name || `${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
-            });
-        }
-    };
-
-    const routeCoords = useMemo(() => {
-        if (!voyagePlan) return [];
-        const coords = [];
-        if (voyagePlan.originCoordinates) coords.push(voyagePlan.originCoordinates);
-        // CRITICAL FIX: Safe iteration for waypoints to prevent crash on invalid data
-        if (voyagePlan.waypoints && Array.isArray(voyagePlan.waypoints)) {
-            voyagePlan.waypoints.forEach(wp => {
-                if (wp && wp.coordinates) coords.push(wp.coordinates);
-            });
-        }
-        if (voyagePlan.destinationCoordinates) coords.push(voyagePlan.destinationCoordinates);
-        return coords;
-    }, [voyagePlan]);
-
-    const toggleCheck = (item: string) => setChecklistState(p => ({...p, [item]: !p[item]}));
-
-    // Safe distVal calculation to avoid crash if distanceApprox is undefined
-    const distVal = (voyagePlan && typeof voyagePlan.distanceApprox === 'string') 
-        ? parseInt(voyagePlan.distanceApprox.match(/(\d+)/)?.[0] || '0', 10) 
-        : 0;
-    const isShortTrip = distVal < 20;
+    // Helper functions like getStatusClasses remain or could be moved to utils
+    // ...
 
     return (
         <div className="w-full max-w-[1600px] mx-auto pb-36 md:pb-40 px-2 md:px-6 flex flex-col min-h-full font-sans">
-            
-            {/* FULL SCREEN MAP MODAL */}
-            {isMapOpen && (
-                <div className="fixed inset-0 z-[120] bg-slate-900 animate-in fade-in zoom-in-95 duration-200">
-                    <WeatherMap 
-                        locationName={origin} 
-                        lat={voyagePlan?.originCoordinates?.lat} 
-                        lon={voyagePlan?.originCoordinates?.lon} 
-                        routeCoordinates={routeCoords} 
-                        waypoints={voyagePlan?.waypoints}
-                        minimal={true} 
-                        enableZoom={true} 
-                        showWeather={false}
-                        mapboxToken={mapboxToken}
-                        showZoomControl={false}
-                        restrictBounds={false}
-                    />
-                    <div className="absolute top-6 right-6 z-[130]">
-                        <button onClick={() => setIsMapOpen(false)} className="bg-slate-900/90 hover:bg-slate-800 text-white p-3 rounded-full shadow-2xl border border-white/20 transition-all hover:scale-110 active:scale-95">
+
+
+            {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
+            {isMapOpen && createPortal(
+                <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col">
+                    <div className="relative flex-1">
+                        <WeatherMap
+                            locationName={mapSelectionTarget ? (tempMapSelection?.name || `Select ${mapSelectionTarget === 'origin' ? 'Start' : mapSelectionTarget === 'destination' ? 'End' : 'Via'} Location`) : (origin || "Route Map")}
+                            lat={voyagePlan?.originCoordinates?.lat}
+                            lon={voyagePlan?.originCoordinates?.lon}
+                            routeCoordinates={routeCoords}
+                            waypoints={voyagePlan?.waypoints}
+                            minimal={!mapSelectionTarget}
+                            enableZoom={true}
+                            showWeather={false}
+                            mapboxToken={mapboxToken}
+                            showZoomControl={false}
+                            restrictBounds={false}
+                            initialLayer={mapSelectionTarget ? 'buoys' : 'wind'}
+                            isConfirmMode={false} // DISABLE INTERNAL BUTTON
+                            hideLayerControls={false}
+                            onLocationSelect={(lat, lon, name) => {
+                                // INTERCEPT: Update local temp state instead of closing
+                                const selectionName = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                                setTempMapSelection({ lat, lon, name: selectionName });
+                            }}
+                        />
+
+                        {/* EXTERNAL OVERLAY BUTTON - FIXED & HIGH Z-INDEX */}
+                        {mapSelectionTarget && (
+                            <div className="fixed bottom-12 left-0 right-0 z-[11000] px-6 pointer-events-none flex justify-center w-full">
+                                <div className="pointer-events-auto w-full max-w-md">
+                                    <button
+                                        onClick={() => {
+                                            if (tempMapSelection) {
+                                                handleMapSelect(tempMapSelection.lat, tempMapSelection.lon, tempMapSelection.name);
+                                            }
+                                        }}
+                                        disabled={!tempMapSelection}
+                                        className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${tempMapSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10'}`}
+                                        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} // Extra safe area padding
+                                    >
+                                        <MapPinIcon className={`w-5 h-5 ${tempMapSelection ? 'text-white' : 'text-gray-600'}`} />
+                                        {tempMapSelection ? "Confirm Selection" : "Tap Map to Select Point"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="absolute top-6 right-6 z-[2200]">
+                        <button onClick={() => { setIsMapOpen(false); setTempMapSelection(null); }} className="bg-slate-900/90 hover:bg-slate-800 text-white p-3 rounded-full shadow-2xl border border-white/20 transition-all hover:scale-110 active:scale-95">
                             <XIcon className="w-6 h-6" />
                         </button>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* HEADER: MISSION PARAMETERS */}
@@ -327,76 +263,123 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                             </div>
                             <div>
                                 <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                                    Passage Planning
+                                    Passage Plan
                                 </h2>
                                 <p className="text-[10px] text-gray-500 font-mono tracking-wide">
                                     {vessel?.name.toUpperCase() || "VESSEL"} // {vessel?.length}FT {vessel?.type.toUpperCase()}
                                 </p>
                             </div>
                         </div>
-                        
+
                         {/* PRO BADGE */}
                         {!isPro && (
                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-white/10">
                                 <LockIcon className="w-3 h-3 text-sky-400" />
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium Feature</span>
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium</span>
                             </div>
                         )}
                     </div>
 
                     <form onSubmit={handleCalculate} className="relative">
                         <div className="space-y-4">
-                            {/* ROW 1: Origin & Destination - Clean 50/50 Split */}
+                            {/* ROW 1: Origin & Destination - Map/GPS Only */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="relative">
-                                    <InputField 
-                                        icon={<MapPinIcon className="w-4 h-4 text-emerald-400"/>} 
-                                        value={origin} 
-                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOrigin(e.target.value)} 
-                                        onBlur={() => setOrigin(formatLocationInput(origin))}
-                                        placeholder="Start Port" 
+                                <div className="relative group cursor-pointer" onClick={() => openMap('origin')}>
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                        <MapPinIcon className="w-4 h-4 text-emerald-400" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={origin}
+                                        placeholder="Tap to Select Start Port"
+                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
                                     />
-                                    <button type="button" onClick={handleOriginLocation} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-white transition-colors hover:bg-white/5 rounded-lg"><CompassIcon rotation={0} className="w-4 h-4"/></button>
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                        {/* GPS Button - Prevent bubbling to map open */}
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as any); }}
+                                            className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg z-10"
+                                            title="Use Current Location"
+                                        >
+                                            <CrosshairIcon className="w-5 h-5 text-sky-400" />
+                                        </button>
+                                    </div>
                                 </div>
-                                <InputField 
-                                    icon={<MapPinIcon className="w-4 h-4 text-purple-400"/>} 
-                                    value={destination} 
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDestination(e.target.value)} 
-                                    onBlur={() => setDestination(formatLocationInput(destination))}
-                                    placeholder="End Port" 
-                                />
+
+                                <div className="relative group cursor-pointer" onClick={() => openMap('destination')}>
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                        <MapPinIcon className="w-4 h-4 text-purple-400" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={destination}
+                                        placeholder="Tap to Select Destination"
+                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
+                                    />
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                                        <MapIcon className="w-4 h-4" />
+                                    </div>
+                                </div>
                             </div>
 
                             {/* ROW 2: Via, Date, Action - Consistent sizing */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-4">
-                                <InputField 
-                                    icon={<RouteIcon className="w-4 h-4 text-sky-400"/>} 
-                                    value={via} 
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVia(e.target.value)} 
-                                    onBlur={() => setVia(formatLocationInput(via))}
-                                    placeholder="Via (Opt)" 
-                                />
-                                <InputField 
-                                    icon={<CalendarIcon className="w-4 h-4"/>} 
-                                    type="date"
-                                    min={minDate}
-                                    value={departureDate} 
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDepartureDate(e.target.value)}
-                                />
-                                <button 
-                                    type="submit" 
+                                <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                        <RouteIcon className="w-4 h-4 text-sky-400" />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={via}
+                                        placeholder="Add Via Point (Opt)"
+                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
+                                    />
+                                    {via && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setVia(''); }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500"
+                                        >
+                                            <XIcon className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                    {!via && (
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                                            <MapIcon className="w-4 h-4" />
+                                        </div>
+                                    )}
+                                </div>
+                                {/* DATE INPUT - RAW CONTROL */}
+                                <div className="relative w-full min-w-0 group">
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
+                                        <CalendarIcon className="w-4 h-4" />
+                                    </div>
+                                    <input
+                                        type="date"
+                                        min={minDate}
+                                        value={departureDate}
+                                        onChange={(e) => setDepartureDate(e.target.value)}
+                                        className="w-full h-14 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                        style={{ WebkitAppearance: 'none' }}
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
                                     disabled={loading}
                                     className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white shadow-sky-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
                                 >
                                     {!isPro ? (
                                         <>
                                             <LockIcon className="w-4 h-4 text-sky-400" />
-                                            Unlock Route Intelligence
+                                            Unlock Route Planning
                                         </>
                                     ) : loading ? (
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                     ) : (
-                                        "Chart Route"
+                                        "Calculate Route"
                                     )}
                                 </button>
                             </div>
@@ -422,7 +405,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
             {error && (
                 <div className="max-w-4xl mx-auto mb-8 w-full animate-in fade-in slide-in-from-top-4">
                     <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
-                        <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5"/></div>
+                        <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
                         <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
                     </div>
                 </div>
@@ -431,13 +414,13 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
             {/* --- RESULTS DASHBOARD --- */}
             {voyagePlan ? (
                 <div className="max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700 pb-12 flex-1 flex flex-col">
-                    
+
                     {/* TOP SUMMARY STRIP - REVAMPED */}
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-8">
                         <div className="md:col-span-8 bg-[#0f172a] border border-white/10 rounded-3xl p-0 relative overflow-hidden shadow-2xl flex flex-col">
                             {/* Background Decorations */}
                             <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-                            
+
                             {/* Header: Route Visualization */}
                             <div className="p-6 md:p-8 pb-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
                                 {/* Origin */}
@@ -469,7 +452,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                                     <div className="flex items-baseline gap-2">
                                         <span className="text-2xl md:text-3xl font-bold text-white tracking-tight">{(voyagePlan.destination && typeof voyagePlan.destination === 'string') ? voyagePlan.destination.split(',')[0] : "Unknown"}</span>
                                     </div>
-                                     <span className="text-xs text-gray-500 font-mono mt-1">{voyagePlan.destinationCoordinates?.lat.toFixed(2)}°N, {Math.abs(voyagePlan.destinationCoordinates?.lon || 0).toFixed(2)}°W</span>
+                                    <span className="text-xs text-gray-500 font-mono mt-1">{voyagePlan.destinationCoordinates?.lat.toFixed(2)}°N, {Math.abs(voyagePlan.destinationCoordinates?.lon || 0).toFixed(2)}°W</span>
                                 </div>
                             </div>
 
@@ -485,7 +468,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
 
                             {/* Stats Grid */}
                             <div className="p-6 md:p-8 pt-6 grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
-                                
+
                                 {/* Departure Date */}
                                 <div className="bg-white/5 rounded-2xl p-3 md:p-4 border border-white/5 flex flex-col justify-between group hover:bg-white/10 transition-colors min-h-[100px]">
                                     <div className="flex items-center gap-2 mb-2 text-gray-400 group-hover:text-sky-300 transition-colors">
@@ -543,16 +526,16 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
 
                         {/* MAP TOGGLE CARD */}
                         <button onClick={() => setIsMapOpen(true)} className="md:col-span-4 bg-slate-800 border border-white/10 rounded-3xl overflow-hidden relative group cursor-pointer shadow-xl transition-all hover:border-sky-500/30">
-                            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=2074&auto=format&fit=crop')] bg-cover bg-center opacity-40 group-hover:opacity-50 group-hover:scale-105 transition-all duration-700"></div>
+                            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=2074&fm=jpg&fit=crop')] bg-cover bg-center opacity-40 group-hover:opacity-50 group-hover:scale-105 transition-all duration-700"></div>
                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/20 to-transparent"></div>
                             <div className="absolute bottom-6 left-6 right-6 z-10 flex justify-between items-end">
                                 <div>
                                     <h3 className="text-xl font-bold text-white mb-1 shadow-black drop-shadow-md">Interactive Chart</h3>
                                     <p className="text-xs text-sky-300 font-medium uppercase tracking-widest shadow-black drop-shadow-md">
-                                        {isShortTrip ? 'View Direct Route' : 'View Suggested Stops'}
+                                        {isShortTrip ? 'View Route' : 'View Waypoints'}
                                     </p>
                                 </div>
-                                <div className="bg-sky-500 p-3 rounded-full text-white shadow-lg group-hover:scale-110 transition-transform"><MapIcon className="w-5 h-5"/></div>
+                                <div className="bg-sky-500 p-3 rounded-full text-white shadow-lg group-hover:scale-110 transition-transform"><MapIcon className="w-5 h-5" /></div>
                             </div>
                         </button>
                     </div>
@@ -565,7 +548,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                         <div>
                             <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Warning: Not For Navigation</h4>
                             <p className="text-[10px] text-amber-200/80 leading-relaxed font-medium">
-                                This automated voyage plan is generated by AI using weather model data. It does not account for real-time hazards, Notices to Mariners, or local regulations. 
+                                This automated voyage plan is generated by AI using weather model data. It does not account for real-time hazards, Notices to Mariners, or local regulations.
                                 <span className="block mt-1 text-amber-100 opacity-60">
                                     The captain is solely responsible for the safety of the vessel and crew. Do not rely on this tool for critical navigation decisions. Always verify with official charts.
                                 </span>
@@ -576,7 +559,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                     {/* CUSTOMS & IMMIGRATION CARD (International Voyages Only) */}
                     {voyagePlan.customs?.required && (
                         <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-2xl p-5 mb-8 animate-in fade-in slide-in-from-bottom-4 shadow-xl backdrop-blur-md">
-                            
+
                             {/* Departure Section */}
                             {voyagePlan.customs.departureProcedures && (
                                 <div className="mb-6 border-b border-indigo-500/20 pb-4">
@@ -624,167 +607,154 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                     )}
 
                     {/* MAIN CONTENT GRID */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1">
-                        
-                        {/* LEFT COL: WAYPOINTS - FIXED HEIGHT CONTAINER */}
-                        <div className="flex flex-col lg:h-[750px] h-auto">
-                            <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl flex flex-col h-full overflow-hidden min-h-[400px]">
-                                <div className="flex justify-between items-end mb-6 pb-4 border-b border-white/5 shrink-0">
+                    {/* INTELLIGENCE ROW - TOP */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+
+                        {/* AI Deep Analysis Block */}
+                        <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900/95 border border-indigo-500/20 rounded-3xl p-5 shadow-xl relative overflow-hidden flex flex-col h-[200px]">
+                            <div className="flex justify-between items-center mb-3 shrink-0">
+                                <h3 className="text-sm font-bold text-indigo-200 uppercase tracking-widest flex items-center gap-2">
+                                    <DiamondIcon className="w-4 h-4 text-indigo-400" /> Voyage Analysis
+                                </h3>
+                                {!deepReport && (
+                                    <button
+                                        onClick={handleDeepAnalysis}
+                                        disabled={analyzingDeep}
+                                        className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-lg hover:bg-indigo-500/20 transition-all flex items-center gap-2"
+                                    >
+                                        {analyzingDeep ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "Analyze"}
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="overflow-y-auto custom-scrollbar pr-2 flex-1">
+                                {deepReport ? (
+                                    <div className="animate-in fade-in slide-in-from-bottom-4">
+                                        <div className="mb-4">
+                                            <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Strategy</h4>
+                                            <p className="text-sm text-gray-200 leading-relaxed font-light">{deepReport.strategy}</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-indigo-500/10">
+                                            <div>
+                                                <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Fuel Planning</h4>
+                                                <p className="text-xs text-gray-400 leading-relaxed">{deepReport.fuelTactics}</p>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Watch Schedule</h4>
+                                                <p className="text-xs text-gray-400 leading-relaxed">{deepReport.watchSchedule}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-black/20 rounded-xl p-4 border border-white/5">
+                                        <p className="text-sm text-gray-300 leading-relaxed font-light">{voyagePlan.overview}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Departure Window (or Placeholder if null) */}
+                        <div className="h-[200px]">
+                            {voyagePlan.bestDepartureWindow ? (
+                                <div className="bg-emerald-900/20 border border-emerald-500/20 rounded-3xl p-5 relative overflow-hidden h-full flex flex-col">
+                                    <div className="absolute top-0 right-0 p-16 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
+                                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-2 shrink-0">
+                                        <ClockIcon className="w-4 h-4" /> Optimal Departure
+                                    </h3>
+                                    <div className="flex-1 flex flex-col justify-center">
+                                        <div className="text-2xl font-bold text-white mb-2">{voyagePlan.bestDepartureWindow.timeRange}</div>
+                                        <p className="text-xs text-gray-400 leading-relaxed relative z-10 line-clamp-4">{voyagePlan.bestDepartureWindow.reasoning}</p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-slate-900/40 border border-white/5 rounded-3xl p-5 h-full flex items-center justify-center">
+                                    <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">No Timing Data</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* MAIN CONTENT GRID - 3 EQUAL COLUMNS */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+
+                        {/* COL 1: SUGGESTED STOPS */}
+                        <div className="flex flex-col h-[600px]">
+                            <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-5 shadow-xl flex flex-col h-full overflow-hidden">
+                                <div className="flex justify-between items-end mb-4 pb-2 border-b border-white/5 shrink-0">
                                     <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                                        <RouteIcon className="w-4 h-4 text-sky-400"/> Suggested Stops
+                                        <RouteIcon className="w-4 h-4 text-sky-400" /> Suggested Stops
                                     </h3>
                                     <span className="text-[10px] font-mono text-gray-500">{(voyagePlan.waypoints?.length || 0)} POINTS</span>
                                 </div>
-                                
-                                {/* Added flex-1 to push footer down and fill space with list */}
                                 <div className="relative flex-grow overflow-y-auto custom-scrollbar pr-2 flex-1">
                                     {(voyagePlan.waypoints && voyagePlan.waypoints.length > 0) ? (
                                         voyagePlan.waypoints.map((wp, i) => (
-                                            <WaypointNode 
-                                                key={i} 
-                                                wp={wp} 
-                                                index={i} 
-                                                total={voyagePlan.waypoints?.length || 0} 
-                                                isLast={i === (voyagePlan.waypoints?.length || 0) - 1} 
-                                                onClick={() => setIsMapOpen(true)} 
+                                            <WaypointNode
+                                                key={i}
+                                                wp={wp}
+                                                index={i}
+                                                total={voyagePlan.waypoints?.length || 0}
+                                                isLast={i === (voyagePlan.waypoints?.length || 0) - 1}
+                                                onClick={() => setIsMapOpen(true)}
                                             />
                                         ))
                                     ) : (
                                         <div className="flex flex-col items-center justify-center h-48 opacity-50 border-2 border-dashed border-white/10 rounded-xl">
-                                            <RouteIcon className="w-8 h-8 text-gray-500 mb-2"/>
+                                            <RouteIcon className="w-8 h-8 text-gray-500 mb-2" />
                                             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Direct Route</span>
                                             <span className="text-[10px] text-gray-600 mt-1">No stops required</span>
                                         </div>
                                     )}
                                 </div>
-                                {/* Footer Fluff */}
-                                <div className="mt-4 pt-3 border-t border-white/5 text-center">
-                                    <span className="text-[10px] text-gray-600 font-mono uppercase tracking-widest">
-                                        {voyagePlan.waypoints?.length} Waypoints Plotted
-                                    </span>
-                                </div>
                             </div>
                         </div>
 
-                        {/* CENTER COL: ANALYSIS & HAZARDS - FIXED HEIGHT CONTAINER */}
-                        <div className="flex flex-col gap-6 lg:col-span-2 lg:h-[750px] h-auto">
-                            
-                            {/* AI Deep Analysis Block - Fixed top height with scroll */}
-                            <div className="bg-gradient-to-br from-indigo-900/20 to-slate-900/60 backdrop-blur-xl border border-indigo-500/20 rounded-3xl p-6 shadow-xl relative overflow-hidden shrink-0 lg:h-[220px] flex flex-col">
-                                <div className="flex justify-between items-center mb-4 shrink-0">
-                                    <h3 className="text-sm font-bold text-indigo-200 uppercase tracking-widest flex items-center gap-2">
-                                        <DiamondIcon className="w-4 h-4 text-indigo-400"/> Strategic Intelligence
-                                    </h3>
-                                    {!deepReport && (
-                                        <button 
-                                            onClick={handleDeepAnalysis} 
-                                            disabled={analyzingDeep} 
-                                            className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 hover:text-white border border-indigo-500/30 px-3 py-1.5 rounded-lg hover:bg-indigo-500/20 transition-all flex items-center gap-2"
-                                        >
-                                            {analyzingDeep ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"/> : "Generate Report"}
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div className="overflow-y-auto custom-scrollbar pr-2 flex-1">
-                                    {deepReport ? (
-                                        <div className="animate-in fade-in slide-in-from-bottom-4">
-                                            <div className="mb-4">
-                                                <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Command Summary</h4>
-                                                <p className="text-sm text-gray-200 leading-relaxed font-light">{deepReport.strategy}</p>
-                                            </div>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-indigo-500/10">
-                                                <div>
-                                                    <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Fuel Tactics</h4>
-                                                    <p className="text-xs text-gray-400 leading-relaxed">{deepReport.fuelTactics}</p>
-                                                </div>
-                                                <div>
-                                                    <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Watch Rotation</h4>
-                                                    <p className="text-xs text-gray-400 leading-relaxed">{deepReport.watchSchedule}</p>
-                                                </div>
-                                            </div>
-                                        </div>
+                        {/* COL 2: THREAT MATRIX */}
+                        <div className="flex flex-col h-[600px]">
+                            <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-5 shadow-xl flex flex-col h-full overflow-hidden">
+                                <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0">
+                                    <BugIcon className="w-4 h-4 text-red-400" /> Hazards
+                                </h3>
+                                <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-0 pr-2">
+                                    {voyagePlan.hazards && voyagePlan.hazards.length > 0 ? (
+                                        voyagePlan.hazards.map((h, i) => <HazardAlert key={i} hazard={h} />)
                                     ) : (
-                                        <div className="bg-black/20 rounded-xl p-4 border border-white/5">
-                                            <p className="text-sm text-gray-300 leading-relaxed font-light">{voyagePlan.overview}</p>
+                                        <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-white/5 rounded-xl opacity-50 min-h-[100px]">
+                                            <CheckIcon className="w-6 h-6 text-emerald-500 mb-2" />
+                                            <span className="text-xs text-gray-500">Sector Clear</span>
                                         </div>
                                     )}
-                                </div>
-                            </div>
-
-                            {/* Two Column Split: Hazards + Best Window - Flex-1 fill */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
-                                
-                                {/* Hazards - Card 2 - Uniform Height via flex-1 */}
-                                <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl flex flex-col h-full overflow-hidden min-h-[400px]">
-                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0">
-                                        <BugIcon className="w-4 h-4 text-red-400"/> Threat Matrix
-                                    </h3>
-                                    {/* Flex-1 here ensures list pushes footer down */}
-                                    <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-0 pr-2">
-                                        {voyagePlan.hazards && voyagePlan.hazards.length > 0 ? (
-                                            voyagePlan.hazards.map((h, i) => <HazardAlert key={i} hazard={h} />)
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-white/5 rounded-xl opacity-50 min-h-[100px]">
-                                                <CheckIcon className="w-6 h-6 text-emerald-500 mb-2"/>
-                                                <span className="text-xs text-gray-500">Sector Clear</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {/* Footer Fluff */}
-                                    <div className="mt-4 pt-2 border-t border-white/5 flex justify-between items-center opacity-60">
-                                        <span className="text-[9px] text-gray-500 font-bold uppercase">Live Monitoring</span>
-                                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-                                    </div>
-                                </div>
-
-                                {/* Departure Window & Systems Check - Card 3 */}
-                                <div className="flex flex-col gap-4 h-full min-h-[400px]">
-                                    {voyagePlan.bestDepartureWindow && (
-                                        <div className="bg-emerald-900/10 border border-emerald-500/20 rounded-3xl p-6 backdrop-blur-xl relative overflow-hidden shrink-0">
-                                            <div className="absolute top-0 right-0 p-16 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
-                                            <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-1">
-                                                <ClockIcon className="w-4 h-4"/> Optimal Departure
-                                            </h3>
-                                            <div className="text-2xl font-bold text-white mb-2">{voyagePlan.bestDepartureWindow.timeRange}</div>
-                                            <p className="text-xs text-gray-400 leading-relaxed relative z-10">{voyagePlan.bestDepartureWindow.reasoning}</p>
-                                        </div>
-                                    )}
-                                    
-                                    <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl flex-1 flex flex-col min-h-0 overflow-hidden justify-between">
-                                        <div>
-                                            <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0">
-                                                <GearIcon className="w-4 h-4 text-orange-400"/> Systems Check
-                                            </h3>
-                                            {/* Tabbed Checklist */}
-                                            <div className="flex space-x-2 mb-4 bg-black/20 p-1 rounded-lg shrink-0">
-                                                {CHECKLIST_DATA.map((cat) => (
-                                                    <button
-                                                        key={cat.id}
-                                                        onClick={() => setActiveChecklistTab(cat.id)}
-                                                        className={`flex-1 py-1 text-[10px] font-bold uppercase rounded-md transition-colors ${activeChecklistTab === cat.id ? 'bg-white/10 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
-                                                    >
-                                                        {cat.category.split(' ')[0]}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1 max-h-[300px]">
-                                                {CHECKLIST_DATA.find(c => c.id === activeChecklistTab)?.items.map((item, i) => (
-                                                    <SystemSwitch key={i} label={item} checked={!!checklistState[item]} onChange={() => toggleCheck(item)} />
-                                                ))}
-                                            </div>
-                                        </div>
-                                        {/* Footer Fluff */}
-                                        <div className="mt-4 pt-2 border-t border-white/5 flex justify-between items-center opacity-60">
-                                            <span className="text-[9px] text-gray-500 font-bold uppercase">System Status</span>
-                                            <span className="text-[9px] text-emerald-400 font-mono">ONLINE</span>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
+                        {/* COL 3: SYSTEMS CHECK */}
+                        <div className="flex flex-col h-[600px]">
+                            <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-5 shadow-xl flex-1 flex flex-col min-h-0 overflow-hidden">
+                                <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2 mb-4 shrink-0">
+                                    <GearIcon className="w-4 h-4 text-orange-400" /> Systems Check
+                                </h3>
+                                {/* Tabbed Checklist */}
+                                <div className="flex space-x-2 mb-4 bg-black/20 p-1 rounded-lg shrink-0">
+                                    {CHECKLIST_DATA.map((cat) => (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => setActiveChecklistTab(cat.id)}
+                                            className={`flex-1 py-1 text-[10px] font-bold uppercase rounded-md transition-colors ${activeChecklistTab === cat.id ? 'bg-white/10 text-white shadow' : 'text-gray-500 hover:text-gray-300'}`}
+                                        >
+                                            {cat.category.split(' ')[0]}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1 flex-1">
+                                    {CHECKLIST_DATA.find(c => c.id === activeChecklistTab)?.items.map((item, i) => (
+                                        <SystemSwitch key={i} label={item} checked={!!checklistState[item]} onChange={() => toggleCheck(item)} />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             ) : (
                 /* EMPTY STATE HERO */
@@ -810,13 +780,14 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                                 </p>
                             )}
                         </div>
-                        
+
                         <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white/5 border border-white/10 text-sm text-gray-400 italic backdrop-blur-sm">
                             <span className="text-sky-500">“</span>{quote.text}<span className="text-sky-500">”</span>
                         </div>
                     </div>
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 };

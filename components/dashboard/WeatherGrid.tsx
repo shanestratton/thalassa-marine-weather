@@ -32,9 +32,9 @@ const SeaStateVisual = ({ force }: { force: number }) => {
     const width = 200;
     const height = 60;
     const points: string[] = [];
-    const amplitude = force === 0 ? 0 : Math.min(20, force * 2.5); 
+    const amplitude = force === 0 ? 0 : Math.min(20, force * 2.5);
     const frequency = force === 0 ? 1 : 0.15 + (force * 0.03);
-    for (let x = 0; x <= width; x+=2) {
+    for (let x = 0; x <= width; x += 2) {
         let y = 0;
         if (force > 0) {
             y += Math.sin(x * frequency) * amplitude;
@@ -94,7 +94,7 @@ const DetailTile: React.FC<DetailTileProps> = ({ label, value, unit, icon, color
 
 const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-    
+
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
@@ -106,9 +106,9 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
     return (
         <div ref={setNodeRef} style={style} className="h-full relative group/tile">
             {children}
-            <div 
-                {...attributes} 
-                {...listeners} 
+            <div
+                {...attributes}
+                {...listeners}
                 className="absolute top-1.5 right-1.5 p-1.5 text-white/20 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
                 title="Drag to reorder"
             >
@@ -118,37 +118,42 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
     );
 };
 
-export { AlertsBanner, MetricsWidget } from './WeatherGrid_exports'; 
+export { AlertsBanner, MetricsWidget } from './WeatherGrid_exports';
 
 export const BeaufortWidget = ({ windSpeed }: { windSpeed: number | null }) => {
     const beaufort = getBeaufort(windSpeed);
     const config = getBeaufortConfig(beaufort.force);
-    
+
     return (
-        <Card className="bg-slate-900/60 border border-white/10 p-4">
-            <div className={`relative overflow-hidden rounded-2xl border ${config.border} ${config.bg} transition-all duration-500 group shadow-lg min-h-[90px] flex items-center`}>
-                <div className="pl-6 pr-6 py-3 border-r border-white/10 flex items-center gap-4 relative z-20 bg-slate-900/20 backdrop-blur-sm h-full">
-                    <div className="relative w-14 h-14 flex items-center justify-center">
+        <Card className="bg-slate-900/60 border border-white/10 p-3">
+            <div className={`relative overflow-hidden rounded-xl border ${config.border} ${config.bg} transition-all duration-500 group shadow-lg min-h-[72px] flex items-center`}>
+                <div className="pl-4 pr-5 py-2 border-r border-white/10 flex items-center gap-3 relative z-20 bg-slate-900/20 backdrop-blur-sm h-full shrink-0">
+                    <div className="relative w-12 h-12 flex items-center justify-center">
                         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
                             <path className="text-black/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
                             <path className={`${config.text} drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]`} strokeDasharray={`${(beaufort.force / 12) * 100}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
                         </svg>
-                        <span className="text-xl font-black text-white">{beaufort.force}</span>
+                        <span className="text-lg font-black text-white">{beaufort.force}</span>
                     </div>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Beaufort Scale</span>
-                        <span className={`text-lg font-bold ${config.text} leading-none`}>{config.desc}</span>
+                    <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                            <WindIcon className={`w-3.5 h-3.5 ${config.text}`} />
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${config.text}`}>Beaufort</span>
+                        </div>
+                        <span className={`text-base font-bold text-white leading-none whitespace-nowrap`}>{config.desc}</span>
                     </div>
                 </div>
-                <div className="px-6 py-3 flex flex-col justify-center relative z-20">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-white font-mono bg-black/30 px-3 py-1 rounded border border-white/5">{config.range} kts</span>
-                    </div>
-                    <span className="text-xs text-gray-300 italic opacity-80 mt-1 truncate max-w-[200px]">
+
+                {/* Right Side: Horizontal Layout to save vertical space and look cleaner */}
+                <div className="flex-1 px-4 py-2 flex flex-row justify-between items-center relative z-20 overflow-hidden gap-3">
+                    <span className="text-sm text-white font-mono bg-black/30 px-2 py-0.5 rounded border border-white/5 whitespace-nowrap shrink-0">
+                        {config.range} kts
+                    </span>
+                    <span className="text-xs text-gray-200 italic opacity-90 text-right truncate leading-tight">
                         &quot;{config.sea}&quot;
                     </span>
                 </div>
-                <div className="absolute right-0 top-0 bottom-0 w-1/2 z-10 pointer-events-none">
+                <div className="absolute right-0 top-0 bottom-0 w-2/3 z-10 pointer-events-none opacity-30 mix-blend-overlay">
                     <SeaStateVisual force={beaufort.force} />
                 </div>
             </div>
@@ -180,7 +185,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
     const rawVis = convertDistance(current.visibility, units.visibility || 'mi');
     const vis = rawVis !== '--' ? Math.round(parseFloat(rawVis)).toString() : '--';
     const precipValue = convertPrecip(current.precipitation, units.temp);
-    
+
     // Condition Score Logic
     const score = calculateDailyScore(current.windSpeed || 0, current.waveHeight || 0, settings.vessel);
     const scoreLabel = settings.vessel?.type === 'sail' ? 'Sailing Score' : 'Cruising Score';
@@ -199,9 +204,9 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
         const isRising = diff > 0;
         const rate = Math.abs(diff);
         const unit = units.tideHeight || 'm';
-        
+
         tideNode = (
-            <DetailTile 
+            <DetailTile
                 label="Tide Trend"
                 value={convertLength(currTide, unit) ?? 0}
                 unit={unit}
@@ -209,7 +214,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 icon={<TideCurveIcon className="w-4 h-4" />}
                 subContent={
                     <div className="flex items-center gap-1 mt-0.5 text-[9px] font-medium text-gray-400">
-                        {isRising ? <ArrowUpIcon className="w-3 h-3 text-emerald-400"/> : <ArrowDownIcon className="w-3 h-3 text-orange-400"/>}
+                        {isRising ? <ArrowUpIcon className="w-3 h-3 text-emerald-400" /> : <ArrowDownIcon className="w-3 h-3 text-orange-400" />}
                         <span>{isRising ? "Rising" : "Falling"}</span>
                         <span className="opacity-60 ml-1">{convertLength(rate, unit)}/hr</span>
                     </div>
@@ -218,7 +223,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
         );
     } else {
         tideNode = (
-             <DetailTile 
+            <DetailTile
                 label="Tide Trend"
                 value="--"
                 unit=""
@@ -232,124 +237,124 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
     // Components Mapping
     const WIDGET_MAP: Record<string, React.ReactNode> = {
         score: (
-            <DetailTile 
+            <DetailTile
                 label={scoreLabel}
-                value={score} 
-                unit="/ 100" 
+                value={score}
+                unit="/ 100"
                 colorClass={scoreColor}
-                icon={<StarIcon className="w-4 h-4" filled={score > 80} />} 
-                subContent={<span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">{scoreText} Conditions</span>} 
+                icon={<StarIcon className="w-4 h-4" filled={score > 80} />}
+                subContent={<span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">{scoreText} Conditions</span>}
             />
         ),
         tide: tideNode,
         pressure: (
-            <DetailTile 
-                label="Barometer" 
-                value={current.pressure ?? '--'} 
-                unit="mb" 
-                colorClass="text-sky-300" 
-                icon={<GaugeIcon className="w-4 h-4" />} 
-                subContent={<div className="flex items-center gap-1 mt-0.5 text-[9px] font-medium text-gray-400">{current.pressureTrend === 'rising' ? <><ArrowUpIcon className="w-3 h-3 text-emerald-400" /> Rising</> : current.pressureTrend === 'falling' ? <><ArrowDownIcon className="w-3 h-3 text-red-400" /> Falling</> : "Steady"}</div>} 
+            <DetailTile
+                label="Barometer"
+                value={current.pressure !== null && current.pressure !== undefined ? Math.round(current.pressure) : '--'}
+                unit="mb"
+                colorClass="text-sky-300"
+                icon={<GaugeIcon className="w-4 h-4" />}
+                subContent={<div className="flex items-center gap-1 mt-0.5 text-[9px] font-medium text-gray-400">{current.pressureTrend === 'rising' ? <><ArrowUpIcon className="w-3 h-3 text-emerald-400" /> Rising</> : current.pressureTrend === 'falling' ? <><ArrowDownIcon className="w-3 h-3 text-red-400" /> Falling</> : "Steady"}</div>}
             />
         ),
         humidity: (
-            <DetailTile 
-                label="Humidity" 
-                value={`${current.humidity !== null && current.humidity !== undefined ? Math.round(current.humidity) : '--'}`} 
-                unit="%" 
-                colorClass="text-blue-400" 
-                icon={<DropletIcon className="w-4 h-4" />} 
-                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${current.humidity || 0}%` }}></div></div>} 
+            <DetailTile
+                label="Humidity"
+                value={`${current.humidity !== null && current.humidity !== undefined ? Math.round(current.humidity) : '--'}`}
+                unit="%"
+                colorClass="text-blue-400"
+                icon={<DropletIcon className="w-4 h-4" />}
+                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${current.humidity || 0}%` }}></div></div>}
             />
         ),
         precip: (
-            <DetailTile 
-                label="Precipitation" 
-                value={precipValue || '0'} 
-                unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'} 
-                colorClass="text-cyan-300" 
-                icon={<RainIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">{precipValue ? 'Accumulating' : 'Dry Conditions'}</span>} 
+            <DetailTile
+                label="Precipitation"
+                value={precipValue || '0'}
+                unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
+                colorClass="text-cyan-300"
+                icon={<RainIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">{precipValue ? 'Accumulating' : 'Dry Conditions'}</span>}
             />
         ),
         dewPoint: (
-            <DetailTile 
-                label="Dew Point" 
-                value={`${convertTemp(current.dewPoint, units.temp)}°`} 
-                unit="" 
-                colorClass="text-rose-300" 
-                icon={<ThermometerIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">Saturation Temp</span>} 
+            <DetailTile
+                label="Dew Point"
+                value={`${convertTemp(current.dewPoint, units.temp)}°`}
+                unit=""
+                colorClass="text-rose-300"
+                icon={<ThermometerIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">Saturation Temp</span>}
             />
         ),
         cloud: (
-            <DetailTile 
-                label="Cloud Cover" 
-                value={`${current.cloudCover !== null && current.cloudCover !== undefined ? Math.round(current.cloudCover) : '--'}`} 
-                unit="%" 
-                colorClass="text-gray-300" 
-                icon={<CloudIcon className="w-4 h-4" />} 
-                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-gray-400" style={{ width: `${current.cloudCover || 0}%` }}></div></div>} 
+            <DetailTile
+                label="Cloud Cover"
+                value={`${current.cloudCover !== null && current.cloudCover !== undefined ? Math.round(current.cloudCover) : '--'}`}
+                unit="%"
+                colorClass="text-gray-300"
+                icon={<CloudIcon className="w-4 h-4" />}
+                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-gray-400" style={{ width: `${current.cloudCover || 0}%` }}></div></div>}
             />
         ),
         visibility: (
-            <DetailTile 
-                label="Visibility" 
-                value={vis} 
-                unit={units.visibility || 'mi'} 
-                colorClass="text-purple-300" 
-                icon={<EyeIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>} 
+            <DetailTile
+                label="Visibility"
+                value={vis}
+                unit={units.visibility || 'mi'}
+                colorClass="text-purple-300"
+                icon={<EyeIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>}
             />
         ),
         chill: (
-            <DetailTile 
-                label="Wind Chill" 
-                value={`${convertTemp(current.feelsLike, units.temp)}°`} 
-                unit="" 
-                colorClass="text-teal-300" 
-                icon={<ThermometerIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">Feels Like</span>} 
+            <DetailTile
+                label="Wind Chill"
+                value={`${convertTemp(current.feelsLike, units.temp)}°`}
+                unit=""
+                colorClass="text-teal-300"
+                icon={<ThermometerIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">Feels Like</span>}
             />
         ),
         swell: (
-            <DetailTile 
-                label="Swell Period" 
-                value={`${current.swellPeriod || '--'}`} 
-                unit="s" 
-                colorClass="text-indigo-300" 
-                icon={<WaveIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>} 
+            <DetailTile
+                label="Swell Period"
+                value={`${current.swellPeriod || '--'}`}
+                unit="s"
+                colorClass="text-indigo-300"
+                icon={<WaveIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
             />
         ),
         uv: (
-            <DetailTile 
-                label="UV Index" 
-                value={`${current.uvIndex !== undefined ? Math.round(current.uvIndex) : '--'}`} 
-                unit="" 
-                colorClass="text-orange-400" 
-                icon={<SunIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">Radiation Lvl</span>} 
+            <DetailTile
+                label="UV Index"
+                value={`${current.uvIndex !== undefined ? Math.round(current.uvIndex) : '--'}`}
+                unit=""
+                colorClass="text-orange-400"
+                icon={<SunIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">Radiation Lvl</span>}
             />
         ),
         waterTemp: (
-            <DetailTile 
-                label="Water Temp" 
-                value={`${convertTemp(current.waterTemperature, units.temp)}°`} 
-                unit="" 
-                colorClass="text-blue-300" 
-                icon={<ThermometerIcon className="w-4 h-4" />} 
-                subContent={<span className="text-[9px] text-gray-500">Surface</span>} 
+            <DetailTile
+                label="Water Temp"
+                value={`${convertTemp(current.waterTemperature, units.temp)}°`}
+                unit=""
+                colorClass="text-blue-300"
+                icon={<ThermometerIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-500">Surface</span>}
             />
         )
     };
-    
+
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-4 pt-8">
             <div className="absolute top-3 left-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
                 <GearIcon className="w-3 h-3" /> Atmospherics
             </div>
-            
+
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={activeWidgets} strategy={rectSortingStrategy}>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

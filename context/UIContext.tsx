@@ -1,19 +1,22 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-type ViewType = 'dashboard' | 'voyage' | 'map' | 'settings';
+// type ViewType = 'dashboard' | 'voyage' | 'map' | 'settings';
 
 interface UIContextType {
-    currentView: ViewType;
-    setPage: (view: ViewType) => void;
+    currentView: string;
+    setPage: (page: string) => void;
     isOffline: boolean;
+    debugLogs: string[];
+    addDebugLog: (msg: string) => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
 
 export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [view, setView] = useState<ViewType>('dashboard');
+    const [currentView, setCurrentView] = useState<string>('dashboard');
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
     useEffect(() => {
         const handleOnline = () => setIsOffline(false);
@@ -28,11 +31,17 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         };
     }, []);
 
+    const addDebugLog = (msg: string) => {
+        setDebugLogs(prev => [`[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`, ...prev].slice(0, 20));
+    };
+
     return (
         <UIContext.Provider value={{
-            currentView: view,
-            setPage: setView,
-            isOffline
+            currentView,
+            setPage: setCurrentView,
+            isOffline,
+            debugLogs,
+            addDebugLog
         }}>
             {children}
         </UIContext.Provider>

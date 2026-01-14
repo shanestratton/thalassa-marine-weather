@@ -31,9 +31,9 @@
 html, body, #root {
   height: 100%;
   width: 100%;
-  overflow: hidden;
-  overscroll-behavior: none; /* Prevent rubber-banding on iOS */
-  touch-action: pan-x pan-y;
+  overflow: hidden; /* Prevent body scroll */
+  overscroll-behavior: none; /* Kill bounce globally */
+  -webkit-overflow-scrolling: auto; /* Dissuade native momentum on body */
 }
 
 /* Ensure dynamic viewport units are respected where supported */
@@ -41,6 +41,15 @@ html, body, #root {
   html, body, #root {
     min-height: 100dvh;
   }
+}
+
+/* RESPONSIVE SCALING: Fluid Root Font Size */
+/* This limits the scaling to Mobile range (320px - 450px) */
+/* On iPhone SE (375px), font will be ~15px. On Pro Max (430px), ~17px. */
+@media screen and (max-width: 768px) {
+    html {
+        font-size: clamp(13px, 4vw, 17px);
+    }
 }
 
 /* Animations matching the 'tailwindcss-animate' style classes used in React components */

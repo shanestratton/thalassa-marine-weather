@@ -1,20 +1,19 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
 import { reverseGeocode } from '../services/weatherService';
-import { formatLocationInput } from '../utils';
-import { DisplayMode, WeatherConditionKey } from '../types';
+import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
+import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 
 const DEFAULT_BACKGROUNDS = {
-  sunny: "https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=2070&auto=format&fit=crop", 
-  cloudy: "https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=2070&auto=format&fit=crop", 
-  rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?q=80&w=2070&auto=format&fit=crop", 
-  storm: "https://images.unsplash.com/photo-1505672675380-4d329615699c?q=80&w=2070&auto=format&fit=crop", 
-  fog: "https://images.unsplash.com/photo-1485230905346-71acb9518d9c?q=80&w=2070&auto=format&fit=crop", 
-  night: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2070&auto=format&fit=crop", 
-  default: "https://images.unsplash.com/photo-1478359844494-1092259d93e4?q=80&w=2070&auto=format&fit=crop" 
+    sunny: "https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop",
+    cloudy: "https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=1080&fm=jpg&fit=crop",
+    rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?q=80&w=1080&fm=jpg&fit=crop",
+    storm: "https://images.unsplash.com/photo-1505672675380-4d329615699c?q=80&w=1080&fm=jpg&fit=crop",
+    fog: "https://images.unsplash.com/photo-1485230905346-71acb9518d9c?q=80&w=1080&fm=jpg&fit=crop",
+    night: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1080&fm=jpg&fit=crop",
+    default: "https://images.unsplash.com/photo-1478359844494-1092259d93e4?q=80&w=1080&fm=jpg&fit=crop"
 };
 
 const mapConditionToKey = (cond: string): WeatherConditionKey => {
@@ -30,8 +29,7 @@ const mapConditionToKey = (cond: string): WeatherConditionKey => {
 };
 
 export const useAppController = () => {
-    // Optimization: Use specific hooks instead of monolithic useThalassa
-    const { weatherData, loading, fetchWeather } = useWeather();
+    const { weatherData, loading, fetchWeather, selectLocation } = useWeather();
     const { settings, updateSettings } = useSettings();
     const { setPage, isOffline, currentView } = useUI();
 
@@ -40,12 +38,19 @@ export const useAppController = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+    // UI Local State
+    const [sheetData, setSheetData] = useState<any>(null);
+    const [sheetOpen, setSheetOpen] = useState(false);
+    const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
+    const [isMobileLandscape, setIsMobileLandscape] = useState(false);
+
     // 1. Initial Load
     useEffect(() => {
-        const onboarded = localStorage.getItem('thalassa_has_onboarded');
+        const onboarded = localStorage.getItem('thalassa_v3_onboarded');
         if (!onboarded) {
             setShowOnboarding(true);
         } else if (!weatherData && !loading && settings.defaultLocation) {
+            setPage('dashboard');
             fetchWeather(settings.defaultLocation);
         }
     }, [settings.defaultLocation]);
@@ -60,72 +65,184 @@ export const useAppController = () => {
     }, [weatherData]);
 
     // 3. Query Sync
+    // 3. Query Sync
     useEffect(() => {
         if (weatherData && weatherData.locationName && !loading) {
-             if (query !== weatherData.locationName) {
-                 setQuery(weatherData.locationName);
-             }
+            let targetName = weatherData.locationName;
+
+            // WAYPOINT LOGIC: If offshore (no tides, not landlocked), use coordinates
+            const isWayPoint = (!weatherData.tides || weatherData.tides.length === 0) && !weatherData.isLandlocked;
+            if (isWayPoint && weatherData.coordinates) {
+                const latStr = formatCoordinate(weatherData.coordinates.lat, 'lat');
+                const lonStr = formatCoordinate(weatherData.coordinates.lon, 'lon');
+                targetName = `WP ${latStr} ${lonStr}`;
+            }
+
+            if (query !== targetName) {
+                setQuery(targetName);
+            }
         }
     }, [weatherData, loading]);
 
+    // 4. Mobile Landscape Detection
+    useEffect(() => {
+        const checkOrientation = () => {
+            const isLandscape = window.matchMedia('(orientation: landscape)').matches;
+            const isShort = window.innerHeight < 500; // Typical mobile landscape height
+            setIsMobileLandscape(isLandscape && isShort);
+        };
+        checkOrientation();
+        window.addEventListener('resize', checkOrientation);
+        return () => window.removeEventListener('resize', checkOrientation);
+    }, []);
+
     // Handlers
-    const showToast = (msg: string) => {
+    const showToast = useCallback((msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
-    }
+    }, []);
 
     const handleSearchSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!query || query.length < 2) return; 
+        if (!query || query.length < 2) return;
         const formatted = formatLocationInput(query);
         setQuery(formatted);
         setPage('dashboard');
-        fetchWeather(formatted);
+        fetchWeather(formatted, false, undefined, true);
     };
 
     const handleLocate = () => {
         if (isOffline) { alert("GPS requires network."); return; }
+        setQuery("Locating...");
         navigator.geolocation.getCurrentPosition(async (pos) => {
             const { latitude, longitude } = pos.coords;
             const coordStr = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-            setQuery(coordStr);
-            setPage('dashboard');
-            fetchWeather(coordStr);
+            let searchTarget = coordStr;
             try {
                 const name = await reverseGeocode(latitude, longitude);
-                if (name) setQuery(name);
-            } catch {}
+                if (name) searchTarget = name;
+            } catch (e) {
+                console.warn("Reverse ID failed, using coords");
+            }
+            setQuery(searchTarget);
+            setPage('dashboard');
+            fetchWeather(searchTarget, false, undefined, true);
+        }, (err) => {
+            showToast("GPS Error: " + err.message);
+            setQuery("");
         });
     };
+
+    const handleOnboardingComplete = (newSettings: Partial<UserSettings>) => {
+        updateSettings(newSettings);
+        setShowOnboarding(false);
+        if (newSettings.defaultLocation) {
+            setQuery(newSettings.defaultLocation);
+            setTimeout(() => fetchWeather(newSettings.defaultLocation!, true), 100);
+        }
+    };
+
+    const toggleFavorite = useCallback(() => {
+        if (!weatherData) return;
+        const loc = weatherData.locationName;
+        const isFav = settings.savedLocations.includes(loc);
+        let newLocs;
+        if (isFav) {
+            newLocs = settings.savedLocations.filter(l => l !== loc);
+            showToast(`Removed ${loc} from favorites`);
+        } else {
+            newLocs = [loc, ...settings.savedLocations];
+            showToast(`Saved ${loc} to favorites`);
+        }
+        updateSettings({ savedLocations: newLocs });
+    }, [weatherData, settings.savedLocations, showToast, updateSettings]);
+
+    const handleMapTargetSelect = useCallback(async (lat: number, lon: number, name?: string) => {
+        const locationQuery = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        setQuery(locationQuery);
+        setSheetOpen(false);
+        selectLocation(locationQuery, { lat, lon });
+        setPage('dashboard');
+    }, [setQuery, selectLocation, setPage]);
+
+    const handleFavoriteSelect = useCallback((loc: string) => {
+        setQuery(loc);
+        const oceanMatch = loc.match(/Ocean Point\s+(\d+\.\d+)([NS])\s+(\d+\.\d+)([EW])/);
+        if (oceanMatch) {
+            const rawLat = parseFloat(oceanMatch[1]);
+            const latDir = oceanMatch[2];
+            const rawLon = parseFloat(oceanMatch[3]);
+            const lonDir = oceanMatch[4];
+            const lat = latDir === 'S' ? -rawLat : rawLat;
+            const lon = lonDir === 'W' ? -rawLon : rawLon;
+            selectLocation(loc, { lat, lon });
+        } else {
+            selectLocation(loc);
+        }
+        setPage('dashboard');
+    }, [setQuery, selectLocation, setPage]);
+
+    // Navigation Handlers (Encapsulate DOM/Window logic)
+    const handleTabDashboard = useCallback(() => {
+        if (currentView !== 'dashboard') {
+            setPage('dashboard');
+        } else {
+            // "Pull to Refresh" feel for tab click
+            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+        }
+    }, [currentView, setPage]);
+
+    const handleTabMetrics = useCallback(() => {
+        setPage('details');
+        // Encapsulate the scroll reset
+        document.getElementById('app-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [setPage]);
+
+    const handleTabPassage = useCallback(() => setPage('voyage'), [setPage]);
+    const handleTabMap = useCallback(() => setPage('map'), [setPage]);
+    const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
+
 
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
     if (settings.displayMode === 'auto') {
+        const now = new Date();
         let isNight = false;
-        const currentHour = new Date().getHours();
-        isNight = currentHour < 6 || currentHour >= 18;
-        
-        if (weatherData?.current?.sunrise && weatherData?.current?.sunset && weatherData.current.sunrise !== '--:--') {
-            try {
-                const now = new Date();
-                const currentMins = now.getHours() * 60 + now.getMinutes();
-                const parseToMins = (tStr: string) => {
-                    const [t, m] = tStr.split(' ');
-                    let [hrs, mins] = t.split(':').map(Number);
-                    if (m === 'PM' && hrs !== 12) hrs += 12;
-                    if (m === 'AM' && hrs === 12) hrs = 0;
-                    return hrs * 60 + mins;
-                };
-                const riseMins = parseToMins(weatherData.current.sunrise);
-                const setMins = parseToMins(weatherData.current.sunset);
-                isNight = currentMins < riseMins || currentMins > setMins;
-            } catch (e) {}
+        if (weatherData && weatherData.coordinates) {
+            const times = getSunTimes(now, weatherData.coordinates.lat, weatherData.coordinates.lon);
+            if (times) {
+                isNight = now < times.sunrise || now >= times.sunset;
+            } else {
+                const currentHour = now.getHours();
+                isNight = currentHour < 6 || currentHour >= 18;
+            }
+        } else {
+            const currentHour = now.getHours();
+            isNight = currentHour < 6 || currentHour >= 18;
         }
         effectiveMode = isNight ? 'night' : 'high-contrast';
     }
 
     return {
         query, setQuery, bgImage, showOnboarding, setShowOnboarding, toastMessage, showToast,
-        handleSearchSubmit, handleLocate, effectiveMode
+        handleSearchSubmit, handleLocate, effectiveMode,
+
+        // Extracted Handlers & State
+        toggleFavorite,
+        handleMapTargetSelect,
+        handleFavoriteSelect,
+        handleOnboardingComplete,
+
+        sheetData, setSheetData,
+        sheetOpen, setSheetOpen,
+        isUpgradeOpen, setIsUpgradeOpen,
+        isMobileLandscape,
+
+        // Navigation
+        handleTabDashboard,
+        handleTabMetrics,
+        handleTabPassage,
+        handleTabMap,
+        handleTabSettings
     };
 };

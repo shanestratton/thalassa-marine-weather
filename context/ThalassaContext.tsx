@@ -15,13 +15,13 @@ export type { UserSettings, MarineWeatherReport, VoyagePlan, DebugInfo } from '.
 export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
         <AuthProvider>
-            <SettingsProvider>
-                <UIProvider>
+            <UIProvider>
+                <SettingsProvider>
                     <WeatherProvider>
                         {children}
                     </WeatherProvider>
-                </UIProvider>
-            </SettingsProvider>
+                </SettingsProvider>
+            </UIProvider>
         </AuthProvider>
     );
 };

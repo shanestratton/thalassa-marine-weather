@@ -26,14 +26,14 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
     return (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/90 backdrop-blur-md transition-opacity" onClick={onClose} />
-            
+
             <div className="relative bg-[#0f172a] w-full max-w-lg rounded-3xl overflow-hidden border border-white/10 shadow-2xl flex flex-col max-h-[90vh]">
-                
+
                 {/* Header Image/Gradient */}
                 <div className="relative h-40 bg-gradient-to-br from-sky-900 via-blue-900 to-slate-900 flex items-center justify-center overflow-hidden">
-                    <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-30"></div>
+                    <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=2070&fm=jpg&fit=crop')] bg-cover bg-center opacity-30"></div>
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
-                    
+
                     <div className="relative z-10 text-center">
                         <div className="w-16 h-16 mx-auto bg-sky-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(14,165,233,0.5)] mb-3">
                             <DiamondIcon className="w-8 h-8 text-white" />
@@ -54,20 +54,20 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     </div>
 
                     <div className="space-y-3 mb-8">
-                        <FeatureRow 
-                            icon={<RouteIcon className="w-5 h-5"/>}
-                            title="Voyage Route Planner" 
-                            desc="Smart-calculated routes with waypoints, hazards, and safe anchorage recommendations." 
+                        <FeatureRow
+                            icon={<RouteIcon className="w-5 h-5" />}
+                            title="Voyage Route Planner"
+                            desc="Smart-calculated routes with waypoints, hazards, and safe anchorage recommendations."
                         />
-                        <FeatureRow 
-                            icon={<ServerIcon className="w-5 h-5"/>}
-                            title="Captain's Log & Audio" 
-                            desc="Natural language analysis of conditions and audio broadcast briefings." 
+                        <FeatureRow
+                            icon={<ServerIcon className="w-5 h-5" />}
+                            title="Captain's Log & Audio"
+                            desc="Natural language analysis of conditions and audio broadcast briefings."
                         />
-                         <FeatureRow 
-                            icon={<StarIcon className="w-5 h-5"/>}
-                            title="10-Day Extended Forecast" 
-                            desc="Unlock the full 10-day outlook with high-resolution hourly trends." 
+                        <FeatureRow
+                            icon={<StarIcon className="w-5 h-5" />}
+                            title="10-Day Extended Forecast"
+                            desc="Unlock the full 10-day outlook with high-resolution hourly trends."
                         />
                     </div>
 
@@ -79,7 +79,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         <p className="text-xs text-sky-300">Less than $8.50/month</p>
                     </div>
 
-                    <button 
+                    <button
                         onClick={() => {
                             onUpgrade();
                             onClose();
@@ -89,7 +89,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         <LockIcon className="w-5 h-5" />
                         Start 7-Day Free Trial
                     </button>
-                    
+
                     <button className="w-full mt-3 py-2 text-xs text-gray-500 hover:text-white transition-colors">
                         Restore Purchases
                     </button>

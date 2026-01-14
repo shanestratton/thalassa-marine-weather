@@ -1,40 +1,48 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { UserSettings } from '../types';
 import { getSystemUnits } from '../utils';
 import { useAuth } from './AuthContext';
+import { useUI } from './UIContext';
 import { supabase } from '../services/supabase';
 
-const CACHE_VERSION = 'v11.7-SETTINGS-SPLIT';
+const CACHE_VERSION = 'v1.3.14-WIDGET-REFRESH';
 const DAILY_STORMGLASS_LIMIT = 100;
 
+import { KeepAwake } from '@capacitor-community/keep-awake';
+import { Capacitor } from '@capacitor/core';
+// ... (keep imports)
+
 export const DEFAULT_SETTINGS: UserSettings = {
-  isPro: true, 
-  notifications: { 
-      wind: { enabled: false, threshold: 20 }, 
-      gusts: { enabled: false, threshold: 30 },
-      waves: { enabled: false, threshold: 5 }, 
-      swellPeriod: { enabled: false, threshold: 10 },
-      visibility: { enabled: false, threshold: 1 },
-      uv: { enabled: false, threshold: 8 },
-      tempHigh: { enabled: false, threshold: 35 },
-      tempLow: { enabled: false, threshold: 5 },
-      precipitation: { enabled: false } 
-  },
-  units: getSystemUnits(),
-  defaultLocation: undefined, 
-  savedLocations: [],
-  vessel: undefined,
-  timeDisplay: 'location',
-  displayMode: 'auto',
-  preferredModel: 'STORMGLASS',
-  aiPersona: 50, // Default to Pro (Professional/Concise) instead of Salty
-  heroWidgets: ['wind', 'wave', 'pressure'],
-  detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell']
+    isPro: true,
+    alwaysOn: false,
+    notifications: {
+        wind: { enabled: false, threshold: 20 },
+        gusts: { enabled: false, threshold: 30 },
+        waves: { enabled: false, threshold: 5 },
+        swellPeriod: { enabled: false, threshold: 10 },
+        visibility: { enabled: false, threshold: 1 },
+        uv: { enabled: false, threshold: 8 },
+        tempHigh: { enabled: false, threshold: 35 },
+        tempLow: { enabled: false, threshold: 5 },
+        precipitation: { enabled: false }
+    },
+    units: { ...getSystemUnits(), waveHeight: 'm' },
+    defaultLocation: undefined,
+    savedLocations: [],
+    vessel: undefined,
+    timeDisplay: 'location',
+    displayMode: 'auto',
+    preferredModel: 'best_match',
+    aiPersona: 50, // Default to Pro (Professional/Concise) instead of Salty
+    heroWidgets: ['wind', 'wave', 'pressure'],
+    detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
+    rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'forecastChart', 'hourly', 'daily', 'map'],
+    mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
 };
 
 interface SettingsContextType {
     settings: UserSettings;
+    loading: boolean;
     quotaLimit: number;
     updateSettings: (newSettings: Partial<UserSettings>) => void;
     togglePro: () => void;
@@ -43,52 +51,138 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
+import { Preferences } from '@capacitor/preferences';
+
+// ... (keep imports)
+
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
+    const { addDebugLog } = useUI();
+    const [loading, setLoading] = useState(true);
 
-    const [settings, setSettings] = useState<UserSettings>(() => {
-        try {
-            const ver = localStorage.getItem('thalassa_cache_version');
-            // Version check handled primarily in WeatherContext for data, 
-            // but we ensure settings integrity here.
-            const saved = localStorage.getItem('thalassa_settings');
-            if (!saved) return DEFAULT_SETTINGS;
-            
-            const parsed = JSON.parse(saved) || {};
-            
-            // Merge deep objects to ensure integrity
-            return {
-                ...DEFAULT_SETTINGS,
-                ...parsed,
-                notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications || {}) },
-                units: { ...DEFAULT_SETTINGS.units, ...(parsed.units || {}) },
-                vessel: { ...DEFAULT_SETTINGS.vessel, ...(parsed.vessel || {}) },
-                heroWidgets: parsed.heroWidgets || DEFAULT_SETTINGS.heroWidgets,
-                detailsWidgets: parsed.detailsWidgets || DEFAULT_SETTINGS.detailsWidgets,
-                aiPersona: parsed.aiPersona !== undefined ? parsed.aiPersona : DEFAULT_SETTINGS.aiPersona,
-                isPro: true
-            };
-        } catch (e) {
-            return DEFAULT_SETTINGS;
-        }
-    });
+    // Start with DEFAULTS (Sync) - avoid blocking render
+    const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
 
-    const settingsRef = useRef(settings);
-    useEffect(() => { settingsRef.current = settings; }, [settings]);
+    // --- EFFECT: Manage Screen Awake State ---
+    useEffect(() => {
+        const manageScreen = async () => {
+            if (!Capacitor.isNativePlatform()) return; // Skip on Web to avoid errors
+
+            try {
+                if (settings.alwaysOn) {
+                    await KeepAwake.keepAwake();
+                } else {
+                    await KeepAwake.allowSleep();
+                }
+            } catch (e: any) {
+                // Suppress "UNIMPLEMENTED" warnings on Web/Dev
+                if (e?.code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                    console.warn("KeepAwake Plugin Error:", e);
+                }
+            }
+        };
+        manageScreen();
+    }, [settings.alwaysOn]);
+
+    // Initial Load from Native Storage (Async)
+    useEffect(() => {
+        const loadNativeSettings = async () => {
+            try {
+                const { value } = await Preferences.get({ key: 'thalassa_settings' });
+                if (value) {
+                    const parsed = JSON.parse(value);
+                    const validHeroWidgets = Array.isArray(parsed.heroWidgets) && parsed.heroWidgets.length > 0 ? parsed.heroWidgets : DEFAULT_SETTINGS.heroWidgets;
+
+                    setSettings(prev => ({
+                        ...DEFAULT_SETTINGS,
+                        ...parsed,
+                        notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications || {}) },
+                        units: {
+                            ...DEFAULT_SETTINGS.units,
+                            ...(parsed.units || {}),
+                            waveHeight: parsed.units?.waveHeight || parsed.units?.length || 'm'
+                        },
+                        vessel: { ...DEFAULT_SETTINGS.vessel, ...(parsed.vessel || {}) },
+                        heroWidgets: validHeroWidgets,
+                        rowOrder: (() => {
+                            const saved = Array.isArray(parsed.rowOrder) ? [...parsed.rowOrder] : [...(DEFAULT_SETTINGS.rowOrder || [])];
+
+                            // Migration: Split 'charts' into individual widgets
+                            const chartsIdx = saved.indexOf('charts');
+                            if (chartsIdx !== -1) {
+                                saved.splice(chartsIdx, 1, 'forecastChart', 'hourly', 'daily');
+                            }
+
+                            // Migration: Ensure new widgets exist
+                            if (!saved.includes('sunMoon')) {
+                                const tidesIdx = saved.indexOf('tides');
+                                if (tidesIdx !== -1) saved.splice(tidesIdx + 1, 0, 'sunMoon');
+                                else saved.push('sunMoon');
+                            }
+                            if (!saved.includes('vessel')) {
+                                const sunIdx = saved.indexOf('sunMoon');
+                                if (sunIdx !== -1) saved.splice(sunIdx + 1, 0, 'vessel');
+                                else saved.push('vessel');
+                            }
+
+                            // Clean up duplicates just in case
+                            return [...new Set(saved)];
+                        })(),
+                        isPro: true
+                    }));
+                    const order = validHeroWidgets.join(', ');
+                    addDebugLog(`LOADED: [${order}] from Disk.`);
+                } else {
+                    addDebugLog(`INIT: No Settings Found (Starting Defaults)`);
+                }
+            } catch (e) {
+                console.error("Native Load Failed", e);
+                addDebugLog(`ERROR: Native Load Failed`);
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadNativeSettings();
+    }, []);
 
     const syncUp = async (userId: string, newSettings: UserSettings) => {
         if (!supabase) return;
         await supabase.from('profiles').upsert({ id: userId, settings: newSettings, updated_at: new Date().toISOString() });
     };
 
-    const updateSettings = useCallback((newSettings: Partial<UserSettings>) => {
+    const updateSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
+        if (loading) {
+            console.warn("Blocked updateSettings during load");
+            return;
+        }
+
+        let updatedState: UserSettings | undefined;
+
         setSettings(prev => {
-            const updated = { ...prev, ...newSettings };
-            localStorage.setItem('thalassa_settings', JSON.stringify(updated));
-            if (user) syncUp(user.id, updated);
-            return updated;
+            const temp = { ...prev, ...newSettings };
+            updatedState = temp;
+            return temp;
         });
-    }, [user]);
+
+        // Effect: Persist to Storage (Outside Reducer)
+        if (updatedState) {
+            try {
+                await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updatedState) });
+
+                if (newSettings.heroWidgets) {
+                    const order = newSettings.heroWidgets.join(', ');
+                    addDebugLog(`SAVE OK: [${order}]`);
+                } else {
+                    addDebugLog(`SAVE OK: Settings Updated`);
+                }
+            } catch (err: any) {
+                console.error("Native Save Failed", err);
+                addDebugLog(`SAVE FAIL: ${err.message}`);
+            }
+
+            if (user && user.id) syncUp(user.id, updatedState);
+        }
+    }, [user, addDebugLog, loading]);
 
     const resetSettings = useCallback(() => {
         if (window.confirm("Factory Reset: Restore all settings to default? This cannot be undone.")) {
@@ -103,6 +197,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return (
         <SettingsContext.Provider value={{
             settings,
+            loading,
             quotaLimit: DAILY_STORMGLASS_LIMIT,
             updateSettings,
             togglePro,

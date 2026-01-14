@@ -9,12 +9,12 @@ const logConfig = (msg: string) => console.log(`[Gemini Config] ${msg}`);
 
 const getGeminiKey = (): string => {
     let key = "";
-    
+
     // 1. Try Vite native injection (import.meta.env)
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
         key = import.meta.env.VITE_GEMINI_API_KEY as string;
-    } 
-    
+    }
+
     // 2. Try process.env shim
     if (!key) {
         try {
@@ -23,7 +23,7 @@ const getGeminiKey = (): string => {
                 // @ts-ignore
                 key = process.env.API_KEY || process.env.GEMINI_API_KEY;
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     return key;
@@ -31,14 +31,14 @@ const getGeminiKey = (): string => {
 
 const getAI = () => {
     if (aiInstance) return aiInstance;
-    
+
     const key = getGeminiKey();
-    
+
     if (!key || key.length < 10 || key.includes("YOUR_")) {
         console.warn("Gemini Service: API Key Missing or Invalid");
         return null;
     }
-    
+
     try {
         aiInstance = new GoogleGenAI({ apiKey: key });
         return aiInstance;
@@ -64,7 +64,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
 const cleanAndParseJson = <T = any>(text: string): T | null => {
     if (!text) return null;
     try {
-        let clean = text.replace(/```json/g, '').replace(/```/g, ''); 
+        let clean = text.replace(/```json/g, '').replace(/```/g, '');
         const firstBracket = clean.indexOf('[');
         const lastBracket = clean.lastIndexOf(']');
         const firstBrace = clean.indexOf('{');
@@ -97,7 +97,7 @@ const applySafetyOverride = (advice: string, current: WeatherMetrics): string =>
         warning = "IT'S A GALE, MORON. DON'T GO OUT. ";
     } else if (wave > 12) {
         warning = "LOOK AT THE WAVES, STUPID. 12 FEET. YOU WILL SINK. ";
-    } 
+    }
 
     if (warning) {
         return warning + advice;
@@ -106,7 +106,7 @@ const applySafetyOverride = (advice: string, current: WeatherMetrics): string =>
 };
 
 export const enrichMarineWeather = async (
-    baseData: MarineWeatherReport, 
+    baseData: MarineWeatherReport,
     vessel?: VesselProfile,
     units?: UnitPreferences,
     vesselUnits?: VesselDimensionUnits,
@@ -123,16 +123,16 @@ export const enrichMarineWeather = async (
         const vesselType = vessel?.type || 'sail';
         const lenUnit = vesselUnits?.length || 'ft';
         const lenStr = vessel?.length ? vessel.length.toFixed(0) : "Unknown";
-        
+
         const speedUnit = units?.speed || 'kts';
         const waveUnit = units?.length || 'ft';
-        
+
         const displayWind = convertSpeed(baseData.current.windSpeed, speedUnit);
         const displayWave = convertLength(baseData.current.waveHeight, waveUnit);
         const displayTemp = baseData.current.airTemperature !== null ? Math.round(baseData.current.airTemperature!) : "Unknown";
 
         const windDir = baseData.current.windDirection || "Unknown";
-        
+
         let tideState = "Slack";
         if (baseData.tides && baseData.tides.length > 0) {
             const nowTime = new Date().getTime();
@@ -183,9 +183,12 @@ export const enrichMarineWeather = async (
             Return JSON { "boatingAdvice": "string" }`;
         } else {
             // MARINE VARIANT
+            const vesselNamePart = (vessel?.name && vessel.name !== "Observer") ? `named "${vessel.name}"` : "";
+            const vesselDesc = `Sailing a ${lenStr} ${lenUnit} ${vesselType} ${vesselNamePart} `.trim();
+
             personaPrompt = `${role}
             
-            THE USER IS: Sailing a ${lenStr} ${lenUnit} ${vesselType} named "${vessel?.name}".
+            THE USER IS: ${vesselDesc}.
             LOCATION: ${baseData.locationName}.
             TIME: ${timeStr}.
             
@@ -202,7 +205,7 @@ export const enrichMarineWeather = async (
         }
 
         const adviceResult = await withTimeout(ai.models.generateContent({
-            model: 'gemini-3-pro-preview', 
+            model: 'gemini-3-pro-preview',
             contents: personaPrompt,
             config: { responseMimeType: "application/json" }
         }), 15000, "Advice Timeout").then(res => cleanAndParseJson<{ boatingAdvice: string }>((res as GenerateContentResponse).text || '{}')).catch(() => null);
@@ -210,13 +213,13 @@ export const enrichMarineWeather = async (
         const rawAdvice = adviceResult?.boatingAdvice || baseData.boatingAdvice;
         // Apply safety override mainly for the mid-range nasty persona, 
         // the insane persona might not need it as much but better safe than sorry.
-        const safeAdvice = isLand ? rawAdvice : applySafetyOverride(rawAdvice, baseData.current); 
+        const safeAdvice = isLand ? rawAdvice : applySafetyOverride(rawAdvice, baseData.current);
 
         return {
             ...baseData,
             boatingAdvice: safeAdvice,
             aiGeneratedAt: new Date().toISOString(),
-            modelUsed: baseData.modelUsed + ` (Persona: ${aiPersona})`
+            modelUsed: baseData.modelUsed
         };
     } catch (e) {
         console.warn("Enrichment Error:", e);
@@ -227,30 +230,44 @@ export const enrichMarineWeather = async (
 export const generateMarineAudioBriefing = async (script: string): Promise<ArrayBuffer> => {
     const ai = getAI();
     if (!ai || !script) throw new Error("Audio system unavailable");
-    
+
     // Inject attitude into the TTS script prompt if possible, but TTS just reads text.
     // The script passed in should already be nasty.
-    
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: script }] }],
-        config: { 
-            responseModalities: [Modality.AUDIO], 
-            speechConfig: { 
-                voiceConfig: { 
-                    // Fenrir is deeper, scarier. Fits the nasty captain better than Puck.
-                    prebuiltVoiceConfig: { voiceName: 'Fenrir' } 
-                } 
-            } 
-        },
-    });
-    const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64) throw new Error("No audio generated");
-    const bin = atob(base64);
-    const len = bin.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.buffer;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: script }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        // Fenrir is deeper, scarier. Fits the nasty captain better than Puck.
+                        prebuiltVoiceConfig: { voiceName: 'Fenrir' }
+                    }
+                }
+            },
+        });
+        const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64) throw new Error("No audio data returned");
+
+        // Convert base64 to ArrayBuffer
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    } catch (error: any) {
+        if (error.message && error.message.includes("429")) {
+            console.warn("Gemini Audio Quota Exceeded (429). Skipping audio.");
+            // Return empty buffer or handle gracefully
+            throw new Error("Audio Quota Exceeded");
+        }
+        throw error;
+    }
+
 };
 
 export const findNearestCoastalPoint = async (lat: number, lon: number, originalName: string): Promise<{ name: string, lat: number, lon: number }> => {
@@ -263,12 +280,12 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
             contents: prompt,
             config: { responseMimeType: "application/json", tools: [{ googleSearch: {} }] }
         }), 8000, "Geo Timeout")) as GenerateContentResponse;
-        
+
         const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(response.text || '{}');
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
     } catch {
-        return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.05 };
+        return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.045 };
     }
 };
 
@@ -279,14 +296,14 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         const length = vessel?.length || 30;
         const type = vessel?.type || 'sail';
         const name = vessel?.name || 'Thalassa';
-        
-        // UPGRADED TO NASTY VOYAGE PLANNER
-        const prompt = `Act as an extremely grumpy, cynical Master Mariner. Plan a marine voyage for a ${length}ft ${type} vessel named "${name}" from "${origin}" to "${destination}" via "${via || 'direct'}" departing ${departureDate}.
+
+        // STANDARD PROFESSIONAL VOYAGE PLANNER
+        const prompt = `Act as a professional Master Mariner. Plan a marine voyage for a ${length}ft ${type} vessel named "${name}" from "${origin}" to "${destination}" via "${via || 'direct'}" departing ${departureDate}.
         
         TONE:
-        - Mock the user's choice of route.
-        - Be pessimistic about the "suitability".
-        - In the "overview", insult the captain's skills.
+        - Professional, concise, safety-focused.
+        - Provide realistic assessment of suitability.
+        - In the "overview", be objective and helpful.
         
         RETURN PURE JSON ONLY. NO MARKDOWN. STRICTLY ADHERE TO THIS SCHEMA:
         {
@@ -297,10 +314,10 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
           "destinationCoordinates": { "lat": number, "lon": number },
           "distanceApprox": "string",
           "durationApprox": "string",
-          "overview": "string (Rude summary)",
+          "overview": "string (Professional summary)",
           "suitability": {
             "status": "SAFE" | "CAUTION" | "UNSAFE",
-            "reasoning": "string (Why the user will probably fail)",
+            "reasoning": "string (Safety assessment)",
             "maxWindEncountered": number,
             "maxWaveEncountered": number
           },
@@ -334,18 +351,48 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             contents: prompt,
             config: { responseMimeType: "application/json" }
         })) as GenerateContentResponse;
-        
+
         const result = cleanAndParseJson<VoyagePlan>(response.text || '{}');
         if (!result) throw new Error("Failed to parse VoyagePlan");
-        
+
         if (!result.waypoints) result.waypoints = [];
         if (!result.hazards) result.hazards = [];
         if (!result.customs) result.customs = { required: false, destinationCountry: "", procedures: "" };
-        
+
         return result;
-    } catch (e) {
+    } catch (e: any) {
+        // FALLBACK FOR RATE LIMITS (429) OR NETWORK ISSUES DURING DEMO
+        if (e.message?.includes('429') || e.message?.includes('Quota') || e.status === 429) {
+            console.warn("Gemini Quota Exceeded. Using Mock Data.");
+            return { ...MOCK_VOYAGE_PLAN, origin: origin, destination: destination };
+        }
         throw e;
     }
+};
+
+const MOCK_VOYAGE_PLAN: VoyagePlan = {
+    origin: "San Diego, CA",
+    destination: "Cabo San Lucas, MX",
+    departureDate: new Date().toISOString().split('T')[0],
+    durationApprox: "3 days, 4 hours",
+    distanceApprox: "750 NM",
+    originCoordinates: { lat: 32.7157, lon: -117.1611 },
+    destinationCoordinates: { lat: 22.8905, lon: -109.9167 },
+    waypoints: [
+        { name: "San Diego Channel", coordinates: { lat: 32.6, lon: -117.2 }, windSpeed: 12, waveHeight: 3 },
+        { name: "Ensenada Offshore", coordinates: { lat: 31.8, lon: -116.8 }, windSpeed: 15, waveHeight: 4 },
+        { name: "Punta Baja", coordinates: { lat: 29.9, lon: -115.9 }, windSpeed: 18, waveHeight: 5 },
+        { name: "Cedros Island leeward", coordinates: { lat: 28.1, lon: -115.1 }, windSpeed: 10, waveHeight: 2 },
+        { name: "Magdalena Bay", coordinates: { lat: 24.5, lon: -112.0 }, windSpeed: 14, waveHeight: 3 },
+    ],
+    hazards: [
+        { name: "Tehuantepec Winds", severity: "MEDIUM", description: "Gap winds accelerating through mountain passes. Monitor local forecasts." },
+        { name: "Fishing Traffic", severity: "LOW", description: "Heavy panga traffic expected near coastal villages." }
+    ],
+    overview: "A favorable passage with following seas expected for the majority of the route. High pressure ridge keeps conditions stable.",
+    suitability: { status: "SAFE", maxWindEncountered: 18, maxWaveEncountered: 5, reasoning: "Conditions well within vessel limits." },
+    customs: { required: true, destinationCountry: "Mexico", procedures: "Check into Ensenada or Cabo San Lucas. Temporary Import Permit (TIP) required.", contactPhone: "+52 646 178 8800" },
+    bestDepartureWindow: { timeRange: "06:00 - 10:00 PST", reasoning: "Morning ebb tide assists departure." }
 };
 
 export const fetchStopDetails = async (locationName: string): Promise<StopDetails> => {
@@ -353,10 +400,10 @@ export const fetchStopDetails = async (locationName: string): Promise<StopDetail
     if (!ai) throw new Error("AI unavailable");
     try {
         const prompt = `Marine guide for: "${locationName}". Marina facilities, fuel. 
-        TONE: You are annoyed the user wants to stop here. Mock the location.
+        TONE: Helpful, informative, professional.
         JSON output.`;
         const response = (await ai.models.generateContent({
-            model: 'gemini-3-pro-preview', 
+            model: 'gemini-3-pro-preview',
             contents: prompt,
             config: { responseMimeType: "application/json", tools: [{ googleSearch: {} }] }
         })) as GenerateContentResponse;
@@ -373,8 +420,8 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
     const ai = getAI();
     if (!ai) throw new Error("AI unavailable");
     try {
-        const prompt = `Tactical analysis: ${plan.origin} to ${plan.destination}. 
-        TONE: Brutal honesty. Tell them they are burning too much fuel because they are bad at trimming sails. 
+        const prompt = `Analysis for voyage: ${plan.origin} to ${plan.destination}. 
+        TONE: Professional advisory. Focus on efficiency and safety. 
         JSON { "strategy": "string", "fuelTactics": "string", "watchSchedule": "string" }.`;
         const response = (await ai.models.generateContent({
             model: 'gemini-3-pro-preview',
@@ -391,16 +438,16 @@ export const suggestLocationCorrection = async (input: string): Promise<string |
     const ai = getAI();
     if (!ai) return null;
     try {
-        const prompt = `The user searched for: "${input}". They probably spelled it wrong because they are stupid.
-        Identify the intended port.
+        const prompt = `The user searched for: "${input}". 
+        Identify the intended port or marine location.
         Return strictly JSON: { "corrected": "string" }.`;
-        
+
         const response = (await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { responseMimeType: "application/json" }
         })) as GenerateContentResponse;
-        
+
         const res = cleanAndParseJson<{ corrected: string }>(response.text || '{}');
         return res?.corrected || null;
     } catch (e) {

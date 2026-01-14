@@ -1,0 +1,25 @@
+current directory: /Users/shanestratton/Desktop/thalassa-marine-weather/ios/App/vendor/bundle/ruby/3.4.0+1/gems/json-2.18.0/ext/json/ext/parser
+/Users/shanestratton/.rbenv/versions/3.4.0/bin/ruby extconf.rb
+checking for rb_enc_interned_str() in ruby/encoding.h... yes
+checking for rb_str_to_interned_str() in ruby.h... yes
+checking for rb_hash_new_capa() in ruby.h... yes
+checking for rb_hash_bulk_insert() in ruby.h... yes
+checking for whether -std=c99 is accepted as CFLAGS... yes
+checking for arm_neon.h... yes
+checking for cpuid.h... no
+creating Makefile
+
+current directory: /Users/shanestratton/Desktop/thalassa-marine-weather/ios/App/vendor/bundle/ruby/3.4.0+1/gems/json-2.18.0/ext/json/ext/parser
+make -j9 DESTDIR\= sitearchdir\=./.gem.20251231-16070-65zf7u sitelibdir\=./.gem.20251231-16070-65zf7u clean
+
+current directory: /Users/shanestratton/Desktop/thalassa-marine-weather/ios/App/vendor/bundle/ruby/3.4.0+1/gems/json-2.18.0/ext/json/ext/parser
+make -j9 DESTDIR\= sitearchdir\=./.gem.20251231-16070-65zf7u sitelibdir\=./.gem.20251231-16070-65zf7u
+compiling parser.c
+linking shared-object json/ext/parser.bundle
+
+current directory: /Users/shanestratton/Desktop/thalassa-marine-weather/ios/App/vendor/bundle/ruby/3.4.0+1/gems/json-2.18.0/ext/json/ext/parser
+make -j9 DESTDIR\= sitearchdir\=./.gem.20251231-16070-65zf7u sitelibdir\=./.gem.20251231-16070-65zf7u install
+/usr/bin/install -c -m 0755 parser.bundle ./.gem.20251231-16070-65zf7u/json/ext
+
+current directory: /Users/shanestratton/Desktop/thalassa-marine-weather/ios/App/vendor/bundle/ruby/3.4.0+1/gems/json-2.18.0/ext/json/ext/parser
+make DESTDIR\= sitearchdir\=./.gem.20251231-16070-65zf7u sitelibdir\=./.gem.20251231-16070-65zf7u clean

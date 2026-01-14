@@ -1,0 +1,45 @@
+import { CapacitorHttp } from '@capacitor/core';
+
+const BASE_URL = 'https://api.stormglass.io/v2';
+
+export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, apiKey: string): Promise<T> => {
+    const cleanEndpoint = endpoint.replace(/^\/+/, '');
+    const url = new URL(`${BASE_URL}/${cleanEndpoint}`);
+    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+    try {
+        // Use Native HTTP to bypass CORS/SSL issues on simulator/device
+        const options = {
+            url: url.toString(),
+            headers: { 'Authorization': apiKey }
+        };
+        const res = await CapacitorHttp.get(options);
+
+        // CapacitorHttp returns 'data' as parsed JSON object directly for JSON responses
+        // and 'status' as number.
+        if (res.status !== 200) {
+            console.error(`Stormglass API Error (${res.status}):`, res.data);
+            if (res.status === 402 || res.status === 429) {
+                throw new Error(`SG_QUOTA: ${res.status} - ${JSON.stringify(res.data)}`);
+            }
+            throw new Error(`SG_HTTP_${res.status}: ${JSON.stringify(res.data)}`);
+        }
+        return res.data as T;
+    } catch (e: any) {
+        console.warn(`[SG FETCH ERROR] CapacitorHttp failed: ${e.message}. Falling back to native fetch.`);
+
+        try {
+            const res = await fetch(url.toString(), {
+                headers: { 'Authorization': apiKey }
+            });
+
+            if (!res.ok) {
+                const body = await res.text();
+                throw new Error(`SG_HTTP_FETCH_${res.status}: ${body}`);
+            }
+            return await res.json() as T;
+        } catch (fetchErr: any) {
+            console.error(`[SG FETCH FATAL] Both CapacitorHttp and Fetch failed.`, fetchErr);
+            throw fetchErr;
+        }
+    }
+};

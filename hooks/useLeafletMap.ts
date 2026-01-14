@@ -1,5 +1,6 @@
-
 import { useState, useEffect, useRef, MutableRefObject } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 export const useLeafletMap = (
     containerRef: MutableRefObject<HTMLDivElement | null>,
@@ -7,31 +8,15 @@ export const useLeafletMap = (
     lon: number,
     enableZoom: boolean,
     mapboxToken?: string,
-    showZoomControl: boolean = true
+    showZoomControl: boolean = true,
+    enableWrapping: boolean = false
 ) => {
-    const mapInstance = useRef<any>(null);
+    const mapInstance = useRef<L.Map | null>(null);
     const [mapReady, setMapReady] = useState(false);
-    const [leafletLoaded, setLeafletLoaded] = useState(false);
-
-    // Wait for Leaflet global
-    useEffect(() => {
-        if (window.L) {
-            setLeafletLoaded(true);
-            return;
-        }
-        const i = setInterval(() => {
-            if (window.L) {
-                setLeafletLoaded(true);
-                clearInterval(i);
-            }
-        }, 100);
-        return () => clearInterval(i);
-    }, []);
 
     // Initialize Map
     useEffect(() => {
-        if (!containerRef.current || !leafletLoaded) return;
-        const L = window.L;
+        if (!containerRef.current) return;
 
         if (mapInstance.current) return; // Already initialized
 
@@ -53,25 +38,31 @@ export const useLeafletMap = (
             zoomSnap: 0.5,
             wheelDebounceTime: 40,
             bounceAtZoomLimits: true,
-            tap: false,
-            maxBoundsViscosity: 1.0
+
+            maxBoundsViscosity: 1.0,
+            worldCopyJump: enableWrapping, // Loop the world markers
+            maxBounds: enableWrapping ? undefined : [[-90, -180], [90, 180]] // Constrain ONLY if wrapping disabled
         });
 
         // Priority: Prop > Env Var
-        const effectiveToken = mapboxToken || process.env.MAPBOX_ACCESS_TOKEN;
+        const effectiveToken = mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
         if (effectiveToken && effectiveToken.length > 10) {
             L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${effectiveToken}`, {
                 tileSize: 512,
                 zoomOffset: -1,
                 attribution: '© Mapbox',
-                maxZoom: 20
+                maxZoom: 20,
+                noWrap: !enableWrapping,
+                bounds: enableWrapping ? undefined : [[-90, -180], [90, 180]]
             }).addTo(map);
         } else {
             // Fallback to free CartoDB Dark Matter if no valid Mapbox token
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20,
-                attribution: '© OpenStreetMap, © CartoDB'
+                attribution: '© OpenStreetMap, © CartoDB',
+                noWrap: !enableWrapping,
+                bounds: enableWrapping ? undefined : [[-90, -180], [90, 180]]
             }).addTo(map);
         }
 
@@ -97,12 +88,12 @@ export const useLeafletMap = (
             mapInstance.current = null;
             setMapReady(false);
         };
-    }, [leafletLoaded, enableZoom, mapboxToken, showZoomControl]); // Re-init if essential configs change
+    }, [enableZoom, mapboxToken, showZoomControl]); // Re-init if essential configs change
 
     // Center Update (if map exists)
     useEffect(() => {
         if (mapInstance.current && !mapInstance.current.getBounds().contains([lat, lon])) {
-             mapInstance.current.setView([lat, lon], 10, { animate: true });
+            mapInstance.current.setView([lat, lon], 10, { animate: true });
         }
     }, [lat, lon]);
 

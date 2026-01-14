@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { WidgetRenderer, DashboardWidgetContext } from './WidgetRenderer';
+import { WidgetRenderer, DashboardWidgetContextType } from './WidgetRenderer';
 
 // Mock the heavy child components to isolate Renderer logic
 vi.mock('./dashboard/Advice', () => ({
@@ -22,15 +22,16 @@ vi.mock('./dashboard/WeatherGrid', () => ({
 }));
 
 vi.mock('./dashboard/TideAndVessel', () => ({
-    VesselStatusWidget: () => <div data-testid="tides-widget">Tides Widget</div>
+    VesselStatusWidget: () => <div data-testid="vessel-widget">Vessel Widget</div>,
+    TideWidget: () => <div data-testid="tides-widget">Tides Widget</div>
 }));
 
 // Create a robust mock context
-const mockContext: DashboardWidgetContext = {
-    current: { 
-        windSpeed: 15, 
-        windDirection: 'N', 
-        waveHeight: 3, 
+const mockContext: DashboardWidgetContextType = {
+    current: {
+        windSpeed: 15,
+        windDirection: 'N',
+        waveHeight: 3,
         uvIndex: 5,
         pressure: 1013,
         condition: 'Sunny',
@@ -41,9 +42,9 @@ const mockContext: DashboardWidgetContext = {
     tides: [],
     tideHourly: [],
     boatingAdvice: "Stay safe",
-    lockerItems: ['PFD'],
+    lockerItems: [{ name: 'PFD', icon: '🦺', category: 'Safety' }],
     locationName: "Test Port",
-    units: { speed: 'kts', length: 'ft', temp: 'C', distance: 'nm' },
+    units: { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm' },
     vessel: { name: 'Test Boat', type: 'sail', length: 30 } as any,
     isPro: true,
     chartData: [],

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit } from '../types';
+import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel } from '../types';
 import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { WeatherMap } from './WeatherMap';
@@ -12,18 +12,18 @@ interface OnboardingWizardProps {
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
     const [step, setStep] = useState(1);
-    
+
     // Step 2: Location Data
     const [homePort, setHomePort] = useState('');
     const [isLocating, setIsLocating] = useState(false);
     const [showMap, setShowMap] = useState(false);
-    const [tempLocation, setTempLocation] = useState<{lat: number, lon: number, name: string} | null>(null);
+    const [tempLocation, setTempLocation] = useState<{ lat: number, lon: number, name: string } | null>(null);
 
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
     const [name, setName] = useState('');
     const [riggingType, setRiggingType] = useState<'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other'>('Sloop');
-    
+
     // Initialize Defaults from System
     const defaults = getSystemUnits();
 
@@ -32,21 +32,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [prefTemp, setPrefTemp] = useState<TempUnit>(defaults.temp);
     const [prefDist, setPrefDist] = useState<DistanceUnit>(defaults.distance);
     const [prefLength, setPrefLength] = useState<LengthUnit>(defaults.length);
+    const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
+    const [preferredModel, setPreferredModel] = useState<WeatherModel>('best_match');
 
     // Dimension Data - Initialize as Strings to detect empty vs 0
     const [length, setLength] = useState<string>('');
     const [beam, setBeam] = useState<string>('');
     const [draft, setDraft] = useState<string>('');
     const [displacement, setDisplacement] = useState<string>('');
-    
+
     // Units
-    const [lengthUnit, setLengthUnit] = useState<LengthUnit>(defaults.length); 
-    const [beamUnit, setBeamUnit] = useState<LengthUnit>(defaults.length); 
-    const [draftUnit, setDraftUnit] = useState<LengthUnit>(defaults.length); 
-    
+    const [lengthUnit, setLengthUnit] = useState<LengthUnit>(defaults.length);
+    const [beamUnit, setBeamUnit] = useState<LengthUnit>(defaults.length);
+    const [draftUnit, setDraftUnit] = useState<LengthUnit>(defaults.length);
+
     // Weight Units - Default to lbs for US (ft), kg for Metric (m)
     const [dispUnit, setDispUnit] = useState<WeightUnit>(defaults.length === 'ft' ? 'lbs' : 'kg');
-    
+
     // Tankage Data - Initialize as strings to avoid persistent '0'
     const [fuel, setFuel] = useState<string>('');
     const [water, setWater] = useState<string>('');
@@ -90,35 +92,35 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     // UPDATE: Instant feedback + async resolution
     const handleMapSelect = async (lat: number, lon: number, name?: string) => {
-        const initialName = name || "Identifying..."; 
+        const initialName = name || "Identifying...";
         setTempLocation({ lat, lon, name: initialName });
 
         if (!name) {
-             try {
-                 const geoName = await reverseGeocode(lat, lon);
-                 if (geoName) {
-                     setTempLocation(prev => {
-                         if (prev && prev.lat === lat && prev.lon === lon) {
-                             return { lat, lon, name: geoName };
-                         }
-                         return prev;
-                     });
-                 } else {
-                     setTempLocation(prev => {
-                         if (prev && prev.lat === lat && prev.lon === lon) {
-                             return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
-                         }
-                         return prev;
-                     });
-                 }
-             } catch {
-                 setTempLocation(prev => {
-                     if (prev && prev.lat === lat && prev.lon === lon) {
-                         return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
-                     }
-                     return prev;
-                 });
-             }
+            try {
+                const geoName = await reverseGeocode(lat, lon);
+                if (geoName) {
+                    setTempLocation(prev => {
+                        if (prev && prev.lat === lat && prev.lon === lon) {
+                            return { lat, lon, name: geoName };
+                        }
+                        return prev;
+                    });
+                } else {
+                    setTempLocation(prev => {
+                        if (prev && prev.lat === lat && prev.lon === lon) {
+                            return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                        }
+                        return prev;
+                    });
+                }
+            } catch {
+                setTempLocation(prev => {
+                    if (prev && prev.lat === lat && prev.lon === lon) {
+                        return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                    }
+                    return prev;
+                });
+            }
         }
     };
 
@@ -135,22 +137,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     }
 
     // Toggle Handlers
-    const toggleLengthUnit = () => { 
-        const newUnit = lengthUnit === 'ft' ? 'm' : 'ft'; 
-        if(length) setLength(convertValue(parseFloat(length), newUnit).toString()); 
-        setLengthUnit(newUnit); 
+    const toggleLengthUnit = () => {
+        const newUnit = lengthUnit === 'ft' ? 'm' : 'ft';
+        if (length) setLength(convertValue(parseFloat(length), newUnit).toString());
+        setLengthUnit(newUnit);
     }
-    const toggleBeamUnit = () => { 
-        const newUnit = beamUnit === 'ft' ? 'm' : 'ft'; 
-        if(beam) setBeam(convertValue(parseFloat(beam), newUnit).toString()); 
-        setBeamUnit(newUnit); 
+    const toggleBeamUnit = () => {
+        const newUnit = beamUnit === 'ft' ? 'm' : 'ft';
+        if (beam) setBeam(convertValue(parseFloat(beam), newUnit).toString());
+        setBeamUnit(newUnit);
     }
-    const toggleDraftUnit = () => { 
-        const newUnit = draftUnit === 'ft' ? 'm' : 'ft'; 
-        if(draft) setDraft(convertValue(parseFloat(draft), newUnit).toString()); 
-        setDraftUnit(newUnit); 
+    const toggleDraftUnit = () => {
+        const newUnit = draftUnit === 'ft' ? 'm' : 'ft';
+        if (draft) setDraft(convertValue(parseFloat(draft), newUnit).toString());
+        setDraftUnit(newUnit);
     }
-    
+
     const toggleDispUnit = () => {
         let newUnit: WeightUnit = 'lbs';
         const d = parseFloat(displacement);
@@ -171,7 +173,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             newUnit = 'lbs';
             newVal = d * 2204.62;
         }
-        
+
         setDisplacement(Math.round(newVal).toString());
         setDispUnit(newUnit);
     };
@@ -181,7 +183,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         let l_ft = length ? (lengthUnit === 'm' ? parseFloat(length) * 3.28084 : parseFloat(length)) : 0;
         let b_ft = beam ? (beamUnit === 'm' ? parseFloat(beam) * 3.28084 : parseFloat(beam)) : 0;
         let d_ft = draft ? (draftUnit === 'm' ? parseFloat(draft) * 3.28084 : parseFloat(draft)) : 0;
-        
+
         let disp_lbs = displacement ? parseFloat(displacement) : 0;
         if (dispUnit === 'kg') disp_lbs = disp_lbs * 2.20462;
         if (dispUnit === 'tonnes') disp_lbs = disp_lbs * 2204.62;
@@ -214,7 +216,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
             if (disp_lbs === 0) {
                 // DLR Formula approximation
-                disp_lbs = Math.pow(l_ft, 3) / 2.5; 
+                disp_lbs = Math.pow(l_ft, 3) / 2.5;
                 estimatedFields.push('displacement');
             }
         }
@@ -227,7 +229,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             beam: b_ft,
             draft: d_ft,
             displacement: disp_lbs,
-            maxWaveHeight: l_ft * 0.35, 
+            maxWaveHeight: l_ft * 0.35,
             cruisingSpeed: finalVesselType === 'sail' ? Math.sqrt(l_ft) * 1.2 : Math.sqrt(l_ft) * 3,
             fuelCapacity: fuel ? parseFloat(fuel) : 0,
             waterCapacity: water ? parseFloat(water) : 0,
@@ -237,37 +239,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         const settings: Partial<UserSettings> = {
             defaultLocation: homePort,
             vessel: vesselData,
-            units: { speed: prefSpeed, temp: prefTemp, distance: prefDist, length: prefLength, tideHeight: prefLength, visibility: 'nm', volume: 'gal' },
+            units: { speed: prefSpeed, temp: prefTemp, distance: prefDist, length: prefLength, tideHeight: prefLength, waveHeight: prefWaveHeight, visibility: 'nm', volume: 'gal' },
             vesselUnits: { length: lengthUnit, beam: beamUnit, draft: draftUnit, displacement: dispUnit, volume: volUnit },
+            preferredModel: preferredModel,
             savedLocations: [homePort]
         };
 
-        localStorage.setItem('thalassa_has_onboarded', 'true');
+        localStorage.setItem('thalassa_v3_onboarded', 'true');
         onComplete(settings);
     };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-[#0f172a] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-center justify-center p-4 overflow-hidden">
+            {/* Ambient Background Glow */}
+            <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+            <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
             {/* Map Modal for Selection */}
             {showMap && (
                 <div className="fixed inset-0 z-[150] bg-slate-900 animate-in fade-in zoom-in-95 flex flex-col">
                     <div className="flex-1 relative">
-                        <WeatherMap 
-                            locationName={tempLocation?.name || "Select Home Port"} 
+                        <WeatherMap
+                            locationName={tempLocation?.name || "Select Home Port"}
                             lat={tempLocation?.lat}
                             lon={tempLocation?.lon}
-                            onLocationSelect={handleMapSelect} 
-                            enableZoom={true} 
+                            onLocationSelect={handleMapSelect}
+                            enableZoom={true}
                             minimal={false} // Enables interaction
                             initialLayer="buoys" // Default to Buoys for easy selection
                             hideLayerControls={true} // HIDE TAB CONTROLS
                             mapboxToken={process.env.MAPBOX_ACCESS_TOKEN}
                             restrictBounds={false} // Unlocked for global selection
                         />
-                        
+
                         {/* Overlay Controls */}
                         <div className="absolute top-4 right-4 z-[160]">
-                            <button 
+                            <button
                                 onClick={() => setShowMap(false)}
                                 className="p-3 bg-slate-900/90 text-white rounded-full shadow-xl border border-white/20 hover:bg-slate-800 transition-colors"
                             >
@@ -278,7 +284,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                         {/* Confirmation Overlay */}
                         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
                             {tempLocation ? (
-                                <button 
+                                <button
                                     onClick={confirmMapSelection}
                                     className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105"
                                 >
@@ -296,10 +302,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             )}
 
             <div className="w-full max-w-lg relative">
-                
+
                 {/* BACK BUTTON */}
                 {step > 1 && (
-                    <button 
+                    <button
                         onClick={handleBack}
                         className="absolute -top-12 left-0 p-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
                     >
@@ -308,18 +314,31 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </button>
                 )}
 
-                {/* STEP 1: WELCOME */}
+                {/* STEP 1: WELCOME - PREMIUM UPGRADE */}
                 {step === 1 && (
-                    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700">
-                        <div className="w-20 h-20 bg-sky-500 rounded-full mx-auto mb-8 flex items-center justify-center shadow-[0_0_40px_rgba(14,165,233,0.4)]">
-                            <BoatIcon className="w-10 h-10 text-white" />
+                    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
+                        <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
+
+                        <div className="w-24 h-24 bg-gradient-to-br from-sky-400 to-blue-600 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-[0_20px_50px_rgba(14,165,233,0.3)] ring-4 ring-white/10 relative z-10">
+                            <BoatIcon className="w-12 h-12 text-white fill-white" />
                         </div>
-                        <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">Welcome to Thalassa</h1>
-                        <p className="text-lg text-slate-400 mb-10 max-w-sm mx-auto leading-relaxed">
-                            Advanced marine forecasting. Let's personalise your experience.
+
+                        <h1 className="text-5xl font-black text-white mb-6 tracking-tight drop-shadow-xl">
+                            Thalassa
+                            <span className="block text-2xl font-light text-sky-400 mt-2 tracking-widest uppercase">Marine Weather</span>
+                        </h1>
+
+                        <p className="text-lg text-slate-300 mb-12 max-w-sm mx-auto leading-relaxed font-light">
+                            Professional-grade forecasting for the modern mariner. Precision tools for safety and performance.
                         </p>
-                        <button onClick={handleNext} className="bg-white text-slate-900 font-bold py-4 px-10 rounded-xl hover:bg-sky-50 transition-all transform hover:scale-105 shadow-xl flex items-center gap-2 mx-auto">
-                            Get Started <ArrowRightIcon className="w-5 h-5" />
+
+                        <button
+                            onClick={handleNext}
+                            className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
+                        >
+                            <span className="relative z-10">Initialize System</span>
+                            <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
                         </button>
                     </div>
                 )}
@@ -337,13 +356,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                         <div className="space-y-4">
                             <div className="relative">
-                                <input 
-                                    type="text" 
-                                    value={homePort} 
-                                    onChange={(e) => setHomePort(e.target.value)} 
-                                    placeholder="e.g. Newport, RI" 
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors" 
-                                    autoFocus
+                                <input
+                                    type="text"
+                                    value={homePort}
+                                    onChange={(e) => setHomePort(e.target.value)}
+                                    placeholder="e.g. Newport, RI"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors"
+
                                 />
                                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
                                     <SearchIcon className="w-5 h-5" />
@@ -357,7 +376,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
-                                <button 
+                                <button
                                     onClick={handleLocate}
                                     className="bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                                 >
@@ -370,7 +389,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         </>
                                     )}
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => setShowMap(true)}
                                     className="bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                                 >
@@ -380,8 +399,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             </div>
                         </div>
 
-                        <button 
-                            onClick={handleNext} 
+                        <button
+                            onClick={handleNext}
                             disabled={!homePort}
                             className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-500 cursor-not-allowed'}`}
                         >
@@ -429,7 +448,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             <>
                                 <h2 className="text-2xl font-bold text-white mb-2 text-center">Tell us about your boat</h2>
                                 <p className="text-sm text-gray-400 text-center mb-8">Leave blank to auto-estimate based on typical ratios.</p>
-                                
+
                                 <div className="space-y-6">
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Vessel Name</label>
@@ -439,9 +458,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     {vesselType === 'sail' && (
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Rigging Type</label>
-                                            <select 
-                                                value={riggingType} 
-                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiggingType(e.target.value as any)} 
+                                            <select
+                                                value={riggingType}
+                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiggingType(e.target.value as any)}
                                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
                                             >
                                                 <option value="Sloop" className="bg-slate-900">Sloop</option>
@@ -466,7 +485,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             <input type="number" value={beam} onChange={(e) => setBeam(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-600" />
                                         </div>
                                     </div>
-                                    
+
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Draft <button onClick={toggleDraftUnit} className="text-sky-400 hover:text-white">{draftUnit}</button></label>
@@ -481,11 +500,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     {/* Tankage */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><GearIcon className="w-3 h-3 text-orange-400"/> Fuel</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><GearIcon className="w-3 h-3 text-orange-400" /> Fuel</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
                                             <input type="number" value={fuel} onChange={(e) => setFuel(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><DropletIcon className="w-3 h-3 text-blue-400"/> Water</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><DropletIcon className="w-3 h-3 text-blue-400" /> Water</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
                                             <input type="number" value={water} onChange={(e) => setWater(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
                                         </div>
                                     </div>
@@ -500,7 +519,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 {step === 5 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <h2 className="text-2xl font-bold text-white mb-6 text-center">Unit Preferences</h2>
-                        
+
                         <div className="space-y-4 mb-8">
                             <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
                                 <span className="text-gray-300 font-medium">Wind Speed</span>
@@ -510,10 +529,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     ))}
                                 </div>
                             </div>
-                            
-                            {/* Wave & Tide Height Preference */}
+
+                            {/* Wave Height Preference (Default Meters) */}
                             <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Wave & Tide Height</span>
+                                <span className="text-gray-300 font-medium">Seas (Wave Height)</span>
+                                <div className="flex bg-black/20 rounded-lg p-1">
+                                    {['m', 'ft'].map((u) => (
+                                        <button key={u} onClick={() => setPrefWaveHeight(u as LengthUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Tide / Generic Height Preference */}
+                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
+                                <span className="text-gray-300 font-medium">Tide Height / Length</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['m', 'ft'].map((u) => (
                                         <button key={u} onClick={() => setPrefLength(u as LengthUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
@@ -539,6 +568,24 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             </div>
                         </div>
 
+                        <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center mb-6 border border-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.1)]">
+                            <div>
+                                <span className="text-gray-200 font-bold block">Forecast Model</span>
+                                <span className="text-xs text-gray-500">Source for weather data</span>
+                            </div>
+                            <select
+                                value={preferredModel}
+                                onChange={(e) => setPreferredModel(e.target.value as WeatherModel)}
+                                className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-sky-500 text-right"
+                            >
+                                <option value="best_match">Auto (Best Match)</option>
+                                <option value="ecmwf_ifs04">ECMWF (Europe)</option>
+                                <option value="gfs_seamless">GFS (USA)</option>
+                                <option value="icon_seamless">ICON (Global)</option>
+                                <option value="bom_access_global">BOM (Aus)</option>
+                            </select>
+                        </div>
+
                         <button onClick={handleFinish} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20">
                             Launch Dashboard
                         </button>
@@ -547,7 +594,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1,2,3,4,5].map(i => (
+                    {[1, 2, 3, 4, 5].map(i => (
                         <div key={i} className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}></div>
                     ))}
                 </div>

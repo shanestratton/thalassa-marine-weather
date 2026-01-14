@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-    WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon
+import L from 'leaflet';
+import {
+    WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon, CompassIcon
 } from './Icons';
 import { WeatherMetrics, GridPoint, Waypoint, BuoyStation } from '../types';
 import { MapLegend, StopDetailView, MapLayer } from './map/MapUI';
@@ -9,11 +10,7 @@ import { useWeatherOverlay } from '../hooks/useWeatherOverlay';
 import { useMapMarkers } from '../hooks/useMapMarkers';
 import { fetchActiveBuoys } from '../services/weatherService';
 
-declare global {
-    interface Window {
-        L: any;
-    }
-}
+
 
 interface WeatherMapProps {
     lat?: number;
@@ -26,15 +23,16 @@ interface WeatherMapProps {
     waypoints?: Waypoint[];
     onWaypointSelect?: (index: number | null) => void;
     highlightedWaypointIndex?: number | null;
-    minimal?: boolean; 
-    enableZoom?: boolean; 
-    showWeather?: boolean; 
+    minimal?: boolean;
+    enableZoom?: boolean;
+    showWeather?: boolean;
     mapboxToken?: string;
     initialLayer?: MapLayer | 'buoys';
     hideLayerControls?: boolean;
     restrictBounds?: boolean;
-    isConfirmMode?: boolean; 
+    isConfirmMode?: boolean;
     showZoomControl?: boolean;
+    confirmLabel?: string;
 }
 
 // EMPTY STATE (Nulls) to ensure no fake data is shown
@@ -57,12 +55,12 @@ const EMPTY_WEATHER: WeatherMetrics = {
     isEstimated: true
 };
 
-export const WeatherMap: React.FC<WeatherMapProps> = ({ 
-    lat, 
-    lon, 
-    locationName, 
+export const WeatherMap: React.FC<WeatherMapProps> = ({
+    lat,
+    lon,
+    locationName,
     currentWeather,
-    onLocationSelect, 
+    onLocationSelect,
     routeCoordinates,
     waypoints,
     minimal = false,
@@ -73,47 +71,61 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     hideLayerControls = false,
     restrictBounds = true,
     isConfirmMode = false,
-    showZoomControl = false
+    showZoomControl = false,
+    confirmLabel
 }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const weatherCanvasRef = useRef<HTMLCanvasElement>(null);
-    
+
     // Add 'buoys' to the activeLayer state
     const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys'>(initialLayer);
     const [selectedStop, setSelectedStop] = useState<Waypoint | null>(null);
-    const [rawTargetPos, setRawTargetPos] = useState<{lat: number, lon: number} | null>(null);
+    const [rawTargetPos, setRawTargetPos] = useState<{ lat: number, lon: number } | null>(null);
     const [buoys, setBuoys] = useState<BuoyStation[]>([]);
-    
-    // Pending selection for Confirm Mode
-    const [pendingSelection, setPendingSelection] = useState<{lat: number, lon: number, name: string} | null>(null);
-    
-    // Ref to track markers so we can remove them when layer changes
-    const buoyMarkersRef = useRef<any[]>([]);
 
-    const centerLat = lat ?? -27.47; 
+    // Pending selection for Confirm Mode
+    const [pendingSelection, setPendingSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
+
+    // Ref to track markers so we can remove them when layer changes
+    // Optimization: Use LayerGroup instead of array of markers for bulk operations
+    const buoyLayerGroupRef = useRef<L.LayerGroup | null>(null);
+
+    const centerLat = lat ?? -27.47;
     const centerLon = lon ?? 153.02;
     const activeMetrics = currentWeather || EMPTY_WEATHER;
 
     // --- HOOKS ---
-    const { mapInstance, mapReady } = useLeafletMap(mapContainerRef, centerLat, centerLon, enableZoom, mapboxToken, showZoomControl);
-    
+    // Enable wrapping ONLY if on Buoys layer (and not specifically restricted for another reason)
+    const enableWrapping = activeLayer === 'buoys' || !restrictBounds;
+    const { mapInstance, mapReady } = useLeafletMap(mapContainerRef, centerLat, centerLon, enableZoom, mapboxToken, showZoomControl, enableWrapping);
+
+    // DEBUG LOGGING
+    useEffect(() => {
+        console.log('[WeatherMap] Debug Props:', { isConfirmMode, activeLayer, className: mapContainerRef.current?.className, showWeather, minimal, enableWrapping });
+        console.log('[WeatherMap] Dimensions:', {
+            height: mapContainerRef.current?.clientHeight,
+            width: mapContainerRef.current?.clientWidth,
+            safeAreaTop: getComputedStyle(document.documentElement).getPropertyValue('--sat')
+        });
+    }, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
+
     // Only enable weather overlay if NOT on Buoys layer
     const isWeatherVisible = showWeather && activeLayer !== 'buoys';
 
     useWeatherOverlay(
-        weatherCanvasRef, 
-        mapInstance, 
-        activeLayer === 'buoys' ? 'wind' : activeLayer, 
-        activeMetrics, 
+        weatherCanvasRef,
+        mapInstance,
+        activeLayer === 'buoys' ? 'wind' : activeLayer,
+        activeMetrics,
         isWeatherVisible
     );
-    
+
     const { vesselPos, targetPos, routePath, waypointPositions } = useMapMarkers(
-        mapInstance, 
-        centerLat, 
-        centerLon, 
-        rawTargetPos, 
-        routeCoordinates, 
+        mapInstance,
+        centerLat,
+        centerLon,
+        rawTargetPos,
+        routeCoordinates,
         waypoints
     );
 
@@ -126,12 +138,15 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     // Handle Buoy Markers
     useEffect(() => {
         const map = mapInstance.current;
-        const L = window.L;
-        if (!map || !L || !mapReady) return;
+        if (!map || !mapReady) return;
 
-        // Clear existing markers
-        buoyMarkersRef.current.forEach(marker => map.removeLayer(marker));
-        buoyMarkersRef.current = [];
+        // Init LayerGroup if needed
+        if (!buoyLayerGroupRef.current) {
+            buoyLayerGroupRef.current = L.layerGroup().addTo(map);
+        }
+
+        // Clear existing markers immediately
+        buoyLayerGroupRef.current.clearLayers();
 
         if (activeLayer === 'buoys') {
             // Static SVG string for the icon
@@ -142,7 +157,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     <path d="M12 2v4" stroke="black" stroke-width="2" />
                 </svg>
             `;
-            
+
             const buoyIcon = L.divIcon({
                 html: iconHtml,
                 className: 'custom-buoy-icon',
@@ -150,46 +165,62 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 iconAnchor: [15, 30],
             });
 
+            // Batch add to layer group
             buoys.forEach(buoy => {
                 const marker = L.marker([buoy.lat, buoy.lon], { icon: buoyIcon })
-                    .addTo(map)
-                    .bindTooltip(buoy.name, { 
-                        direction: 'top', 
+                    .bindTooltip(buoy.name, {
+                        direction: 'top',
                         offset: [0, -25],
                         className: 'bg-black/80 text-white border border-white/20 px-2 py-1 rounded text-xs font-bold'
                     });
-                
+
                 // Click to Select
                 marker.on('click', () => {
                     if (isConfirmMode) {
-                        // In confirm mode, just stage the selection
                         setPendingSelection({ lat: buoy.lat, lon: buoy.lon, name: buoy.name });
-                        setRawTargetPos({ lat: buoy.lat, lon: buoy.lon }); // Show visual crosshair on marker
+                        setRawTargetPos({ lat: buoy.lat, lon: buoy.lon });
                         map.flyTo([buoy.lat, buoy.lon], 12);
                     } else if (onLocationSelect) {
-                        // Instant selection mode
                         onLocationSelect(buoy.lat, buoy.lon, buoy.name);
                         map.flyTo([buoy.lat, buoy.lon], 12);
                     }
                 });
 
-                buoyMarkersRef.current.push(marker);
+                buoyLayerGroupRef.current?.addLayer(marker);
             });
         }
 
     }, [activeLayer, buoys, mapReady, onLocationSelect, isConfirmMode]);
 
+    // Landscape Orientation Logic for Map View
+    useEffect(() => {
+        // Unlock orientation when Map is mounted (Allows Landscape)
+        try {
+            if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
+                (screen.orientation as any).unlock();
+            }
+        } catch (e) { /* Ignore */ }
+
+        return () => {
+            // Re-lock to Portrait when leaving Map
+            try {
+                if (screen.orientation && typeof (screen.orientation as any).lock === 'function') {
+                    (screen.orientation as any).lock('portrait').catch(() => { });
+                }
+            } catch (e) { /* Ignore */ }
+        };
+    }, []);
+
     // Dynamic Bounds & Interaction Logic
     useEffect(() => {
         const map = mapInstance.current;
-        const L = window.L;
-        if (!map || !L || !mapReady) return;
+        if (!map || !mapReady) return;
 
         // 1. Calculate Data Bounds (Always needed for 'wind'/'rain' locking)
         let bounds;
         if (routeCoordinates && routeCoordinates.length > 1) {
             const latLngs = routeCoordinates.map(c => [c.lat, c.lon]);
-            bounds = L.latLngBounds(latLngs); 
+            bounds = L.latLngBounds(latLngs as L.LatLngExpression[]);
         } else if (lat !== undefined && lon !== undefined) {
             const span = 0.5;
             bounds = L.latLngBounds(L.latLng(lat - span, lon - span), L.latLng(lat + span, lon + span));
@@ -198,10 +229,11 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         // Unlocked Mode: Active if on Buoys layer OR explicitly unrestricted
         if (activeLayer === 'buoys' || !restrictBounds) {
             // --- UNLOCKED MODE (Global Selection) ---
-            map.setMaxBounds(null);
+            // Infinite Wrapping: MaxBounds is NULL (disabled)
+            map.setMaxBounds(undefined); // Allow infinite scroll
             map.setMinZoom(2);
             map.setMaxZoom(18);
-            
+
             // Enable Interactions
             map.dragging.enable();
             map.touchZoom.enable();
@@ -209,11 +241,15 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             map.scrollWheelZoom.enable();
             map.boxZoom.enable();
             map.keyboard.enable();
-            if (map.tap) map.tap.enable();
+            if ((map as any).tap) (map as any).tap.enable();
 
             // Auto-fit route in passage view even if unrestricted
             if (routeCoordinates && routeCoordinates.length > 1 && bounds && bounds.isValid()) {
                 map.fitBounds(bounds, { animate: true, padding: [30, 30] });
+            } else if (activeLayer === 'buoys') {
+                // FIX: Start Station Map zoomed out (World View)
+                // Use setView to center on user but at Zoom 2
+                map.setView([centerLat, centerLon], 2, { animate: true });
             }
 
         } else {
@@ -224,49 +260,56 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             map.scrollWheelZoom.disable();
             map.boxZoom.disable();
             map.keyboard.disable();
-            
+
             if (bounds && bounds.isValid()) {
                 const paddedBounds = bounds.pad(0.1);
-                
+
                 // Constrain panning to the data area
                 map.setMaxBounds(paddedBounds);
-                
+
                 // Lock Zoom to the bounds fit
                 const fitZoom = map.getBoundsZoom(paddedBounds);
                 map.setMinZoom(fitZoom);
                 map.setMaxZoom(fitZoom);
-                
+
                 // Ensure we are centered and fit
                 map.fitBounds(paddedBounds, { animate: true, padding: [20, 20] });
             }
         }
-    }, [lat, lon, routeCoordinates, activeLayer, mapReady, restrictBounds]);
+    }, [activeLayer, mapReady, restrictBounds]); // Removed lat/lon/route deps to prevent snapping during GPS updates
 
-    // Click Handler for Target Selection (Only active on Buoys layer)
+    // Force activeLayer to 'buoys' if in Confirm Mode to ensure selection context
     useEffect(() => {
-        if(!mapInstance.current) return;
+        if (isConfirmMode) {
+            setActiveLayer('buoys');
+        }
+    }, [isConfirmMode]);
+
+    // Click Handler for Target Selection
+    useEffect(() => {
+        if (!mapInstance.current) return;
         const map = mapInstance.current;
-        
+
         const handleClick = (e: any) => {
             if (minimal) return;
             // Prevent interference with marker clicks
             if ((e.originalEvent?.target as HTMLElement).closest('.leaflet-marker-icon')) return;
-            
-            // Allow selection ONLY when on Stations map
-            if (activeLayer === 'buoys') {
+
+            // Allow selection if in Confirm Mode OR clearly on Stations map
+            if (isConfirmMode || activeLayer === 'buoys') {
                 if (isConfirmMode) {
                     const name = `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
                     setPendingSelection({ lat: e.latlng.lat, lon: e.latlng.lng, name });
                     setRawTargetPos({ lat: e.latlng.lat, lon: e.latlng.lng });
-                } else {
+                } else if (onLocationSelect) {
                     setRawTargetPos({ lat: e.latlng.lat, lon: e.latlng.lng });
-                    if (onLocationSelect) onLocationSelect(e.latlng.lat, e.latlng.lng);
+                    onLocationSelect(e.latlng.lat, e.latlng.lng);
                 }
             }
         };
 
         map.on('click', handleClick);
-        return () => map.off('click', handleClick);
+        return () => { map.off('click', handleClick); };
     }, [mapInstance.current, minimal, onLocationSelect, activeLayer, isConfirmMode]);
 
     const handleConfirm = () => {
@@ -284,39 +327,38 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 @keyframes pulse-out { 0% { transform: scale(0.5); opacity: 0.8; } 100% { transform: scale(1.5); opacity: 0; } }
             `}</style>
 
-            <div className="absolute top-0 left-0 right-0 z-[800] p-4 bg-gradient-to-b from-slate-900/90 to-transparent pointer-events-none">
-                <div className="flex justify-between items-start max-w-7xl mx-auto w-full">
+            <div className="absolute top-0 left-0 right-0 z-[800] px-4 pb-4 pt-[calc(3.5rem+env(safe-area-inset-top))] bg-gradient-to-b from-slate-900/90 to-transparent pointer-events-none">
+                <div className="flex flex-col items-start gap-4 max-w-7xl mx-auto w-full">
                     <div className="pointer-events-auto">
                         <div className="flex items-center gap-3 mb-1">
                             <div className="p-2 bg-slate-800 border border-white/10 rounded text-sky-400">
-                                <MapIcon className="w-5 h-5"/>
+                                <MapIcon className="w-5 h-5" />
                             </div>
                             <div>
                                 <h2 className="text-white font-bold text-lg leading-none shadow-black drop-shadow-md">{locationName}</h2>
                                 <div className="flex gap-3 text-[10px] font-mono text-gray-400 mt-1">
                                     <span>{Math.abs(centerLat).toFixed(4)}° {centerLat > 0 ? 'N' : 'S'}</span>
                                     <span>{Math.abs(centerLon).toFixed(4)}° {centerLon > 0 ? 'E' : 'W'}</span>
-                                    {mapboxToken && <span className="text-emerald-500 font-bold ml-2">CHART MODE ACTIVE</span>}
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     {!minimal && !hideLayerControls && (
-                        <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 flex shadow-xl">
-                            <button 
+                        <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 flex shadow-xl self-start">
+                            <button
                                 onClick={() => { setActiveLayer('wind'); setPendingSelection(null); }}
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Wind
                             </button>
-                            <button 
+                            <button
                                 onClick={() => { setActiveLayer('rain'); setPendingSelection(null); }}
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Rain
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setActiveLayer('buoys')}
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
@@ -329,11 +371,11 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
             <div className="flex-grow relative w-full h-full bg-[#0f172a]">
                 <div ref={mapContainerRef} className="absolute inset-0 z-0 bg-[#0f172a]" style={{ width: '100%', height: '100%' }}></div>
-                
-                <canvas 
-                    ref={weatherCanvasRef} 
-                    className="absolute inset-0 z-10 pointer-events-none" 
-                    role="img" 
+
+                <canvas
+                    ref={weatherCanvasRef}
+                    className="absolute inset-0 z-10 pointer-events-none"
+                    role="img"
                     aria-label={`Live wind and weather particle animation for ${locationName}. Current wind: ${activeMetrics.windSpeed || 0} knots.`}
                 >
                     Your browser does not support HTML5 Canvas. Weather data is available in text format above.
@@ -349,7 +391,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
                     {/* Vessel Marker */}
                     {vesselPos && (
-                        <div 
+                        <div
                             className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer hover:scale-125 transition-transform"
                             style={{ left: vesselPos.x, top: vesselPos.y, zIndex: 20 }}
                         >
@@ -360,7 +402,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
                     {/* Target Crosshair - Only show on Map if needed */}
                     {activeLayer === 'buoys' && targetPos && (
-                        <div 
+                        <div
                             className="absolute transform -translate-x-1/2 -translate-y-1/2 z-30 animate-in fade-in zoom-in-95 duration-300"
                             style={{ left: targetPos.x, top: targetPos.y }}
                         >
@@ -372,10 +414,10 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             </div>
                         </div>
                     )}
-                    
+
                     {/* Waypoints */}
                     {waypointPositions.map((wpObj) => (
-                        <div 
+                        <div
                             key={wpObj.idx}
                             className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-auto group"
                             style={{ left: wpObj.x, top: wpObj.y, zIndex: 15 }}
@@ -395,37 +437,80 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
                 {!minimal && activeLayer !== 'buoys' && <MapLegend layer={activeLayer} />}
 
-                {selectedStop && ( <StopDetailView waypoint={selectedStop} onClose={() => setSelectedStop(null)} /> )}
+                {selectedStop && (<StopDetailView waypoint={selectedStop} onClose={() => setSelectedStop(null)} />)}
 
-                {/* Reset View Button - Only needed if unlocked and not pending selection */}
-                {(activeLayer === 'buoys' || !restrictBounds) && !pendingSelection && (
-                    <div className="absolute bottom-28 right-6 z-[800] flex flex-col gap-2">
-                        <button 
-                            onClick={() => {
-                                if (mapInstance.current) {
-                                    mapInstance.current.setView([centerLat, centerLon], 10, { animate: true });
-                                }
-                            }}
-                            className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95 pointer-events-auto"
-                            title="Recenter"
-                        >
-                            <CrosshairIcon className="w-6 h-6" />
-                        </button>
+                {/* Reset View Button - Always visible or at least when map is interactive/unlocked */}
+
+                <div className="absolute bottom-0 left-0 right-0 z-[9000] p-4 pb-24 pointer-events-none">
+
+                    {/* Container for GPS/Reset (Right Aligned) */}
+                    <div className="flex flex-col items-end gap-3 mb-4 pointer-events-auto">
+                        {/* 1. RESET / GPS STACK - Only show on Station Map or Confirm Mode */}
+                        {(activeLayer === 'buoys' || isConfirmMode) && (
+                            <>
+                                {/* GPS Snap Button */}
+                                <button
+                                    onClick={() => {
+                                        if ('geolocation' in navigator) {
+                                            navigator.geolocation.getCurrentPosition((pos) => {
+                                                if (mapInstance.current) {
+                                                    const { latitude, longitude } = pos.coords;
+                                                    mapInstance.current.flyTo([latitude, longitude], 12);
+
+                                                    // Trigger selection if in confirm mode
+                                                    if (isConfirmMode || onLocationSelect) {
+                                                        // If confirm mode, stage it. If instant, select it?
+                                                        // Actually logic below says:
+                                                        if (isConfirmMode) {
+                                                            setActiveLayer('buoys');
+                                                            setPendingSelection({ lat: latitude, lon: longitude, name: 'Current Location' });
+                                                            setRawTargetPos({ lat: latitude, lon: longitude });
+                                                        } else if (onLocationSelect) {
+                                                            // Just move map, user can click to confirm or maybe we auto-select?
+                                                            // The original logic didn't auto-select on GPS snap unless confirm mode.
+                                                            // Let's keep it just move map unless confirm mode.
+                                                        }
+                                                    }
+                                                }
+                                            }, (err) => alert("GPS Error: " + err.message));
+                                        }
+                                    }}
+                                    className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95 mb-2"
+                                    title="Snap to GPS"
+                                >
+                                    <CompassIcon rotation={0} className="w-6 h-6 text-sky-400" />
+                                </button>
+
+                                {/* Reset Center Button */}
+                                <button
+                                    onClick={() => {
+                                        if (mapInstance.current) {
+                                            mapInstance.current.setView([centerLat, centerLon], 10, { animate: true });
+                                        }
+                                    }}
+                                    className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95"
+                                    title="Reset Center"
+                                >
+                                    <CrosshairIcon className="w-6 h-6" />
+                                </button>
+                            </>
+                        )}
                     </div>
-                )}
 
-                {/* CONFIRMATION BUTTON - Only in Confirm Mode on Buoys Layer with Pending Selection */}
-                {isConfirmMode && activeLayer === 'buoys' && pendingSelection && (
-                     <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-sm px-4">
-                        <button 
-                            onClick={handleConfirm}
-                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105 pointer-events-auto"
-                        >
-                            <MapPinIcon className="w-5 h-5" />
-                            Confirm Location
-                        </button>
-                     </div>
-                )}
+                    {/* 2. CONFIRM BUTTON (Center Aligned, Full Width) - Only on Station Map */}
+                    {(isConfirmMode && activeLayer === 'buoys') && (
+                        <div className="w-full max-w-sm mx-auto pointer-events-auto flex justify-center">
+                            <button
+                                onClick={handleConfirm}
+                                disabled={!pendingSelection}
+                                className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10 cursor-not-allowed'}`}
+                            >
+                                <MapPinIcon className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-600'}`} />
+                                {pendingSelection ? (confirmLabel || "Confirm Location") : "Tap Map to Select Point"}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
