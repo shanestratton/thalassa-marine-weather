@@ -132,7 +132,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         if ('geolocation' in navigator) {
             navigator.geolocation.getCurrentPosition(async (position) => {
                 const name = await reverseGeocode(position.coords.latitude, position.coords.longitude);
-                setOrigin(name || `${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
+                setOrigin(name || `WP ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
             });
         }
     };
@@ -141,11 +141,11 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
     const handleMapSelect = (lat: number, lon: number, name: string) => {
         if (mapSelectionTarget === 'origin') {
-            setOrigin(name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setOrigin(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
         } else if (mapSelectionTarget === 'destination') {
-            setDestination(name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setDestination(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
         } else if (mapSelectionTarget === 'via') {
-            setVia(name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setVia(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
         }
         setIsMapOpen(false);
         setMapSelectionTarget(null);

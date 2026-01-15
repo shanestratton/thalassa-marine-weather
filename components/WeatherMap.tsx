@@ -237,7 +237,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             // Enable Interactions
             map.dragging.enable();
             map.touchZoom.enable();
-            map.doubleClickZoom.enable();
+            // DISABLE DoubleClickZoom to ensure single clicks are instant and "bulletproof"
+            map.doubleClickZoom.disable();
             map.scrollWheelZoom.enable();
             map.boxZoom.enable();
             map.keyboard.enable();
@@ -298,7 +299,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             // Allow selection if in Confirm Mode OR clearly on Stations map
             if (isConfirmMode || activeLayer === 'buoys') {
                 if (isConfirmMode) {
-                    const name = `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+                    const name = `WP ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
                     setPendingSelection({ lat: e.latlng.lat, lon: e.latlng.lng, name });
                     setRawTargetPos({ lat: e.latlng.lat, lon: e.latlng.lng });
                 } else if (onLocationSelect) {

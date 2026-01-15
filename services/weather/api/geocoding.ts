@@ -165,7 +165,11 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
 
         // Reverse Geocode to get a nice name (Mooloolaba, etc) instead of "-26, 153"
         const friendlyName = await reverseGeocode(lat, lon);
-        if (friendlyName) name = friendlyName;
+        if (friendlyName) {
+            name = friendlyName;
+        } else {
+            name = `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        }
     } else {
         // 4. Fallback to Nominatim Search
         const fetchNominatim = async (query: string) => {

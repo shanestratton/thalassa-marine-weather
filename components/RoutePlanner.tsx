@@ -217,7 +217,7 @@ export const VoyagePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTr
                             hideLayerControls={false}
                             onLocationSelect={(lat, lon, name) => {
                                 // INTERCEPT: Update local temp state instead of closing
-                                const selectionName = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                                const selectionName = name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                                 setTempMapSelection({ lat, lon, name: selectionName });
                             }}
                         />

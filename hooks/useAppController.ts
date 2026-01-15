@@ -116,7 +116,7 @@ export const useAppController = () => {
         setQuery("Locating...");
         navigator.geolocation.getCurrentPosition(async (pos) => {
             const { latitude, longitude } = pos.coords;
-            const coordStr = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+            const coordStr = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
             let searchTarget = coordStr;
             try {
                 const name = await reverseGeocode(latitude, longitude);
@@ -158,14 +158,13 @@ export const useAppController = () => {
     }, [weatherData, settings.savedLocations, showToast, updateSettings]);
 
     const handleMapTargetSelect = useCallback((lat: number, lon: number, name?: string) => {
-        console.log('[NavDebug] handleMapTargetSelect initiated', { lat, lon, name });
         // Normalize Longitude (-180 to 180)
         // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
         let normalizedLon = lon;
         while (normalizedLon > 180) normalizedLon -= 360;
         while (normalizedLon < -180) normalizedLon += 360;
 
-        const locationQuery = name || `${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
+        const locationQuery = name || `WP ${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
 
         // Pass normalized coords
         const finalCoords = { lat, lon: normalizedLon };
@@ -174,13 +173,10 @@ export const useAppController = () => {
         setSheetOpen(false);
 
         // NAVIGATION FIRST (Optimistic UI)
-        console.log('[NavDebug] Navigating to dashboard immediately...');
         setPage('dashboard');
 
         // Fire-and-forget fetch
-        console.log('[NavDebug] Triggering background selectLocation normalized:', finalCoords);
         selectLocation(locationQuery, finalCoords).catch(e => {
-            console.error("[NavDebug] Map Select Failed (Background)", e);
             showToast("Location update failed, check network.");
         });
     }, [setQuery, selectLocation, setPage, showToast]);

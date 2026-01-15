@@ -406,10 +406,11 @@ export const mapStormGlassToReport = (
 
     if (existingLocationType) {
         locType = existingLocationType;
-    } else if (hasTides) {
-        locType = 'coastal';
-    } else if (hasWaves) {
-        locType = 'offshore';
+    } else {
+        // Fallback (Should rarely be reached if services are updated)
+        if (hasTides) locType = 'coastal';
+        else if (hasWaves) locType = 'offshore';
+        else locType = 'inland';
     }
 
     return {

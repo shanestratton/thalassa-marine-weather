@@ -1,4 +1,5 @@
 import { MarineWeatherReport, WeatherModel } from '../../../types';
+import { determineLocationType } from '../locationType';
 import { getOpenMeteoKey } from '../keys';
 import { getCondition, generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
@@ -49,25 +50,22 @@ export const fetchOpenMeteo = async (
     if (!res.ok) throw new Error(`OpenMeteo HTTP ${res.status}`);
     const wData = await res.json();
 
-    // Fetch Marine (Waves)
+    // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: any = null;
-    try {
-        const marineUrl = "https://customer-api.open-meteo.com/v1/marine";
-        const marineParams = new URLSearchParams({
-            latitude: safeLat.toFixed(4),
-            longitude: safeLon.toFixed(4),
-            current: "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,swell_wave_direction",
-            hourly: "wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction",
-            daily: "wave_height_max,wave_direction_dominant,wave_period_max",
-            timezone: "auto",
-            forecast_days: "16"
-        });
-        if (isCommercial) marineParams.append("apikey", apiKey!);
+    let distToWaterIdx = 9999;
 
-        const mRes = await fetch(`${marineUrl}?${marineParams.toString()}`);
-        if (mRes.ok) waveData = await mRes.json();
-    } catch {
-        // ignore marine failure
+    try {
+        const { checkMarineProximity } = await import('../marineProximity');
+        const proxResult = await checkMarineProximity(lat, lon);
+
+        if (proxResult.hasMarineData) {
+            waveData = proxResult.data;
+            distToWaterIdx = proxResult.nearestWaterDistanceKm;
+        } else {
+            console.log("[OpenMeteo] Marine Ring Search found NO valid waves.");
+        }
+    } catch (e) {
+        console.warn("[OpenMeteo] Marine Proximity Check Failed", e);
     }
 
     // Fetch Tides (Parallel-ish, but we await here for simplicity or use Promise.all above? Let's use Promise.all for speed)
@@ -236,16 +234,8 @@ export const fetchOpenMeteo = async (
     let locType: 'coastal' | 'offshore' | 'inland' = 'offshore';
 
     // 1. Determine "Distance to Water" using Marine Grid Snap
-    // OpenMeteo Marine API snaps to the nearest water grid point.
-    // If our requested lat/lon is far from the returned marine lat/lon, we are on land.
-    let distToWaterIdx = 9999;
-    let hasMarineData = false;
-
-    if (waveData?.latitude && waveData?.longitude) {
-        distToWaterIdx = calculateDistance(lat, lon, waveData.latitude, waveData.longitude);
-        const maxWave = waveData?.daily?.wave_height_max ? Math.max(...waveData.daily.wave_height_max) : 0;
-        if (maxWave > 0.1) hasMarineData = true;
-    }
+    // (Handled by Ring Search above: distToWaterIdx is set to 0 if found)
+    const hasMarineData = waveData !== null;
 
     // 2. Perform Geocoding Lookup (Context)
     // We need this to determine distance to land (for Offshore rule) AND verify if we are actually on land.
@@ -267,63 +257,16 @@ export const fetchOpenMeteo = async (
     console.log('[LocType Debug] Land Context:', landCtx);
     console.log('[LocType Debug] Distances:', { distToLand, distToWaterIdx });
 
-    if (!landCtx) {
-        locType = 'offshore';
-        console.log(`[LocType] No Land Context found (Ocean filtered). Type: OFFSHORE`);
-    } else {
-        // We have a nearby land feature (island, coast, city).
+    // Determine Location Type using Shared Utility
+    locType = determineLocationType(
+        landCtx ? distToLand : null,
+        distToWaterIdx,
+        landCtx?.name,
+        report.tides && report.tides.length > 0,
+        wData.elevation // Pass elevation for Lake filtering
+    );
 
-        // Check 1: OFFSHORE Rule (> 50nm from land)
-        // 50 NM = 92.6 km
-        if (distToLand > 92.6) {
-            locType = 'offshore';
-            console.log(`[LocType] Dist to Land > 50nm (${distToLand.toFixed(1)}km). Type: OFFSHORE`);
-        } else {
-            // We are within 50nm of land. We are either COASTAL or INLAND.
-            // Distinguish using "Distance to Water" (Marine Grid Snap).
-
-            // Refined "Is On Land" check:
-            // If grid snap is tight (< 5km), we are likely ON WATER (or very close to it).
-            // Note: Increased threshold from 2km to 5km to avoid false positive "Land" in ocean gaps.
-            const isWaterSnap = hasMarineData && distToWaterIdx < 5.0;
-
-            if (isWaterSnap) {
-                // We are ON WATER (approx), and < 50nm from land.
-                locType = 'coastal';
-                console.log(`[LocType] ON WATER (Grid ${distToWaterIdx.toFixed(1)}km) & < 50nm Land. Type: COASTAL`);
-            } else {
-                // We are ON LAND (approx).
-                // Rule: > 5nm from water = INLAND.
-                // Rule: < 5nm from water = COASTAL.
-                // 5 NM = 9.26 km.
-                if (distToWaterIdx > 9.26) {
-                    locType = 'inland';
-                    console.log(`[LocType] ON LAND & > 5nm Water (${distToWaterIdx.toFixed(1)}km). Type: INLAND`);
-                } else {
-                    locType = 'coastal';
-
-                    // REFINEMENT: Waterway Check (Creek, River, Lake)
-                    // Users reported creeks/lakes being flagged as Coastal even when inland.
-                    // If name implies inland water, we enforce a STRICTER threshold (3km instead of 9km)
-                    // to ensure we are truly at the "Actual Coast" (Ocean).
-                    if (landCtx?.name) {
-                        const n = landCtx.name.toUpperCase();
-                        const isWaterway = ["CREEK", "RIVER", "LAKE", "DAM", "RESERVOIR", "POND", "CANAL"].some(k => n.includes(k));
-                        if (isWaterway) {
-                            if (distToWaterIdx > 3.0) {
-                                locType = 'inland';
-                                console.log(`[LocType] '${landCtx.name}' is Waterway & > 3km from Grid. Forcing INLAND.`);
-                            }
-                        }
-                    }
-
-                    if (locType === 'coastal') {
-                        console.log(`[LocType] ON LAND & < 5nm Water (${distToWaterIdx.toFixed(1)}km). Type: COASTAL`);
-                    }
-                }
-            }
-        }
-    }
+    console.log(`[LocType] Calculated Type: ${locType}`);
 
     report.locationType = locType;
     report.isLandlocked = locType === 'inland'; // Backwards compat
