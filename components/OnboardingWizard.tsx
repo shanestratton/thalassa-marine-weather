@@ -72,12 +72,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 setTempLocation({ lat: latitude, lon: longitude, name: "Current Location" });
                 try {
                     const niceName = await reverseGeocode(latitude, longitude);
-                    const finalName = niceName || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                    const finalName = niceName || `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
                     setHomePort(finalName);
                     // Update temp location name once resolved
                     setTempLocation({ lat: latitude, lon: longitude, name: finalName });
                 } catch (e) {
-                    setHomePort(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                    setHomePort(`WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
                 }
                 setIsLocating(false);
             }, (err) => {
@@ -108,7 +108,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 } else {
                     setTempLocation(prev => {
                         if (prev && prev.lat === lat && prev.lon === lon) {
-                            return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                            return { lat, lon, name: `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}` };
                         }
                         return prev;
                     });
@@ -116,7 +116,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             } catch {
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
-                        return { lat, lon, name: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                        return { lat, lon, name: `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}` };
                     }
                     return prev;
                 });

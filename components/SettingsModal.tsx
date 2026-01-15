@@ -245,7 +245,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         if ('geolocation' in navigator) {
             navigator.geolocation.getCurrentPosition(async (position) => {
                 const { latitude, longitude } = position.coords;
-                let resolvedName = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
                 try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { }
                 onSave({ defaultLocation: resolvedName });
                 setDetectingLoc(false);
