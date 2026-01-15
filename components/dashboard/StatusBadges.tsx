@@ -9,18 +9,23 @@ interface StatusBadgesProps {
     nextUpdate: number | null;
     fallbackInland?: boolean;
     stationId?: string;
+    locationType?: 'coastal' | 'offshore' | 'inland';
 }
 
-export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locationName, displaySource, nextUpdate, fallbackInland, stationId }) => {
+export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locationName, displaySource, nextUpdate, fallbackInland, stationId, locationType }) => {
     // BADGES Logic
     let statusBadgeLabel = "OFFSHORE";
     let statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
 
-    if (isLandlocked || fallbackInland) {
+    // Priority: Explicit Location Type
+    if (locationType === 'offshore') {
+        statusBadgeLabel = "OFFSHORE";
+        statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
+    } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
         statusBadgeLabel = "INLAND";
         statusBadgeColor = "bg-amber-500/20 text-amber-300 border-amber-500/30";
-    } else if (locationName && !locationName.startsWith("Ocean Point")) {
-        // Default to COASTAL for named locations, UNLESS it's an Ocean Point
+    } else {
+        // Default / Coastal
         statusBadgeLabel = "COASTAL";
         statusBadgeColor = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
     }
@@ -34,6 +39,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locati
     const cleanSource = isSG ? "STORMGLASS PRO" : displaySource;
 
     // console.log(`[STATUS BADGE DEBUG] Raw: "${displaySource}", Clean: "${cleanSource}", StationID: "${stationId}"`);
+    if (locationType === 'offshore' && statusBadgeLabel !== 'OFFSHORE') {
+        console.warn("[StatusBadges] Logic Mismatch! Type is offshore but label is", statusBadgeLabel, { isLandlocked, fallbackInland });
+    }
 
     return (
         <div className="px-4 md:px-6 -mt-4 shrink-0 relative z-20">

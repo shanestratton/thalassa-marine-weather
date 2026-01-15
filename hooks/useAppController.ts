@@ -157,13 +157,33 @@ export const useAppController = () => {
         updateSettings({ savedLocations: newLocs });
     }, [weatherData, settings.savedLocations, showToast, updateSettings]);
 
-    const handleMapTargetSelect = useCallback(async (lat: number, lon: number, name?: string) => {
-        const locationQuery = name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    const handleMapTargetSelect = useCallback((lat: number, lon: number, name?: string) => {
+        console.log('[NavDebug] handleMapTargetSelect initiated', { lat, lon, name });
+        // Normalize Longitude (-180 to 180)
+        // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
+        let normalizedLon = lon;
+        while (normalizedLon > 180) normalizedLon -= 360;
+        while (normalizedLon < -180) normalizedLon += 360;
+
+        const locationQuery = name || `${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
+
+        // Pass normalized coords
+        const finalCoords = { lat, lon: normalizedLon };
+
         setQuery(locationQuery);
         setSheetOpen(false);
-        selectLocation(locationQuery, { lat, lon });
+
+        // NAVIGATION FIRST (Optimistic UI)
+        console.log('[NavDebug] Navigating to dashboard immediately...');
         setPage('dashboard');
-    }, [setQuery, selectLocation, setPage]);
+
+        // Fire-and-forget fetch
+        console.log('[NavDebug] Triggering background selectLocation normalized:', finalCoords);
+        selectLocation(locationQuery, finalCoords).catch(e => {
+            console.error("[NavDebug] Map Select Failed (Background)", e);
+            showToast("Location update failed, check network.");
+        });
+    }, [setQuery, selectLocation, setPage, showToast]);
 
     const handleFavoriteSelect = useCallback((loc: string) => {
         setQuery(loc);

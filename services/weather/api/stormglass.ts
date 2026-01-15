@@ -17,7 +17,8 @@ const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: st
 export const fetchStormGlassWeather = async (
     lat: number,
     lon: number,
-    name: string
+    name: string,
+    existingLocationType?: 'coastal' | 'offshore' | 'inland'
 ): Promise<MarineWeatherReport> => {
 
     // 1. Validate Key
@@ -117,7 +118,8 @@ export const fetchStormGlassWeather = async (
         [], // seaLevels REMOVED
         'sg',
         astronomy,
-        metar
+        metar,
+        existingLocationType
     );
 
     // Attach Station Name - REMOVED per user request

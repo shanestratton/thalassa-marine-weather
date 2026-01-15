@@ -53,7 +53,21 @@ const App: React.FC = () => {
     }
 
     const containerClasses = effectiveMode === 'night' ? 'bg-black text-red-600' : effectiveMode === 'high-contrast' ? 'bg-black text-white' : 'bg-slate-900 text-white';
-    const displayTitle = weatherData ? weatherData.locationName : (query || settings.defaultLocation || "Select Location");
+
+    // Header Title Logic
+    // Fix: If Offshore and name is coords, prepend "WP"
+    const rawTitle = weatherData ? weatherData.locationName : (query || settings.defaultLocation || "Select Location");
+    let displayTitle = rawTitle;
+
+    if (weatherData?.locationType === 'offshore') {
+        // If the name looks like coordinates, prepend WP
+        // e.g. "-23.5000, 153.2000"
+        const isCoords = /^[+-]?\d/.test(rawTitle);
+        if (isCoords) {
+            displayTitle = `WP ${rawTitle}`;
+        }
+    }
+
     const showBackgroundImage = effectiveMode === 'standard' && currentView !== 'settings';
     const showHeader = !['map', 'voyage', 'warnings'].includes(currentView);
 

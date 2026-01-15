@@ -17,8 +17,24 @@ const CACHE_VERSION = 'v18.1-FILESYSTEM';
 const DATA_CACHE_KEY = 'thalassa_weather_cache_v5';
 const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
 const HISTORY_CACHE_KEY = 'thalassa_history_cache_v2';
-const WEATHER_UPDATE_INTERVAL = 60 * 60 * 1000; // 1 Hour
+const BASE_UPDATE_INTERVAL = 30 * 60 * 1000; // 30 mins
+const UNSTABLE_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 mins
 const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
+
+// Helper to calculate aligned update time
+const calculateNextUpdateTime = (unstable: boolean = false) => {
+    const now = Date.now();
+    const interval = unstable ? UNSTABLE_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
+
+    // Align to next bucket
+    // E.g. if interval 30m, and now is 12:05, next is 12:30.
+    const remainder = now % interval;
+    const padding = interval - remainder;
+
+    // Add minimal buffer (e.g. 10s) to avoid immediate re-trigger if logic is fast
+    const target = now + padding + 10000;
+    return target;
+};
 
 interface WeatherContextType {
     weatherData: MarineWeatherReport | null;
@@ -260,7 +276,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (useStormglass && !alreadyHasSG) {
                 try {
                     // Use resolved name!
-                    currentReport = await fetchPrecisionWeather(resolvedLocation, currentReport.coordinates);
+                    currentReport = await fetchPrecisionWeather(
+                        resolvedLocation,
+                        currentReport.coordinates,
+                        false, // forceRefresh
+                        currentReport.locationType // PASS EXISTING TYPE (Critical Fix)
+                    );
                     incrementQuota();
                 } catch (e: any) {
                     console.warn("Precision Upgrade Failed", e);
@@ -285,26 +306,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!isBackground) setLoading(false);
 
             // 5. CALCULATE NEXT UPDATE TIME
-            // Unstable = Gust > 15 OR Rain > 0
-            const maxGust = Math.max(...(currentReport.hourly?.slice(0, 24).map(h => h.windGust || 0) || [0]));
-            const maxRain = Math.max(...(currentReport.hourly?.slice(0, 24).map(h => h.precipitation || 0) || [0]));
-            const isUnstable = maxGust > 15 || maxRain > 0;
+            // Check instability (Alerts present OR high wind/rain)
+            const hasAlerts = currentReport.alerts && currentReport.alerts.length > 0;
+            const maxGust = Math.max(...(currentReport.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
+            const isUnstable = hasAlerts || maxGust > 20;
 
-            const nowTs = Date.now();
-            const intervalMs = isUnstable ? (10 * 60 * 1000) : (30 * 60 * 1000);
-
-            // Calculate next clean interval (00, 10, 20... or 00, 30)
-            // Logic: ceil(now / interval) * interval
-            let nextTs = Math.ceil(nowTs / intervalMs) * intervalMs;
-
-            // If calculated time is basically "now" (within 5 seconds), push it to next interval
-            if (nextTs - nowTs < 5000) {
-                nextTs += intervalMs;
-            }
+            const nextTs = calculateNextUpdateTime(isUnstable);
 
             setNextUpdate(nextTs);
             localStorage.setItem('thalassa_next_update', nextTs.toString());
-            const now = nowTs;
+            const now = Date.now();
             const lastAI = weatherDataRef.current?.aiGeneratedAt ? new Date(weatherDataRef.current.aiGeneratedAt).getTime() : 0;
             const timeExpired = (now - lastAI) > AI_UPDATE_INTERVAL;
             const locationChanged = weatherDataRef.current?.locationName !== currentReport.locationName;
@@ -366,6 +377,39 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             await fetchWeather(location, false, coords, true);
         }
     }, [fetchWeather, historyCache]);
+
+    // --- WATCHDOG: Ensure nextUpdate is set if data exists ---
+    useEffect(() => {
+        if (weatherData && !nextUpdate) {
+            // Check if unstable
+            const hasAlerts = weatherData.alerts && weatherData.alerts.length > 0;
+            const maxGust = Math.max(...(weatherData.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
+            const isUnstable = hasAlerts || maxGust > 20;
+
+            // Recalculate based on existing generation time IS WRONG.
+            // We should calculate based on NOW relative to GENERATED?
+            // Actually, we want to snap to the NEXT slot.
+            // If data generated 20 mins ago (Stable -> 30m interval).
+            // Next update should be generation + 30m.
+
+            const gen = new Date(weatherData.generatedAt).getTime();
+            const now = Date.now();
+
+            // Logic: Target = gen + interval.
+            // We use the same interval logic as fresh fetch
+            const interval = isUnstable ? UNSTABLE_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
+            const target = gen + interval;
+
+            if (target > now) {
+                console.log("[Watchdog] Restoring lost nextUpdate schedule");
+                setNextUpdate(target);
+            } else {
+                // Expired. Set to immediate future to trigger refresh on next loop
+                console.log("[Watchdog] Data expired, scheduling immediate refresh");
+                setNextUpdate(now + 1000);
+            }
+        }
+    }, [weatherData, nextUpdate]);
 
     // --- SMART REFRESH TIMER ---
     useEffect(() => {

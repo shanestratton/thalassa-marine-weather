@@ -235,36 +235,93 @@ export const fetchOpenMeteo = async (
     // Infer Location Type
     let locType: 'coastal' | 'offshore' | 'inland' = 'offshore';
 
-    if (report.tides && report.tides.length > 0) {
-        locType = 'coastal';
-    } else {
-        // Check for meaningful wave data (max height > 0.1m)
+    // 1. Determine "Distance to Water" using Marine Grid Snap
+    // OpenMeteo Marine API snaps to the nearest water grid point.
+    // If our requested lat/lon is far from the returned marine lat/lon, we are on land.
+    let distToWaterIdx = 9999;
+    let hasMarineData = false;
+
+    if (waveData?.latitude && waveData?.longitude) {
+        distToWaterIdx = calculateDistance(lat, lon, waveData.latitude, waveData.longitude);
         const maxWave = waveData?.daily?.wave_height_max ? Math.max(...waveData.daily.wave_height_max) : 0;
-        const currentWave = currentMetrics.waveHeight || 0;
-        let hasWaves = maxWave > 0.2 || currentWave > 0.2;
+        if (maxWave > 0.1) hasMarineData = true;
+    }
 
-        // CRITICAL CHECK: Verify the Marine Grid is actually close to the requested location.
-        // OpenMeteo snaps to the nearest grid point. If we request Alice Springs (Inland),
-        // it might return wave data for the Indian Ocean (>1000km away).
-        if (hasWaves && waveData?.latitude && waveData?.longitude) {
-            const dist = calculateDistance(lat, lon, waveData.latitude, waveData.longitude);
-            console.log(`[OpenMeteo] Wave Dist Check: Requested(${lat},${lon}) vs Grid(${waveData.latitude},${waveData.longitude}) = ${dist.toFixed(2)}km`);
-
-            // If the grid point is > 50km away, it's likely a snap to distant ocean -> Inland.
-            if (dist > 50) {
-                console.warn(`[OpenMeteo] Marine grid too far (${dist.toFixed(1)}km). Ignoring waves.`);
-                hasWaves = false;
-            }
-        } else {
-            console.log(`[OpenMeteo] Wave Check: HasWaves=${hasWaves}, Missing Grid Coords?`, { waveData });
+    // 2. Perform Geocoding Lookup (Context)
+    // We need this to determine distance to land (for Offshore rule) AND verify if we are actually on land.
+    let landCtx: any = null;
+    let distToLand = 9999;
+    try {
+        const { reverseGeocodeContext } = await import('./geocoding');
+        landCtx = await reverseGeocodeContext(lat, lon);
+        if (landCtx) {
+            distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
         }
+    } catch (e) {
+        console.warn("LocType Geocode Failed", e);
+    }
 
-        if (hasWaves) {
+    // 3. Robust Classification Logic
+    // Fix: If we filtered out "Ocean" and found NO land context, we are definitely OFFSHORE,
+    // regardless of what the grid snap says (which can be >2km in deep ocean).
+    console.log('[LocType Debug] Land Context:', landCtx);
+    console.log('[LocType Debug] Distances:', { distToLand, distToWaterIdx });
+
+    if (!landCtx) {
+        locType = 'offshore';
+        console.log(`[LocType] No Land Context found (Ocean filtered). Type: OFFSHORE`);
+    } else {
+        // We have a nearby land feature (island, coast, city).
+
+        // Check 1: OFFSHORE Rule (> 50nm from land)
+        // 50 NM = 92.6 km
+        if (distToLand > 92.6) {
             locType = 'offshore';
-            console.log(`[OpenMeteo] Location Type: OFFSHORE (Waves Valid)`);
+            console.log(`[LocType] Dist to Land > 50nm (${distToLand.toFixed(1)}km). Type: OFFSHORE`);
         } else {
-            locType = 'inland';
-            console.log(`[OpenMeteo] Location Type: INLAND (No Waves/Too Far)`);
+            // We are within 50nm of land. We are either COASTAL or INLAND.
+            // Distinguish using "Distance to Water" (Marine Grid Snap).
+
+            // Refined "Is On Land" check:
+            // If grid snap is tight (< 5km), we are likely ON WATER (or very close to it).
+            // Note: Increased threshold from 2km to 5km to avoid false positive "Land" in ocean gaps.
+            const isWaterSnap = hasMarineData && distToWaterIdx < 5.0;
+
+            if (isWaterSnap) {
+                // We are ON WATER (approx), and < 50nm from land.
+                locType = 'coastal';
+                console.log(`[LocType] ON WATER (Grid ${distToWaterIdx.toFixed(1)}km) & < 50nm Land. Type: COASTAL`);
+            } else {
+                // We are ON LAND (approx).
+                // Rule: > 5nm from water = INLAND.
+                // Rule: < 5nm from water = COASTAL.
+                // 5 NM = 9.26 km.
+                if (distToWaterIdx > 9.26) {
+                    locType = 'inland';
+                    console.log(`[LocType] ON LAND & > 5nm Water (${distToWaterIdx.toFixed(1)}km). Type: INLAND`);
+                } else {
+                    locType = 'coastal';
+
+                    // REFINEMENT: Waterway Check (Creek, River, Lake)
+                    // Users reported creeks/lakes being flagged as Coastal even when inland.
+                    // If name implies inland water, we enforce a STRICTER threshold (3km instead of 9km)
+                    // to ensure we are truly at the "Actual Coast" (Ocean).
+                    if (landCtx?.name) {
+                        const n = landCtx.name.toUpperCase();
+                        const isWaterway = ["CREEK", "RIVER", "LAKE", "DAM", "RESERVOIR", "POND", "CANAL"].some(k => n.includes(k));
+                        if (isWaterway) {
+                            if (distToWaterIdx > 3.0) {
+                                locType = 'inland';
+                                console.log(`[LocType] '${landCtx.name}' is Waterway & > 3km from Grid. Forcing INLAND.`);
+                            }
+                        }
+                    }
+
+                    if (locType === 'coastal') {
+                        console.log(`[LocType] ON LAND & < 5nm Water (${distToWaterIdx.toFixed(1)}km). Type: COASTAL`);
+                    }
+                }
+            }
         }
     }
 

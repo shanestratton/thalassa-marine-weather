@@ -51,7 +51,8 @@ export const mapStormGlassToReport = (
     seaLevels: Partial<StormGlassTideData>[] = [],
     model: string = 'sg',
     astro?: any[], // Pass astronomy data
-    metarData?: LocalObservation | null
+    metarData?: LocalObservation | null,
+    existingLocationType?: 'coastal' | 'offshore' | 'inland'
 ): MarineWeatherReport => {
     // 1. Current Conditions
     const now = new Date();
@@ -403,7 +404,9 @@ export const mapStormGlassToReport = (
 
     let locType: 'coastal' | 'offshore' | 'inland' = 'inland';
 
-    if (hasTides) {
+    if (existingLocationType) {
+        locType = existingLocationType;
+    } else if (hasTides) {
         locType = 'coastal';
     } else if (hasWaves) {
         locType = 'offshore';

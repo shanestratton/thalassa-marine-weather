@@ -167,7 +167,8 @@ export const fetchFastWeather = async (
 export const fetchPrecisionWeather = async (
     location: string,
     coords?: { lat: number, lon: number },
-    forceRefresh = false
+    forceRefresh = false,
+    existingLocationType?: 'coastal' | 'offshore' | 'inland'
 ): Promise<MarineWeatherReport> => {
 
     // 1. Resolve Location
@@ -202,7 +203,7 @@ export const fetchPrecisionWeather = async (
     // 3. Fetch StormGlass
     try {
         console.log(`[Precision] Fetching StormGlass for ${name}...`);
-        const data = await fetchStormGlassWeather(lat, lon, name);
+        const data = await fetchStormGlassWeather(lat, lon, name, existingLocationType);
 
         // APPLY METAR OVERRIDE
         const startMetar = Date.now();

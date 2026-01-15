@@ -3,7 +3,13 @@ import { getMapboxKey } from '../keys';
 import { abbreviate } from '../transformers';
 import { suggestLocationCorrection } from '../../geminiService';
 
-export const reverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
+export interface GeoContext {
+    name: string;
+    lat: number;
+    lon: number;
+}
+
+export const reverseGeocodeContext = async (lat: number, lon: number): Promise<GeoContext | null> => {
     try {
         console.log('[Geocoding] Reverse Request:', lat, lon);
 
@@ -26,9 +32,17 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
                 const regionCtx = context.find((c: any) => c.id.startsWith('region'));
 
                 const city = place.text;
+
+                // FILTER: Ignore "Ocean" or "Sea" results if we are looking for LAND context
+                // This prevents "Pacific Ocean" being returned as the nearest "place", which breaks Offshore detection.
+                if (city.includes('Ocean') || city.includes('Sea')) {
+                    console.log(`[Geocoding] Filtered out water feature: ${city}`);
+                    return null;
+                }
+
                 const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : "";
 
-                // Allow "NSW", "CA" etc, but block full region names if they are long/confusing
+                // Allow "NSW", "CA" etc...
                 let state = "";
                 if (regionCtx) {
                     const regCode = regionCtx.short_code ? regionCtx.short_code.replace("US-", "").toUpperCase() : "";
@@ -39,8 +53,12 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
                     else if (regText && regText.length < 20) state = regText; // Fallback to full name if reasonable
                 }
 
-                // If Place Type is 'poi' or 'natural_feature', might be Coastal
-                return [city, state, countryShort].filter(p => p).join(", ");
+                // Coordinates of the found place (center)
+                const featureLat = place.center[1];
+                const featureLon = place.center[0];
+
+                const name = [city, state, countryShort].filter(p => p).join(", ");
+                return { name, lat: featureLat, lon: featureLon };
             }
         } else {
             console.warn('[Geocoding] Missing Mapbox Token');
@@ -67,29 +85,44 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
 
         const parts = [locality, state, country].filter(part => part && part.trim().length > 0);
 
-        // PREFER Display Name First Component (Aligns with parseLocation logic)
-        // If display_name starts with something more specific than 'locality' (or if locality is 'Sunshine Coast Regional' but display name says 'Mooloolaba')
-        if (data.display_name) {
-            const displayFirst = data.display_name.split(',')[0];
+        // PREFER Display Name First Component ONLY if it matches a broad region type
+        // The previous logic blindly took display_name[0], which often resulted in "123" (House Number) or "Smith St".
+        // We want to force Suburb/Town level.
 
-            // If we didn't find a structured locality, use the display name's first part
-            if (!locality && displayFirst) {
-                return [displayFirst, state, country].filter(p => p && p.trim().length > 0).join(", ");
-            }
+        let finalName = locality;
 
-            if (displayFirst && displayFirst.length > 2 && displayFirst !== locality) {
-                // Rebuild with displayFirst
-                return [displayFirst, state, country].filter(p => p && p.trim().length > 0).join(", ");
-            }
+        // Fallback if locality is missing but we have a display name
+        if (!finalName && data.display_name) {
+            const parts = data.display_name.split(',').map((p: string) => p.trim());
+            // Filter out things that look like numbers or streets if possible, but Nominatim doesn't guarantee type in string.
+            // Safest is to just take the first part if we have NOTHING else.
+            finalName = parts[0];
         }
 
-        if (parts.length === 0) return null;
-        return parts.join(", ");
+        // If we have a structured locality, prefer it over the raw display name to avoid "12 Smith St"
+        const name = [finalName, state, country].filter(p => p && p.trim().length > 0).join(", ");
+
+        // FILTER: Ignore "Ocean" or "Sea" results from Nominatim as well
+        if (name.includes('Ocean') || name.includes('Sea')) {
+            console.log(`[Geocoding] Filtered out water feature (Nominatim): ${name}`);
+            return null;
+        }
+
+        // Nominatim returns lat/lon of the result
+        const resLat = parseFloat(data.lat);
+        const resLon = parseFloat(data.lon);
+
+        return { name, lat: resLat, lon: resLon };
 
     } catch (err) {
         console.error('[Geocoding] Error:', err);
-        return null;
+        return null; // Return null on error
     }
+}
+
+export const reverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
+    const ctx = await reverseGeocodeContext(lat, lon);
+    return ctx ? ctx.name : null;
 }
 
 export const parseLocation = async (location: string): Promise<{ lat: number, lon: number, name: string }> => {

@@ -13,10 +13,102 @@ import { StatusBadges } from './StatusBadges';
 import { TimerBadge } from './TimerBadge';
 import { Countdown } from './Countdown';
 import { LocationClock } from './LocationClock';
+import { useWeather } from '../../context/WeatherContext';
 
 // --- STYLES ---
 // WIDGET_CARD_CLASS removed
+// --- STYLES ---
+// WIDGET_CARD_CLASS removed
 const STATIC_WIDGET_CLASS = "flex-1 min-w-[32%] md:min-w-[30%] bg-black/10 border border-white/5 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 opacity-80";
+
+// --- WIDGET RENDERER (Pure Function) ---
+const renderHeroWidget = (
+    id: string,
+    data: WeatherMetrics,
+    values: any,
+    units: UnitPreferences,
+    isLive: boolean
+) => {
+    const hasWind = data.windSpeed !== null && data.windSpeed !== undefined;
+
+    switch (id) {
+        case 'wind':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
+                            <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                            {data.windDirection || 'VAR'}
+                        </div>
+                        {hasWind && isLive && (
+                            <span className="text-[8px] md:text-[10px] text-orange-300 font-bold ml-auto hidden md:inline">G {values.gusts}</span>
+                        )}
+                    </div>
+                </div>
+            );
+        case 'gust':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
+                    </div>
+                </div>
+            );
+        case 'wave':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waveHeight}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
+                            <ClockIcon className="w-2.5 h-2.5" />
+                            {data.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
+                        </div>
+                    </div>
+                </div>
+            );
+        case 'pressure':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.pressure}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">hPa</span>
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
+                        MSL
+                    </div>
+                </div>
+            );
+        default:
+            return null;
+    }
+};
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 export const HeroSlide = React.memo(({
@@ -37,7 +129,8 @@ export const HeroSlide = React.memo(({
     fullHourly,
     guiDetails,
     coordinates,
-    locationType
+    locationType,
+    generatedAt
 }: {
     data: WeatherMetrics,
     index: number,
@@ -57,8 +150,10 @@ export const HeroSlide = React.memo(({
     lat?: number,
     guiDetails?: any,
     coordinates?: { lat: number, lon: number },
-    locationType?: 'coastal' | 'offshore' | 'inland'
+    locationType?: 'coastal' | 'offshore' | 'inland',
+    generatedAt?: string
 }) => {
+    const { nextUpdate } = useWeather();
     // Ticker for Live Countdown
     const [tick, setTick] = useState(0);
     useEffect(() => {
@@ -94,36 +189,11 @@ export const HeroSlide = React.memo(({
 
         if (currentSlot) {
             // CRITICAL FIX: Do NOT override "Current" data (which might be real METAR) with "Hourly" data (which is model forecast).
-            // The 'data' prop comes from 'weather.current' which has 'Ground Truth' overrides (e.g. 8.0kts).
-            // The 'currentSlot' comes from 'hourly' which is raw model data (e.g. 8.4kts).
-            // Only update time-sensitive fields that AREN'T critical observations, or if we really need to.
-            // For now, we TRUST 'data' for the primary metrics.
-
+            // The 'data' prop comes from 'weather.current' which has 'Ground Truth' overrides.
+            // ...
             return {
                 ...data,
-                // Keep the 'data' values for Wind, Gust, Temp, Pressure to preserve Ground Truth
-                // airTemperature: currentSlot.temperature,
-                // windSpeed: currentSlot.windSpeed,
-                // windGust: currentSlot.windGust,
-                // pressure: currentSlot.pressure,
-
-                // We can update derived/secondary stuff or things that might shift
-                // But for safety, let's relying on the logic: 
-                // "If I am the NOW card, show the NOW data passed in."
-
-                // Still allow updating some safe fields if needed, or just return data?
-                // Returning data is safest to preserve 8.0kts.
-
-                // However, the original intent was: If user loads app at 9am, and it's now 11am, show 11am weather.
-                // But if it's 11am, the app should have refreshed !
-                // If it hasn't refreshed, showing 11am forecast (Model) is better than 9am METAR?
-                // Maybe using `data` IS the problem if data is old.
-                // BUT, in this case, the user Just Refreshed. So `data` is Fresh.
-
-                // COMPROMISE: We assume `data` is fresh enough if we are rendering.
-                // If we want to support "stale app", the app should trigger refresh.
-                // So I will Comment out the Overrides.
-
+                // Only update time-sensitive fields
                 uvIndex: currentSlot.uvIndex !== undefined ? currentSlot.uvIndex : data.uvIndex,
                 precipitation: currentSlot.precipitation,
                 feelsLike: currentSlot.feelsLike,
@@ -133,7 +203,7 @@ export const HeroSlide = React.memo(({
             };
         }
         return data;
-    }, [data, hourly, isLive, fullHourly]);
+    }, [data, hourly, isLive, fullHourly, tick]); // Added 'tick' to ensure Date.now() refreshes
 
     // Use effectiveData for all display logic used in the MAIN CARD
     const displayData = effectiveData;
@@ -143,7 +213,7 @@ export const HeroSlide = React.memo(({
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
 
     // FIX V5: PRE-CALCULATE THE DATE LABEL FROM THE PARENT ROW DATA
-    const rowDateLabel = (() => {
+    const rowDateLabel = useMemo(() => {
         if (index === 0) return "TODAY";
 
         // Critical: Use displayData.isoDate if available to LOCK the date to the row's day
@@ -156,7 +226,7 @@ export const HeroSlide = React.memo(({
         // Fallback for generic date objects
         const d = displayData.date ? new Date(displayData.date) : new Date();
         return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-    })();
+    }, [index, displayData.isoDate, displayData.date]);
 
     useEffect(() => {
         const handleReset = () => {
@@ -169,13 +239,10 @@ export const HeroSlide = React.memo(({
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
     }, []);
 
-    // DnD Sensors (Only for Live Slide)
-    // DnD Logic Removed
-
     const fullWidgetList = settings.heroWidgets && settings.heroWidgets.length > 0 ? settings.heroWidgets : ['wind', 'wave', 'pressure'];
     const displayWidgets = fullWidgetList.slice(0, 3);
 
-    // Display Logic
+    // Display Logic used for WIDGETS (Not the Card itself? Wait, Widgets use this too)
     const rawGust = displayData.windGust || ((displayData.windSpeed || 0) * 1.3);
     const hasWind = displayData.windSpeed !== null && displayData.windSpeed !== undefined;
 
@@ -193,7 +260,7 @@ export const HeroSlide = React.memo(({
         const set = new Date(d).setHours(sH, sM, 0, 0);
 
         return d.getTime() >= rise && d.getTime() < set;
-    }, [index, displayData.sunrise, displayData.sunset, customTime]);
+    }, [index, displayData.sunrise, displayData.sunset, customTime, tick]); // Added tick
 
     const isHighGust = hasWind && (rawGust > ((displayData.windSpeed || 0) * 1.5));
     const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
@@ -221,31 +288,7 @@ export const HeroSlide = React.memo(({
     const scoreColor = getSailingScoreColor(score);
     const scoreText = getSailingConditionText(score);
 
-    const WidgetMap: Record<string, React.ReactNode> = {
-        wind: (
-            <div className="flex flex-col h-full justify-between">
-                <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                    <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
-                    <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
-                </div>
-                <div className="flex items-baseline gap-0.5">
-                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{displayValues.windSpeed}</span>
-                    <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
-                </div>
-                <div className="flex items-center gap-1 mt-auto pt-1">
-                    <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
-                        <CompassIcon rotation={displayData.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
-                        {displayData.windDirection || 'VAR'}
-                    </div>
-                    {hasWind && isLive && (
-                        <span className="text-[8px] md:text-[10px] text-orange-300 font-bold ml-auto hidden md:inline">G {displayValues.gusts}</span>
-                    )}
-                </div>
-            </div>
-        ),
-        // ... (Other widgets omitted for brevity in tool call, strictly targeting modified areas)
-        // BUT wait, replace_file_content needs surrounding context match.
-    };
+    // WidgetMap removed (replaced by renderHeroWidget helper)
 
     // ... (Skipping to renderTideGraph)
 
@@ -339,7 +382,6 @@ export const HeroSlide = React.memo(({
                 </div>
             );
         }
-
         if (!tides || tides.length === 0) return null;
 
         return (
@@ -427,12 +469,10 @@ export const HeroSlide = React.memo(({
             );
         }
 
-        if (WidgetMap[topWidgetId]) {
-            // Because WidgetMap[id] already returns a full structure (Header/Body/Footer), we can just return it !
-            // However, the WidgetMap icons are tailored for "Dark Slate" style, our header card is "Dark Black". 
-            // The styles in WidgetMap use `text-slate-X` which might need checking, but generally they are compatible.
-            // Let's just return the component.
-            return WidgetMap[topWidgetId];
+        // Use Common Renderer
+        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive);
+        if (customWidget) {
+            return customWidget;
         }
         return null;
     };
@@ -520,6 +560,7 @@ export const HeroSlide = React.memo(({
                     <div className="relative z-10 w-full h-auto flex flex-col p-0">
                         {/* Header Grid */}
                         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
+
                             {/* MERGED Header Card (Span 3-Full Width) */}
                             <div className="col-span-3 bg-black/20 border border-white/10 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px]">
                                 {/* Gradient Orb (Shared) */}
@@ -685,76 +726,16 @@ export const HeroSlide = React.memo(({
                                     {displayWidgets.map((id: string, idx: number) => {
                                         // Calculate Justification
                                         const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
-                                        const baselineClass = idx === 0 ? '' : idx === 1 ? 'justify-center' : 'justify-end';
 
-                                        // CUSTOM BG LOGIC FOR GUST ALERT
-                                        let widgetBgClass = STATIC_WIDGET_CLASS;
-                                        // Removed orange block logic per user feedback
-                                        // if (id === 'gust' && !isCardDay && !isHourly) { ... }
+                                        // Use helper for all widgets
+                                        const widgetContent = renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive);
+
+                                        // If no content (e.g. unknown widget), render empty placeholder or skip?
+                                        // Existing behavior rendered the box wrapper anyway.
 
                                         return (
-                                            <div key={id} className={`${widgetBgClass} ${justifyClass} `}>
-                                                {/* Fallback for simple widgets */}
-                                                {id === 'wind' && (
-                                                    <div className={`flex flex-col h-full justify-between w-full ${justifyClass} `}>
-                                                        <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${baselineClass} `}>
-                                                            <WindIcon className={`w-3 h-3 ${cardIsLive ? 'text-sky-400' : 'text-slate-400'} `} />
-                                                            <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Wind</span>
-                                                        </div>
-                                                        <div className={`flex items-baseline gap-0.5 ${baselineClass} `}>
-                                                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{cardDisplayValues.windSpeed}</span>
-                                                            <span className="text-[10px] sm:text-xs font-medium text-white/40 tracking-wider">
-                                                                {units.speed}
-                                                            </span>
-                                                        </div>
-                                                        <div className={`flex items-center gap-1 mt-auto pt-1 ${baselineClass} `}>
-                                                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
-                                                                <CompassIcon rotation={cardData.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
-                                                                {cardData.windDirection || 'VAR'}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )
-                                                }
-                                                {id === 'gust' && (
-                                                    <div className={`flex flex-col h-full justify-between w-full ${justifyClass} `}>
-                                                        <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${baselineClass} `}>
-                                                            <WindIcon className={`w-3 h-3 ${cardIsLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                                                            <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
-                                                        </div>
-                                                        <div className={`flex items-baseline gap-0.5 ${baselineClass} `}>
-                                                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{cardDisplayValues.gusts}</span>
-                                                            <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
-                                                        </div>
-                                                        <div className={`flex items-center gap-1 mt-auto pt-1 ${baselineClass} `}>
-                                                            <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {id === 'wave' && (
-                                                    <div className={`flex flex-col h-full justify-between w-full ${justifyClass} `}>
-                                                        <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${baselineClass} `}>
-                                                            <WaveIcon className={`w-3 h-3 ${cardIsLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                                                            <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
-                                                        </div>
-                                                        <div className={`flex items-baseline gap-0.5 ${baselineClass} `}>
-                                                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{cardDisplayValues.waveHeight}</span>
-                                                            <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
-                                                        </div>
-                                                        <div className={`flex items-center gap-1 mt-auto pt-1 ${baselineClass} `}>
-                                                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
-                                                                <ClockIcon className="w-2.5 h-2.5" />
-                                                                {cardData.swellPeriod ? `${Math.round(cardData.swellPeriod)} s` : '--'}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {id !== 'wind' && id !== 'wave' && (
-                                                    // Wrapper to force alignment on generic components if possible
-                                                    <div className={`w-full h-auto pointer-events-auto flex flex-col relative ${justifyClass} `}>
-                                                        {WidgetMap[id]}
-                                                    </div>
-                                                )}
+                                            <div key={id} className={`${STATIC_WIDGET_CLASS} ${justifyClass} `}>
+                                                {widgetContent}
                                             </div>
                                         )
                                     })}
@@ -764,7 +745,8 @@ export const HeroSlide = React.memo(({
                             {/* Ride The Tide Graph OR Offshore Grid OR Inland Grid */}
                             {(() => {
                                 // TRUST THE PROP (It's derived securely in openmeteo.ts)
-                                const activeMode = locationType || 'coastal'; // Default to coastal if undefined
+                                // Cast to string to avoid TS "no overlap" error if inference is narrow
+                                const activeMode = (locationType || 'coastal') as string;
 
                                 // Determine "Effective Mode" for Rendering
                                 // If Tides are missing, we CANNOT show the Tide Graph.
@@ -906,60 +888,15 @@ export const HeroSlide = React.memo(({
 
 
                             {/* BADGES ROW (Tightened Spacing) */}
-                            {/* BADGES ROW (INLINED to Fix Stale Component) */}
-                            <div className="px-4 md:px-6 -mt-4 shrink-0 relative z-20">
-                                <div className="flex items-center justify-between gap-1 md:gap-2 w-full mb-0">
-                                    {/* Coastal/Offshore Badge */}
-                                    {(() => {
-                                        let statusBadgeLabel = "OFFSHORE";
-                                        let statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
-
-                                        // Use Active Mode
-                                        const activeMode = locationType || 'coastal';
-
-                                        if (activeMode === 'inland') {
-                                            statusBadgeLabel = "INLAND";
-                                            statusBadgeColor = "bg-amber-500/20 text-amber-300 border-amber-500/30";
-                                        } else if (activeMode === 'offshore') {
-                                            statusBadgeLabel = "OFFSHORE";
-                                            // WP Override
-                                            if (coordinates) {
-                                                statusBadgeLabel = `WP ${formatCoordinate(coordinates.lat, 'lat')} ${formatCoordinate(coordinates.lon, 'lon')} `;
-                                            }
-                                            statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
-                                        } else {
-                                            statusBadgeLabel = "COASTAL";
-                                            statusBadgeColor = "bg-teal-500/20 text-teal-300 border-teal-500/30";
-                                        }
-
-                                        return (
-                                            <div className={`px-2 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40`}>
-                                                {statusBadgeLabel}
-                                            </div>
-                                        )
-                                    })()}
-
-                                    {(() => {
-                                        const rawSource = displaySource ? displaySource.toLowerCase() : "";
-                                        const isSG = rawSource.includes('storm') || rawSource.includes('sg');
-                                        const cleanSource = isSG ? "STORMGLASS PRO" : (displaySource || "Open-Meteo");
-                                        const badgeColor = isSG ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
-
-                                        return (
-                                            <div className={"px-2 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider " + badgeColor + " bg-black/40 flex-1 min-w-0 flex items-center justify-center gap-1 overflow-hidden"}>
-                                                <RadioTowerIcon className="w-2.5 h-2.5 shrink-0" />
-                                                <span className="truncate flex items-center gap-1">
-                                                    {cleanSource}
-                                                    {data.stationId && <span className="text-white opacity-90">• {data.stationId}</span>}
-                                                </span>
-                                            </div>
-                                        )
-                                    })()}
-
-                                    {/* Timer Badge (Refactored) */}
-                                    <TimerBadge />
-                                </div>
-                            </div>
+                            <StatusBadges
+                                isLandlocked={isLandlocked || false}
+                                locationName={locationName || ''}
+                                displaySource={displaySource}
+                                nextUpdate={nextUpdate}
+                                fallbackInland={false}
+                                stationId={effectiveData?.stationId}
+                                locationType={locationType}
+                            />
 
                             {/* Location Time (Restored Inside Card) */}
                             <div className="w-full flex justify-center pb-2 pt-2">

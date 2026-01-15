@@ -148,6 +148,7 @@ export const HeroSection = ({
                             lat={lat}
                             guiDetails={guiDetails}
                             coordinates={coordinates}
+                            generatedAt={generatedAt}
                         />
                         {/* Spacer for bottom nav */}
                         <div className="w-full h-4 shrink-0" />
