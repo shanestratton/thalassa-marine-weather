@@ -78,22 +78,22 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
     const dbTarget = findNearestAirport(lat, lon);
 
     if (dbTarget) {
-        console.log(`[METAR GEO] 🎯 Database Target: ${dbTarget.name} (${dbTarget.icao})`);
+
 
         try {
             // Attempt Direct Fetch
             const obs = await fetchMetarObservation(dbTarget.icao);
             if (obs) {
-                console.log(`[METAR GEO] ✅ Database Target Success! Locked on ${dbTarget.icao}`);
+
                 return obs;
             } else {
-                console.warn(`[METAR GEO] ⚠️ Database Target ${dbTarget.icao} offline/no-data. Falling back to Scan...`);
+
             }
         } catch (e) {
             console.error(`[METAR GEO] Database Fetch Error:`, e);
         }
     } else {
-        console.warn("[METAR GEO] No Major Airport found in DB near location.");
+
     }
 
     // 2. DYNAMIC SEARCH (Fallback)
@@ -115,14 +115,14 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
         const hours = range > 1.0 ? 12 : 2;
         const url = `https://aviationweather.gov/api/data/metar?bbox=${bbox}&format=json&hours=${hours}`;
 
-        console.log(`[METAR GEO] Scanning Ring ${range}° around boat... [${bbox}]`);
+
 
         try {
             const response = await CapacitorHttp.get({ url });
 
             // If valid data found (Status 200 and Not Empty)
             if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
-                console.log(`[METAR GEO] ✅ Ring ${range}° Success! Found ${response.data.length} stations.`);
+
 
                 const stations = response.data;
 
@@ -134,10 +134,10 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
                     return (currDist < prevDist) ? curr : prev;
                 });
 
-                console.log(`[METAR GEO] Locked Target: ${closest.name} (${closest.icaoId})`);
+
                 return parseMetar(closest);
             } else {
-                console.warn(`[METAR GEO] ⚠️ Ring ${range}° empty or offline (Status: ${response.status}). Expanding...`);
+
             }
 
         } catch (e) {

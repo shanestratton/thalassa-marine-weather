@@ -89,7 +89,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     useEffect(() => {
         const ver = localStorage.getItem('thalassa_cache_version');
         if (ver !== CACHE_VERSION) {
-            console.log("Cache version mismatch. Clearing old data.");
+
 
             // Allow nativeStorage to handle migration if needed, but here we enforce versioning
             // We can delete the files to start fresh for this major version
@@ -116,32 +116,39 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, []);
 
     // --- INITIALIZATION (ASYNC LOAD) ---
+    // --- INITIALIZATION (ASYNC LOAD) ---
     useEffect(() => {
         const loadCache = async () => {
             try {
-                console.log("[Context] Initializing Cache from Filesystem...");
-                const [d, v, h] = await Promise.all([
-                    loadLargeData(DATA_CACHE_KEY),
-                    loadLargeData(VOYAGE_CACHE_KEY),
-                    loadLargeData(HISTORY_CACHE_KEY)
-                ]);
+                // 1. CRITICAL PATH: Current Weather Data
+                // Load this first and unblock UI immediately
+                const d = await loadLargeData(DATA_CACHE_KEY);
 
                 if (d) {
                     setWeatherData(d);
+                    // Unblock UI immediately if we have data
+                    setLoading(false);
 
                     // SMART REFRESH CHECK (If cache > 60m old, refresh in background)
                     const age = Date.now() - (d.generatedAt ? new Date(d.generatedAt).getTime() : 0);
                     if (age > 60 * 60 * 1000 && navigator.onLine) {
-                        console.log(`[Context] Cache is stale (${Math.floor(age / 60000)}m old). Triggering refresh.`);
-                        // We use a small timeout to let the state settle
-                        setTimeout(() => {
-                            const loc = d.locationName || settingsRef.current.defaultLocation || '';
-                            if (loc) {
+                        // Trigger immediate background refresh (No artificial delay)
+                        const loc = d.locationName || settingsRef.current.defaultLocation || '';
+                        if (loc) {
+                            // Use setTimeout 0 to push to next tick, keeping this execution frame light
+                            setTimeout(() => {
                                 fetchWeather(loc, true, d.coordinates, false, true);
-                            }
-                        }, 2000);
+                            }, 0);
+                        }
                     }
                 }
+
+                // 2. SECONDARY PATH: History & Voyage (Background)
+                // We don't block the UI for this
+                const [v, h] = await Promise.all([
+                    loadLargeData(VOYAGE_CACHE_KEY),
+                    loadLargeData(HISTORY_CACHE_KEY)
+                ]);
 
                 if (v) setVoyagePlan(v);
                 if (h) setHistoryCache(h);
@@ -150,6 +157,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e) {
                 console.error("[Context] Failed to load cache", e);
             } finally {
+                // Ensure loading is false essentially
                 setLoading(false);
             }
         };
@@ -186,7 +194,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const currentSettings = settingsRef.current;
         if (!currentData) return;
 
-        console.log("Regenerating Captain's Log...");
+
         setBackgroundUpdating(true);
         try {
             const enriched = await enrichMarineWeather(
@@ -226,7 +234,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // CACHE HIT?
         let isServingFromCache = false;
         if (!weatherDataRef.current && historyCache[location] && !force) {
-            console.log(`[Cache] Cache Hit for ${location}`);
+
             setWeatherData(historyCache[location]);
             isServingFromCache = true;
         }
@@ -246,7 +254,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (coords) {
                     const foundName = await reverseGeocode(coords.lat, coords.lon);
                     if (foundName) {
-                        console.log(`[Fetch] Geo Success: ${location} -> ${foundName}`);
+
                         resolvedLocation = foundName;
                     }
                 }
@@ -260,14 +268,27 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentReport.locationName = resolvedLocation;
             }
 
-            if (!useStormglass && !isBackground) {
-                if (currentReport.isLandlocked && currentReport.coordinates) {
-                    const marine = await attemptGridSearch(currentReport.coordinates.lat, currentReport.coordinates.lon, currentReport.locationName);
-                    if (marine) currentReport = marine;
-                }
+            // FIX: If fetchFastWeather resolved a better name (e.g. from coords), update local reference
+            // This ensures fetchPrecisionWeather uses the resolved name (e.g. "Mooloolaba") instead of coords
+            if (currentReport.locationName && currentReport.locationName !== resolvedLocation && currentReport.locationName !== "Current Location") {
+                resolvedLocation = currentReport.locationName;
+            }
+
+            // 1a. PROGRESSIVE RENDER: Show Fast Data Immediately
+            // Grid Search Logic: Check if we need to find a marine point nearby
+            if (currentReport.isLandlocked && currentReport.coordinates) {
+                const marine = await attemptGridSearch(currentReport.coordinates.lat, currentReport.coordinates.lon, currentReport.locationName);
+                if (marine) currentReport = marine;
+            }
+
+            // We do this UNLESS it's a background refresh (where we want to be silent until the end)
+            // AND UNLESS we have StormGlass (User requested to avoid "double update")
+            if (!isBackground && !useStormglass) {
                 setWeatherData(currentReport);
-                setHistoryCache(prev => ({ ...prev, [location]: currentReport }));
-                saveLargeData(DATA_CACHE_KEY, currentReport);
+                // Don't save to history yet, wait for final
+                // saveLargeData(DATA_CACHE_KEY, currentReport); // Defer save until final
+
+                // Unblock UI now!
                 setLoading(false);
             }
 
@@ -360,12 +381,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!navigator.onLine) { alert("Offline"); return; }
         const data = weatherDataRef.current;
         const loc = data?.locationName || settingsRef.current.defaultLocation || '';
-        console.log("Manual Refresh", loc);
+
         fetchWeather(loc, true, data?.coordinates, false, silent);
     }, [fetchWeather]);
 
     const selectLocation = useCallback(async (location: string, coords?: { lat: number, lon: number }) => {
-        console.log("Select Location", location);
+
         const isCurrent = location === "Current Location";
         isTrackingCurrentLocation.current = isCurrent;
 
@@ -401,11 +422,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const target = gen + interval;
 
             if (target > now) {
-                console.log("[Watchdog] Restoring lost nextUpdate schedule");
+
                 setNextUpdate(target);
             } else {
                 // Expired. Set to immediate future to trigger refresh on next loop
-                console.log("[Watchdog] Data expired, scheduling immediate refresh");
+
                 setNextUpdate(now + 1000);
             }
         }
@@ -428,7 +449,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             if (!nextUpdate) return;
             if (Date.now() >= nextUpdate) {
-                console.log("Smart Refresh Trigger");
+
                 if (isTrackingCurrentLocation.current && navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => fetchWeather("Current Location", true, { lat: pos.coords.latitude, lon: pos.coords.longitude }),

@@ -20,32 +20,63 @@ export const determineLocationType = (
     elevation?: number
 ): LocationType => {
 
-    // 1. OFFSHORE CHECK
-    // Rule: > 50nm from land.
+    // --- THRESHOLDS ---
     // 50 NM = 92.6 km
     const OFFSHORE_THRESHOLD_KM = 92.6;
+    // 5km grid snap (OpenMeteo Marine)
+    const IS_ON_WATER_THRESHOLD_KM = 5.0;
+    // 5 NM = 9.26 km. Relaxed to 15km to account for grid resolution (~27km).
+    const INLAND_THRESHOLD_KM = 15.0;
 
+    // 1. OFFSHORE vs DEEP INLAND CHECK
     if (distToLandKm === null || distToLandKm > OFFSHORE_THRESHOLD_KM) {
+
+        // --- AMBIGUITY HANDLER ---
+        // We are "Far from known Land".
+        // Scenarios:
+        // A) Deep Ocean (Lat/Lon: -21, 66). distToLand: 9999, distToWater: 0 (or 9999 if API fails). Elev: 0.
+        // B) Desert (Lat/Lon: 25, 130). distToLand: 200+. distToWater: 500+. Elev: 300m.
+
+        // PRIORITY 1: ELEVATION
+        // If we have definitive elevation data, use it.
+        // > 10m is almost certainly Land (Inland).
+        // < 10m could be Ocean or Low-lying coast. Since we are > 92km from named land, implies Offshore.
+        if (elevation !== undefined && elevation !== null) {
+            if (elevation > 10) return 'inland';
+            // If elevation is low (0m), and we are > 92km from land, we are likely OFFSHORE.
+            return 'offshore';
+        }
+
+        // PRIORITY 2: WATER DISTANCE (Fallback if elevation missing)
+        // If we found valid water nearby (< 15km), it's Offshore.
+        // If we found NO water (dist > 15km), it's *probably* Inland...
+        // ...UNLESS the marine API just failed (9999).
+        // Safer to default to OFFSHORE if we are unsure, to keep "WP" behavior for sailors.
+        if (distToWaterKm < INLAND_THRESHOLD_KM) {
+            return 'offshore'; // Near water, far from land -> Offshore
+        }
+
+        // Far from land, Far from water (or unknown water), No elevation.
+        // If distToWaterKm is "Sentinel 9999", it means Marine API found no waves.
+        // No waves implies LAND (Inland), or at least not "Offshore" in the nautical sense.
+        // We previously defaulted to OFFSHORE, but that causes inland deserts/plains to be marked Offshore.
+        if (distToWaterKm > 2000) {
+            // FAIL-SAFE: If Marine API failed (9999) AND Geocode API failed (null),
+            // we have zero information. Defaulting to 'inland' hides the marine UI, which is bad for sailors with spotty connection.
+            // Better to show empty marine data (Offshore/Coastal) than nothing.
+            // However, if we validly know we are far from water (e.g. 500km returned), we might keep inland.
+            // But 9999 is the error code.
+            if (distToWaterKm === 9999) return 'offshore';
+            return 'inland';
+        }
+
+        // If we really are offshore (distToWaterKm is small/valid), we handled it above.
+        // This catch-all might not be reached if logic is sound, but default to 'inland' is safer for "lost on land".
+        // UPDATE: Default to 'offshore' to prevent "hiding" the app in error states.
         return 'offshore';
     }
 
     // We are within 50nm of land. We are either COASTAL or INLAND.
-
-    // 2. INLAND CHECK
-    // Rule: On Land AND > 5nm from water.
-
-    // First, determine if we are "On Water" or "On Land" roughly.
-    // Use the marine grid snap distance. OpenMeteo Marine snaps to nearest water.
-    // If the snap distance is small (< 5km), we are likely ON water.
-    const IS_ON_WATER_THRESHOLD_KM = 5.0;
-
-    // 5 NM = 9.26 km (User rule for Inland/Coastal boundary)
-    // ADJUSTMENT: OpenMeteo Marine grid resolution is ~27km. 
-    // Being 9.6km from a grid point (Newport, QLD) implies being comfortably within the marine cell.
-    // A strict 9.26km cutoff causes false positives for "Inland" in canal estates.
-    // We relax this to 15km (~8nm) to account for grid snapping.
-    // This effectively means "If we are within 15km of a marine grid point, we are Coastal".
-    const INLAND_THRESHOLD_KM = 15.0;
 
     // 2.1 TIDE CHECK (Newport Rule)
     // If we have valid tides, we are definitely NOT Inland (we are connected to the ocean).

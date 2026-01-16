@@ -61,10 +61,10 @@ export const fetchStormGlassWeather = async (
                     marineData = proxResult.data;
                     distToWaterIdx = proxResult.nearestWaterDistanceKm;
                 } else {
-                    console.log("[StormGlass] Marine Ring Search found NO valid waves.");
+
                 }
             } catch (e) {
-                console.warn("[StormGlass] Marine Proximity Check Failed", e);
+
             }
 
             const [wRes] = await Promise.all([
@@ -81,7 +81,7 @@ export const fetchStormGlassWeather = async (
     };
 
     // 1. CRITICAL: Fetch Weather First (Fail fast if this breaks)
-    console.log(`[StormGlass] Fetching weather for ${lat},${lon}...`);
+
     let weatherRes: { hours: StormGlassHour[] };
     try {
         weatherRes = await fetchSG<{ hours: StormGlassHour[] }>('weather/point', weatherParams, apiKey);
@@ -173,19 +173,36 @@ export const fetchStormGlassWeather = async (
 
             let distToLand = 9999;
             if (landCtx) {
-                distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+                // FIX: Filter out Generic or Ocean/Sea names
+                const isGeneric = landCtx.name.startsWith("Location") ||
+                    /^[+-]?\d/.test(landCtx.name) ||
+                    /\b(Ocean|Sea|Reef)\b/i.test(landCtx.name);
+
+                if (!isGeneric) {
+                    distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+                } else {
+
+                    // Force landCtx null so determiner sees it as "Far from Land"
+                    // (We can't set landCtx to null because it's const, but we can manage the call below)
+                }
+
+                // Effective Context for Determiner
+                const effectiveCtx = isGeneric ? null : landCtx;
+
+                report.locationType = determineLocationType(
+                    effectiveCtx ? distToLand : null,
+                    distToWaterIdx,
+                    effectiveCtx?.name,
+                    report.tides && report.tides.length > 0,
+                    hybridData?.elevation
+                );
+            } else {
+                // No land context at all
+                report.locationType = determineLocationType(null, distToWaterIdx, undefined, report.tides && report.tides.length > 0, hybridData?.elevation);
             }
 
-            report.locationType = determineLocationType(
-                landCtx ? distToLand : null,
-                distToWaterIdx,
-                landCtx?.name,
-                report.tides && report.tides.length > 0,
-                hybridData?.elevation // Pass elevation
-            );
-
             report.isLandlocked = report.locationType === 'inland';
-            console.log(`[StormGlass] Calculated LocationType: ${report.locationType}`);
+
 
         } catch (e) {
             console.warn("[StormGlass] Failed to calculate location type, using default:", e);
@@ -198,7 +215,7 @@ export const fetchStormGlassWeather = async (
     // Attach Tide GUI Details (Source Provenance)
     if (tidesRes?.guiDetails) {
         report.tideGUIDetails = tidesRes.guiDetails;
-        console.log("[StormGlass] Attached tideGUIDetails:", report.tideGUIDetails);
+
     } else {
         console.warn("[StormGlass] No tideGUIDetails found in tidesRes");
     }

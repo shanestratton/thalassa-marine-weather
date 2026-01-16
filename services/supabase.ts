@@ -1,11 +1,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const logConfig = (msg: string) => console.log(`[Supabase Config] ${msg}`);
+const logConfig = (msg: string) => { };
 
 const getUrl = () => {
     let url = "";
-    
+
     // 1. Try Vite native
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_URL) {
         url = import.meta.env.VITE_SUPABASE_URL as string;
@@ -13,7 +13,7 @@ const getUrl = () => {
     } else {
         logConfig("❌ Not found in import.meta.env.VITE_SUPABASE_URL");
     }
-    
+
     // 2. Try Process Env (Direct access required for replacement)
     if (!url) {
         try {
@@ -23,22 +23,22 @@ const getUrl = () => {
                 url = process.env.SUPABASE_URL;
                 logConfig("Found URL in process.env.SUPABASE_URL");
             }
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     return url;
 };
 
 const getKey = () => {
     let key = "";
-    
+
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SUPABASE_KEY) {
         key = import.meta.env.VITE_SUPABASE_KEY as string;
         logConfig("Found KEY in import.meta.env.VITE_SUPABASE_KEY");
     } else {
         logConfig("❌ Not found in import.meta.env.VITE_SUPABASE_KEY");
     }
-    
+
     if (!key) {
         try {
             // @ts-ignore
@@ -47,9 +47,9 @@ const getKey = () => {
                 key = process.env.SUPABASE_KEY;
                 logConfig("Found KEY in process.env.SUPABASE_KEY");
             }
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     return key;
 };
 
@@ -57,9 +57,9 @@ const URL = getUrl();
 const KEY = getKey();
 
 if (URL && KEY) {
-    console.log("Supabase Status: Initializing Client...");
+
 } else {
-    console.log("Supabase Status: Credentials Missing - Sync Disabled");
+
     if (!URL) logConfig("MISSING: Supabase URL");
     if (!KEY) logConfig("MISSING: Supabase Anon Key");
 }

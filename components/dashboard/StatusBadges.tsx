@@ -40,7 +40,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locati
 
     // console.log(`[STATUS BADGE DEBUG] Raw: "${displaySource}", Clean: "${cleanSource}", StationID: "${stationId}"`);
     if (locationType === 'offshore' && statusBadgeLabel !== 'OFFSHORE') {
-        console.warn("[StatusBadges] Logic Mismatch! Type is offshore but label is", statusBadgeLabel, { isLandlocked, fallbackInland });
+
     }
 
     return (

@@ -228,10 +228,10 @@ export const resolveTideFetchSource = (station: TideStation): { lat: number, lon
     if (station.referenceStationId) {
         const refParams = ALL_STATIONS.find(s => s.id === station.referenceStationId);
         if (refParams) {
-            console.log(`[TideService] Redirecting Fetch: ${station.name} -> ${refParams.name}`);
+
             return refParams.coords;
         }
-        console.warn(`[TideService] Reference ID ${station.referenceStationId} not found for ${station.name}`);
+
     }
     return station.coords;
 };

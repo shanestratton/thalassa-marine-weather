@@ -1,3 +1,4 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { getOpenMeteoKey } from './keys';
 
 export interface MarineProximityResult {
@@ -15,6 +16,7 @@ export interface MarineProximityResult {
  * @param lon Center Longitude
  */
 export const checkMarineProximity = async (lat: number, lon: number): Promise<MarineProximityResult> => {
+    console.log(`[MarineProximity] Checking ${lat}, ${lon}`);
     const apiKey = getOpenMeteoKey();
     const isCommercial = !!apiKey && apiKey.length > 5;
 
@@ -35,11 +37,9 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
     ];
 
     // 2. Construct API URL
-    // Commercial: /v1/forecast
-    // Free: /v1/marine
-    const baseUrl = isCommercial
-        ? "https://customer-api.open-meteo.com/v1/forecast"
-        : "https://marine-api.open-meteo.com/v1/marine";
+    // ALWAYS use the Marine API for "Proximity Checks" because we specifically need the GFS Wave model 
+    // which is best accessed via the marine endpoint to avoid model-domain mismatch errors.
+    const baseUrl = "https://marine-api.open-meteo.com/v1/marine";
 
     const lats = points.map(p => p.lat.toFixed(4)).join(',');
     const lons = points.map(p => p.lon.toFixed(4)).join(',');
@@ -47,18 +47,28 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
     const params = new URLSearchParams({
         latitude: lats,
         longitude: lons,
-        daily: "wave_height_max", // Only need specific check
+        daily: "wave_height_max",
         timezone: "auto",
-        forecast_days: "3" // Only check immediate forecast for validity
+        forecast_days: "3",
+        // models: "gfs_wave" // REMOVED: Caused 400 Error. Let API use default (best_match).
     });
 
-    if (isCommercial) params.append("apikey", apiKey!);
+    // if (isCommercial) params.append("apikey", apiKey!); // Disable API Key for Marine Endpoint check to avoid complexity
 
     try {
-        const res = await fetch(`${baseUrl}?${params.toString()}`);
-        if (!res.ok) return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
+        const res = await CapacitorHttp.get({
+            url: `${baseUrl}?${params.toString()}`,
+            headers: { 'Accept': 'application/json' }
+        });
+        if (res.status !== 200) {
+            console.warn(`[MarineProximity] Fetch Failed: ${res.status}`);
+            return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
+        }
 
-        const data = await res.json();
+        let data = res.data;
+        if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch (e) { console.error("Marine JSON Parse Error", e); }
+        }
 
         // OpenMeteo returns array if multiple points
         const results = Array.isArray(data) ? data : [data];
@@ -69,7 +79,7 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
             const hasWaves = r.daily?.wave_height_max?.some((h: any) => h !== null && h > 0);
             if (hasWaves) {
                 // Found valid water!
-                console.log(`[MarineProximity] Found waves at point (${r.latitude}, ${r.longitude})`);
+                console.log(`[MarineProximity] HIT! Found water at ${r.daily.wave_height_max}`);
 
                 // Return this valid data set
                 return {
@@ -80,11 +90,11 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
             }
         }
 
-        console.log("[MarineProximity] Ring search found NO valid waves.");
+
         return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
 
     } catch (e) {
-        console.warn("[MarineProximity] Fetch Failed", e);
+
         return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
     }
 };

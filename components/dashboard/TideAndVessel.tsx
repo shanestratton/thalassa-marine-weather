@@ -341,20 +341,44 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         });
     }
 
-    // --- MARKERS FOR HIGH / LOW ---
-    const markers = tides ? tides.map(t => {
+    // --- COMPREHENSIVE MARKERS (Next ~48h) ---
+    // We need a broader range to find the "Next" high/low even if it's tomorrow (time > 24).
+    const allMarkers = tides ? tides.map(t => {
         const time = getHourFromMidnight(t.time);
-        if (time >= 0 && time <= 24) {
+        // Allow broad range for "Next Event" lookup
+        if (time >= -12 && time <= 48) {
             const hVal = convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0;
+
+            // FIX: Use Location Timezone for Label
+            let labelTime = '';
+            try {
+                labelTime = new Date(t.time).toLocaleTimeString('en-US', {
+                    timeZone: timeZone,
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            } catch (e) {
+                // Fallback if timezone invalid
+                labelTime = new Date(t.time).toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            }
+
             return {
                 time,
                 height: hVal,
                 type: t.type,
-                labelTime: new Date(t.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                labelTime
             };
         }
         return null;
     }).filter(Boolean) as { time: number, height: number, type: 'High' | 'Low', labelTime: string }[] : [];
+
+    // --- VISIBLE MARKERS (Graph Only 0-24h) ---
+    const visibleMarkers = allMarkers.filter(m => m.time >= 0 && m.time <= 24);
 
     if (dataPoints.length === 0) {
         return (
@@ -373,14 +397,12 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     );
     const currentHeight = closestPoint?.height ?? 0;
 
-    // Find next event
-    const nextEvent = markers.find(m => m.time > currentHour);
+    // Find next event (inclusive of tomorrow)
+    const nextEvent = allMarkers.find(m => m.time > currentHour);
 
     // Trend Logic
-    // Trend Logic - NEW
     // Check for "Slack / Stand" period (approx 20 mins either side of High/Low)
-    // 20 mins = 0.33 hours
-    const isSlack = markers.some(m => Math.abs(m.time - currentHour) < 0.33);
+    const isSlack = visibleMarkers.some(m => Math.abs(m.time - currentHour) < 0.33);
 
     const nextHourVal = dataPoints.find(p => p.time > currentHour + 0.5 && p.time < currentHour + 1.5)?.height;
     const isRising = nextHourVal !== undefined ? nextHourVal > currentHeight : false;
@@ -393,8 +415,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         trendColor = "text-blue-200"; // Neutral color for slack
     }
 
-    let minHeight = Math.min(...dataPoints.map(d => d.height), ...markers.map(m => m.height));
-    let maxHeight = Math.max(...dataPoints.map(d => d.height), ...markers.map(m => m.height));
+    // Scale Y-Axis based on VISIBLE markers and data
+    let minHeight = Math.min(...dataPoints.map(d => d.height), ...visibleMarkers.map(m => m.height));
+    let maxHeight = Math.max(...dataPoints.map(d => d.height), ...visibleMarkers.map(m => m.height));
 
     if (minHeight === maxHeight) {
         minHeight -= 0.5;
@@ -418,9 +441,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         );
     };
 
-    // Find next high and low for Hero Mode
-    const nextHigh = markers.find(m => m.time > currentHour && m.type === 'High');
-    const nextLow = markers.find(m => m.time > currentHour && m.type === 'Low');
+    // Find next high and low for Hero Mode (using ALL markers)
+    const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
+    const nextLow = allMarkers.find(m => m.time > currentHour && m.type === 'Low');
 
     const heroLabelClass = "text-[9px] text-blue-300/80 font-bold uppercase tracking-widest";
     const heroValueClass = "text-xl font-bold text-white tracking-tight leading-none";
@@ -442,22 +465,19 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                         </div>
                     ) : (
-                        // Spacer if Height is hidden to keep layout legitimate or just empty?
-                        // Actually if we want to show ALL events, we likely want to use the full width.
-                        // So we render nothing here and let the Right section expand or use a new container.
                         <div className="hidden"></div>
                     )}
 
                     {/* RIGHT: High / Low Events */}
                     <div className={`flex items-baseline gap-4 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}>
-                        {(showAllDayEvents ? markers : [nextHigh, nextLow]).filter(Boolean).sort((a, b) => a!.time - b!.time).map((event, idx) => (
+                        {(showAllDayEvents ? visibleMarkers : [nextHigh, nextLow]).filter(Boolean).sort((a, b) => a!.time - b!.time).map((event, idx) => (
                             <div key={idx} className="flex items-start gap-1.5">
                                 <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
                                 <div className="flex flex-col items-end">
                                     <span className="text-sm font-bold text-white tracking-tight leading-none">
                                         {(() => {
-                                            const h = Math.floor(event!.time);
-                                            const m = Math.round((event!.time - h) * 60);
+                                            const h = Math.floor(event!.time) % 24; // Modulo 24 for tomorrow times
+                                            const m = Math.round((event!.time - Math.floor(event!.time)) * 60);
                                             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                         })()}
                                     </span>

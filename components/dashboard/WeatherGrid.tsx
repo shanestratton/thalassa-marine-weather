@@ -46,7 +46,7 @@ const SeaStateVisual = ({ force }: { force: number }) => {
     }
     if (points.length === 0) return null;
     const startY = points[0].split(',')[1];
-    const endY = points[points.length-1].split(',')[1];
+    const endY = points[points.length - 1].split(',')[1];
     const pathD = `M0,${height} L0,${startY} L${points.join(' L')} L${width},${endY} L${width},${height} Z`;
     return (
         <div className="w-full h-full flex items-end overflow-hidden opacity-40">
@@ -80,7 +80,7 @@ const DetailTile: React.FC<DetailTileProps> = ({ label, value, unit, icon, color
             <div className={`p-1.5 rounded-lg bg-black/20 ${colorClass}`}>
                 {icon}
             </div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-500 mr-4">{label}</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mr-4">{label}</span>
         </div>
         <div className="z-10 mt-1">
             <div className="flex items-baseline gap-1">
@@ -227,9 +227,9 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 label="Tide Trend"
                 value="--"
                 unit=""
-                colorClass="text-gray-500"
+                colorClass="text-gray-400"
                 icon={<TideCurveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">No Data</span>}
+                subContent={<span className="text-[9px] text-gray-400">No Data</span>}
             />
         );
     }
@@ -243,7 +243,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit="/ 100"
                 colorClass={scoreColor}
                 icon={<StarIcon className="w-4 h-4" filled={score > 80} />}
-                subContent={<span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">{scoreText} Conditions</span>}
+                subContent={<span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{scoreText} Conditions</span>}
             />
         ),
         tide: tideNode,
@@ -274,7 +274,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
                 colorClass="text-cyan-300"
                 icon={<RainIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">{precipValue ? 'Accumulating' : 'Dry Conditions'}</span>}
+                subContent={<span className="text-[9px] text-gray-400">{precipValue ? 'Accumulating' : 'Dry Conditions'}</span>}
             />
         ),
         dewPoint: (
@@ -284,7 +284,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit=""
                 colorClass="text-rose-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">Saturation Temp</span>}
+                subContent={<span className="text-[9px] text-gray-400">Saturation Temp</span>}
             />
         ),
         cloud: (
@@ -304,7 +304,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit={units.visibility || 'mi'}
                 colorClass="text-purple-300"
                 icon={<EyeIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>}
+                subContent={<span className="text-[9px] text-gray-400">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>}
             />
         ),
         chill: (
@@ -314,7 +314,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit=""
                 colorClass="text-teal-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">Feels Like</span>}
+                subContent={<span className="text-[9px] text-gray-400">Feels Like</span>}
             />
         ),
         swell: (
@@ -324,7 +324,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit="s"
                 colorClass="text-indigo-300"
                 icon={<WaveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
+                subContent={<span className="text-[9px] text-gray-400 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
             />
         ),
         uv: (
@@ -334,7 +334,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit=""
                 colorClass="text-orange-400"
                 icon={<SunIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">Radiation Lvl</span>}
+                subContent={<span className="text-[9px] text-gray-400">Radiation Lvl</span>}
             />
         ),
         waterTemp: (
@@ -344,14 +344,14 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 unit=""
                 colorClass="text-blue-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-500">Surface</span>}
+                subContent={<span className="text-[9px] text-gray-400">Surface</span>}
             />
         )
     };
 
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-4 pt-8">
-            <div className="absolute top-3 left-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+            <div className="absolute top-3 left-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <GearIcon className="w-3 h-3" /> Atmospherics
             </div>
 

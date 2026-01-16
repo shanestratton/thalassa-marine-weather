@@ -163,27 +163,33 @@ export const BoatIcon = ({ className }: { className?: string }) => (
 
 export const SailBoatIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    {/* Hull */}
-    <path d="M4 16c0 1.1 1.5 2 4.5 2h7c3 0 4.5-.9 4.5-2l-1-3H5l-1 3Z" fill="#f1f5f9" stroke="currentColor" />
-    {/* Mast */}
-    <path d="M12 14V3" />
-    {/* Main Sail */}
-    <path d="M12.5 3c0 0 6 2 6 8.5C18.5 13 12.5 14 12.5 14V3Z" fill="#38bdf8" fillOpacity="0.8" />
-    {/* Jib */}
-    <path d="M11.5 14c0 0-5-1-5-6 0-3 5-5 5-5v11Z" fill="#0ea5e9" fillOpacity="0.6" />
+    {/* Sleek Racing Hull */}
+    <path d="M3 17h18l-2-5H5l-2 5Z" />
+    <path d="M3 17v1a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1" />
+
+    {/* Modern Mainsail - Sharp curve */}
+    <path d="M12 12V3l7 9h-7Z" />
+
+    {/* Racing Jib */}
+    <path d="M12 3v9H6.5L12 3Z" />
+
+    {/* Speed Lines */}
+    <path d="M2 21h20" strokeOpacity="0.3" strokeDasharray="2 2" />
   </svg>
 );
 
 export const PowerBoatIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    {/* Hull */}
-    <path d="M2 15c0 1.7 2.5 3 6 3h8c3.5 0 6-1.3 6-3v-2l-3-4H7l-3 4v2Z" fill="#f8fafc" />
-    {/* Windshield */}
-    <path d="M7.5 9L9.5 6h7l2 3" fill="#bae6fd" fillOpacity="0.4" />
-    {/* Detail Line */}
-    <path d="M3 14h18" strokeOpacity="0.3" />
-    {/* Motor Hint */}
-    <path d="M19 15v3" />
+    {/* Sport Yacht Profile */}
+    <path d="M4 15c0 1.5 2 3 5.5 3h6c3.5 0 5.5-1.5 5.5-3v-2l-3.5-5h-10l-3.5 5v2Z" />
+
+    {/* Cabin/Windshield */}
+    <path d="M8 8l2-3h6l2 3" />
+    <path d="M14 5v3" />
+
+    {/* Dynamic Wake/Speed Lines */}
+    <path d="M2 18c2 1 4 1 6 1s4-1 6-1 4 1 6 1" strokeOpacity="0.5" />
+    <path d="M1 15h3" strokeOpacity="0.3" />
   </svg>
 );
 
