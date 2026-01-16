@@ -4,27 +4,42 @@ const DATA_CACHE_KEY = 'thalassa_weather_cache_v6';
 const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
 const HISTORY_CACHE_KEY = 'thalassa_history_cache_v2';
 
-// --- HELPER: SAVE FILE ---
+// --- DEBOUNCE TIMERS ---
+const saveTimers: Record<string, NodeJS.Timeout> = {};
+
+// --- HELPER: SAVE FILE (Debounced) ---
 export const saveLargeData = async (key: string, data: any) => {
-    try {
-        const start = Date.now();
-        const jsonString = JSON.stringify(data);
-        const fileName = `${key}.json`;
-
-        await Filesystem.writeFile({
-            path: fileName,
-            data: jsonString,
-            directory: Directory.Documents,
-            encoding: Encoding.UTF8,
-        });
-
-        const sizeKB = (new Blob([jsonString]).size / 1024).toFixed(2);
-        console.log(`[Filesystem] Saved ${key} (${sizeKB} KB) in ${Date.now() - start}ms`);
-        return true;
-    } catch (e) {
-        console.error(`[Filesystem] Error saving ${key}`, e);
-        return false;
+    // Clear pending write for this key
+    if (saveTimers[key]) {
+        clearTimeout(saveTimers[key]);
     }
+
+    // Schedule new write
+    return new Promise<void>((resolve) => {
+        saveTimers[key] = setTimeout(async () => {
+            try {
+                const start = Date.now();
+                const jsonString = JSON.stringify(data);
+                const fileName = `${key}.json`;
+
+                await Filesystem.writeFile({
+                    path: fileName,
+                    data: jsonString,
+                    directory: Directory.Documents,
+                    encoding: Encoding.UTF8,
+                });
+
+                const sizeKB = (new Blob([jsonString]).size / 1024).toFixed(2);
+
+                resolve();
+            } catch (e) {
+                console.error(`[Filesystem] Error saving ${key}`, e);
+                resolve(); // Resolve anyway to not block
+            } finally {
+                delete saveTimers[key];
+            }
+        }, 1000); // 1s Debounce
+    });
 };
 
 // --- HELPER: LOAD FILE (With LocalStorage Migration) ---
@@ -45,7 +60,7 @@ export const loadLargeData = async (key: string) => {
         });
     } catch (e) {
         // If readdir fails, we just proceed to legacy check
-        console.warn("[Filesystem] Readdir failed", e);
+
     }
 
     if (fileFound) {
@@ -55,7 +70,7 @@ export const loadLargeData = async (key: string) => {
                 directory: Directory.Documents,
                 encoding: Encoding.UTF8,
             });
-            console.log(`[Filesystem] Loaded ${key} from file.`);
+
             return JSON.parse(contents.data as string);
         } catch (readErr) {
             console.warn(`[Filesystem] Error parsing ${fileName}`, readErr);
@@ -68,7 +83,7 @@ export const loadLargeData = async (key: string) => {
 
     const legacyData = localStorage.getItem(key);
     if (legacyData) {
-        console.log(`[Filesystem] Found Legacy Data for ${key}. Migrating...`);
+
         try {
             // Parse to ensure valid JSON before saving
             const parsed = JSON.parse(legacyData);
@@ -78,7 +93,7 @@ export const loadLargeData = async (key: string) => {
 
             // CRITICAL: Delete from LocalStorage to free quota (The whole point!)
             localStorage.removeItem(key);
-            console.log(`[Filesystem] Migration Complete. Deleted ${key} from localStorage.`);
+
 
             return parsed;
         } catch (migErr) {
@@ -97,7 +112,7 @@ export const deleteLargeData = async (key: string) => {
             path: `${key}.json`,
             directory: Directory.Documents,
         });
-        console.log(`[Filesystem] Deleted ${key}`);
+
     } catch (e) {
         // Ignore if file doesn't exist
     }

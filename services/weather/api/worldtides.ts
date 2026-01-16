@@ -29,7 +29,7 @@ export const fetchWorldTides = async (
     const url = `${BASE_URL}?extremes&lat=${lat}&lon=${lon}&days=${days}&datum=LAT&stationDistance=50&start=${start}&key=${key}`;
 
     try {
-        console.log(`[WorldTides] Fetching 14-Day Extremes (Buffered from Yesterday). Start: ${new Date(start * 1000).toLocaleString()} (Lat: ${lat}, Lon: ${lon})`);
+
         const options = { url };
         const res = await CapacitorHttp.get(options);
 
@@ -39,9 +39,9 @@ export const fetchWorldTides = async (
             // Check if response has station in body (WorldTides V3 often returns 'station' object or name field)
             const data = res.data as any;
 
-            console.log("[WorldTides] Response Keys:", Object.keys(data));
-            console.log("[WorldTides] Raw Station Field:", JSON.stringify(data.station));
-            console.log("[WorldTides] Raw Atlas Lat/Lon:", data.atlasLatitude, data.atlasLongitude);
+
+
+
 
             let stationInfo;
             if (data.station) {

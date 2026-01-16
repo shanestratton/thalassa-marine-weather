@@ -1,3 +1,4 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { getOpenMeteoKey } from '../keys';
@@ -7,9 +8,60 @@ import { degreesToCardinal } from '../../../utils/format';
 
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../../utils/advisory';
 import { fetchRealTides } from './tides';
+import { checkMarineProximity } from '../marineProximity'; // Static Import
+import { reverseGeocodeContext } from './geocoding'; // Static Import
+
+// ... existing code ...
+
+// ... inside fetchOpenMeteo ...
 
 
-export const attemptGridSearch = async (lat: number, lon: number, name: string): Promise<MarineWeatherReport | null> => { return null; };
+
+
+
+export const attemptGridSearch = async (lat: number, lon: number, name: string): Promise<MarineWeatherReport | null> => {
+    // Spiral Grid Search to find nearest marine point
+    // We search outward from the center point in increments
+    const rings = [
+        0.05, // ~5km
+        0.10, // ~11km
+        0.15, // ~16km
+        0.20, // ~22km
+        0.30  // ~33km
+    ];
+
+    try {
+        console.log(`[GridSearch] Starting for ${name} (${lat}, ${lon})`);
+
+        for (const ring of rings) {
+            // Check 8 points around the ring
+            // N, NE, E, SE, S, SW, W, NW
+            const points = [
+                { lat: lat + ring, lon: lon },
+                { lat: lat + ring, lon: lon + ring },
+                { lat: lat, lon: lon + ring },
+                { lat: lat - ring, lon: lon + ring },
+                { lat: lat - ring, lon: lon },
+                { lat: lat - ring, lon: lon - ring },
+                { lat: lat, lon: lon - ring },
+                { lat: lat + ring, lon: lon - ring }
+            ];
+
+            for (const p of points) {
+                const check = await checkMarineProximity(p.lat, p.lon);
+                if (check.hasMarineData) {
+
+                    // Found a valid marine point!
+                    // Fetch weather for this new point
+                    return fetchOpenMeteo(p.lat, p.lon, name, true);
+                }
+            }
+        }
+    } catch (e) {
+
+    }
+    return null;
+};
 
 export const fetchOpenMeteo = async (
     lat: number,
@@ -23,7 +75,7 @@ export const fetchOpenMeteo = async (
     const isCommercial = !!apiKey && apiKey.length > 5;
 
     if (!isCommercial) {
-        throw new Error("STRICT MODE: Commercial Open-Meteo Key Missing. Free tier disabled.");
+        throw new Error(`STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`);
     }
 
     // normalize (wrap/clamp) - copied logic
@@ -40,32 +92,39 @@ export const fetchOpenMeteo = async (
         daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
         timezone: "auto",
         forecast_days: "16",
-        models: model
+        models: model,
+        elevation: "nan" // Explicitly request elevation metadata if needed, though usually default. 
+        // actually standard OM API returns it.
     });
 
     if (isCommercial) params.append("apikey", apiKey!);
 
-    // Fetch Weather
-    const res = await fetch(`${baseUrl}?${params.toString()}`);
-    if (!res.ok) throw new Error(`OpenMeteo HTTP ${res.status}`);
-    const wData = await res.json();
+    // Fetch Weather using Native HTTP to avoid silent failures/CORS
+    const res = await CapacitorHttp.get({ url: `${baseUrl}?${params.toString()}` });
+    if (res.status !== 200) throw new Error(`OpenMeteo HTTP ${res.status}`);
+
+    let wData: any = res.data;
+    if (typeof wData === 'string') {
+        try { wData = JSON.parse(wData); } catch (e) { console.error("OM Main JSON Parse Error", e); throw e; }
+    }
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: any = null;
     let distToWaterIdx = 9999;
 
     try {
-        const { checkMarineProximity } = await import('../marineProximity');
+        // const { checkMarineProximity } = await import('../marineProximity'); // Static import used
+        console.log(`[OpenMeteo] Checking Marine Proximity for ${locationName}`);
         const proxResult = await checkMarineProximity(lat, lon);
 
         if (proxResult.hasMarineData) {
             waveData = proxResult.data;
             distToWaterIdx = proxResult.nearestWaterDistanceKm;
         } else {
-            console.log("[OpenMeteo] Marine Ring Search found NO valid waves.");
+
         }
     } catch (e) {
-        console.warn("[OpenMeteo] Marine Proximity Check Failed", e);
+
     }
 
     // Fetch Tides (Parallel-ish, but we await here for simplicity or use Promise.all above? Let's use Promise.all for speed)
@@ -242,31 +301,59 @@ export const fetchOpenMeteo = async (
     let landCtx: any = null;
     let distToLand = 9999;
     try {
-        const { reverseGeocodeContext } = await import('./geocoding');
+        // const { reverseGeocodeContext } = await import('./geocoding'); // Static import used
         landCtx = await reverseGeocodeContext(lat, lon);
         if (landCtx) {
-            distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+            // FIX: If the name is generic (e.g. "Location -23,150") or a Water Body (e.g. "South Pacific Ocean")
+            // In this case, we should treat it as "Unknown Context" so the inland rule (elevation) can take over.
+            const isGeneric = landCtx.name.startsWith("Location") ||
+                /^[+-]?\d/.test(landCtx.name) ||
+                /\b(Ocean|Sea|Reef)\b/i.test(landCtx.name); // Contains Ocean/Sea/Reef anywhere
+
+            if (!isGeneric) {
+                distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
+            } else {
+
+                landCtx = null;
+                distToLand = 9999;
+            }
         }
     } catch (e) {
         console.warn("LocType Geocode Failed", e);
     }
 
+    // 2.1 Name Improvement logic:
+    // If the input 'locationName' is generic (e.g. coordinates or "Current Location")
+    // AND we found a specific context name (e.g. "Mooloolaba, QLD"), use it.
+    if (landCtx && landCtx.name) {
+        const isCurrentGeneric = locationName.startsWith("WP") ||
+            locationName.startsWith("Current") ||
+            locationName.includes(",") && locationName.match(/[0-9]/);
+
+        if (isCurrentGeneric && !landCtx.name.startsWith("Location")) {
+            report.locationName = landCtx.name;
+        }
+    }
+
     // 3. Robust Classification Logic
     // Fix: If we filtered out "Ocean" and found NO land context, we are definitely OFFSHORE,
     // regardless of what the grid snap says (which can be >2km in deep ocean).
-    console.log('[LocType Debug] Land Context:', landCtx);
-    console.log('[LocType Debug] Distances:', { distToLand, distToWaterIdx });
+    // UPDATE: If distToLand is 9999 (null context), pass NULL to determiner to trigger Inland Check.
+    const effectiveDistToLand = landCtx ? distToLand : null;
+
+
+
 
     // Determine Location Type using Shared Utility
     locType = determineLocationType(
-        landCtx ? distToLand : null,
+        effectiveDistToLand,
         distToWaterIdx,
         landCtx?.name,
         report.tides && report.tides.length > 0,
         wData.elevation // Pass elevation for Lake filtering
     );
 
-    console.log(`[LocType] Calculated Type: ${locType}`);
+
 
     report.locationType = locType;
     report.isLandlocked = locType === 'inland'; // Backwards compat

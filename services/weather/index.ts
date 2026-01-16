@@ -53,7 +53,7 @@ const applyMetarOverride = async (data: MarineWeatherReport): Promise<MarineWeat
                 Clouds: obs.cloudCover
             };
 
-            console.log(`[METAR OVERRIDE] Applied Real Data from ${obs.stationId}:`, JSON.stringify(logValues, null, 2));
+
 
             // OVERRIDE CURRENT METRICS
             // Note: We deliberately overwrite the 'current' object with valid METAR data
@@ -88,10 +88,10 @@ const applyMetarOverride = async (data: MarineWeatherReport): Promise<MarineWeat
             // Tag source
             data.groundingSource = `METAR (${obs.stationId})`;
         } else {
-            console.log("[METAR OVERRIDE] No METAR data found. Retaining StormGlass/Model data.");
+
         }
     } catch (e) {
-        console.warn("[METAR OVERRIDE] Failed to apply (Fallback to Model):", e);
+
     }
     return data;
 };
@@ -154,7 +154,8 @@ export const fetchFastWeather = async (
         saveToCache(name, data);
         return data;
     } catch (e: any) {
-        console.error("Fast Weather Failed:", e);
+        console.error("Fast Weather Failed:", e.message || e);
+        if (e.stack) console.error(e.stack);
         throw e;
     }
 };
@@ -195,20 +196,20 @@ export const fetchPrecisionWeather = async (
         // Only return if it's a StormGlass cached report (High Quality)
         // If we only have OpenMeteo cached, we might want to upgrade to SG now.
         if (cached && cached.modelUsed.includes('sg')) {
-            console.log(`[Precision] Returning Cached SG Report for ${name}`);
+
             return cached;
         }
     }
 
     // 3. Fetch StormGlass
     try {
-        console.log(`[Precision] Fetching StormGlass for ${name}...`);
+
         const data = await fetchStormGlassWeather(lat, lon, name, existingLocationType);
 
         // APPLY METAR OVERRIDE
         const startMetar = Date.now();
         await applyMetarOverride(data);
-        console.log(`[Precision] METAR Injection took ${Date.now() - startMetar}ms`);
+
 
         saveToCache(name, data);
         return data;

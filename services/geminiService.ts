@@ -5,7 +5,7 @@ import { convertLength, convertSpeed, convertWeight } from "../utils";
 
 let aiInstance: GoogleGenAI | null = null;
 
-const logConfig = (msg: string) => console.log(`[Gemini Config] ${msg}`);
+const logConfig = (msg: string) => { }; // Logs disabled
 
 const getGeminiKey = (): string => {
     let key = "";
@@ -35,7 +35,7 @@ const getAI = () => {
     const key = getGeminiKey();
 
     if (!key || key.length < 10 || key.includes("YOUR_")) {
-        console.warn("Gemini Service: API Key Missing or Invalid");
+
         return null;
     }
 
@@ -78,7 +78,7 @@ const cleanAndParseJson = <T = any>(text: string): T | null => {
 
         return JSON.parse(clean);
     } catch (e) {
-        console.warn("JSON Parse Error:", e);
+
         return null;
     }
 };
@@ -222,7 +222,7 @@ export const enrichMarineWeather = async (
             modelUsed: baseData.modelUsed
         };
     } catch (e) {
-        console.warn("Enrichment Error:", e);
+
         return baseData;
     }
 };
@@ -261,7 +261,7 @@ export const generateMarineAudioBriefing = async (script: string): Promise<Array
         return bytes.buffer;
     } catch (error: any) {
         if (error.message && error.message.includes("429")) {
-            console.warn("Gemini Audio Quota Exceeded (429). Skipping audio.");
+
             // Return empty buffer or handle gracefully
             throw new Error("Audio Quota Exceeded");
         }
@@ -359,11 +359,20 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         if (!result.hazards) result.hazards = [];
         if (!result.customs) result.customs = { required: false, destinationCountry: "", procedures: "" };
 
+        // Post-process: Ensure Waypoints with raw coordinate names get "WP " prefix
+        result.waypoints = result.waypoints.map(wp => {
+            const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
+            if (isCoordName && !wp.name.toUpperCase().startsWith("WP")) {
+                return { ...wp, name: `WP ${wp.name}` };
+            }
+            return wp;
+        });
+
         return result;
     } catch (e: any) {
         // FALLBACK FOR RATE LIMITS (429) OR NETWORK ISSUES DURING DEMO
         if (e.message?.includes('429') || e.message?.includes('Quota') || e.status === 429) {
-            console.warn("Gemini Quota Exceeded. Using Mock Data.");
+
             return { ...MOCK_VOYAGE_PLAN, origin: origin, destination: destination };
         }
         throw e;

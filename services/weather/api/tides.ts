@@ -37,12 +37,12 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
     }
 
     try {
-        console.log(`[Tides] Fetching real data from WorldTides API for ${fetchLat.toFixed(4)}, ${fetchLon.toFixed(4)}...`);
+
         // Fetch 14 days of data (User requested 12, added buffer)
         const wtData = await fetchWorldTides(fetchLat, fetchLon, 14);
 
         if (wtData && wtData.extremes) {
-            console.log(`[Tides] Received ${wtData.extremes.length} extreme points.`);
+
 
             // Map WorldTides Extremes to App Tide Format
             let mappedTides: Tide[] = wtData.extremes.map(e => ({
@@ -53,12 +53,12 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
 
             // 3. Apply Secondary Port Offsets (If Applicable)
             if (mode.station) {
-                console.log(`[Tides] Applying Secondary Port Offsets for ${mode.station.name}`);
+
                 mappedTides = applyTideOffsets(mappedTides, mode.station);
             }
 
             if (mappedTides.length > 0) {
-                console.log("[Tides] Final Tide Data (First 3):", JSON.stringify(mappedTides.slice(0, 3), null, 2));
+
             }
 
             // 4. GUI Details (Source Provenance)
@@ -77,7 +77,7 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
                 timeOffsetLow: mode.station?.timeOffsetLow ?? mode.station?.timeOffsetMinutes
             };
 
-            console.log("[Tides] Generated guiDetails:", JSON.stringify(guiDetails));
+
 
             // 5. Return Data
             return {
@@ -85,16 +85,16 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
                 guiDetails
             };
         } else {
-            console.warn("[Tides] WorldTides returned no extremes. Falling back to Mock.");
+
         }
     } catch (err) {
-        console.error("[Tides] WorldTides API Failed:", err);
+
     }
 
     // FALLBACK: Network Failure / No Data
     // We MUST return empty array so transformers.ts can correctly classify this as INLAND/OFFSHORE.
     // Returning Mock Tides forces 'Coastal' classification which breaks Alice Springs.
-    console.log('[Tides] WorldTides returned no extremes. Falling back to Mock.');
+
     return {
         tides: [],
         guiDetails: undefined

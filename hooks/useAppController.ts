@@ -70,12 +70,23 @@ export const useAppController = () => {
         if (weatherData && weatherData.locationName && !loading) {
             let targetName = weatherData.locationName;
 
-            // WAYPOINT LOGIC: If offshore (no tides, not landlocked), use coordinates
-            const isWayPoint = (!weatherData.tides || weatherData.tides.length === 0) && !weatherData.isLandlocked;
-            if (isWayPoint && weatherData.coordinates) {
-                const latStr = formatCoordinate(weatherData.coordinates.lat, 'lat');
-                const lonStr = formatCoordinate(weatherData.coordinates.lon, 'lon');
-                targetName = `WP ${latStr} ${lonStr}`;
+            // WAYPOINT LOGIC: Unconditional check for Coordinate-like names
+            if (weatherData.coordinates) {
+                // Safe Regex to detect coordinates WITHOUT matching "Newport, 4020"
+                // 1. Starts with "Location", "WP", "Waypoint"
+                // 2. Starts with a Number or Minus (e.g. "-23.5", "23.5")
+                // 3. Contains strict Degree symbol (e.g. "23°S")
+                // 4. Contains Water Body terms (Ocean, Sea, Reef) -> Force WP style
+                const isSafeCoord = /^(Location|WP|waypoint)|^-?[0-9]|[0-9]+°|\b(Ocean|Sea|Reef)\b/i.test(weatherData.locationName);
+                const isOceanPoint = weatherData.locationName.includes("Ocean Point");
+                const isOffshore = weatherData.locationType === 'offshore';
+
+                // If explicit Offshore, or looks like Safe Coords/Ocean Point -> FORCE WP
+                if (isSafeCoord || isOceanPoint || isOffshore) {
+                    const latStr = formatCoordinate(weatherData.coordinates.lat, 'lat');
+                    const lonStr = formatCoordinate(weatherData.coordinates.lon, 'lon');
+                    targetName = `WP ${latStr} ${lonStr}`;
+                }
             }
 
             if (query !== targetName) {
@@ -122,7 +133,7 @@ export const useAppController = () => {
                 const name = await reverseGeocode(latitude, longitude);
                 if (name) searchTarget = name;
             } catch (e) {
-                console.warn("Reverse ID failed, using coords");
+
             }
             setQuery(searchTarget);
             setPage('dashboard');

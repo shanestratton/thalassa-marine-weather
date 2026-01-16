@@ -15,7 +15,7 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
-const VoyagePlanner = React.lazy(() => import('./components/RoutePlanner').then(module => ({ default: module.VoyagePlanner })));
+const VoyagePlanner = React.lazy(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
 const SettingsView = React.lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
 const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
@@ -59,11 +59,22 @@ const App: React.FC = () => {
     const rawTitle = weatherData ? weatherData.locationName : (query || settings.defaultLocation || "Select Location");
     let displayTitle = rawTitle;
 
-    if (weatherData?.locationType === 'offshore') {
-        // If the name looks like coordinates, prepend WP
-        // e.g. "-23.5000, 153.2000"
-        const isCoords = /^[+-]?\d/.test(rawTitle);
-        if (isCoords) {
+    // Safe Regex approach matching controller logic (unconditional check)
+    // 1. Starts with "Location", "WP", "Waypoint"
+    // 2. Starts with a Number or Minus (e.g. "-23.5", "23.5")
+    // 3. Contains strict Degree symbol (e.g. "23°S")
+    const isCoordinateName = /^(Location|WP|waypoint)|^-?[0-9]|\b\d+°/i.test(rawTitle);
+
+    // Logic: If it looks like a coordinate/generic name, AND doesn't already have "WP", add it.
+    // This applies to Inland AND Offshore (User request: "Inland locations have WP... Offshore do not... correct this").
+    // We want uniform "WP 34.12, -118.12" style for nameless points.
+    if (isCoordinateName && !rawTitle.startsWith("WP")) {
+        // Reconstruct WP Name if we have coordinates
+        if (weatherData?.coordinates) {
+            const latStr = Math.abs(weatherData.coordinates.lat).toFixed(4) + (weatherData.coordinates.lat >= 0 ? "°N" : "°S");
+            const lonStr = Math.abs(weatherData.coordinates.lon).toFixed(4) + (weatherData.coordinates.lon >= 0 ? "°E" : "°W");
+            displayTitle = `WP ${latStr} ${lonStr}`;
+        } else {
             displayTitle = `WP ${rawTitle}`;
         }
     }
@@ -93,7 +104,7 @@ const App: React.FC = () => {
                 <div className={`absolute inset-0 z-0 ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'bg-black' : 'bg-[#0f172a]'}`}></div>
             )}
 
-            {loading && <ProcessOverlay message="Fetching New Data..." />}
+            {loading && weatherData && <ProcessOverlay message="Updating Marine Data..." />}
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}

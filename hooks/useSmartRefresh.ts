@@ -70,14 +70,14 @@ export const useSmartRefresh = ({
                     const tenMins = nowTime + (10 * 60 * 1000);
                     if (tenMins < targetTime) {
                         targetTime = tenMins;
-                        console.log(`[Smart Refresh] ⚠️ Unstable Conditions (Coastal). Scheduling update in 10 mins.`);
+
                     }
                 }
             }
 
             setNextUpdate(targetTime);
             safeSetItem('thalassa_next_update', targetTime.toString());
-            console.log(`[Smart Refresh] Next update at ${new Date(targetTime).toLocaleTimeString()} (${((targetTime - Date.now()) / 60000).toFixed(1)} mins)`);
+
         };
 
         scheduleNextUpdate();
@@ -96,7 +96,7 @@ export const useSmartRefresh = ({
             if (data) {
                 const age = Date.now() - (data.generatedAt ? new Date(data.generatedAt).getTime() : 0);
                 if (age > (2 * 60 * 60 * 1000)) {
-                    console.log("[Smart Refresh] Safety Net: Data > 2hrs old. Forcing update.");
+
                     const loc = data.locationName || settingsRef.current.defaultLocation;
                     if (loc) fetchWeather(loc, false);
                     return;
@@ -107,11 +107,11 @@ export const useSmartRefresh = ({
 
             // Trigger window
             if (Date.now() >= nextUpdate) {
-                console.log("[Smart Refresh] Triggering scheduled update.");
+
 
                 // RE-GEOLOCATE CHECK
                 if (isTrackingCurrentLocation.current && navigator.geolocation) {
-                    console.log("[Smart Refresh] Tracking GPS -> Re-acquiring position...");
+
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
                             const { latitude, longitude } = pos.coords;
@@ -119,7 +119,7 @@ export const useSmartRefresh = ({
                             fetchWeather("Current Location", true, { lat: latitude, lon: longitude });
                         },
                         (err) => {
-                            console.warn("GPS Refresh failed, falling back to static refresh.", err);
+
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             if (loc) fetchWeather(loc, false);
                         },
@@ -129,7 +129,7 @@ export const useSmartRefresh = ({
                     // Static Refresh (Data Only)
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                     if (loc) {
-                        console.log("[Smart Refresh] Static Location -> Refreshing Data Only.");
+
                         fetchWeather(loc, false);
                     }
                 }

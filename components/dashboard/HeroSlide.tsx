@@ -641,9 +641,10 @@ export const HeroSlide = React.memo(({
                                         {(cardIsLive || (isHourly && hTime)) ? (
                                             <span className={`text-sm md: text-base font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1`}>
                                                 {cardIsLive ? (() => {
-                                                    const now = new Date();
-                                                    const startH = now.getHours().toString().padStart(2, '0');
-                                                    const nextH = new Date(now.setHours(now.getHours() + 1)).getHours().toString().padStart(2, '0');
+                                                    const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
+                                                    const nextDate = new Date();
+                                                    nextDate.setHours(nextDate.getHours() + 1);
+                                                    const nextH = nextDate.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
                                                     return `${startH}:00 - ${nextH}:00`;
                                                 })() : (() => {
                                                     const start = new Date(hTime!);
@@ -825,54 +826,57 @@ export const HeroSlide = React.memo(({
                                 else if (showOffshore) {
                                     return (
                                         <div className="mt-0.5 pt-1 border-t border-white/5 flex flex-row relative h-44 gap-2 px-4 md:px-6 py-2 items-center">
-                                            {/* 1. WATER TEMP CARD */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-start text-left!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                                                    <ThermometerIcon className="w-3 h-3 text-red-300" />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Water Temp</span>
+                                            {/* 1. WATER TEMP CARD - BLUE GRADIENT */}
+                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-blue-900/40 via-blue-900/20 to-cyan-900/10 border border-blue-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-blue-900/5">
+                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90">
+                                                    <ThermometerIcon className="w-3.5 h-3.5 text-cyan-300 drop-shadow-md" />
+                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-cyan-100">Temp</span>
                                                 </div>
                                                 <div className="flex items-baseline gap-0.5">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
+                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white drop-shadow-xl">
                                                         {convertTemp(cardData.waterTemperature, units.temp)}
                                                     </span>
-                                                    <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                                                    <span className="text-[10px] md:text-sm font-bold text-cyan-200/60">°{units.temp}</span>
                                                 </div>
-                                            </div>
-
-                                            {/* 2. CURRENT SPEED */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-center text-center!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70 justify-center">
-                                                    <WaveIcon className="w-3 h-3 text-emerald-400" />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Drift</span>
-                                                </div>
-                                                <div className="flex items-baseline gap-0.5 justify-center">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
-                                                        {cardData.currentSpeed !== undefined && cardData.currentSpeed !== null ? Number(cardData.currentSpeed).toFixed(1) : '--'}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-sm font-medium text-gray-400">kts</span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold">
+                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-80">
                                                     Surface
                                                 </div>
                                             </div>
 
-                                            {/* 3. SET (Direction) */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-end text-right!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70 justify-end">
-                                                    <CompassIcon className="w-3 h-3 text-purple-400" rotation={Number(cardData.currentDirection || 0)} />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Set</span>
+                                            {/* 2. CURRENT SPEED - EMERALD GRADIENT */}
+                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-green-900/10 border border-emerald-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-emerald-900/5 items-center text-center">
+                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90 justify-center">
+                                                    <WaveIcon className="w-3.5 h-3.5 text-emerald-300 drop-shadow-md" />
+                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-emerald-100">Drift</span>
+                                                </div>
+                                                <div className="flex items-baseline gap-0.5 justify-center">
+                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white drop-shadow-xl">
+                                                        {cardData.currentSpeed !== undefined && cardData.currentSpeed !== null ? Number(cardData.currentSpeed).toFixed(1) : '--'}
+                                                    </span>
+                                                    <span className="text-[10px] md:text-sm font-bold text-emerald-200/60">kts</span>
+                                                </div>
+                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-80">
+                                                    Speed
+                                                </div>
+                                            </div>
+
+                                            {/* 3. SET (Direction) - VIOLET GRADIENT */}
+                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-indigo-900/40 via-violet-900/20 to-purple-900/10 border border-indigo-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-indigo-900/5 items-end text-right">
+                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90 justify-end">
+                                                    <CompassIcon className="w-3.5 h-3.5 text-violet-300 drop-shadow-md" rotation={Number(cardData.currentDirection || 0)} />
+                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-violet-100">Set</span>
                                                 </div>
                                                 <div className="flex flex-col items-end justify-center h-full pb-1">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white leading-none">
+                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white leading-none drop-shadow-xl">
                                                         {degreesToCardinal(Number(cardData.currentDirection))}
                                                     </span>
-                                                    <span className="text-[10px] md:text-xs font-bold text-gray-400 mt-0 md:-mt-1">
+                                                    <span className="text-[10px] md:text-xs font-bold text-violet-200/60 mt-0 md:-mt-1">
                                                         {(cardData.currentDirection !== undefined && cardData.currentDirection !== null)
                                                             ? Math.round(Number(cardData.currentDirection)) + '°'
                                                             : ''}
                                                     </span>
                                                 </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-purple-300 font-bold">
+                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80">
                                                     True
                                                 </div>
                                             </div>
@@ -914,21 +918,39 @@ export const HeroSlide = React.memo(({
         if (!hourly || hourly.length === 0) return [];
 
         if (index === 0) {
-            // TODAY: Start from Next Hour, Finish at Midnight
+            // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
             const now = new Date();
-            const currentHourTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
-            // Filter: Time > currentHour (starts next hour) AND Time is same day
+
+            // Get Current Location Date String (YYYY-MM-DD)
+            // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
+            const safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+            const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
+
+            // Filter: Time > Now (Absolute) AND Time is Same Day (Location)
             return hourly.filter(h => {
                 const t = new Date(h.time);
-                const isAfterNow = t.getTime() > currentHourTs;
-                const isSameDay = t.getDate() === now.getDate();
-                return isAfterNow && isSameDay;
+
+                // 1. Must be in the future (absolute)
+                // Add a small buffer (5 mins) to ensure we don't show an hour that just started 1 min ago if "Now" covers it? 
+                // User said "next hour". If it's 3:05, forecast usually has 3:00, 4:00.
+                // We want 4:00.
+                // 3:00 is "current slot".
+                // So h.time (3:00) < now (3:05). Correct.
+                // h.time (4:00) > now (3:05). Correct.
+                const isFuture = t.getTime() > now.getTime();
+
+                // 2. Must be "Today" in Location Time
+                const itemLocDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
+                const isSameDay = itemLocDateStr === nowLocDateStr;
+
+                return isFuture && isSameDay;
             });
         } else {
             // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
             return hourly;
         }
-    }, [hourly, index]);
+    }, [hourly, index, timeZone]);
 
 
 

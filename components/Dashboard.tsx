@@ -60,46 +60,53 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const { settings } = useDashboardController(props.viewMode);
     const units: UnitPreferences = settings?.units || { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm', tideHeight: 'm' };
 
-    console.log("[Dashboard] Render. data.tideGUIDetails:", data.tideGUIDetails);
+
+
+    const contextValue = React.useMemo(() => ({
+        current,
+        forecast: data.forecast,
+        hourly,
+        tides: data.tides || [],
+        tideHourly: data.tideHourly || [],
+        boatingAdvice: boatingAdvice || "",
+        lockerItems: lockerItems,
+        locationName: data.locationName,
+        timeZone: data.timeZone,
+        modelUsed: data.modelUsed,
+        isLandlocked: isLandlocked,
+        isPro: isPro,
+
+        units: units,
+
+        // UI State stubs for context compatibility (can be expanded)
+        chartData: [],
+        chartView: chartView as 'hourly' | 'daily',
+        hiddenSeries: {},
+        isSpeaking: isPlaying,
+        isBuffering: false,
+        isAudioPreloading: false,
+        isNightMode: props.isNightMode,
+        backgroundUpdating: props.isRefreshing || false,
+
+        setChartView: () => { },
+        toggleChartSeries: () => { },
+        handleAudioBroadcast: handleAudioBroadcast,
+        shareReport: shareReport,
+        onTriggerUpgrade: props.onTriggerUpgrade,
+        onOpenMap: props.onOpenMap,
+
+        settings: {},
+        weatherData: data,
+        tideGUIDetails: data.tideGUIDetails,
+    }), [
+        current, data.forecast, hourly, data.tides, data.tideHourly, boatingAdvice, lockerItems,
+        data.locationName, data.timeZone, data.modelUsed, isLandlocked, isPro, units,
+        props.isNightMode, props.isRefreshing, isPlaying, handleAudioBroadcast, shareReport,
+        props.onTriggerUpgrade, props.onOpenMap, data.tideGUIDetails, data
+    ]);
 
     return (
-        <DashboardWidgetContext.Provider value={{
-            current,
-            forecast: data.forecast,
-            hourly,
-            tides: data.tides || [],
-            tideHourly: data.tideHourly || [],
-            boatingAdvice: boatingAdvice || "",
-            lockerItems: lockerItems,
-            locationName: data.locationName,
-            timeZone: data.timeZone,
-            modelUsed: data.modelUsed,
-            isLandlocked: isLandlocked,
-            isPro: isPro,
-
-            units: units,
-
-            // UI State stubs for context compatibility (can be expanded)
-            chartData: [],
-            chartView: 'hourly',
-            hiddenSeries: {},
-            isSpeaking: isPlaying,
-            isBuffering: false,
-            isAudioPreloading: false,
-            isNightMode: props.isNightMode,
-            backgroundUpdating: props.isRefreshing || false,
-
-            setChartView: () => { },
-            toggleChartSeries: () => { },
-            handleAudioBroadcast: handleAudioBroadcast,
-            shareReport: shareReport,
-            onTriggerUpgrade: props.onTriggerUpgrade,
-            onOpenMap: props.onOpenMap,
-
-            settings: {},
-            weatherData: data,
-            tideGUIDetails: data.tideGUIDetails,
-        }}>
+        <DashboardWidgetContext.Provider value={contextValue}>
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black"> {/* Flex Root */}
 
                 {/* 1. Header & Advice */}
@@ -119,8 +126,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 forecasts={data.forecast}
                                 units={units}
                                 generatedAt={data.generatedAt}
-                                isLandlocked={isLandlocked}
-                                locationName={data.locationName}
+                                locationName={props.displayTitle}
                                 tides={data.tides}
                                 tideHourly={data.tideHourly}
                                 timeZone={data.timeZone}
@@ -190,7 +196,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         <InteractionHint />
                         <div className="mt-4 flex items-center justify-center gap-2 text-[10px] font-mono text-sky-500/50">
                             <ClockIcon className="w-3 h-3" />
-                            <span>UPDATED: {new Date(data.generatedAt).toLocaleTimeString()}</span>
+                            <span>UPDATED: {new Date(data.generatedAt).toLocaleTimeString('en-US', { timeZone: data.timeZone, hour: 'numeric', minute: '2-digit' })}</span>
                             <span>•</span>
                             <span>NEXT: {((refreshInterval / 60000)).toFixed(0)}m</span>
                         </div>

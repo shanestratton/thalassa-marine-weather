@@ -1,7 +1,7 @@
 
 import { MarineWeatherReport } from '../../types';
 
-const CACHE_KEY_PREFIX = 'marine_weather_cache_v5_';
+const CACHE_KEY_PREFIX = 'marine_weather_cache_v6_';
 
 interface CacheEntry {
     timestamp: number;
@@ -46,10 +46,10 @@ export const getFromCache = (locationName: string): MarineWeatherReport | null =
         const maxAge = isPrecision ? 60 : 30;
 
         if (ageMinutes < maxAge) {
-            console.log(`[Cache Hit] ${locationName} (${Math.round(ageMinutes)}m old)`);
+
             return entry.data;
         } else {
-            console.log(`[Cache Stale] ${locationName} (${Math.round(ageMinutes)}m old)`);
+
             return null;
         }
     } catch (e) {

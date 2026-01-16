@@ -101,12 +101,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     // DEBUG LOGGING
     useEffect(() => {
-        console.log('[WeatherMap] Debug Props:', { isConfirmMode, activeLayer, className: mapContainerRef.current?.className, showWeather, minimal, enableWrapping });
-        console.log('[WeatherMap] Dimensions:', {
-            height: mapContainerRef.current?.clientHeight,
-            width: mapContainerRef.current?.clientWidth,
-            safeAreaTop: getComputedStyle(document.documentElement).getPropertyValue('--sat')
-        });
+
     }, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
 
     // Only enable weather overlay if NOT on Buoys layer

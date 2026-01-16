@@ -4,7 +4,7 @@ import { generateSafetyAlerts, getBeaufort, expandCompassDirection, generateTact
 
 const BASE_URL = 'https://api.stormglass.io/v2';
 
-const logConfig = (msg: string) => console.log(`[Stormglass Config] ${msg}`);
+const logConfig = (msg: string) => { }; // Logs disabled
 
 const getApiKey = () => {
     let key = "";
@@ -57,9 +57,9 @@ const sgKey = getApiKey();
 // Log masked key to help debugging
 const maskedKey = sgKey && sgKey.length > 5 ? `...${sgKey.slice(-4)}` : "None";
 if (sgKey && sgKey.length > 20) {
-    console.log(`Stormglass Status: Active (${maskedKey})`);
+
 } else {
-    console.log(`Stormglass Status: Free Mode (Open-Meteo)`);
+
 }
 
 export const getApiKeySuffix = () => {
@@ -216,7 +216,7 @@ const generateMockTides = (): Tide[] => {
 
 const fetchRealTides = async (lat: number, lon: number, apiKey: string): Promise<Tide[]> => {
     // USER REQUEST: FORCE MOCK DATA
-    console.log("[StormGlassService] Using Mock Tides (User Override)");
+
     return generateMockTides();
 
     /* API DISABLED
@@ -329,7 +329,7 @@ export const fetchOpenMeteo = async (
             const mRes = await fetch(`${marineUrl}?${marineParams.toString()}`);
             if (mRes.ok) waveData = await mRes.json();
         } catch (e) {
-            console.warn("Marine data fetch failed", e);
+
         }
 
         // Helper for condition text
@@ -462,7 +462,7 @@ export const fetchStormglassData = async (
     if (!apiKey) {
         // Force fallback if no key
         if (!allowFallback) throw new Error("No Stormglass Key configured.");
-        console.warn("No Stormglass Key, failing over to Open-Meteo or NOAA if available.");
+
         // We throw here to trigger the catch block in the caller (weatherService) to try standard fallbacks
         throw new Error("Missing API Key");
     }
@@ -499,7 +499,7 @@ export const fetchStormglassData = async (
         if (!allowFallback) throw e;
 
         try {
-            console.warn("SG Source Unreachable, trying NOAA GFS...");
+
             weatherData = await fetchSG<StormGlassResponse>('weather/point', {
                 lat, lng: lon,
                 params: fullParams.join(','),

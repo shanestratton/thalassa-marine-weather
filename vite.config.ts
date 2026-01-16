@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
   const keysToCheck = [
     'VITE_GEMINI_API_KEY', 'GEMINI_API_KEY',
     'VITE_STORMGLASS_API_KEY', 'STORMGLASS_API_KEY',
+    'VITE_OPEN_METEO_API_KEY', 'OPEN_METEO_API_KEY', // Added for debugging
     'VITE_WORLDTIDES_API_KEY', // Added for visibility
     'VITE_MAPBOX_ACCESS_TOKEN', 'MAPBOX_ACCESS_TOKEN',
     'VITE_SUPABASE_URL', 'SUPABASE_URL',

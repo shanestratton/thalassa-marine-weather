@@ -1,3 +1,4 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { MAJOR_BUOYS, STATE_ABBREVIATIONS } from '../config';
 import { getMapboxKey } from '../keys';
 import { abbreviate } from '../transformers';
@@ -10,19 +11,28 @@ export interface GeoContext {
 }
 
 export const reverseGeocodeContext = async (lat: number, lon: number): Promise<GeoContext | null> => {
+    console.log(`[Geocoding] Reverse Geocode Start: ${lat}, ${lon}`);
     try {
-        console.log('[Geocoding] Reverse Request:', lat, lon);
-
         // Try Mapbox First (High Precision)
         const mapboxKey = getMapboxKey();
         if (mapboxKey) {
+            console.log("[Geocoding] Using Mapbox");
             // Enhanced types: natural_feature (Bays/Beaches), place (Cities), locality (Suburbs)
             // Removed 'poi' to prevent "Mickey Mouse" business names (e.g. "Joe's Fish Shack")
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=natural_feature,place,locality,neighborhood,district&limit=1&access_token=${mapboxKey}`;
-            const res = await fetch(url);
-            const data = await res.json();
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district&limit=1&access_token=${mapboxKey}`;
+            const res = await CapacitorHttp.get({
+                url,
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'ThalassaMarine/1.0'
+                }
+            });
+            let data = res.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { console.error("Mapbox JSON Parse Error", e); }
+            }
 
-            console.log('[Geocoding] Mapbox response:', data?.features?.length > 0 ? `Found ${data.features[0].text}` : 'Empty');
+
 
             if (data.features && data.features.length > 0) {
                 const place = data.features[0];
@@ -36,7 +46,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 // FILTER: Ignore "Ocean" or "Sea" results if we are looking for LAND context
                 // This prevents "Pacific Ocean" being returned as the nearest "place", which breaks Offshore detection.
                 if (city.includes('Ocean') || city.includes('Sea')) {
-                    console.log(`[Geocoding] Filtered out water feature: ${city}`);
+
                     return null;
                 }
 
@@ -64,15 +74,20 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             console.warn('[Geocoding] Missing Mapbox Token');
         }
 
+        console.log("[Geocoding] Fallback to Nominatim");
         // Fallback to Nominatim (OpenSource)
-        console.log('[Geocoding] Trying Nominatim...');
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`, {
+
+        const res = await CapacitorHttp.get({
+            url: `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
             headers: { 'User-Agent': 'ThalassaMarine/1.0' }
         });
-        const data = await res.json();
+        let data = res.data;
+        if (typeof data === 'string') {
+            try { data = JSON.parse(data); } catch (e) { console.error("Nominatim JSON Parse Error", e); }
+        }
         const addr = data.address;
 
-        console.log('[Geocoding] Nominatim data:', data?.display_name);
+
 
         if (!addr) return null;
 
@@ -104,7 +119,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
         // FILTER: Ignore "Ocean" or "Sea" results from Nominatim as well
         if (name.includes('Ocean') || name.includes('Sea')) {
-            console.log(`[Geocoding] Filtered out water feature (Nominatim): ${name}`);
+
             return null;
         }
 
@@ -174,8 +189,8 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
         // 4. Fallback to Nominatim Search
         const fetchNominatim = async (query: string) => {
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`);
-                return await res.json();
+                const res = await CapacitorHttp.get({ url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1` });
+                return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
             } catch { return []; }
         }
 
@@ -183,11 +198,11 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
 
         // AUTOCORRECT LOGIC
         if (!searchData || searchData.length === 0) {
-            console.log(`Location "${location}" not found. Attempting AI Autocorrect...`);
+
             const corrected = await suggestLocationCorrection(location);
 
             if (corrected) {
-                console.log(`AI suggested: "${corrected}"`);
+
                 searchData = await fetchNominatim(corrected);
                 if (searchData && searchData.length > 0) {
                     name = corrected;
