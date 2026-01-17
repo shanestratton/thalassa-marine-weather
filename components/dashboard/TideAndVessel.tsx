@@ -325,16 +325,8 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
 };
 
 export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: any, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean }) => {
-    const [currentTime, setCurrentTime] = useState(customTime ? new Date(customTime) : new Date());
-
-    useEffect(() => {
-        if (customTime) {
-            setCurrentTime(new Date(customTime));
-            return;
-        }
-        const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-        return () => clearInterval(timer);
-    }, [customTime]);
+    // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
+    const effectiveTime = customTime ? new Date(customTime) : new Date();
 
     const getDecimalHour = (date: Date, tz?: string) => {
         try {
@@ -352,14 +344,56 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         }
     };
 
-    const currentHour = getDecimalHour(currentTime, timeZone);
+    // Derived immediately from props
+    const currentHour = getDecimalHour(effectiveTime, timeZone);
+
+    // Helper for Time Difference
     const getHourFromMidnight = (dateStr: string) => {
         const d = new Date(dateStr);
-        const now = currentTime;
+        // Use effectiveTime (prop) instead of local state
+        const now = effectiveTime;
         const diffMs = d.getTime() - now.getTime();
         const diffHours = diffMs / (1000 * 60 * 60);
         return currentHour + diffHours;
     };
+
+    // --- HELPER: EXACT COSINE INTERPOLATION ---
+    // Extracting this logic allows us to use it for BOTH the graph generation AND the dot.
+    const calculateTideHeightAt = (t: number, sortedTides: Tide[]) => {
+        let t1 = -999;
+        let t2 = 999;
+        let h1 = 0;
+        let h2 = 0;
+
+        for (let i = 0; i < sortedTides.length - 1; i++) {
+            const timeA = getHourFromMidnight(sortedTides[i].time);
+            const timeB = getHourFromMidnight(sortedTides[i + 1].time);
+
+            if (t >= timeA && t <= timeB) {
+                t1 = timeA;
+                t2 = timeB;
+                h1 = convertMetersTo(sortedTides[i].height, unitPref.tideHeight || 'm') || 0;
+                h2 = convertMetersTo(sortedTides[i + 1].height, unitPref.tideHeight || 'm') || 0;
+                break;
+            }
+        }
+
+        if (t1 !== -999) {
+            const phase = Math.PI * (t - t1) / (t2 - t1);
+            const amp = (h1 - h2) / 2;
+            const mid = (h1 + h2) / 2;
+            return mid + amp * Math.cos(phase);
+        }
+
+        // Fallback: Nearest Neighbor
+        const nearest = sortedTides.reduce((prev, curr) => {
+            const timeC = getHourFromMidnight(curr.time);
+            const timeP = getHourFromMidnight(prev.time);
+            return Math.abs(timeC - t) < Math.abs(timeP - t) ? curr : prev;
+        });
+        return convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
+    };
+
 
     // --- SMART DATA GENERATION (MEMOIZED) ---
     // Optimization: Only recalculate points when tides/hourly/tideSeries/customTime changes
@@ -370,39 +404,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         if (tides && tides.length > 0) {
             const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-            for (let t = 0; t <= 24; t += 0.1) { // 6min resolution (High Precision for Dot Alignment)
-                let h = 0;
-                let t1 = -999;
-                let t2 = 999;
-                let h1 = 0;
-                let h2 = 0;
-
-                for (let i = 0; i < sortedTides.length - 1; i++) {
-                    const timeA = getHourFromMidnight(sortedTides[i].time);
-                    const timeB = getHourFromMidnight(sortedTides[i + 1].time);
-
-                    if (t >= timeA && t <= timeB) {
-                        t1 = timeA;
-                        t2 = timeB;
-                        h1 = convertMetersTo(sortedTides[i].height, unitPref.tideHeight || 'm') || 0;
-                        h2 = convertMetersTo(sortedTides[i + 1].height, unitPref.tideHeight || 'm') || 0;
-                        break;
-                    }
-                }
-
-                if (t1 !== -999) {
-                    const phase = Math.PI * (t - t1) / (t2 - t1);
-                    const amp = (h1 - h2) / 2;
-                    const mid = (h1 + h2) / 2;
-                    h = mid + amp * Math.cos(phase);
-                } else {
-                    const nearest = sortedTides.reduce((prev, curr) => {
-                        const timeC = getHourFromMidnight(curr.time);
-                        const timeP = getHourFromMidnight(prev.time);
-                        return Math.abs(timeC - t) < Math.abs(timeP - t) ? curr : prev;
-                    });
-                    h = convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
-                }
+            for (let t = 0; t <= 24; t += 0.1) { // 6min resolution
+                // Use the exact helper
+                const h = calculateTideHeightAt(t, sortedTides);
                 points.push({ time: t, height: h });
             }
         }
@@ -490,34 +494,33 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     // Sort dataPoints
     dataPoints.sort((a, b) => a.time - b.time);
 
-    // FIX: Interpolate Height for Exact Dot Alignment
-    // Instead of snapping to nearest 30m point, we linear interpolate between the two surrounding points
+    // FIX: DOT HEIGHT CALCULATION
+    // Instead of looking up the "closest point" or linearly interpolating, we calculate the EXACT height
+    // using the same cosine math used to generate the curve. This ensures 100% alignment.
     let currentHeight = 0;
 
-    // Find the interval [p1, p2] where p1.time <= currentHour <= p2.time
-    const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
-
-    if (p2Index === -1) {
-        // Time is after last point (shouldn't happen with 24h+ buffer, but fallback)
-        currentHeight = dataPoints[dataPoints.length - 1]?.height || 0;
-    } else if (p2Index === 0) {
-        // Time is before first point
-        currentHeight = dataPoints[0]?.height || 0;
+    if (tides && tides.length > 0) {
+        // Use the exact helper for the current minute
+        const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        currentHeight = calculateTideHeightAt(currentHour || 0, sortedTides);
     } else {
-        const p1 = dataPoints[p2Index - 1];
-        const p2 = dataPoints[p2Index];
-
-        const t1 = p1.time;
-        const t2 = p2.time;
-        const h1 = p1.height;
-        const h2 = p2.height;
-
-        // Linear Interpolation: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
-        if (t2 - t1 !== 0) {
-            const fraction = (currentHour - t1) / (t2 - t1);
-            currentHeight = h1 + fraction * (h2 - h1);
+        // Fallback for Priority 2/3 (Linear/Point lookup)
+        const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
+        if (p2Index === -1) {
+            currentHeight = dataPoints[dataPoints.length - 1]?.height || 0;
+        } else if (p2Index === 0) {
+            currentHeight = dataPoints[0]?.height || 0;
         } else {
-            currentHeight = h1;
+            const p1 = dataPoints[p2Index - 1];
+            const p2 = dataPoints[p2Index];
+            const t1 = p1.time; const t2 = p2.time;
+            const h1 = p1.height; const h2 = p2.height;
+            if (t2 - t1 !== 0) {
+                const fraction = (currentHour - t1) / (t2 - t1);
+                currentHeight = h1 + fraction * (h2 - h1);
+            } else {
+                currentHeight = h1;
+            }
         }
     }
 
