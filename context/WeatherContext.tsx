@@ -489,10 +489,15 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // OPTIMISTIC UPDATE: Update UI immediately with target name
         // We construct a temporary "Loading..." report to show INSTANT feedback
+        // Logic: specific "WP" check for offshore optimistic typing
+        // This hides the Tide Graph immediately for offshore points
+        const isOptimisticOffshore = location.startsWith("WP");
+
         const optimisticData = historyCache[location] || {
             ...(weatherDataRef.current || {}), // Keep existing data if possible
             locationName: location,
             coordinates: coords || weatherDataRef.current?.coordinates || { lat: 0, lon: 0 },
+            locationType: isOptimisticOffshore ? 'offshore' : 'coastal',
             generatedAt: new Date().toISOString(),
             isEstimated: true, // Flag as estimated
             alerts: [],
