@@ -511,28 +511,36 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     // using the same cosine math used to generate the curve. This ensures 100% alignment.
     let currentHeight = 0;
 
-    if (tides && tides.length > 0) {
-        // Use the exact helper for the current minute
-        const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        currentHeight = calculateTideHeightAt(currentHour || 0, sortedTides);
+    // FIX: VISUAL ALIGNMENT
+    // The graph renders linear segments between dataPoints.
+    // To ensure the DOT lies ON THE LINE, we must mathematically replicate that linear interpolation exactly.
+    // We do NOT use the cosine helper here because the visual graph "cuts corners" at high/low tides.
+    // We must match the visual corner-cutting to be pixel-perfect.
+
+    // Find the interval [p1, p2] where p1.time <= currentHour <= p2.time
+    const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
+
+    if (p2Index === -1) {
+        // Time is after last point
+        currentHeight = dataPoints[dataPoints.length - 1]?.height || 0;
+    } else if (p2Index === 0) {
+        // Time is before first point
+        currentHeight = dataPoints[0]?.height || 0;
     } else {
-        // Fallback for Priority 2/3 (Linear/Point lookup)
-        const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
-        if (p2Index === -1) {
-            currentHeight = dataPoints[dataPoints.length - 1]?.height || 0;
-        } else if (p2Index === 0) {
-            currentHeight = dataPoints[0]?.height || 0;
+        const p1 = dataPoints[p2Index - 1];
+        const p2 = dataPoints[p2Index];
+
+        const t1 = p1.time;
+        const t2 = p2.time;
+        const h1 = p1.height;
+        const h2 = p2.height;
+
+        // Linear Interpolation: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+        if (t2 - t1 !== 0) {
+            const fraction = (currentHour - t1) / (t2 - t1);
+            currentHeight = h1 + fraction * (h2 - h1);
         } else {
-            const p1 = dataPoints[p2Index - 1];
-            const p2 = dataPoints[p2Index];
-            const t1 = p1.time; const t2 = p2.time;
-            const h1 = p1.height; const h2 = p2.height;
-            if (t2 - t1 !== 0) {
-                const fraction = (currentHour - t1) / (t2 - t1);
-                currentHeight = h1 + fraction * (h2 - h1);
-            } else {
-                currentHeight = h1;
-            }
+            currentHeight = h1;
         }
     }
 
