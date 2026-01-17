@@ -487,12 +487,27 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const isCurrent = location === "Current Location";
         isTrackingCurrentLocation.current = isCurrent;
 
+        // OPTIMISTIC UPDATE: Update UI immediately with target name
+        // We construct a temporary "Loading..." report to show INSTANT feedback
+        const optimisticData = historyCache[location] || {
+            ...(weatherDataRef.current || {}), // Keep existing data if possible
+            locationName: location,
+            coordinates: coords || weatherDataRef.current?.coordinates || { lat: 0, lon: 0 },
+            generatedAt: new Date().toISOString(),
+            isEstimated: true, // Flag as estimated
+            alerts: [],
+            loading: true // Custom flag if we want to show spinner
+        } as MarineWeatherReport;
+
+        // Force update the state immediately
+        setWeatherData(optimisticData);
+        setLoading(false); // Ensure we don't show full-screen loader, just let UI update
+
         if (historyCache[location]) {
-            setWeatherData(historyCache[location]);
+            // If we have full cache, we stick with it, but trigger a silent background refresh
             await fetchWeather(location, false, coords, false, true);
         } else {
-            // Don't clear data immediately - keep old data visible (blurred via overlay) until new data arrives
-            // setWeatherData(null); 
+            // New location: Fetch freshly
             await fetchWeather(location, false, coords, true);
         }
     }, [fetchWeather, historyCache]);
