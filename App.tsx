@@ -124,10 +124,7 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* DEBUG BANNER - REMOVE AFTER VERIFICATION */}
-                <div className="bg-red-600 text-white text-xs font-bold text-center py-1 px-4 fixed top-0 left-0 right-0 z-50 pointer-events-none opacity-50">
-                    FIX: REVERSE GEO + TIDE SYNC APPLIED
-                </div>
+
 
                 {/* HEADER */}
                 {showHeader && (

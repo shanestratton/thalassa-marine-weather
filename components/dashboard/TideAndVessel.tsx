@@ -267,52 +267,53 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         return currentHour + diffHours;
     };
 
-    // --- SMART DATA GENERATION ---
-    const dataPoints: { time: number, height: number }[] = [];
+    // --- SMART DATA GENERATION (MEMOIZED) ---
+    // Optimization: Only recalculate points when tides/hourly/tideSeries/customTime changes
+    const dataPoints = React.useMemo(() => {
+        const points: { time: number, height: number }[] = [];
 
-    // Priority 1: WorldTides (Authoritative Extremes) - Use Sine Interpolation
-    if (tides && tides.length > 0) {
-        // Clear any partial points
-        dataPoints.length = 0;
+        // Priority 1: WorldTides (Authoritative Extremes) - Use Sine Interpolation
+        if (tides && tides.length > 0) {
+            const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-        const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            for (let t = 0; t <= 24; t += 0.5) { // 30min resolution
+                let h = 0;
+                let t1 = -999;
+                let t2 = 999;
+                let h1 = 0;
+                let h2 = 0;
 
-        for (let t = 0; t <= 24; t += 0.5) { // 30min resolution
-            let h = 0;
-            let t1 = -999;
-            let t2 = 999;
-            let h1 = 0;
-            let h2 = 0;
+                for (let i = 0; i < sortedTides.length - 1; i++) {
+                    const timeA = getHourFromMidnight(sortedTides[i].time);
+                    const timeB = getHourFromMidnight(sortedTides[i + 1].time);
 
-            for (let i = 0; i < sortedTides.length - 1; i++) {
-                const timeA = getHourFromMidnight(sortedTides[i].time);
-                const timeB = getHourFromMidnight(sortedTides[i + 1].time);
-
-                if (t >= timeA && t <= timeB) {
-                    t1 = timeA;
-                    t2 = timeB;
-                    h1 = convertMetersTo(sortedTides[i].height, unitPref.tideHeight || 'm') || 0;
-                    h2 = convertMetersTo(sortedTides[i + 1].height, unitPref.tideHeight || 'm') || 0;
-                    break;
+                    if (t >= timeA && t <= timeB) {
+                        t1 = timeA;
+                        t2 = timeB;
+                        h1 = convertMetersTo(sortedTides[i].height, unitPref.tideHeight || 'm') || 0;
+                        h2 = convertMetersTo(sortedTides[i + 1].height, unitPref.tideHeight || 'm') || 0;
+                        break;
+                    }
                 }
-            }
 
-            if (t1 !== -999) {
-                const phase = Math.PI * (t - t1) / (t2 - t1);
-                const amp = (h1 - h2) / 2;
-                const mid = (h1 + h2) / 2;
-                h = mid + amp * Math.cos(phase);
-            } else {
-                const nearest = sortedTides.reduce((prev, curr) => {
-                    const timeC = getHourFromMidnight(curr.time);
-                    const timeP = getHourFromMidnight(prev.time);
-                    return Math.abs(timeC - t) < Math.abs(timeP - t) ? curr : prev;
-                });
-                h = convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
+                if (t1 !== -999) {
+                    const phase = Math.PI * (t - t1) / (t2 - t1);
+                    const amp = (h1 - h2) / 2;
+                    const mid = (h1 + h2) / 2;
+                    h = mid + amp * Math.cos(phase);
+                } else {
+                    const nearest = sortedTides.reduce((prev, curr) => {
+                        const timeC = getHourFromMidnight(curr.time);
+                        const timeP = getHourFromMidnight(prev.time);
+                        return Math.abs(timeC - t) < Math.abs(timeP - t) ? curr : prev;
+                    });
+                    h = convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
+                }
+                points.push({ time: t, height: h });
             }
-            dataPoints.push({ time: t, height: h });
         }
-    }
+        return points;
+    }, [tides, currentHour, unitPref.tideHeight]); // Re-run if tides or current hour changes
 
     // Priority 2: Use hourlyTides from Dashboard if WorldTides missing
     if (dataPoints.length < 12 && hourlyTides && hourlyTides.length > 0 && hourlyTides[0].tideHeight !== undefined) {
