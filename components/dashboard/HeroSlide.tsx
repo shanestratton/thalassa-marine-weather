@@ -1237,41 +1237,68 @@ export const HeroSlide = React.memo(({
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
     }, []);
 
+    // Emit Time Selection on horizontal scroll
+    // FIXED: Continuous Scrubbing Logic (No Lag)
     const handleHScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const x = e.currentTarget.scrollLeft;
         const w = e.currentTarget.clientWidth;
+
+        // 1. Update Active Index for Dots (Visual Snap)
         const idx = Math.round(x / w);
         if (idx !== activeHIdx) setActiveHIdx(idx);
-    };
 
-    // Emit Time Selection on horizontal scroll
-    useEffect(() => {
-        // CRITICAL: Only the vertically visible slide should emit time updates.
-        // Otherwise, off-screen slides (future days) will emit their default (12AM/Start) time on mount,
-        // causing the Tide Graph to jump to future dates unexpectedly.
+        // 2. Continuous Time Interpolation
         if (!onTimeSelect || !isVisible) return;
 
-        // If Index 0 (Today)
+        const rawIdx = x / w; // 0.0 -> 1.0 -> 2.0
+
+        // Helper to get time at integer index
+        const getTimeAtIndex = (i: number): number => {
+            if (i === 0) {
+                // Index 0 is "Now"
+                return new Date().getTime(); // Live Time
+            }
+            // Index 1..N maps to hourlyToRender[i-1]
+            const hItem = hourlyToRender[i - 1];
+            return hItem ? new Date(hItem.time).getTime() : 0;
+        };
+
+        const iA = Math.floor(rawIdx);
+        const iB = Math.ceil(rawIdx);
+
+        const timeA = getTimeAtIndex(iA);
+        const timeB = getTimeAtIndex(iB);
+
+        if (timeA === 0) return; // Invalid start
+        // If at end or timeB invalid, just use timeA
+        if (timeB === 0 || iA === iB) {
+            onTimeSelect(timeA);
+            return;
+        }
+
+        // Interpolate
+        const fraction = rawIdx - iA;
+        const interpolatedTime = timeA + (timeB - timeA) * fraction;
+
+        onTimeSelect(interpolatedTime);
+    };
+
+    // REMOVED: Effect-based time selection (replaced by scroll handler)
+    /*
+    useEffect(() => {
+        if (!onTimeSelect || !isVisible) return;
         if (index === 0) {
-            if (activeHIdx === 0) {
-                // "Now" Card -> Live Time (undefined to signal 'use live')
-                onTimeSelect(undefined);
-            } else {
-                // Hourly Card
-                // hourlyToRender index is activeHIdx - 1
+            if (activeHIdx === 0) onTimeSelect(undefined);
+            else {
                 const hItem = hourlyToRender[activeHIdx - 1];
-                if (hItem) {
-                    onTimeSelect(new Date(hItem.time).getTime());
-                }
+                if (hItem) onTimeSelect(new Date(hItem.time).getTime());
             }
         } else {
-            // Future Day
             const hItem = hourlyToRender[activeHIdx];
-            if (hItem) {
-                onTimeSelect(new Date(hItem.time).getTime());
-            }
+            if (hItem) onTimeSelect(new Date(hItem.time).getTime());
         }
     }, [activeHIdx, index, hourlyToRender, onTimeSelect, isVisible]);
+    */
 
     const totalCards = 1 + hourlyToRender.length;
 
