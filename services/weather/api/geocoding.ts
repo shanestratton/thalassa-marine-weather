@@ -11,12 +11,12 @@ export interface GeoContext {
 }
 
 export const reverseGeocodeContext = async (lat: number, lon: number): Promise<GeoContext | null> => {
-    console.log(`[Geocoding] Reverse Geocode Start: ${lat}, ${lon}`);
+
     try {
         // Try Mapbox First (High Precision)
         const mapboxKey = getMapboxKey();
         if (mapboxKey) {
-            console.log("[Geocoding] Using Mapbox");
+
             // Enhanced types: natural_feature (Bays/Beaches), place (Cities), locality (Suburbs)
             // Removed 'poi' to prevent "Mickey Mouse" business names (e.g. "Joe's Fish Shack")
             const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district&limit=1&access_token=${mapboxKey}`;
@@ -43,10 +43,13 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
                 const city = place.text;
 
-                // FILTER: Ignore "Ocean" or "Sea" results if we are looking for LAND context
-                // This prevents "Pacific Ocean" being returned as the nearest "place", which breaks Offshore detection.
-                if (city.includes('Ocean') || city.includes('Sea')) {
+                // FILTER: Ignore GENERIC "Ocean" or "Sea" results (e.g. "Pacific Ocean")
+                // BUT Allow specific places like "Ocean City", "Seaside", "Ocean Grove"
+                // Strict check: if it looks like a generic water body name
+                const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(city);
 
+                if (isGenericWater) {
+                    console.warn('[Geocoding] Mapbox rejected due to Generic Ocean/Sea filter:', city);
                     return null;
                 }
 
@@ -68,13 +71,14 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 const featureLon = place.center[0];
 
                 const name = [city, state, countryShort].filter(p => p).join(", ");
+
                 return { name, lat: featureLat, lon: featureLon };
             }
         } else {
             console.warn('[Geocoding] Missing Mapbox Token');
         }
 
-        console.log("[Geocoding] Fallback to Nominatim");
+
         // Fallback to Nominatim (OpenSource)
 
         const res = await CapacitorHttp.get({
@@ -89,7 +93,10 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
 
 
-        if (!addr) return null;
+        if (!addr) {
+            console.warn('[Geocoding] Nominatim No Address Found');
+            return null;
+        }
 
         // Expanded Locality Search for International Support
         const locality = addr.suburb || addr.town || addr.city_district || addr.village || addr.city || addr.hamlet || addr.island || addr.municipality || addr.county;
@@ -117,15 +124,19 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         // If we have a structured locality, prefer it over the raw display name to avoid "12 Smith St"
         const name = [finalName, state, country].filter(p => p && p.trim().length > 0).join(", ");
 
-        // FILTER: Ignore "Ocean" or "Sea" results from Nominatim as well
-        if (name.includes('Ocean') || name.includes('Sea')) {
+        // FILTER: Ignore GENERIC "Ocean" or "Sea" results (e.g. "Pacific Ocean")
+        // BUT Allow specific places like "Ocean City", "Seaside", "Ocean Grove"
+        const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(name);
 
+        if (isGenericWater) {
+            console.warn('[Geocoding] Nominatim rejected due to Generic Ocean/Sea filter:', name);
             return null;
         }
 
         // Nominatim returns lat/lon of the result
         const resLat = parseFloat(data.lat);
         const resLon = parseFloat(data.lon);
+
 
         return { name, lat: resLat, lon: resLon };
 
@@ -140,7 +151,7 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
     return ctx ? ctx.name : null;
 }
 
-export const parseLocation = async (location: string): Promise<{ lat: number, lon: number, name: string }> => {
+export const parseLocation = async (location: string): Promise<{ lat: number, lon: number, name: string, timezone?: string }> => {
     if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: "Invalid Location" };
 
     const searchStr = location.toLowerCase().trim();
@@ -178,76 +189,54 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
         lat = parseFloat(coordMatch[1]);
         lon = parseFloat(coordMatch[3]);
 
-        // Reverse Geocode to get a nice name (Mooloolaba, etc) instead of "-26, 153"
-        const friendlyName = await reverseGeocode(lat, lon);
-        if (friendlyName) {
-            name = friendlyName;
+        // OPTIMIZATION: Don't block on Reverse Geocode. Return coords immediately.
+        // The WeatherContext will eventually correct the name if needed.
+        // STOPPED: Formatting as "WP ..." prematurely.
+        // REASON: We want WeatherContext to see it as "raw" so it triggers the Reverse Lookup.
+        if (location.length < 10 && location.includes(',')) {
+            // It's likely raw user input like "-25, 153"
+            // Keep it as is (or simple clean) so regex /^-?\d/ matches in Context
+            name = location.trim();
         } else {
-            name = `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+            name = location;
         }
     } else {
-        // 4. Fallback to Nominatim Search
-        const fetchNominatim = async (query: string) => {
+        // 4. Fallback to Open-Meteo Geocoding (Faster than Nominatim)
+        const fetchOpenMeteoGeo = async (query: string) => {
             try {
-                const res = await CapacitorHttp.get({ url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1` });
-                return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                // Count=1, English
+                const res = await CapacitorHttp.get({
+                    url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
+                });
+                const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                return data.results || [];
             } catch { return []; }
         }
 
-        let searchData = await fetchNominatim(location);
+        let results = await fetchOpenMeteoGeo(location);
 
         // AUTOCORRECT LOGIC
-        if (!searchData || searchData.length === 0) {
-
+        if (!results || results.length === 0) {
             const corrected = await suggestLocationCorrection(location);
-
             if (corrected) {
-
-                searchData = await fetchNominatim(corrected);
-                if (searchData && searchData.length > 0) {
+                results = await fetchOpenMeteoGeo(corrected);
+                if (results && results.length > 0) {
                     name = corrected;
                 }
             }
         }
 
-        if (!searchData || searchData.length === 0) throw new Error(`Location "${location}" not found.`);
+        if (!results || results.length === 0) throw new Error(`Location "${location}" not found.`);
 
-        lat = parseFloat(searchData[0].lat);
-        lon = parseFloat(searchData[0].lon);
+        const r = results[0];
+        lat = r.latitude;
+        lon = r.longitude;
 
-        if (searchData[0].address) {
-            const a = searchData[0].address;
-            const city = a.city || a.town || a.village || a.suburb || a.hamlet || a.county || "";
-            const stateFull = a.state || a.province || a.region || "";
-            const state = abbreviate(stateFull) || stateFull;
-            const country = (a.country_code || "").toUpperCase();
+        // Formulate Name: "City, Admin1, Country"
+        const parts = [r.name, r.admin1, r.country_code?.toUpperCase()].filter(x => x);
+        name = parts.join(", ");
 
-            const parts = [city, state, country].filter(p => p && p.trim().length > 0);
-
-            const inputIsShort = location.length < 4;
-            const foundSpecificCity = city && city.length > 0;
-
-            // PREFER Display Name's first part (e.g. "Mooloolaba") as it is usually the most specific.
-            // fallback to 'parts' strategy only if display_name is missing.
-            const displayNameFirst = searchData[0].display_name ? searchData[0].display_name.split(',')[0] : "";
-
-            if (displayNameFirst && displayNameFirst.length > 1) {
-                // Reconstruct: "Mooloolaba, QLD, AU"
-                // Use the explicit town name from display_name, because 'city' variable might have fallen back to 'county' (Sunshine Coast Regional)
-                const cleanParts = [displayNameFirst, state, country].filter(p => p && p.trim().length > 0 && p !== displayNameFirst); // Avoid duplications if state == city
-                // Ensure distinctness
-                name = Array.from(new Set([displayNameFirst, state, country].filter(x => x))).join(", ");
-            } else if (foundSpecificCity || inputIsShort) {
-                if (parts.length > 0) name = parts.join(", ");
-            }
-            // OTHERWISE: Keep user input 'location' (e.g. "Mooloolaba") if it was already good.
-
-        } else if (searchData[0].display_name) {
-            // Fallback for missing address object
-            if (location.length < 4) {
-                name = searchData[0].display_name.split(',')[0];
-            }
-        }
+        return { lat, lon, name, timezone: r.timezone };
     }
 
     return { lat, lon, name };

@@ -179,7 +179,11 @@ export const fetchPrecisionWeather = async (
         lat = coords.lat;
         lon = coords.lon;
         name = location;
-        if (!name || name === 'Current Location') {
+        name = location;
+
+        // RETRY GEOCODING if name is generic (WP ...)
+        // This gives us a second chance to find "Townsville" even if the Context sent us "WP -12, 145"
+        if (!name || name === 'Current Location' || name.startsWith('WP ') || /^-?\d/.test(name)) {
             const r = await reverseGeocode(lat, lon);
             if (r) name = r;
         }
@@ -214,14 +218,7 @@ export const fetchPrecisionWeather = async (
         saveToCache(name, data);
         return data;
     } catch (e) {
-        console.warn(`[Precision] StormGlass Failed for ${name}. Logic: Fallback to OpenMeteo.`, e);
-
-        // Fallback
-        const fallback = await fetchOpenMeteo(lat, lon, name, false);
-        fallback.modelUsed = `OpenMeteo (Fallback)`;
-
-        // Cache fallback so we don't hammer API if it's down
-        saveToCache(name, fallback);
-        return fallback;
+        console.error(`[Precision] StormGlass Failed for ${name}. No OpenMeteo fallback allowed.`, e);
+        throw e;
     }
 };

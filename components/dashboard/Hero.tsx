@@ -19,9 +19,11 @@ export const HeroSection = ({
     hourly,
     className,
     lat,
-    guiDetails,
     coordinates,
-    locationType
+    guiDetails,
+    locationType,
+    onTimeSelect,
+    customTime
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -40,10 +42,13 @@ export const HeroSection = ({
     lat?: number,
     guiDetails?: any,
     coordinates?: { lat: number, lon: number },
-    locationType?: 'coastal' | 'offshore' | 'inland'
+    locationType?: 'coastal' | 'offshore' | 'inland',
+    onTimeSelect?: (time: number | undefined) => void,
+    customTime?: number // Received from Dashboard state
 }) => {
 
     const { settings, updateSettings } = useSettings();
+    console.log('[PROP_TRACE] HeroSection Render. onTimeSelect:', !!onTimeSelect, 'customTime:', customTime);
     const [activeIndex, setActiveIndex] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -142,13 +147,17 @@ export const HeroSection = ({
                             locationType={locationType}
                             displaySource={modelUsed || groundingSource || ''}
                             vessel={vessel}
-                            customTime={row.customTime}
+                            // CRITICAL FIX: If this slide is active, allow the Dashboard's selected time (from horiz scroll) to override.
+                            // Otherwise, fall back to row defaults (Live for Today, Noon for Future).
+                            customTime={(activeIndex === rIdx && customTime) ? customTime : row.customTime}
                             hourly={row.hourly}
                             fullHourly={hourly}
                             lat={lat}
                             guiDetails={guiDetails}
                             coordinates={coordinates}
                             generatedAt={generatedAt}
+                            onTimeSelect={onTimeSelect}
+                            isVisible={activeIndex === rIdx}
                         />
                         {/* Spacer for bottom nav */}
                         <div className="w-full h-4 shrink-0" />

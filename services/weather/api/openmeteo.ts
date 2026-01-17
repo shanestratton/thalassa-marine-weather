@@ -191,8 +191,8 @@ export const fetchOpenMeteo = async (
         uvIndex: curUV,
         condition: getWmo(cur.weather_code),
         description: "",
-        day: "Today",
-        date: now.toLocaleDateString(),
+        day: wData.timezone ? now.toLocaleDateString('en-US', { weekday: 'long', timeZone: wData.timezone }) : "Today",
+        date: wData.timezone ? now.toLocaleDateString('en-US', { timeZone: wData.timezone }) : now.toLocaleDateString(),
         feelsLike: calculateFeelsLike(cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m * kFactor * 0.8), // Approx
         isDay: cur.is_day === 1,
         isEstimated: false,
@@ -201,7 +201,9 @@ export const fetchOpenMeteo = async (
         moonPhase: "",
         moonIllumination: 0,
         currentSpeed: 0,
-        currentDirection: 0
+        currentDirection: 0,
+        highTemp: undefined as number | undefined,
+        lowTemp: undefined as number | undefined
     };
     currentMetrics.description = generateDescription(currentMetrics.condition, currentMetrics.windSpeed, currentMetrics.windDirection, waveH);
 
@@ -233,6 +235,8 @@ export const fetchOpenMeteo = async (
     if (dailies.length > 0) {
         currentMetrics.sunrise = dailies[0].sunrise;
         currentMetrics.sunset = dailies[0].sunset;
+        currentMetrics.highTemp = dailies[0].highTemp;
+        currentMetrics.lowTemp = dailies[0].lowTemp;
     }
 
     // Build Hourly (Simplified)
@@ -273,7 +277,9 @@ export const fetchOpenMeteo = async (
         modelUsed: `openmeteo_${model}`,
         boatingAdvice: advice,
         isLandlocked: false,
-        alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies)
+        alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),
+        timeZone: wData.timezone,
+        utcOffset: wData.utc_offset_seconds
     };
 
     // Attach Tides

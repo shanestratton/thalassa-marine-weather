@@ -220,7 +220,10 @@ export const mapStormGlassToReport = (
         currentDirection: (() => {
             const val = getVal(currentHour.currentDirection as MultiSourceField);
             if (val === 0) return undefined;
-            return val;
+            // FIX: StormGlass often reports "Direction From" (Oceanographic naming collision).
+            // "Set" must be "Direction To". If data is "From North", Set is "South".
+            // We invert by +180 degrees.
+            return (val + 180) % 360;
         })(),
         precipDetail: metarData && metarData.weather ? `(${metarData.weather}${metarData.precipType ? ' ' + metarData.precipType : ''})` : undefined,
         precipLabel: getPrecipitationLabelV2(metarData || null, getVal(currentHour.precipitation as MultiSourceField) || 0).label,
@@ -244,7 +247,7 @@ export const mapStormGlassToReport = (
             currentDirection: (() => {
                 const val = getVal(h.currentDirection as MultiSourceField);
                 if (val === 0) return undefined;
-                return val;
+                return (val + 180) % 360;
             })(),
             waterTemperature: getVal(h.waterTemperature as MultiSourceField),
             visibility: getVal(h.visibility as MultiSourceField) * 0.539957,

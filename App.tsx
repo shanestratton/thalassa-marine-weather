@@ -24,7 +24,7 @@ const WarningDetails = React.lazy(() => import('./components/WarningDetails').th
 
 const App: React.FC = () => {
     // 1. DATA STATE
-    const { weatherData, loading, error, fetchWeather, refreshData } = useWeather();
+    const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline } = useUI();
 
@@ -104,7 +104,7 @@ const App: React.FC = () => {
                 <div className={`absolute inset-0 z-0 ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'bg-black' : 'bg-[#0f172a]'}`}></div>
             )}
 
-            {loading && weatherData && <ProcessOverlay message="Updating Marine Data..." />}
+            {loading && !weatherData && <ProcessOverlay message={loadingMessage || "Updating Marine Data..."} />}
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}
@@ -123,6 +123,11 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {/* DEBUG BANNER - REMOVE AFTER VERIFICATION */}
+                <div className="bg-red-600 text-white text-xs font-bold text-center py-1 px-4 fixed top-0 left-0 right-0 z-50 pointer-events-none opacity-50">
+                    FIX: REVERSE GEO + TIDE SYNC APPLIED
+                </div>
 
                 {/* HEADER */}
                 {showHeader && (
@@ -189,7 +194,10 @@ const App: React.FC = () => {
                                                 <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
                                             </div>
                                         ) : (!weatherData && loading) ? (
-                                            <SkeletonDashboard />
+                                            // USER REQUEST: "Just have the message" (Clean Overlay vs Skeleton)
+                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
+                                                <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
+                                            </div>
                                         ) : (
                                             <Dashboard
                                                 onOpenMap={() => setPage('map')}

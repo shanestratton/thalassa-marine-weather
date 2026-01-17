@@ -22,7 +22,7 @@ export const useWeatherOverlay = (
         }
         if (type === 'rain') {
             if (!metrics.precipitation && !metrics.condition.toLowerCase().includes('rain')) return 0;
-            const baseRain = metrics.precipitation || 2.0; 
+            const baseRain = metrics.precipitation || 2.0;
             const rainCluster = Math.sin(targetLat * 10 + targetLon * 10) + Math.cos(targetLat * 5);
             return rainCluster > 0 ? baseRain + (noise) : 0;
         }
@@ -31,7 +31,7 @@ export const useWeatherOverlay = (
 
     const sampleDirection = (lat: number, lon: number) => {
         const baseDir = (metrics.windDegree ?? 0);
-        const variation = Math.sin(lat * 2 + lon * 2) * 20; 
+        const variation = Math.sin(lat * 2 + lon * 2) * 20;
         return (baseDir + variation + 360) % 360;
     };
 
@@ -43,18 +43,18 @@ export const useWeatherOverlay = (
         if (!map || !canvas || !showWeather) {
             engineRef.current?.stop();
             engineRef.current = null;
-            if(canvas) {
+            if (canvas) {
                 const ctx = canvas.getContext('2d');
-                ctx?.clearRect(0,0, canvas.width, canvas.height);
+                ctx?.clearRect(0, 0, canvas.width, canvas.height);
             }
             return;
         }
 
         const handleResize = () => {
-             if (canvas && canvas.parentElement) {
+            if (canvas && canvas.parentElement) {
                 const rect = canvas.parentElement.getBoundingClientRect();
                 const dpr = window.devicePixelRatio || 1;
-                
+
                 // Optimization: Force integer sizing to prevent blur and rounding drift
                 const targetWidth = Math.round(rect.width * dpr);
                 const targetHeight = Math.round(rect.height * dpr);
@@ -66,7 +66,7 @@ export const useWeatherOverlay = (
                     canvas.style.height = `${rect.height}px`;
                     engineRef.current?.sync();
                 }
-             }
+            }
         };
 
         if (!engineRef.current) {
@@ -89,15 +89,20 @@ export const useWeatherOverlay = (
             engineRef.current?.setFastMode(false);
             engineRef.current?.sync();
         };
-        const handleMove = () => engineRef.current?.sync();
+
+        let moveFrame: number;
+        const handleMove = () => {
+            if (moveFrame) cancelAnimationFrame(moveFrame);
+            moveFrame = requestAnimationFrame(() => engineRef.current?.sync());
+        };
 
         // Optimization: Use ResizeObserver instead of window.resize
         // This handles container resizes (e.g. mobile address bar) much better
         const resizeObserver = new ResizeObserver(() => {
-             // Request animation frame to debounce resize events
-             requestAnimationFrame(handleResize);
+            // Request animation frame to debounce resize events
+            requestAnimationFrame(handleResize);
         });
-        
+
         if (canvas.parentElement) {
             resizeObserver.observe(canvas.parentElement);
         }
@@ -108,6 +113,7 @@ export const useWeatherOverlay = (
         map.on('movestart', handleMoveStart);
 
         return () => {
+            if (moveFrame) cancelAnimationFrame(moveFrame);
             resizeObserver.disconnect();
             map.off('zoomstart', handleZoomStart);
             map.off('zoomend', handleZoomEnd);

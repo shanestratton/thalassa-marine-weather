@@ -21,8 +21,8 @@ export const determineLocationType = (
 ): LocationType => {
 
     // --- THRESHOLDS ---
-    // 50 NM = 92.6 km
-    const OFFSHORE_THRESHOLD_KM = 92.6;
+    // 20 NM = 37.04 km
+    const OFFSHORE_THRESHOLD_KM = 37.04;
     // 5km grid snap (OpenMeteo Marine)
     const IS_ON_WATER_THRESHOLD_KM = 5.0;
     // 5 NM = 9.26 km. Relaxed to 15km to account for grid resolution (~27km).
