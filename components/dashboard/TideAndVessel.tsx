@@ -479,30 +479,10 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     // --- VISIBLE MARKERS (Graph Only 0-24h) ---
     const visibleMarkers = allMarkers.filter(m => m.time >= 0 && m.time <= 24);
 
-    // FIX: INJECT CURRENT TIME POINT
-    // To ensure the Dot and the Line align PERFECTLY (no spline drift), we MUST ensure
-    // that the graph has a vertex exactly at currentHour.
-    if (dataPoints.length > 0 && currentHour >= 0 && currentHour <= 24) {
-        let currentHeightForGraph = 0;
-        if (tides && tides.length > 0) {
-            const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-            currentHeightForGraph = calculateTideHeightAt(currentHour, sortedTides);
-        } else {
-            // Fallback Linear
-            // We can't easily interpolate linear before sorting, so we handle it by not injecting if we don't have tides,
-            // OR we rely on the high density of points we added earlier.
-            // But if we have tides, we inject.
-        }
-
-        // Only inject if we have a valid height from our exact math
-        if (tides && tides.length > 0) {
-            // Check if point already exists close by (within 0.05)
-            const exists = dataPoints.some(p => Math.abs(p.time - currentHour) < 0.001);
-            if (!exists) {
-                dataPoints.push({ time: currentHour, height: currentHeightForGraph });
-            }
-        }
-    }
+    // PERFORMANCE FIX: REMOVED VERTEX INJECTION
+    // Injecting the currentHour into dataPoints caused the StaticTideBackground to re-render 
+    // on every frame of the scroll, killing performance.
+    // We rely on the High Resolution (6-min) data + Exact Cosine Math for the dot to ensure alignment.
 
     if (dataPoints.length === 0) {
         return (
