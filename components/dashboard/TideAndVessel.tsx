@@ -230,6 +230,100 @@ const SolarArc = ({ sunrise, sunset, showTimes = true, size = 'normal', timeZone
     );
 };
 
+// --- OPTIMIZED CHART COMPONENTS ---
+
+// 1. Static Background (Memoized): Renders the Heavy Area, Gradients, and Axes
+// This component ONLY re-renders when the DATA changes, not when time ticks.
+const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], minHeight: number, maxHeight: number, domainBuffer: number }) => {
+
+    const Tick = ({ x, y, payload }: any) => {
+        const val = payload.value;
+        const hr = Math.floor(val);
+        const displayHr = (hr % 24).toString().padStart(2, '0');
+        const isKeyTime = hr === 0 || hr === 6 || hr === 12 || hr === 18 || hr === 24;
+
+        return (
+            <g transform={`translate(${x},${y})`}>
+                <text x={0} y={0} dy={16} textAnchor="middle" fill="#cbd5e1" fontSize={9} fontWeight={600} fontFamily="monospace" opacity={isKeyTime || true ? 0.8 : 0}>
+                    {displayHr}
+                </text>
+            </g>
+        );
+    };
+
+    return (
+        <div className="absolute inset-0 z-0">
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                    <defs>
+                        <pattern id="waterPattern" patternUnits="userSpaceOnUse" width="100" height="100" viewBox="0 0 100 100">
+                            <image href="https://images.unsplash.com/photo-1505118380757-91f5f5632de0?q=80&w=2071&fm=jpg&fit=crop" x="0" y="0" width="300" height="300" preserveAspectRatio="xMidYMid slice" opacity="0.5" />
+                        </pattern>
+                        <linearGradient id="deepWater" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.8} />
+                            <stop offset="100%" stopColor="#0284c7" stopOpacity={0.4} />
+                        </linearGradient>
+                        <filter id="waveShadow" height="130%">
+                            <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
+                        </filter>
+                    </defs>
+
+                    <XAxis
+                        dataKey="time"
+                        type="number"
+                        domain={[0, 24]}
+                        ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
+                        tick={<Tick />}
+                        axisLine={false}
+                        hide={false}
+                        interval={0}
+                    />
+                    <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
+
+                    <Area
+                        type="monotone"
+                        dataKey="height"
+                        stroke="#38bdf8"
+                        strokeWidth={3}
+                        fill="url(#deepWater)"
+                        filter="url(#waveShadow)"
+                        isAnimationActive={false}
+                    />
+                </AreaChart>
+            </ResponsiveContainer>
+        </div>
+    );
+}, (prev, next) => {
+    // Only re-render if data or scale changes. Ignore parent re-renders triggered by time.
+    return prev.dataPoints === next.dataPoints && prev.minHeight === next.minHeight && prev.maxHeight === next.maxHeight;
+});
+
+// 2. Active Overlay (Lightweight): Renders ONLY the Line and Dot
+// This component re-renders every time `currentHour` changes, but it's very cheap.
+const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], currentHour: number, currentHeight: number, minHeight: number, maxHeight: number, domainBuffer: number }) => {
+    return (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                    <XAxis dataKey="time" type="number" domain={[0, 24]} hide />
+                    <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
+
+                    <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />
+                    <ReferenceDot
+                        x={currentHour}
+                        y={currentHeight}
+                        r={5}
+                        fill="#facc15"
+                        stroke="#fff"
+                        strokeWidth={2}
+                        isFront={true}
+                    />
+                </AreaChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
 export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: any, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean }) => {
     const [currentTime, setCurrentTime] = useState(customTime ? new Date(customTime) : new Date());
 
@@ -426,21 +520,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     }
     const domainBuffer = (maxHeight - minHeight) * 0.2;
 
-    const Tick = ({ x, y, payload }: any) => {
-        const val = payload.value;
-        const hr = Math.floor(val);
-        // 24H Format: Just the number, e.g. "15"
-        const displayHr = (hr % 24).toString().padStart(2, '0');
-        const isKeyTime = hr === 0 || hr === 6 || hr === 12 || hr === 18 || hr === 24;
 
-        return (
-            <g transform={`translate(${x},${y})`}>
-                <text x={0} y={0} dy={16} textAnchor="middle" fill="#cbd5e1" fontSize={9} fontWeight={600} fontFamily="monospace" opacity={isKeyTime || true ? 0.8 : 0}>
-                    {displayHr}
-                </text>
-            </g>
-        );
-    };
 
     // Find next high and low for Hero Mode (using ALL markers)
     const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
@@ -524,56 +604,23 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             {/* CHART AREA */}
             {/* CHART AREA */}
             <div className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-[120px]">
-                <div className="absolute inset-0">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                        <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
-                            <defs>
-                                <pattern id="waterPattern" patternUnits="userSpaceOnUse" width="100" height="100" viewBox="0 0 100 100">
-                                    <image href="https://images.unsplash.com/photo-1505118380757-91f5f5632de0?q=80&w=2071&fm=jpg&fit=crop" x="0" y="0" width="300" height="300" preserveAspectRatio="xMidYMid slice" opacity="0.5" />
-                                </pattern>
-                                <linearGradient id="deepWater" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.8} />
-                                    <stop offset="100%" stopColor="#0284c7" stopOpacity={0.4} />
-                                </linearGradient>
-                                <filter id="waveShadow" height="130%">
-                                    <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
-                                </filter>
-                            </defs>
+                {/* 1. STATIC BACKGROUND (Memoized) */}
+                <StaticTideBackground
+                    dataPoints={dataPoints}
+                    minHeight={minHeight}
+                    maxHeight={maxHeight}
+                    domainBuffer={domainBuffer}
+                />
 
-                            <XAxis
-                                dataKey="time"
-                                type="number"
-                                domain={[0, 24]}
-                                ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
-                                tick={<Tick />}
-                                axisLine={false}
-                                hide={false}
-                                interval={0}
-                            />
-                            <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
-
-                            <Area
-                                type="monotone"
-                                dataKey="height"
-                                stroke="#38bdf8"
-                                strokeWidth={3}
-                                fill="url(#deepWater)"
-                                filter="url(#waveShadow)"
-                                isAnimationActive={false}
-                            />
-
-                            <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />
-                            <ReferenceDot
-                                x={currentHour}
-                                y={currentHeight}
-                                r={5}
-                                fill="#facc15"
-                                stroke="#fff"
-                                strokeWidth={2}
-                            />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
+                {/* 2. ACTIVE OVERLAY (Updates with Time) */}
+                <ActiveTideOverlay
+                    dataPoints={dataPoints}
+                    currentHour={currentHour}
+                    currentHeight={currentHeight}
+                    minHeight={minHeight}
+                    maxHeight={maxHeight}
+                    domainBuffer={domainBuffer}
+                />
             </div>
 
             {/* STATION INFO OVERLAY - Clean Badge */}

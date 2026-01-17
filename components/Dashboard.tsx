@@ -145,7 +145,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 customTime={selectedTime}
                             />
 
-                            {data.tides && !isLandlocked && (
+                            {data.tides && !isLandlocked && data.locationType !== 'offshore' && (
                                 <TideWidget
                                     tides={data.tides}
                                     hourlyTides={hourly}
