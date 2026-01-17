@@ -234,6 +234,8 @@ const SolarArc = ({ sunrise, sunset, showTimes = true, size = 'normal', timeZone
 
 // 1. Static Background (Memoized): Renders the Heavy Area, Gradients, and Axes
 // This component ONLY re-renders when the DATA changes, not when time ticks.
+// 1. Static Background (Memoized): Renders the Heavy Area, Gradients, and Axes
+// This component ONLY re-renders when the DATA changes, not when time ticks.
 const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], minHeight: number, maxHeight: number, domainBuffer: number }) => {
 
     const Tick = ({ x, y, payload }: any) => {
@@ -281,7 +283,7 @@ const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, dom
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
 
                     <Area
-                        type="monotone"
+                        type="linear" // CHANGED: 'linear' ensures exact point connection. 'monotone' caused spline overshoot.
                         dataKey="height"
                         stroke="#38bdf8"
                         strokeWidth={3}
@@ -304,7 +306,12 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
     return (
         <div className="absolute inset-0 z-10 pointer-events-none">
             <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                {/* 
+                  PERFORMANCE FIX: Pass EMPTY data array. 
+                  The ReferenceDot relies entirely on XAxis/YAxis domains, not the dataset.
+                  Passing `dataPoints` caused Recharts to process the large array on every frame.
+                */}
+                <AreaChart data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                     <XAxis dataKey="time" type="number" domain={[0, 24]} hide />
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
 
