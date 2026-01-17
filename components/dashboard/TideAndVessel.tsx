@@ -312,7 +312,22 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                   Passing `dataPoints` caused Recharts to process the large array on every frame.
                 */}
                 <AreaChart data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
-                    <XAxis dataKey="time" type="number" domain={[0, 24]} hide />
+                    {/* 
+                       LAYOUT MATCHING FIX:
+                       The Background chart has a visible XAxis which takes up vertical space.
+                       We MUST render the same XAxis here (but invisible) so the Grid/Plot area 
+                       calculates the exact same pixel height. Otherwise, scale mismatch = floating dot.
+                    */}
+                    <XAxis
+                        dataKey="time"
+                        type="number"
+                        domain={[0, 24]}
+                        ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
+                        tick={{ fontSize: 9, fill: 'transparent' }} // Invisible text
+                        axisLine={false}
+                        hide={false} // Must be false to take up space
+                        interval={0}
+                    />
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
 
                     <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />
