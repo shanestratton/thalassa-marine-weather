@@ -487,10 +487,39 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     // Sort dataPoints
     dataPoints.sort((a, b) => a.time - b.time);
 
-    let closestPoint = dataPoints.reduce((prev, curr) =>
-        Math.abs(curr.time - currentHour) < Math.abs(prev.time - currentHour) ? curr : prev
-    );
-    const currentHeight = closestPoint?.height ?? 0;
+    // Sort dataPoints
+    dataPoints.sort((a, b) => a.time - b.time);
+
+    // FIX: Interpolate Height for Exact Dot Alignment
+    // Instead of snapping to nearest 30m point, we linear interpolate between the two surrounding points
+    let currentHeight = 0;
+
+    // Find the interval [p1, p2] where p1.time <= currentHour <= p2.time
+    const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
+
+    if (p2Index === -1) {
+        // Time is after last point (shouldn't happen with 24h+ buffer, but fallback)
+        currentHeight = dataPoints[dataPoints.length - 1]?.height || 0;
+    } else if (p2Index === 0) {
+        // Time is before first point
+        currentHeight = dataPoints[0]?.height || 0;
+    } else {
+        const p1 = dataPoints[p2Index - 1];
+        const p2 = dataPoints[p2Index];
+
+        const t1 = p1.time;
+        const t2 = p2.time;
+        const h1 = p1.height;
+        const h2 = p2.height;
+
+        // Linear Interpolation: y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+        if (t2 - t1 !== 0) {
+            const fraction = (currentHour - t1) / (t2 - t1);
+            currentHeight = h1 + fraction * (h2 - h1);
+        } else {
+            currentHeight = h1;
+        }
+    }
 
     // Find next event (inclusive of tomorrow)
     const nextEvent = allMarkers.find(m => m.time > currentHour);
