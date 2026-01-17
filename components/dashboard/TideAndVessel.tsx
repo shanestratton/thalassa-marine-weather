@@ -370,7 +370,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         if (tides && tides.length > 0) {
             const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-            for (let t = 0; t <= 24; t += 0.5) { // 30min resolution
+            for (let t = 0; t <= 24; t += 0.1) { // 6min resolution (High Precision for Dot Alignment)
                 let h = 0;
                 let t1 = -999;
                 let t2 = 999;
