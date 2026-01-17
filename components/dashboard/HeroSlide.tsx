@@ -27,9 +27,35 @@ const renderHeroWidget = (
     data: WeatherMetrics,
     values: any,
     units: UnitPreferences,
-    isLive: boolean
+    isLive: boolean,
+    trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>
 ) => {
     const hasWind = data.windSpeed !== null && data.windSpeed !== undefined;
+    const trend = trends ? trends[id] : undefined;
+
+    // Helper to render trend arrow
+    const renderTrend = (t?: string, inverse = false) => {
+        if (!t || t === 'steady' || t === 'neutral') return null;
+        const isUp = t === 'rising';
+
+        // Color Logic:
+        // Standard (Pressure, Temp): Up = Green (or neutral white/teal), Down = Red (or neutral) regarding "Good/Bad"?
+        // Actually, user wants "Rising/Falling". 
+        // Let's use neutral/subtle colors (e.g. data color or white) but Arrow Direction is key.
+        // Or: 
+        // - Wind Rising = Bad (Red/Orange)
+        // - Pressure Rising = Good (Teal/Green)
+        // - Pressure Falling = Bad (Red/Orange)
+        // Let's stick to subtle arrows first to be "Professional".
+
+        return (
+            <div className={`flex items-center ml-1.5 opacity-80 ${isUp ? '-mt-1' : '-mt-1'}`}>
+                {isUp
+                    ? <ArrowUpIcon className="w-2.5 h-2.5" />
+                    : <ArrowDownIcon className="w-2.5 h-2.5" />}
+            </div>
+        );
+    };
 
     switch (id) {
         case 'wind':
@@ -42,6 +68,7 @@ const renderHeroWidget = (
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        {renderTrend(trend, true)}
                     </div>
                     <div className="flex items-center gap-1 mt-auto pt-1">
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
@@ -64,6 +91,7 @@ const renderHeroWidget = (
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        {renderTrend(trend, true)}
                     </div>
                     <div className="flex items-center gap-1 mt-auto pt-1">
                         <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
@@ -80,6 +108,7 @@ const renderHeroWidget = (
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waveHeight}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
+                        {renderTrend(trend, true)}
                     </div>
                     <div className="flex items-center gap-1 mt-auto pt-1">
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
@@ -99,9 +128,155 @@ const renderHeroWidget = (
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.pressure}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">hPa</span>
+                        {renderTrend(trend, false)}
                     </div>
                     <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
                         MSL
+                    </div>
+                </div>
+            );
+        case 'visibility':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <EyeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Visibility</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.vis}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.visibility}</span>
+                        {renderTrend(trend, false)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'humidity':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.humidity}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'feels':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Feels Like</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.feelsLike}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'clouds':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <CloudIcon className={`w-3 h-3 ${isLive ? 'text-gray-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-gray-200' : 'text-slate-300'} `}>Cover</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.cloudCover}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'precip':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.precip}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length === 'm' ? 'mm' : 'in'}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'dew':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.dewPoint}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'waterTemp':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waterTemperature}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
+                        Surface
+                    </div>
+                </div>
+            );
+        case 'currentSpeed':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Drift</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.currentSpeed}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">kts</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'currentDirection':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        {/* Fix: CompassIcon requires 'rotation' prop */}
+                        <CompassIcon
+                            className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `}
+                            rotation={typeof data.currentDirection === 'number' ? data.currentDirection : 0}
+                        />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        {/* We want just the cardinal direction here, e.g. "NE" */}
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.currentDirection}</span>
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
+                        {/* Fix: Ensure currentDirection is a number before Math.round, handle string case */}
+                        {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True
                     </div>
                 </div>
             );
@@ -130,7 +305,9 @@ export const HeroSlide = React.memo(({
     guiDetails,
     coordinates,
     locationType,
-    generatedAt
+    generatedAt,
+    onTimeSelect,
+    isVisible = false // Default false to be safe
 }: {
     data: WeatherMetrics,
     index: number,
@@ -151,7 +328,9 @@ export const HeroSlide = React.memo(({
     guiDetails?: any,
     coordinates?: { lat: number, lon: number },
     locationType?: 'coastal' | 'offshore' | 'inland',
-    generatedAt?: string
+    generatedAt?: string,
+    onTimeSelect?: (time: number | undefined) => void,
+    isVisible?: boolean
 }) => {
     const { nextUpdate } = useWeather();
     // Ticker for Live Countdown
@@ -197,9 +376,9 @@ export const HeroSlide = React.memo(({
                 uvIndex: currentSlot.uvIndex !== undefined ? currentSlot.uvIndex : data.uvIndex,
                 precipitation: currentSlot.precipitation,
                 feelsLike: currentSlot.feelsLike,
-                currentSpeed: currentSlot.currentSpeed,
-                currentDirection: currentSlot.currentDirection,
-                waterTemperature: currentSlot.waterTemperature
+                currentSpeed: (currentSlot.currentSpeed !== undefined && currentSlot.currentSpeed !== null) ? currentSlot.currentSpeed : data.currentSpeed,
+                currentDirection: (currentSlot.currentDirection !== undefined && currentSlot.currentDirection !== null) ? currentSlot.currentDirection : data.currentDirection,
+                waterTemperature: (currentSlot.waterTemperature !== undefined && currentSlot.waterTemperature !== null) ? currentSlot.waterTemperature : data.waterTemperature
             };
         }
         return data;
@@ -207,6 +386,75 @@ export const HeroSlide = React.memo(({
 
     // Use effectiveData for all display logic used in the MAIN CARD
     const displayData = effectiveData;
+
+    // Trend Calculation
+    const trends = useMemo(() => {
+        if (!fullHourly || fullHourly.length < 2) return undefined;
+
+        // Find current index based on time
+        const now = customTime || Date.now();
+        // Look for the slot that matches 'now'
+        let currentIndex = fullHourly.findIndex(h => {
+            const t = new Date(h.time).getTime();
+            return now >= t && now < t + 3600000;
+        });
+
+        if (currentIndex === -1) {
+            // Fallback: if we are "live" (index 0), try to compare with the previous hour in the array if available?
+            // Or if we can't find exact, maybe we are at the start of the array?
+            // If we can't find current, we can't compare.
+            return undefined;
+        }
+
+
+        const current = effectiveData; // Use the effective (potentially live) data
+        let baseItem = fullHourly[currentIndex - 1]; // Previous hour
+        let isForecast = false;
+
+        // Fallback: If no previous data (start of array), look ahead to show "Forecast Trend"
+        if (!baseItem) {
+            const nextItem = fullHourly[currentIndex + 1];
+            if (nextItem) {
+                baseItem = nextItem;
+                isForecast = true;
+            }
+        }
+
+        const prev = baseItem;
+
+        const getTrend = (curr?: number | null, old?: number | null, threshold = 0): 'rising' | 'falling' | 'steady' => {
+            if (curr === undefined || curr === null || old === undefined || old === null) return 'steady';
+            let diff = curr - old;
+
+            // If comparing to Future (Next Hour), invert logic:
+            // e.g. Current(10) -> Next(15). Diff(10-15)=-5. But Trend is Rising (+5).
+            if (isForecast) {
+                diff = old - curr;
+            }
+
+            if (diff > threshold) return 'rising';
+            if (diff < -threshold) return 'falling';
+            return 'steady';
+        };
+
+        return {
+            wind: getTrend(current.windSpeed, prev.windSpeed, 1),
+            gust: getTrend(current.windGust, prev.windGust, 2),
+            wave: getTrend(current.waveHeight, prev.waveHeight, 0.1),
+            pressure: getTrend(current.pressure, prev.pressure, 0.5),
+            waterTemp: getTrend(current.waterTemperature, prev.waterTemperature, 0.2),
+            currentSpeed: getTrend(current.currentSpeed, prev.currentSpeed, 0.2),
+            humidity: getTrend(current.humidity, prev.humidity, 3),
+            visibility: getTrend(current.visibility, prev.visibility, 1),
+            precip: getTrend(current.precipitation, prev.precipitation, 0.1),
+            feels: getTrend(current.feelsLike, prev.feelsLike, 1),
+            clouds: getTrend(current.cloudCover, prev.cloudCover, 5)
+            // dew: getTrend(current.dewPoint, prev.dewPoint, 1) - Removed due to type mismatch
+        };
+    }, [effectiveData, fullHourly, customTime]);
+
+    // Debug Log for Trends
+    console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
 
     // Vertical Scroll Reset Logic
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)
@@ -279,8 +527,19 @@ export const HeroSlide = React.memo(({
         uv: (displayData.uvIndex !== undefined && displayData.uvIndex !== null) ? Math.round(displayData.uvIndex) : '--',
         sunrise: displayData.sunrise || '--:--',
         sunset: displayData.sunset || '--:--',
-        currentSpeed: displayData.currentSpeed !== undefined && displayData.currentSpeed !== null ? displayData.currentSpeed : '--',
-        humidity: (displayData.humidity !== undefined && displayData.humidity !== null) ? Math.round(displayData.humidity) : '--'
+        currentSpeed: displayData.currentSpeed !== undefined && displayData.currentSpeed !== null ? Number(displayData.currentSpeed).toFixed(1) : '--',
+        humidity: (displayData.humidity !== undefined && displayData.humidity !== null) ? Math.round(displayData.humidity) : '--',
+        feelsLike: (displayData.feelsLike !== undefined && displayData.feelsLike !== null) ? convertTemp(displayData.feelsLike, units.temp) : '--',
+        dewPoint: (displayData.dewPoint !== undefined && displayData.dewPoint !== null) ? convertTemp(displayData.dewPoint, units.temp) : '--',
+
+        // Critical: Added missing Marine keys for Third Row widgets
+        waterTemperature: displayData.waterTemperature !== undefined && displayData.waterTemperature !== null ? convertTemp(displayData.waterTemperature, units.temp) : '--',
+        currentDirection: (() => {
+            const val = displayData.currentDirection;
+            if (typeof val === 'number') return degreesToCardinal(val);
+            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+            return '--';
+        })()
     };
 
     // Score Calculation
@@ -372,11 +631,32 @@ export const HeroSlide = React.memo(({
                             <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Set</span>
                         </div>
                         <div className="flex flex-col justify-center">
-                            <span className="text-2xl font-black text-white">
-                                {typeof data.currentDirection === 'number'
-                                    ? <span className="flex items-center gap-1">{data.currentDirection}° <CompassIcon rotation={data.currentDirection} className="w-4 h-4 opacity-50" /></span>
-                                    : (data.currentDirection || '--')}
+                            <span className="text-3xl font-black text-white">
+                                {(() => {
+                                    const val = data.currentDirection;
+                                    if (typeof val === 'number') return degreesToCardinal(val);
+                                    if (typeof val === 'string') {
+                                        return val.replace(/[\d.°]+/g, '').trim() || val;
+                                    }
+                                    return '--';
+                                })()}
                             </span>
+                        </div>
+                        <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80 text-center">
+                            {(() => {
+                                const val = data.currentDirection;
+                                let degrees: number | null = null;
+                                if (typeof val === 'number') degrees = val;
+                                else if (typeof val === 'string') {
+                                    const match = val.match(/(\d+)/);
+                                    if (match) degrees = parseInt(match[1]);
+                                }
+
+                                if (degrees !== null && !isNaN(degrees)) {
+                                    return `${Math.round(degrees)}° True`;
+                                }
+                                return 'True';
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -444,9 +724,7 @@ export const HeroSlide = React.memo(({
                             <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunset}</span>
                         </div>
                     </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[9px] font-bold text-white/40 uppercase tracking-wider">
-                        Local Time
-                    </div>
+                    <LocationClock timeZone={timeZone} />
                 </div>
             );
         }
@@ -493,7 +771,15 @@ export const HeroSlide = React.memo(({
             uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
             sunrise: (() => { const t = cardData.sunrise; if (!t) return '--:--'; try { return new Date('1/1/2000 ' + t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }); } catch (e) { return t; } })(),
             sunset: (() => { const t = cardData.sunset; if (!t) return '--:--'; try { return new Date('1/1/2000 ' + t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }); } catch (e) { return t; } })(),
-            humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--'
+            humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
+            waterTemperature: (cardData.waterTemperature !== undefined && cardData.waterTemperature !== null) ? convertTemp(cardData.waterTemperature, units.temp) : '--',
+            currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
+            currentDirection: (() => {
+                const val = cardData.currentDirection;
+                if (typeof val === 'number') return degreesToCardinal(val);
+                if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+                return '--';
+            })()
         };
 
 
@@ -561,8 +847,11 @@ export const HeroSlide = React.memo(({
                         {/* Header Grid */}
                         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
 
-                            {/* MERGED Header Card (Span 3-Full Width) */}
-                            <div className="col-span-3 bg-black/20 border border-white/10 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px]">
+                            {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
+                            <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
+                                ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
+                                : 'bg-gradient-to-br from-indigo-900/20 via-slate-900/40 to-black/40 border-indigo-400/20 shadow-indigo-900/5'
+                                } `}>
                                 {/* Gradient Orb (Shared) */}
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
 
@@ -573,15 +862,27 @@ export const HeroSlide = React.memo(({
 
                                         {/* Main Temp + Condition */}
                                         <div className="flex flex-col justify-between gap-0.5">
-                                            <span className="text-5xl md:text-6xl font-black tracking-tighter text-white drop-shadow-2xl leading-none -translate-y-2">
-                                                {cardDisplayValues.airTemp}°
-                                            </span>
+                                            <div className="flex items-start">
+                                                {(() => {
+                                                    const tempStr = cardDisplayValues.airTemp.toString();
+                                                    const len = tempStr.length;
+                                                    // Shrink for 3 chars (100 or -5) or 4 chars (-12)
+                                                    const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+
+                                                    return (
+                                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none -translate-y-2 transition-all duration-300`}>
+                                                            {cardDisplayValues.airTemp}°
+                                                        </span>
+                                                    )
+                                                })()}
+                                                <span className="text-sm font-bold text-white/50 mt-1 ml-0.5">{units.temp}</span>
+                                            </div>
                                             <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 pl-1 ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
                                                 cardData.condition?.includes('POURING') ? 'text-orange-400' :
                                                     cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
                                                         'text-sky-300'
                                                 } `}>
-                                                {cardData.condition}
+                                                {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
                                             </span>
                                         </div>
 
@@ -591,12 +892,12 @@ export const HeroSlide = React.memo(({
                                             <div className="flex items-center gap-2 text-xs font-bold leading-none -translate-y-1.5">
                                                 <div className="flex items-center gap-0.5 text-white">
                                                     <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
-                                                    {cardDisplayValues.highTemp}°
+                                                    {cardDisplayValues.highTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
                                                 </div>
                                                 <div className="w-px h-2.5 bg-white/20" />
                                                 <div className="flex items-center gap-0.5 text-gray-300">
                                                     <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
-                                                    {cardDisplayValues.lowTemp}°
+                                                    {cardDisplayValues.lowTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
                                                 </div>
                                             </div>
 
@@ -604,7 +905,7 @@ export const HeroSlide = React.memo(({
                                             <div className="flex items-center gap-1.5 justify-end">
                                                 <span className={`text-[9px] font-bold uppercase tracking-wider text-slate-400 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>Feels Like</span>
                                                 <span className={`text-xs font-bold text-orange-200 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>
-                                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
+                                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°<span className="text-[9px] text-orange-200/50 ml-0.5">{units.temp}</span>
                                                 </span>
                                             </div>
 
@@ -711,184 +1012,145 @@ export const HeroSlide = React.memo(({
                                 </div>
                             </div>
 
-                            {/* Grid Widgets (Middle) */}
-                            <div className="px-4 md:px-6 shrink-0">
-                                <div className="flex flex-row gap-2 md:gap-3 relative z-10 w-full mt-1 pb-1 md:pb-0">
-                                    {/* We map IDs but use the CARD-SPECIFIC values?
-                                    Ah, WidgetMap uses 'displayValues' from the PARENT scope (closure).
-                                    To fix this without rewriting Widget map, we must realize WidgetMap depends on 'data' and 'displayValues'.
-                                    If we use this 'renderCard' approach, 'WidgetMap' will use the DAILY data (parent scope).
-                                    THIS IS A BUG.
-                                    The Hourly cards will show Daily Wind/Waves.
-                                    We must NOT use this RenderCard approach unless we can update WidgetMap scope.
-                                    Or we simply Pass 'hourly' to HeroSlide, but we render the OLD structure for Slide 1,
-                                    and a SIMPLIFIED structure for Slide 2+ that manually renders widgets without WidgetMap.
-                                */}
-                                    {displayWidgets.map((id: string, idx: number) => {
-                                        // Calculate Justification
-                                        const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                            {/* WIDGET GRID CONTAINER - 3 Rows (or 1 Row + Tide) */}
 
-                                        // Use helper for all widgets
-                                        const widgetContent = renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive);
-
-                                        // If no content (e.g. unknown widget), render empty placeholder or skip?
-                                        // Existing behavior rendered the box wrapper anyway.
-
-                                        return (
-                                            <div key={id} className={`${STATIC_WIDGET_CLASS} ${justifyClass} `}>
-                                                {widgetContent}
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Ride The Tide Graph OR Offshore Grid OR Inland Grid */}
+                            {/* WIDGET GRID CONTAINER - 3 Rows (or 1 Row + Tide) */}
+                            {/* WIDGET GRID CONTAINER - 3 Rows (or 1 Row + Tide) */}
                             {(() => {
-                                // TRUST THE PROP (It's derived securely in openmeteo.ts)
-                                // Cast to string to avoid TS "no overlap" error if inference is narrow
-                                const activeMode = (locationType || 'coastal') as string;
+                                // HOISTED LOGIC: Determine layout mode early to style Row 1
+                                const showTideGraph = (locationType === 'coastal') || (tides && tides.length > 0 && !isLandlocked && locationType !== 'offshore');
 
-                                // Determine "Effective Mode" for Rendering
-                                // If Tides are missing, we CANNOT show the Tide Graph.
-                                // We must fallback to either Offshore (Marine Data) or Inland (Atmospheric Data).
-                                // Atmospheric Data (Humidity/Vis) is 99% more likely to exist than Current/Drift for generic coastal spots.
-                                const hasTideData = tides && tides.length > 0;
-                                const forceInlandFallback = !hasTideData && !isLandlocked;
+                                // Conditional Height Configuration (REFINED STEP 1450):
+                                // GOAL: Strict Uniformity & Height Parity.
+                                //
+                                // Constraint: Row 1 (Wind) naturally requires ~85px to fit content nicely.
+                                // If we force it to 76px, it overflows/grows, making it taller than Row 3 (which fits in 76px).
+                                // Result: Uneven rows.
+                                //
+                                // FIX: Set ALL rows to min-h-[85px].
+                                //
+                                // Offshore Mode:
+                                // - 3 Rows @ 85px = 255px
+                                // - 2 Gaps @ 6px = 12px
+                                // - Total = 267px
+                                //
+                                // Conditional Height Configuration (FINAL REVERSION STEP 1539):
+                                // GOAL: Large, Uniform Boxes (85px) & Total Height Parity.
+                                //
+                                // User Feedback: "Gone back to smaller boxes" -> Implies 74px was too small/uneven.
+                                // Fix: Revert to 85px Uniformity.
+                                //
+                                // Math:
+                                // Offshore: 3 * 85px = 255px + Gaps.
+                                // Coastal: 85px (Row 1) + Tide Graph (176px / h-44) + Gaps.
+                                // Total: ~267px.
+                                //
+                                // We accept that Offshore is slightly taller than the "Compressed" 240px version,
+                                // but this prioritizes "Uniform Box Size" which seems to be the user's main visual cue.
 
-                                const showOffshore = activeMode === 'offshore';
-                                const showInland = activeMode === 'inland' || forceInlandFallback;
+                                const rowHeightClass = "min-h-[85px]";
 
-                                // console.log('[HeroSlide Debug]', { locationName, locationType, activeMode, showOffshore, showInland, hasTideData });
-
-                                // PRIORITY 1: INLAND (or Fallback via Missing Tides)
-                                // We prioritize this fallback because Humidity/Visibility is safer data than Offshore Drift/Set
-                                if (showInland) {
-                                    return (
-                                        <div className="mt-0.5 pt-1 border-t border-white/5 flex flex-row relative h-44 gap-2 px-4 md:px-6 py-2 items-center">
-                                            {/* 1. HUMIDITY */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-start text-left!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                                                    <DropletIcon className="w-3 h-3 text-cyan-400" />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Humidity</span>
-                                                </div>
-                                                <div className="flex items-baseline gap-0.5">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
-                                                        {cardData.humidity ? Math.round(cardData.humidity) : '--'}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold">
-                                                    Dew {cardData.dewPoint ? Math.round(cardData.dewPoint) + '°' : '--'}
-                                                </div>
-                                            </div>
-
-                                            {/* 2. FEELS LIKE */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-center text-center!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70 justify-center">
-                                                    <div className="w-3 h-3 rounded-full border border-orange-400/50 bg-orange-400/20" />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Feels Like</span>
-                                                </div>
-                                                <div className="flex items-baseline gap-0.5 justify-center">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
-                                                        {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : convertTemp(cardData.airTemperature || 0, units.temp)}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-sm font-medium text-gray-400">°</span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-orange-300 font-bold">
-                                                    Real Feel
-                                                </div>
-                                            </div>
-
-                                            {/* 3. VISIBILITY */}
-                                            <div className={`${STATIC_WIDGET_CLASS} items-end text-right!h-full!min-h-0`}>
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-70 justify-end">
-                                                    <EyeIcon className="w-3 h-3 text-emerald-400" />
-                                                    <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-slate-300">Visibility</span>
-                                                </div>
-                                                <div className="flex flex-col items-end justify-center h-full pb-1">
-                                                    <span className="text-2xl md:text-5xl font-black tracking-tighter text-white leading-none">
-                                                        {cardDisplayValues.vis}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-xs font-bold text-gray-400 mt-0 md:-mt-1">
-                                                        {units.visibility || 'nm'}
-                                                    </span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold">
-                                                    {cardData.visibility && cardData.visibility > 9 ? "Unlimited" : "Restricted"}
-                                                </div>
+                                return (
+                                    <>
+                                        {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
+                                        <div className="px-0 shrink-0 mt-0.5">
+                                            <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
+                                                    const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                    const getTheme = (wid: string) => {
+                                                        switch (wid) {
+                                                            case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+                                                            case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
+                                                            case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                            default: return 'bg-black/10 border-white/5';
+                                                        }
+                                                    };
+                                                    const themeClass = getTheme(id);
+                                                    return (
+                                                        <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                        </div>
+                                                    )
+                                                })}
                                             </div>
                                         </div>
-                                    );
-                                }
 
-                                // PRIORITY 2: OFFSHORE (Explicit Location Type)
-                                else if (showOffshore) {
-                                    return (
-                                        <div className="mt-0.5 pt-1 border-t border-white/5 flex flex-row relative h-44 gap-2 px-4 md:px-6 py-2 items-center">
-                                            {/* 1. WATER TEMP CARD - BLUE GRADIENT */}
-                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-blue-900/40 via-blue-900/20 to-cyan-900/10 border border-blue-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-blue-900/5">
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90">
-                                                    <ThermometerIcon className="w-3.5 h-3.5 text-cyan-300 drop-shadow-md" />
-                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-cyan-100">Temp</span>
-                                                </div>
-                                                <div className="flex items-baseline gap-0.5">
-                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white drop-shadow-xl">
-                                                        {convertTemp(cardData.waterTemperature, units.temp)}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-sm font-bold text-cyan-200/60">°{units.temp}</span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-80">
-                                                    Surface
-                                                </div>
+                                        {/* CONDITIONAL CONTENT */}
+                                        {showTideGraph ? (
+                                            // COASTAL: Tide Graph (Height increased to h-44/176px for parity with 3x85px rows)
+                                            <div className="w-full h-44 px-0 pb-0 relative mt-1.5 mb-4">
+                                                <TideGraph
+                                                    tides={tides || []}
+                                                    unit={units.tideHeight || 'm'}
+                                                    timeZone={timeZone}
+                                                    hourlyTides={[]}
+                                                    tideSeries={undefined}
+                                                    modelUsed="WorldTides"
+                                                    unitPref={units}
+                                                    customTime={customTime}
+                                                    showAllDayEvents={index > 0 && !customTime}
+                                                    stationName={guiDetails?.stationName || "Local Station"}
+                                                    secondaryStationName={guiDetails?.stationName}
+                                                    guiDetails={guiDetails}
+                                                    stationPosition="bottom"
+                                                />
                                             </div>
+                                        ) : (
+                                            // NON-COASTAL: Extra Rows (Uniform Compact Height)
+                                            <>
+                                                {/* ROW 2: Visibility, Humidity, Pressure */}
+                                                <div className="px-0 shrink-0 mt-1.5">
+                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                        {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
+                                                            const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                            const getTheme = (wid: string) => {
+                                                                switch (wid) {
+                                                                    case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-green-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+                                                                    case 'humidity': return 'bg-gradient-to-br from-cyan-900/40 via-sky-900/20 to-slate-900/10 border-cyan-400/20 shadow-cyan-900/5';
+                                                                    case 'pressure': return 'bg-gradient-to-br from-teal-900/40 via-emerald-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
+                                                                    default: return 'bg-black/10 border-white/5';
+                                                                }
+                                                            };
+                                                            const themeClass = getTheme(id);
+                                                            return (
+                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
 
-                                            {/* 2. CURRENT SPEED - EMERALD GRADIENT */}
-                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-green-900/10 border border-emerald-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-emerald-900/5 items-center text-center">
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90 justify-center">
-                                                    <WaveIcon className="w-3.5 h-3.5 text-emerald-300 drop-shadow-md" />
-                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-emerald-100">Drift</span>
+                                                {/* ROW 3: Sea Temp, Drift, Set */}
+                                                <div className="px-0 shrink-0 mt-1.5 mb-6">
+                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                        {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
+                                                            const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                            const getTheme = (wid: string) => {
+                                                                switch (wid) {
+                                                                    case 'waterTemp': return 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                                    case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+                                                                    case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
+                                                                    default: return 'bg-black/10 border-white/5';
+                                                                }
+                                                            };
+                                                            const themeClass = getTheme(id);
+                                                            return (
+                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-baseline gap-0.5 justify-center">
-                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white drop-shadow-xl">
-                                                        {cardData.currentSpeed !== undefined && cardData.currentSpeed !== null ? Number(cardData.currentSpeed).toFixed(1) : '--'}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-sm font-bold text-emerald-200/60">kts</span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-80">
-                                                    Speed
-                                                </div>
-                                            </div>
-
-                                            {/* 3. SET (Direction) - VIOLET GRADIENT */}
-                                            <div className="flex-1 min-w-[32%] md:min-w-[30%] bg-gradient-to-br from-indigo-900/40 via-violet-900/20 to-purple-900/10 border border-indigo-400/20 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 backdrop-blur-sm shadow-lg shadow-indigo-900/5 items-end text-right">
-                                                <div className="flex items-center gap-1.5 mb-0.5 opacity-90 justify-end">
-                                                    <CompassIcon className="w-3.5 h-3.5 text-violet-300 drop-shadow-md" rotation={Number(cardData.currentDirection || 0)} />
-                                                    <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-violet-100">Set</span>
-                                                </div>
-                                                <div className="flex flex-col items-end justify-center h-full pb-1">
-                                                    <span className="text-3xl md:text-5xl font-black tracking-tighter text-white leading-none drop-shadow-xl">
-                                                        {degreesToCardinal(Number(cardData.currentDirection))}
-                                                    </span>
-                                                    <span className="text-[10px] md:text-xs font-bold text-violet-200/60 mt-0 md:-mt-1">
-                                                        {(cardData.currentDirection !== undefined && cardData.currentDirection !== null)
-                                                            ? Math.round(Number(cardData.currentDirection)) + '°'
-                                                            : ''}
-                                                    </span>
-                                                </div>
-                                                <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80">
-                                                    True
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                }
-
-                                // PRIORITY 3: COASTAL (Tide Graph)
-                                else {
-                                    return renderTideGraph(isHourly ? hTime : undefined, cardData.date);
-                                }
+                                            </>
+                                        )}
+                                    </>
+                                );
                             })()}
+
+                            {/* LEGACY BLOCK REMOVED - Logic moved to Conditional Block above */}
+
 
 
                             {/* BADGES ROW (Tightened Spacing) */}
@@ -907,9 +1169,9 @@ export const HeroSlide = React.memo(({
                                 <LocationClock timeZone={timeZone} />
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
+                    </div >
+                </div >
+            </div >
         );
     };
 
@@ -919,11 +1181,18 @@ export const HeroSlide = React.memo(({
 
         if (index === 0) {
             // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
-            const now = new Date();
+            const now = new Date(); // Absolute Now
 
             // Get Current Location Date String (YYYY-MM-DD)
             // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
-            const safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+            let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+            // Validate timezone
+            try {
+                Intl.DateTimeFormat(undefined, { timeZone: safeZone });
+            } catch (e) {
+                safeZone = 'UTC';
+            }
 
             const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
 
@@ -933,11 +1202,7 @@ export const HeroSlide = React.memo(({
 
                 // 1. Must be in the future (absolute)
                 // Add a small buffer (5 mins) to ensure we don't show an hour that just started 1 min ago if "Now" covers it? 
-                // User said "next hour". If it's 3:05, forecast usually has 3:00, 4:00.
-                // We want 4:00.
-                // 3:00 is "current slot".
-                // So h.time (3:00) < now (3:05). Correct.
-                // h.time (4:00) > now (3:05). Correct.
+                // We want strict future hour.
                 const isFuture = t.getTime() > now.getTime();
 
                 // 2. Must be "Today" in Location Time
@@ -978,6 +1243,35 @@ export const HeroSlide = React.memo(({
         const idx = Math.round(x / w);
         if (idx !== activeHIdx) setActiveHIdx(idx);
     };
+
+    // Emit Time Selection on horizontal scroll
+    useEffect(() => {
+        // CRITICAL: Only the vertically visible slide should emit time updates.
+        // Otherwise, off-screen slides (future days) will emit their default (12AM/Start) time on mount,
+        // causing the Tide Graph to jump to future dates unexpectedly.
+        if (!onTimeSelect || !isVisible) return;
+
+        // If Index 0 (Today)
+        if (index === 0) {
+            if (activeHIdx === 0) {
+                // "Now" Card -> Live Time (undefined to signal 'use live')
+                onTimeSelect(undefined);
+            } else {
+                // Hourly Card
+                // hourlyToRender index is activeHIdx - 1
+                const hItem = hourlyToRender[activeHIdx - 1];
+                if (hItem) {
+                    onTimeSelect(new Date(hItem.time).getTime());
+                }
+            }
+        } else {
+            // Future Day
+            const hItem = hourlyToRender[activeHIdx];
+            if (hItem) {
+                onTimeSelect(new Date(hItem.time).getTime());
+            }
+        }
+    }, [activeHIdx, index, hourlyToRender, onTimeSelect, isVisible]);
 
     const totalCards = 1 + hourlyToRender.length;
 

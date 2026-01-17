@@ -6,8 +6,8 @@ export type { TideStation }; // Re-export for compatibility if needed, or just l
 
 // 50 Nautical Miles in Kilometers (1 NM = 1.852 km)
 
-// 50 Nautical Miles in Kilometers (1 NM = 1.852 km)
-const MAX_DISTANCE_COASTAL_KM = 50 * 1.852;
+// 20 Nautical Miles in Kilometers (1 NM = 1.852 km)
+const MAX_DISTANCE_COASTAL_KM = 20 * 1.852;
 
 // Local High-Accuracy Stations (Prioritized)
 const LOCAL_TIDE_STATIONS: TideStation[] = [

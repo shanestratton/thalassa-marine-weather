@@ -81,8 +81,9 @@ export const useAppController = () => {
                 const isOceanPoint = weatherData.locationName.includes("Ocean Point");
                 const isOffshore = weatherData.locationType === 'offshore';
 
-                // If explicit Offshore, or looks like Safe Coords/Ocean Point -> FORCE WP
-                if (isSafeCoord || isOceanPoint || isOffshore) {
+                // 2. Only force WP naming if it's a raw coordinate or a generic "Ocean" point
+                // REMOVED: || isOffshore (This was too aggressive and overwrote valid island names like "Townsville")
+                if (isSafeCoord || isOceanPoint) {
                     const latStr = formatCoordinate(weatherData.coordinates.lat, 'lat');
                     const lonStr = formatCoordinate(weatherData.coordinates.lon, 'lon');
                     targetName = `WP ${latStr} ${lonStr}`;

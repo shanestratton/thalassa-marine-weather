@@ -2,9 +2,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 import { enrichMarineWeather } from '../services/geminiService';
-import { fetchFastWeather, fetchPrecisionWeather } from '../services/weatherService';
+import { fetchFastWeather, fetchPrecisionWeather, fetchFastAirportWeather, parseLocation, reverseGeocode } from '../services/weatherService';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
-import { reverseGeocode } from '../services/weather/api/geocoding';
 import { isStormglassKeyPresent } from '../services/stormglassService';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
 import { calculateDistance } from '../utils';
@@ -40,6 +39,7 @@ interface WeatherContextType {
     weatherData: MarineWeatherReport | null;
     voyagePlan: VoyagePlan | null;
     loading: boolean;
+    loadingMessage: string;
     error: string | null;
     debugInfo: DebugInfo | null;
     quotaUsed: number;
@@ -62,6 +62,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const { settings } = useSettings();
 
     const [loading, setLoading] = useState(true);
+    const [loadingMessage, setLoadingMessage] = useState("Updating Marine Data...");
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
@@ -240,126 +241,222 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         const isBackground = isServingFromCache || ((!!weatherDataRef.current && !force) || silent) && !showOverlay;
-        if (!isBackground) setLoading(true);
+        if (!isBackground) {
+            setLoading(true);
+            setLoadingMessage("Updating Marine Data...");
+        }
         else setBackgroundUpdating(true);
         setError(null);
 
         try {
             const useStormglass = isStormglassKeyPresent();
 
-            // REVERSE GEOCODE CHECK
+            // 0. PRE-FLIGHT: RESOLVE COORDINATES (Crucial for Parallel Fetching)
             let resolvedLocation = location;
-            // Matches "-33.123, 150.123" pattern
-            if (location.trim().match(/^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/)) {
-                if (coords) {
-                    const foundName = await reverseGeocode(coords.lat, coords.lon);
-                    if (foundName) {
+            let resolvedCoords = coords;
+            let resolvedTimezone: string | undefined;
 
-                        resolvedLocation = foundName;
+            // If we don't have coords (e.g. from Favorites string), resolve them NOW 
+            // so we can fire the Fast Airport Fetch immediately.
+            if (!resolvedCoords) {
+                try {
+                    const parsed = await parseLocation(location);
+                    // 0,0 check if invalid
+                    if (parsed.lat !== 0 || parsed.lon !== 0) {
+                        resolvedCoords = { lat: parsed.lat, lon: parsed.lon };
+                        // Use the friendly name if available and better
+                        if (parsed.name && parsed.name !== location && parsed.name !== "Invalid Location") {
+                            resolvedLocation = parsed.name;
+                        }
+                        if (parsed.timezone) resolvedTimezone = parsed.timezone;
                     }
+                } catch (e) {
+                    console.warn("Pre-flight Geocode Failed", e);
+                    // We continue, but fetchFastWeather will likely fail too or handle it
+                }
+            }
+            // IF Coords exist but Location is generic ("Current Location" or "0,0") OR looks like raw coords, Reverse Geocode immediately
+            // This ensures GPS injections get a friendly name (e.g. "Townsville") instead of "WP ..."
+            if (resolvedCoords && (
+                location === "Current Location" ||
+                location === "0,0" ||
+                location === "0, 0" ||
+                /^-?\d/.test(location)  // Starts with digit or minus
+            )) {
+                try {
+                    console.log("[FastLoad] Reverse Geocoding Coordinates:", resolvedCoords);
+                    const name = await reverseGeocode(resolvedCoords.lat, resolvedCoords.lon);
+                    if (name) {
+                        resolvedLocation = name;
+                        console.log("[FastLoad] Resolved Name:", name);
+                    } else {
+                        // Fallback: If Geocoding fails (e.g. Deep Ocean), use nice Coordinate string
+                        // instead of "Current Location"
+                        resolvedLocation = `WP ${resolvedCoords.lat.toFixed(4)}, ${resolvedCoords.lon.toFixed(4)}`;
+                        console.log("[FastLoad] Geocoding Failed. Fallback to Coords:", resolvedLocation);
+                    }
+                } catch (e) {
+                    console.warn("Reverse Geocode Failed", e);
+                    // Fallback on error too
+                    resolvedLocation = `WP ${resolvedCoords.lat.toFixed(4)}, ${resolvedCoords.lon.toFixed(4)}`;
                 }
             }
 
-            // 1. FETCH BASE
-            let currentReport = await fetchFastWeather(resolvedLocation, coords, currentSettings.preferredModel);
+            // 0a. IMMEDIATE: AIRPORT DATA (The Epiphany)
+            // Paint the "Now" card instantly with real data while models crunch numbers
+            const isWaypoint = /^(Location|WP|waypoint)|^-?[0-9]|\b\d+°/i.test(resolvedLocation);
 
-            // Name Correction
-            if (resolvedLocation !== location && currentReport.locationName === location) {
-                currentReport.locationName = resolvedLocation;
+            let currentReport: MarineWeatherReport | null = null;
+
+            if (!isBackground && resolvedCoords && !isWaypoint) {
+                const tStart = Date.now();
+                console.log("[FastLoad] 1. Triggering Airport Fetch for", resolvedLocation);
+                currentReport = await fetchFastAirportWeather(resolvedLocation, resolvedCoords);
+
+                const tEnd = Date.now();
+                console.log(`[FastLoad] 2. Airport Fetch DONE in ${tEnd - tStart}ms.`);
+
+                if (currentReport) {
+                    if (!weatherDataRef.current || weatherDataRef.current.locationName !== resolvedLocation) {
+                        console.log("[FastLoad] 3. APPLYING Fast Data (Unblocking UI)");
+                        setWeatherData(currentReport);
+                        setLoading(false); // <--- UNBLOCK UI IMMEDIATELY
+                    }
+                } else {
+                    if (!isBackground) setLoadingMessage("No nearby airport. Fetching StormGlass...");
+                }
             }
 
-            // FIX: If fetchFastWeather resolved a better name (e.g. from coords), update local reference
-            // This ensures fetchPrecisionWeather uses the resolved name (e.g. "Mooloolaba") instead of coords
-            if (currentReport.locationName && currentReport.locationName !== resolvedLocation && currentReport.locationName !== "Current Location") {
-                resolvedLocation = currentReport.locationName;
-            }
+            // 1. SKIP "FAST BASE" (OpenMeteo) PER USER REQUEST ("No OpenMeteo")
+            // We rely strictly on Airport Data (if available) + StormGlass (Precision).
 
-            // 1a. PROGRESSIVE RENDER: Show Fast Data Immediately
-            // Grid Search Logic: Check if we need to find a marine point nearby
-            if (currentReport.isLandlocked && currentReport.coordinates) {
-                const marine = await attemptGridSearch(currentReport.coordinates.lat, currentReport.coordinates.lon, currentReport.locationName);
-                if (marine) currentReport = marine;
-            }
+            // 2. PRECISION (STORMGLASS)
+            // Fetch if:
+            // a) We have NO data yet (currentReport is null)
+            // b) We have data logic demanding it (always fetch SG to fill blanks)
+            // c) Or explicit force refresh
+            // const useStormglass = isStormglassKeyPresent(); // Already declared at top
 
-            // We do this UNLESS it's a background refresh (where we want to be silent until the end)
-            // AND UNLESS we have StormGlass (User requested to avoid "double update")
-            if (!isBackground && !useStormglass) {
-                setWeatherData(currentReport);
-                // Don't save to history yet, wait for final
-                // saveLargeData(DATA_CACHE_KEY, currentReport); // Defer save until final
+            if (useStormglass) {
+                // If we have currentReport (Airport), use its coords/name
+                // If not, use resolved vars
+                const targetName = currentReport?.locationName || resolvedLocation;
+                // If currentReport has a locationType, pass it? Airport returns 'isLandlocked' but not 'locationType'.
+                // 'offshore' type is usually derived from SG.
 
-                // Unblock UI now!
-                setLoading(false);
+                try {
+                    const precisionReport = await fetchPrecisionWeather(
+                        targetName,
+                        currentReport?.coordinates || resolvedCoords || { lat: 0, lon: 0 }, // Coords are needed. Resolving above handles it.
+                        false,
+                        undefined // Let SG determine type or use existing?
+                    );
+                    incrementQuota();
+
+                    // STABILIZATION / MERGE
+                    if (currentReport && currentReport.current) {
+                        const airport = currentReport.current; // THE TRUTH
+                        const sg = precisionReport.current;
+
+                        // Force Airport Values over SG Values
+                        // We trust Airport for: Temp, Wind, Pressure, Vis, Cloud, Precip, Condition.
+                        if (airport.airTemperature !== null) sg.airTemperature = airport.airTemperature;
+                        if (airport.humidity !== null) sg.humidity = airport.humidity;
+                        if (airport.pressure) sg.pressure = airport.pressure;
+                        if (airport.windSpeed !== null) {
+                            sg.windSpeed = airport.windSpeed;
+                            sg.windGust = airport.windGust;
+                            sg.windDirection = airport.windDirection;
+                            sg.windDegree = airport.windDegree;
+                        }
+                        if (airport.visibility !== null) sg.visibility = airport.visibility;
+                        if (airport.cloudCover !== null) sg.cloudCover = airport.cloudCover;
+                        if (airport.precipitation !== null) sg.precipitation = airport.precipitation;
+                        if (airport.condition) sg.condition = airport.condition;
+
+                        // Keep station ID
+                        if (airport.stationId) sg.stationId = airport.stationId;
+
+                        precisionReport.current = sg;
+                        precisionReport.groundingSource = `METAR (${airport.stationId}) + StormGlass`;
+                    } else {
+                        // No Airport data. Precision Report is valid on its own.
+                    }
+
+                    if (currentReport?.timeZone && !precisionReport.timeZone) {
+                        precisionReport.timeZone = currentReport.timeZone;
+                    }
+
+                    currentReport = precisionReport;
+
+                } catch (e: any) {
+                    console.warn("Precision Upgrade Failed", e);
+                    if (!currentReport) throw e; // If we have nothing, throw.
+                    // If we have Airport data, keep it? 
+                    // But Airport data lacks Forecast/Hourly.
+                    // So effectively useless for charts.
+                    // But good for "Now".
+                }
+            } else {
+                // No Stormglass Key? User said "No OpenMeteo".
+                // So if no SG key, do we fail?
+                // Or fallback? User said "standard edition later".
+                // I'll assume SG Key is present as this is "Pro".
+                if (!currentReport) setLoadingMessage("Please add StormGlass Key.");
             }
 
             // 2. PRECISION
-            const alreadyHasSG = currentReport.modelUsed?.toLowerCase().includes('stormglass') || currentReport.modelUsed?.toLowerCase().includes('sg');
-            if (useStormglass && !alreadyHasSG) {
-                try {
-                    // Use resolved name!
-                    currentReport = await fetchPrecisionWeather(
-                        resolvedLocation,
-                        currentReport.coordinates,
-                        false, // forceRefresh
-                        currentReport.locationType // PASS EXISTING TYPE (Critical Fix)
-                    );
-                    incrementQuota();
-                } catch (e: any) {
-                    console.warn("Precision Upgrade Failed", e);
-                    currentReport.modelUsed += " (SG Err)";
-                }
-            }
-
-            // 3. COORD LOCK
-            if (coords) {
+            // 3. COORD LOCK & FINAL RENDER
+            if (coords && currentReport) {
                 currentReport.coordinates = coords;
-                if (force && weatherDataRef.current?.locationName) {
-                    // Start of discussion: Do we keep old name?
-                    // currentReport.locationName = weatherDataRef.current.locationName;
-                }
             }
 
-            setWeatherData(currentReport);
-            setHistoryCache(prev => ({ ...prev, [location]: currentReport }));
-            saveLargeData(DATA_CACHE_KEY, currentReport);
-            setHistoryCache(prev => ({ ...prev, [location]: currentReport }));
-            saveLargeData(DATA_CACHE_KEY, currentReport);
-            if (!isBackground) setLoading(false);
+            if (currentReport) {
+                setWeatherData(currentReport);
+                // Clean up non-null assertion
+                const validReport = currentReport;
+                setHistoryCache(prev => ({ ...prev, [location]: validReport }));
+                saveLargeData(DATA_CACHE_KEY, validReport);
+                if (!isBackground) setLoading(false);
+            }
 
             // 5. CALCULATE NEXT UPDATE TIME
             // Check instability (Alerts present OR high wind/rain)
-            const hasAlerts = currentReport.alerts && currentReport.alerts.length > 0;
-            const maxGust = Math.max(...(currentReport.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
-            const isUnstable = hasAlerts || maxGust > 20;
+            // Ensure currentReport exists
+            if (currentReport) {
+                const hasAlerts = currentReport.alerts && currentReport.alerts.length > 0;
+                const maxGust = Math.max(...(currentReport.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
+                const isUnstable = hasAlerts || maxGust > 20;
 
-            const nextTs = calculateNextUpdateTime(isUnstable);
+                const nextTs = calculateNextUpdateTime(isUnstable);
 
-            setNextUpdate(nextTs);
-            localStorage.setItem('thalassa_next_update', nextTs.toString());
-            const now = Date.now();
-            const lastAI = weatherDataRef.current?.aiGeneratedAt ? new Date(weatherDataRef.current.aiGeneratedAt).getTime() : 0;
-            const timeExpired = (now - lastAI) > AI_UPDATE_INTERVAL;
-            const locationChanged = weatherDataRef.current?.locationName !== currentReport.locationName;
+                setNextUpdate(nextTs);
+                localStorage.setItem('thalassa_next_update', nextTs.toString());
+                const now = Date.now();
+                const lastAI = weatherDataRef.current?.aiGeneratedAt ? new Date(weatherDataRef.current.aiGeneratedAt).getTime() : 0;
+                const timeExpired = (now - lastAI) > AI_UPDATE_INTERVAL;
+                const locationChanged = weatherDataRef.current?.locationName !== currentReport.locationName;
 
-            if (timeExpired || force || locationChanged || !weatherDataRef.current?.boatingAdvice) {
-                try {
-                    currentReport = await enrichMarineWeather(
-                        currentReport,
-                        currentSettings.vessel,
-                        currentSettings.units,
-                        currentSettings.vesselUnits,
-                        currentSettings.aiPersona
-                    );
-                    setWeatherData(currentReport);
-                    setHistoryCache(prev => ({ ...prev, [location]: currentReport }));
-                    saveLargeData(DATA_CACHE_KEY, currentReport);
-                } catch (e) { }
-            } else {
-                if (weatherDataRef.current?.boatingAdvice) {
-                    currentReport.boatingAdvice = weatherDataRef.current.boatingAdvice;
-                    currentReport.aiGeneratedAt = weatherDataRef.current.aiGeneratedAt;
-                    setWeatherData(currentReport);
-                    saveLargeData(DATA_CACHE_KEY, currentReport);
+                if (timeExpired || force || locationChanged || !weatherDataRef.current?.boatingAdvice) {
+                    try {
+                        const enriched = await enrichMarineWeather(
+                            currentReport,
+                            currentSettings.vessel,
+                            currentSettings.units,
+                            currentSettings.vesselUnits,
+                            currentSettings.aiPersona
+                        );
+                        setWeatherData(enriched);
+                        setHistoryCache(prev => ({ ...prev, [location]: enriched }));
+                        saveLargeData(DATA_CACHE_KEY, enriched);
+                    } catch (e) { }
+                } else {
+                    if (weatherDataRef.current?.boatingAdvice) {
+                        currentReport.boatingAdvice = weatherDataRef.current.boatingAdvice;
+                        currentReport.aiGeneratedAt = weatherDataRef.current.aiGeneratedAt;
+                        setWeatherData(currentReport);
+                        saveLargeData(DATA_CACHE_KEY, currentReport);
+                    }
                 }
             }
 
@@ -394,7 +491,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setWeatherData(historyCache[location]);
             await fetchWeather(location, false, coords, false, true);
         } else {
-            setWeatherData(null);
+            // Don't clear data immediately - keep old data visible (blurred via overlay) until new data arrives
+            // setWeatherData(null); 
             await fetchWeather(location, false, coords, true);
         }
     }, [fetchWeather, historyCache]);
@@ -479,6 +577,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             weatherData,
             voyagePlan,
             loading,
+            loadingMessage,
             error,
             debugInfo,
             quotaUsed,

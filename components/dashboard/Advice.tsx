@@ -79,18 +79,15 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                                         Captain's Log
                                     </h3>
                                     <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-1 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                                            <DiamondIcon className="w-3 h-3 text-indigo-400" />
-                                            <span className="text-[10px] text-indigo-300 uppercase tracking-widest font-bold">Gemini 3 Pro</span>
-                                        </div>
+                                        {/* Label Removed */}
                                         {showStatus ? (
-                                            <span className="flex items-center gap-1.5 ml-2">
+                                            <span className="flex items-center gap-1.5 ">
                                                 <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-ping"></span>
                                                 <span className="text-[9px] text-sky-400 font-mono animate-pulse">UPDATING...</span>
                                             </span>
                                         ) : (
                                             <>
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full ml-1 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
+                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
                                                 <span className="text-[10px] text-gray-500 uppercase tracking-widest">Bridge Active</span>
                                             </>
                                         )}
@@ -100,26 +97,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
 
                             {/* Controls */}
                             <div className="flex items-center gap-3">
-                                <button
-                                    onClick={toggleBroadcast}
-                                    disabled={isBuffering || isAudioPreloading || showSkeleton}
-                                    className={`h-11 w-11 flex items-center justify-center rounded-full transition-all duration-300 border relative overflow-hidden group/btn ${isSpeaking || isBuffering ? 'bg-indigo-500 border-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.6)]' : 'bg-white/5 border-white/10 text-gray-300 hover:text-white hover:bg-white/10 hover:border-white/20'}`}
-                                    title={isAudioPreloading ? "Generating Audio..." : "Broadcast Weather Report"}
-                                >
-                                    {isBuffering || isAudioPreloading || showSkeleton ? (
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    ) : isSpeaking ? (
-                                        <>
-                                            <div className="absolute inset-0 flex items-center justify-center gap-0.5">
-                                                <div className="w-0.5 h-3 bg-white/80 animate-[pulse_0.6s_ease-in-out_infinite]"></div>
-                                                <div className="w-0.5 h-5 bg-white/80 animate-[pulse_0.8s_ease-in-out_infinite]"></div>
-                                                <div className="w-0.5 h-3 bg-white/80 animate-[pulse_0.6s_ease-in-out_infinite]"></div>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <PlayIcon className="w-5 h-5 ml-0.5 group-hover/btn:scale-110 transition-transform" />
-                                    )}
-                                </button>
+                                {/* TTS Button Removed */}
                                 <button onClick={handleShare} className="h-11 w-11 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 transition-all active:scale-95" title="Log Entry"><ShareIcon className="w-5 h-5" /></button>
                             </div>
                         </div>

@@ -10,9 +10,9 @@ export const useMapMarkers = (
     routeCoordinates?: { lat: number, lon: number }[],
     waypoints?: Waypoint[]
 ) => {
-    const [vesselPos, setVesselPos] = useState<{x: number, y: number} | null>(null);
-    const [targetPos, setTargetPos] = useState<{x: number, y: number} | null>(null);
-    const [waypointPositions, setWaypointPositions] = useState<{x: number, y: number, idx: number, name: string, wp: Waypoint}[]>([]);
+    const [vesselPos, setVesselPos] = useState<{ x: number, y: number } | null>(null);
+    const [targetPos, setTargetPos] = useState<{ x: number, y: number } | null>(null);
+    const [waypointPositions, setWaypointPositions] = useState<{ x: number, y: number, idx: number, name: string, wp: Waypoint }[]>([]);
     const [routePath, setRoutePath] = useState<string>('');
 
     const updatePositions = () => {
@@ -57,16 +57,24 @@ export const useMapMarkers = (
         const map = mapInstance.current;
         if (!map) return;
 
+        let animationFrameId: number;
+
+        const onMapMove = () => {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = requestAnimationFrame(updatePositions);
+        };
+
         updatePositions(); // Initial
 
-        map.on('move', updatePositions);
-        map.on('zoom', updatePositions);
-        map.on('resize', updatePositions);
+        map.on('move', onMapMove);
+        map.on('zoom', onMapMove);
+        map.on('resize', onMapMove);
 
         return () => {
-            map.off('move', updatePositions);
-            map.off('zoom', updatePositions);
-            map.off('resize', updatePositions);
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            map.off('move', onMapMove);
+            map.off('zoom', onMapMove);
+            map.off('resize', onMapMove);
         };
     }, [mapInstance.current, centerLat, centerLon, rawTargetPos, routeCoordinates, waypoints]);
 

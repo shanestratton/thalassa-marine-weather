@@ -44,7 +44,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locati
     }
 
     return (
-        <div className="px-4 md:px-6 -mt-4 shrink-0 relative z-20">
+        <div className="px-0 -mt-4 shrink-0 relative z-20">
             <div className="flex items-center justify-between gap-1 md:gap-2 w-full mb-0">
                 {/* Coastal / Offshore Badge */}
                 <div className={`px-2 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40`}>
