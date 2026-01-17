@@ -1238,49 +1238,45 @@ export const HeroSlide = React.memo(({
     }, []);
 
     // Emit Time Selection on horizontal scroll
-    // FIXED: Continuous Scrubbing Logic (No Lag)
+    // FIXED: Discrete "Snap" Logic (High Performance)
+    // Instead of continuous updates (which felt sluggish due to React overhead),
+    // we only update when the card explicitly snaps to a new index.
     const handleHScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const x = e.currentTarget.scrollLeft;
         const w = e.currentTarget.clientWidth;
 
-        // 1. Update Active Index for Dots (Visual Snap)
-        const idx = Math.round(x / w);
-        if (idx !== activeHIdx) setActiveHIdx(idx);
+        // Calculate new Snap Index
+        const newIdx = Math.round(x / w);
 
-        // 2. Continuous Time Interpolation
-        if (!onTimeSelect || !isVisible) return;
+        // Only update if index CHANGED (Discrete Step)
+        if (newIdx !== activeHIdx) {
+            setActiveHIdx(newIdx);
 
-        const rawIdx = x / w; // 0.0 -> 1.0 -> 2.0
+            if (!onTimeSelect || !isVisible) return;
 
-        // Helper to get time at integer index
-        const getTimeAtIndex = (i: number): number => {
-            if (i === 0) {
-                // Index 0 is "Now"
-                return new Date().getTime(); // Live Time
+            // Calculate Target Time based on Index
+            let targetTime: number | undefined = undefined;
+
+            if (index === 0) {
+                // TODAY ROW
+                if (newIdx === 0) {
+                    // "Now" Card -> Live Time
+                    targetTime = undefined;
+                } else {
+                    // Hourly Cards (Offset by 1 because of "Now" card)
+                    const hItem = hourlyToRender[newIdx - 1];
+                    if (hItem) targetTime = new Date(hItem.time).getTime();
+                }
+            } else {
+                // FORECAST ROW
+                // Direct mapping (No "Now" card)
+                const hItem = hourlyToRender[newIdx];
+                if (hItem) targetTime = new Date(hItem.time).getTime();
             }
-            // Index 1..N maps to hourlyToRender[i-1]
-            const hItem = hourlyToRender[i - 1];
-            return hItem ? new Date(hItem.time).getTime() : 0;
-        };
 
-        const iA = Math.floor(rawIdx);
-        const iB = Math.ceil(rawIdx);
-
-        const timeA = getTimeAtIndex(iA);
-        const timeB = getTimeAtIndex(iB);
-
-        if (timeA === 0) return; // Invalid start
-        // If at end or timeB invalid, just use timeA
-        if (timeB === 0 || iA === iB) {
-            onTimeSelect(timeA);
-            return;
+            // INSTANT UPDATE (No Debounce)
+            onTimeSelect(targetTime);
         }
-
-        // Interpolate
-        const fraction = rawIdx - iA;
-        const interpolatedTime = timeA + (timeB - timeA) * fraction;
-
-        onTimeSelect(interpolatedTime);
     };
 
     // REMOVED: Effect-based time selection (replaced by scroll handler)
