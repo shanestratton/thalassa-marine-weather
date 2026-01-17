@@ -494,15 +494,43 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const isOptimisticOffshore = location.startsWith("WP");
 
         const optimisticData = historyCache[location] || {
-            ...(weatherDataRef.current || {}), // Keep existing data if possible
+            // RESET DATA: Do not inherit old metrics. Start fresh to show "--" in UI.
             locationName: location,
-            coordinates: coords || weatherDataRef.current?.coordinates || { lat: 0, lon: 0 },
+            coordinates: coords || { lat: 0, lon: 0 },
             locationType: isOptimisticOffshore ? 'offshore' : 'coastal',
+            timeZone: 'UTC', // Default until loaded
             generatedAt: new Date().toISOString(),
-            isEstimated: true, // Flag as estimated
+            isEstimated: true,
             alerts: [],
-            loading: true // Custom flag if we want to show spinner
-        } as MarineWeatherReport;
+            loading: true,
+
+            // Blank Metrics to force "--" display
+            current: {
+                windSpeed: null,
+                windGust: null,
+                windDirection: "---",
+                waveHeight: null,
+                swellPeriod: null,
+                airTemperature: null,
+                waterTemperature: null,
+                condition: "Loading...",
+                uvIndex: 0,
+                visibility: null,
+                humidity: null,
+                pressure: null,
+                cloudCover: null,
+                precipitation: null,
+                description: "Loading marine data...",
+                feelsLike: null,
+                dewPoint: null
+            },
+            forecast: [],
+            hourly: [],
+            tides: [],
+            tideHourly: [],
+            boatingAdvice: "Generating advice...",
+            modelUsed: "Loading..."
+        } as unknown as MarineWeatherReport;
 
         // Force update the state immediately
         setWeatherData(optimisticData);
