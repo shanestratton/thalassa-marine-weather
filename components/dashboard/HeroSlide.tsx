@@ -35,7 +35,16 @@ const renderHeroWidget = (
 
     // Helper to render trend arrow
     const renderTrend = (t?: string, inverse = false) => {
-        if (!t || t === 'steady' || t === 'neutral') return null;
+        if (!t || t === 'neutral') return null;
+
+        if (t === 'steady') {
+            return (
+                <div className="flex items-center ml-1.5 opacity-60">
+                    <MinusIcon className="w-2.5 h-2.5" />
+                </div>
+            );
+        }
+
         const isUp = t === 'rising';
 
         // Color Logic:
