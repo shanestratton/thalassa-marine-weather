@@ -1135,7 +1135,7 @@ export const HeroSlide = React.memo(({
                                     <>
                                         {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
                                         <div className="px-0 shrink-0 mt-0.5">
-                                            <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                            <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                 {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
                                                     const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                     const getTheme = (wid: string) => {
@@ -1148,7 +1148,7 @@ export const HeroSlide = React.memo(({
                                                     };
                                                     const themeClass = getTheme(id);
                                                     return (
-                                                        <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                        <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                             {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                         </div>
                                                     )
@@ -1182,7 +1182,7 @@ export const HeroSlide = React.memo(({
                                             <>
                                                 {/* ROW 2: Visibility, Humidity, Pressure */}
                                                 <div className="px-0 shrink-0 mt-1.5">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                    <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                         {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
                                                             const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                             const getTheme = (wid: string) => {
@@ -1195,7 +1195,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )
@@ -1204,8 +1204,9 @@ export const HeroSlide = React.memo(({
                                                 </div>
 
                                                 {/* ROW 3: Sea Temp, Drift, Set */}
+                                                {/* ROW 3: Sea Temp, Drift, Set */}
                                                 <div className="px-0 shrink-0 mt-1.5 mb-6">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                    <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                         {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
                                                             const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                             const getTheme = (wid: string) => {
@@ -1218,7 +1219,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )
