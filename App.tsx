@@ -104,7 +104,7 @@ const App: React.FC = () => {
                 <div className={`absolute inset-0 z-0 ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'bg-black' : 'bg-[#0f172a]'}`}></div>
             )}
 
-            {loading && !weatherData && <ProcessOverlay message={loadingMessage || "Updating Marine Data..."} />}
+            {loading && <ProcessOverlay message={loadingMessage || "Updating Marine Data..."} />}
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}

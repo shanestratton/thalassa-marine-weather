@@ -541,7 +541,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // Force update the state immediately
         setWeatherData(optimisticData);
-        setLoading(false); // Ensure we don't show full-screen loader, just let UI update
+        setLoading(true); // OVERLAY: Force "Updating..." blur immediately
 
         if (historyCache[location]) {
             // If we have full cache, we stick with it, but trigger a silent background refresh
