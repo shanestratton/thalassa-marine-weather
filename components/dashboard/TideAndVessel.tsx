@@ -580,13 +580,29 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         trendColor = "text-blue-200"; // Neutral color for slack
     }
 
-    // Scale Y-Axis based on VISIBLE markers and data
-    let minHeight = Math.min(...dataPoints.map(d => d.height), ...visibleMarkers.map(m => m.height));
-    let maxHeight = Math.max(...dataPoints.map(d => d.height), ...visibleMarkers.map(m => m.height));
+    // Scale Y-Axis based on GLOBAL markers (props.tides) to prevent "Zooming" on low-variance days.
+    // If we only use dataPoints (0-24h), a day with small tides will auto-scale to fill the box, making it inconsistent.
 
-    if (minHeight === maxHeight) {
-        minHeight -= 0.5;
-        maxHeight += 0.5;
+    // Default to dataPoints if no global tides
+    let minHeight = Math.min(...dataPoints.map(d => d.height));
+    let maxHeight = Math.max(...dataPoints.map(d => d.height));
+
+    if (tides && tides.length > 0) {
+        // Use the full available dataset for scaling context
+        const globalHeights = tides.map(t => convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0);
+        minHeight = Math.min(...globalHeights);
+        maxHeight = Math.max(...globalHeights);
+    }
+
+    // Include visible markers in case they exceed the curve (rare but possible)
+    if (visibleMarkers.length > 0) {
+        minHeight = Math.min(minHeight, ...visibleMarkers.map(m => m.height));
+        maxHeight = Math.max(maxHeight, ...visibleMarkers.map(m => m.height));
+    }
+
+    if (minHeight === maxHeight || minHeight === Infinity || maxHeight === -Infinity) {
+        minHeight = 0;
+        maxHeight = 2; // Fallback range
     }
     const domainBuffer = (maxHeight - minHeight) * 0.2;
 
