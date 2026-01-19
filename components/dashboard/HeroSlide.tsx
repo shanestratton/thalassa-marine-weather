@@ -236,6 +236,48 @@ const renderHeroWidget = (
                     </div>
                 </div>
             );
+        case 'uv':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.uv}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">/11</span>
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
+                        <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">
+                            {data.uvIndex && data.uvIndex > 8 ? 'Extreme' : data.uvIndex && data.uvIndex > 5 ? 'High' : 'Moderate'}
+                        </span>
+                    </div>
+                </div>
+            );
+        case 'sunrise':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Sunrise</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunrise}</span>
+                    </div>
+                </div>
+            );
+        case 'sunset':
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Sunset</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunset}</span>
+                    </div>
+                </div>
+            );
         case 'waterTemp':
             return (
                 <div className="flex flex-col h-full justify-between">
@@ -1133,16 +1175,18 @@ export const HeroSlide = React.memo(({
 
                                 return (
                                     <>
-                                        {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
+                                        {/* ROW 1: Wind, Gust, Seas/UV (ALWAYS VISIBLE) */}
                                         <div className="px-0 shrink-0 mt-0.5">
                                             <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
-                                                {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
+                                                {/* CONDITIONAL ROW 1: Marine=[Wind, Gust, Wave] vs Inland=[Wind, Gust, UV] */}
+                                                {(locationType === 'inland' ? ['wind', 'gust', 'uv'] : ['wind', 'gust', 'wave']).map((id: string, idx: number) => {
                                                     const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                     const getTheme = (wid: string) => {
                                                         switch (wid) {
                                                             case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
                                                             case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
                                                             case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                            case 'uv': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-slate-900/10 border-orange-400/20 shadow-orange-900/5';
                                                             default: return 'bg-black/10 border-white/5';
                                                         }
                                                     };
@@ -1178,9 +1222,9 @@ export const HeroSlide = React.memo(({
 
                                             </div>
                                         ) : (
-                                            // NON-COASTAL: Extra Rows (Uniform Compact Height)
+                                            // NON-COASTAL / INLAND / OFFSHORE: Extra Rows
                                             <>
-                                                {/* ROW 2: Visibility, Humidity, Pressure */}
+                                                {/* ROW 2: Visibility, Humidity, Pressure (Shared for Inland/Offshore) */}
                                                 <div className="px-0 shrink-0 mt-1.5">
                                                     <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                         {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
@@ -1203,17 +1247,22 @@ export const HeroSlide = React.memo(({
                                                     </div>
                                                 </div>
 
-                                                {/* ROW 3: Sea Temp, Drift, Set */}
-                                                {/* ROW 3: Sea Temp, Drift, Set */}
+                                                {/* ROW 3: Conditional (Marine vs Solar) */}
                                                 <div className="px-0 shrink-0 mt-1.5 mb-6">
                                                     <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
-                                                        {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
+                                                        {(locationType === 'inland'
+                                                            ? ['sunrise', 'sunset', 'clouds']
+                                                            : ['waterTemp', 'currentSpeed', 'currentDirection']
+                                                        ).map((id: string, idx: number) => {
                                                             const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                             const getTheme = (wid: string) => {
                                                                 switch (wid) {
                                                                     case 'waterTemp': return 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
                                                                     case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
                                                                     case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
+                                                                    case 'sunrise': return 'bg-gradient-to-br from-amber-900/40 via-orange-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
+                                                                    case 'sunset': return 'bg-gradient-to-br from-indigo-900/40 via-purple-900/20 to-slate-900/10 border-indigo-400/20 shadow-indigo-900/5';
+                                                                    case 'clouds': return 'bg-gradient-to-br from-slate-800/60 via-gray-900/40 to-black/30 border-slate-500/20 shadow-slate-900/5';
                                                                     default: return 'bg-black/10 border-white/5';
                                                                 }
                                                             };
