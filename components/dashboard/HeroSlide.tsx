@@ -1123,7 +1123,8 @@ export const HeroSlide = React.memo(({
                                 // We accept that Offshore is slightly taller than the "Compressed" 240px version,
                                 // but this prioritizes "Uniform Box Size" which seems to be the user's main visual cue.
 
-                                const rowHeightClass = "min-h-[85px]";
+                                // FIX: Use FIXED height instead of min-height to prevent layout "farting" (shifting) during data updates.
+                                const rowHeightClass = "h-[85px] overflow-hidden";
 
                                 // FIX: Local Visual Time Calculation using Hoisted State
                                 // visualTime is now calculated at the top level
