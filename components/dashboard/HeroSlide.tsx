@@ -333,6 +333,69 @@ export const HeroSlide = React.memo(({
     isVisible?: boolean
 }) => {
     const { nextUpdate } = useWeather();
+
+    // 1. STATE HOISTING (Zero-Latency Architecture)
+    // We define the scroll state AT THE TOP so it drives the entire component synchronously.
+    const [activeHIdx, setActiveHIdx] = useState(0);
+
+    // 2. HOISTED DATA PREPARATION
+    // Filter out the first hourly item (current hour) to avoid duplication with 'Now' card
+    const hourlyToRender = React.useMemo(() => {
+        if (!hourly || hourly.length === 0) return [];
+
+        if (index === 0) {
+            // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
+            const now = new Date(); // Absolute Now
+
+            // Get Current Location Date String (YYYY-MM-DD)
+            // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
+            let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+            // Validate timezone
+            try {
+                Intl.DateTimeFormat(undefined, { timeZone: safeZone });
+            } catch (e) {
+                safeZone = 'UTC';
+            }
+
+            const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
+
+            // Filter: Time > Now (Absolute) AND Time is Same Day (Location)
+            return hourly.filter(h => {
+                const t = new Date(h.time);
+
+                // 1. Must be in the future (absolute)
+                // Add a small buffer (5 mins) to ensure we don't show an hour that just started 1 min ago if "Now" covers it? 
+                // We want strict future hour.
+                const isFuture = t.getTime() > now.getTime();
+
+                // 2. Must be "Today" in Location Time
+                const itemLocDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
+                const isSameDay = itemLocDateStr === nowLocDateStr;
+
+                return isFuture && isSameDay;
+            });
+        } else {
+            // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
+            return hourly;
+        }
+    }, [hourly, index, timeZone]);
+
+    // 3. DERIVED VISUAL TIME (The "Fast" Time)
+    // This updates instantly on scroll render, unlike 'customTime' prop which lags.
+    const visualTime = useMemo(() => {
+        if (index === 0) {
+            // TODAY
+            if (activeHIdx === 0) return undefined; // Live
+            const hItem = hourlyToRender[activeHIdx - 1];
+            return hItem ? new Date(hItem.time).getTime() : undefined;
+        } else {
+            // FORECAST
+            const hItem = hourlyToRender[activeHIdx];
+            return hItem ? new Date(hItem.time).getTime() : undefined;
+        }
+    }, [activeHIdx, index, hourlyToRender]);
+
     // Ticker for Live Countdown
     const [tick, setTick] = useState(0);
     useEffect(() => {
@@ -357,8 +420,9 @@ export const HeroSlide = React.memo(({
 
         if (!sourceHourly || sourceHourly.length === 0) return data;
 
-        // FIX: Respect Custom Time (Scroll). Fallback to Now if live.
-        const now = customTime || Date.now();
+        // FIX: Respect Visual Time (Scroll). Fallback to Now if live.
+        // We use 'visualTime' (local) instead of 'customTime' (prop) for zero latency.
+        const now = visualTime || Date.now();
         const oneHour = 3600 * 1000;
 
         // Find the hourly slot that covers the current time
@@ -383,7 +447,7 @@ export const HeroSlide = React.memo(({
             };
         }
         return data;
-    }, [data, hourly, isLive, fullHourly, tick, customTime]); // Added 'customTime' dependency
+    }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
 
     // Use effectiveData for all display logic used in the MAIN CARD
     const displayData = effectiveData;
@@ -393,7 +457,8 @@ export const HeroSlide = React.memo(({
         if (!fullHourly || fullHourly.length < 2) return undefined;
 
         // Find current index based on time
-        const now = customTime || Date.now();
+        // Use visualTime for instant trend updates
+        const now = visualTime || Date.now();
         // Look for the slot that matches 'now'
         let currentIndex = fullHourly.findIndex(h => {
             const t = new Date(h.time).getTime();
@@ -452,7 +517,7 @@ export const HeroSlide = React.memo(({
             clouds: getTrend(current.cloudCover, prev.cloudCover, 5)
             // dew: getTrend(current.dewPoint, prev.dewPoint, 1) - Removed due to type mismatch
         };
-    }, [effectiveData, fullHourly, customTime]);
+    }, [effectiveData, fullHourly, visualTime]);
 
     // Debug Log for Trends
     console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
@@ -500,7 +565,7 @@ export const HeroSlide = React.memo(({
         if (index > 0) return true;
         if (!displayData.sunrise || !displayData.sunset) return true;
 
-        const now = customTime || Date.now();
+        const now = visualTime || Date.now();
         const d = new Date(now);
         const [rH, rM] = displayData.sunrise.split(':').map(Number);
         const [sH, sM] = displayData.sunset.split(':').map(Number);
@@ -509,7 +574,7 @@ export const HeroSlide = React.memo(({
         const set = new Date(d).setHours(sH, sM, 0, 0);
 
         return d.getTime() >= rise && d.getTime() < set;
-    }, [index, displayData.sunrise, displayData.sunset, customTime, tick]); // Added tick
+    }, [index, displayData.sunrise, displayData.sunset, visualTime, tick]); // Added tick
 
     const isHighGust = hasWind && (rawGust > ((displayData.windSpeed || 0) * 1.5));
     const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
@@ -1051,21 +1116,8 @@ export const HeroSlide = React.memo(({
 
                                 const rowHeightClass = "min-h-[85px]";
 
-                                // FIX: Local Visual Time Calculation (Instant Sync)
-                                // We calculate the time based on activeHIdx (local state) to avoid waiting for
-                                // slow 'customTime' prop updates from parent.Prevents "Revert to Live" glitch.
-                                const visualTime = useMemo(() => {
-                                    if (index === 0) {
-                                        // TODAY
-                                        if (activeHIdx === 0) return undefined; // Live
-                                        const hItem = hourlyToRender[activeHIdx - 1];
-                                        return hItem ? new Date(hItem.time).getTime() : undefined;
-                                    } else {
-                                        // FORECAST
-                                        const hItem = hourlyToRender[activeHIdx];
-                                        return hItem ? new Date(hItem.time).getTime() : undefined;
-                                    }
-                                }, [activeHIdx, index, hourlyToRender]);
+                                // FIX: Local Visual Time Calculation using Hoisted State
+                                // visualTime is now calculated at the top level
 
                                 return (
                                     <>
@@ -1193,54 +1245,16 @@ export const HeroSlide = React.memo(({
         );
     };
 
-    // Filter out the first hourly item (current hour) to avoid duplication with 'Now' card
-    const hourlyToRender = React.useMemo(() => {
-        if (!hourly || hourly.length === 0) return [];
-
-        if (index === 0) {
-            // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
-            const now = new Date(); // Absolute Now
-
-            // Get Current Location Date String (YYYY-MM-DD)
-            // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
-            let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-            // Validate timezone
-            try {
-                Intl.DateTimeFormat(undefined, { timeZone: safeZone });
-            } catch (e) {
-                safeZone = 'UTC';
-            }
-
-            const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
-
-            // Filter: Time > Now (Absolute) AND Time is Same Day (Location)
-            return hourly.filter(h => {
-                const t = new Date(h.time);
-
-                // 1. Must be in the future (absolute)
-                // Add a small buffer (5 mins) to ensure we don't show an hour that just started 1 min ago if "Now" covers it? 
-                // We want strict future hour.
-                const isFuture = t.getTime() > now.getTime();
-
-                // 2. Must be "Today" in Location Time
-                const itemLocDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
-                const isSameDay = itemLocDateStr === nowLocDateStr;
-
-                return isFuture && isSameDay;
-            });
-        } else {
-            // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
-            return hourly;
-        }
-    }, [hourly, index, timeZone]);
+    // --- HOISTED TO TOP ---
+    // hourlyToRender calculation moved to top for synchronous access
 
 
 
 
 
     // --- HORIZONTAL SCROLL MANAGEMENT ---
-    const [activeHIdx, setActiveHIdx] = useState(0);
+    // --- HORIZONTAL SCROLL MANAGEMENT ---
+    // activeHIdx state moved to top
 
 
     // Reset Listener (WX Button)
