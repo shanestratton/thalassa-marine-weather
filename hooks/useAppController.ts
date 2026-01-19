@@ -120,7 +120,8 @@ export const useAppController = () => {
         const formatted = formatLocationInput(query);
         setQuery(formatted);
         setPage('dashboard');
-        fetchWeather(formatted, false, undefined, true);
+        // FIX: Use selectLocation to ensure persistence & optimistic UI
+        selectLocation(formatted);
     };
 
     const handleLocate = () => {
@@ -138,7 +139,8 @@ export const useAppController = () => {
             }
             setQuery(searchTarget);
             setPage('dashboard');
-            fetchWeather(searchTarget, false, undefined, true);
+            // FIX: Use selectLocation with coords for persistence & precision
+            selectLocation(searchTarget, { lat: latitude, lon: longitude });
         }, (err) => {
             showToast("GPS Error: " + err.message);
             setQuery("");
