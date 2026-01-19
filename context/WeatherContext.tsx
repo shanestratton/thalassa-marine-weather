@@ -59,7 +59,7 @@ interface WeatherContextType {
 const WeatherContext = createContext<WeatherContextType | undefined>(undefined);
 
 export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { settings } = useSettings();
+    const { settings, updateSettings } = useSettings();
 
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState("Updating Marine Data...");
@@ -487,6 +487,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const isCurrent = location === "Current Location";
         isTrackingCurrentLocation.current = isCurrent;
 
+        // PERSISTENCE FIX: Identify and Save User Intent
+        // We must update the default location immediately so any subsequent reloads/syncs
+        // respect this choice and don't revert to the previous one.
+        if (location && location !== settingsRef.current.defaultLocation) {
+            updateSettings({ defaultLocation: location });
+        }
+
         // OPTIMISTIC UPDATE: Update UI immediately with target name
         // We construct a temporary "Loading..." report to show INSTANT feedback
         // Logic: specific "WP" check for offshore optimistic typing
@@ -543,7 +550,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // New location: Fetch freshly
             await fetchWeather(location, false, coords, true);
         }
-    }, [fetchWeather, historyCache]);
+    }, [fetchWeather, historyCache, updateSettings]);
 
     // --- WATCHDOG: Ensure nextUpdate is set if data exists ---
     useEffect(() => {
