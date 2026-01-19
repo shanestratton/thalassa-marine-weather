@@ -311,7 +311,7 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                   The ReferenceDot relies entirely on XAxis/YAxis domains, not the dataset.
                   Passing `dataPoints` caused Recharts to process the large array on every frame.
                 */}
-                <AreaChart key={currentHour} data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                <AreaChart data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                     {/* 
                        LAYOUT MATCHING FIX:
                        The Background chart has a visible XAxis which takes up vertical space.
@@ -330,7 +330,8 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                     />
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
 
-                    <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" />
+                    {/* @ts-ignore - Recharts types missing animation props for Reference components, but they work at runtime */}
+                    <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
                     <ReferenceDot
                         x={currentHour}
                         y={currentHeight}
@@ -339,6 +340,8 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                         stroke="#fff"
                         strokeWidth={2}
                         isFront={true}
+                        // @ts-ignore
+                        isAnimationActive={false}
                     />
                 </AreaChart>
             </ResponsiveContainer>
