@@ -69,40 +69,40 @@ const renderHeroWidget = (
     switch (id) {
         case 'wind':
             return (
-                <div className="flex flex-col h-full justify-between">
+                <div className="flex flex-col h-full justify-between w-full">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed || '--'}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
+                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
                             <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
                             {data.windDirection || 'VAR'}
                         </div>
                         {hasWind && isLive && (
-                            <span className="text-[8px] md:text-[10px] text-orange-300 font-bold ml-auto hidden md:inline">G {values.gusts}</span>
+                            <span className="text-[8px] md:text-[10px] text-orange-300 font-bold ml-auto hidden md:inline">G {values.gusts || '--'}</span>
                         )}
                     </div>
                 </div>
             );
         case 'gust':
             return (
-                <div className="flex flex-col h-full justify-between">
+                <div className="flex flex-col h-full justify-between w-full">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts || '--'}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
+                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
                         <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
                     </div>
                 </div>
@@ -1148,7 +1148,7 @@ export const HeroSlide = React.memo(({
                                                     };
                                                     const themeClass = getTheme(id);
                                                     return (
-                                                        <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                        <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 shadow-lg border ${themeClass} ${justifyClass}`}>
                                                             {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                         </div>
                                                     )
@@ -1195,7 +1195,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )
@@ -1219,7 +1219,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )
