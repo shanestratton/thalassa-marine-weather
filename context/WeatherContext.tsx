@@ -345,9 +345,15 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 // 'offshore' type is usually derived from SG.
 
                 try {
+                    const finalCoords = currentReport?.coordinates || resolvedCoords;
+
+                    if (!finalCoords) {
+                        throw new Error(`Cannot fetch precision weather for ${targetName}: Missing Coordinates`);
+                    }
+
                     const precisionReport = await fetchPrecisionWeather(
                         targetName,
-                        currentReport?.coordinates || resolvedCoords || { lat: 0, lon: 0 }, // Coords are needed. Resolving above handles it.
+                        finalCoords,
                         false,
                         undefined // Let SG determine type or use existing?
                     );
@@ -619,7 +625,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     );
                 } else {
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
-                    if (loc) fetchWeather(loc, false);
+                    const coords = weatherDataRef.current?.locationName === loc ? weatherDataRef.current?.coordinates : undefined;
+                    if (loc) {
+                        console.log(`[AutoRefresh] Refreshing ${loc} with coords:`, coords);
+                        fetchWeather(loc, false, coords, false, true); // Silent refresh
+                    }
                 }
             }
         }, 10000);
