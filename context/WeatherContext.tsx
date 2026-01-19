@@ -540,7 +540,14 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } as unknown as MarineWeatherReport;
 
         // Force update the state immediately
-        setWeatherData(optimisticData);
+        // FIX: NULL ISLAND BUG
+        // Only trigger optimistic update if we have a valid cache hit OR explicit coordinates.
+        // If we only have a name (e.g. "Newport"), we MUST wait for fetchWeather to resolve coords,
+        // otherwise we default to 0,0 (Offshore).
+        if (historyCache[location] || coords) {
+            setWeatherData(optimisticData);
+        }
+
         setLoading(true); // OVERLAY: Force "Updating..." blur immediately
 
         if (historyCache[location]) {
