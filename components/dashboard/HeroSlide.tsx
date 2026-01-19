@@ -109,20 +109,22 @@ const renderHeroWidget = (
             );
         case 'wave':
             return (
-                <div className="flex flex-col h-full justify-between">
+                <div className="flex flex-col h-full justify-between w-full">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waveHeight}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
+                            {values.waveHeight || '--'}
+                        </span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.length || 'm'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
+                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
                             <ClockIcon className="w-2.5 h-2.5" />
-                            {data.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
+                            {(data?.swellPeriod) ? `${Math.round(data.swellPeriod)} s` : '--'}
                         </div>
                     </div>
                 </div>
