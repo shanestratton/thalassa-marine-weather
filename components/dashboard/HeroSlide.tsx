@@ -1051,6 +1051,22 @@ export const HeroSlide = React.memo(({
 
                                 const rowHeightClass = "min-h-[85px]";
 
+                                // FIX: Local Visual Time Calculation (Instant Sync)
+                                // We calculate the time based on activeHIdx (local state) to avoid waiting for
+                                // slow 'customTime' prop updates from parent.Prevents "Revert to Live" glitch.
+                                const visualTime = useMemo(() => {
+                                    if (index === 0) {
+                                        // TODAY
+                                        if (activeHIdx === 0) return undefined; // Live
+                                        const hItem = hourlyToRender[activeHIdx - 1];
+                                        return hItem ? new Date(hItem.time).getTime() : undefined;
+                                    } else {
+                                        // FORECAST
+                                        const hItem = hourlyToRender[activeHIdx];
+                                        return hItem ? new Date(hItem.time).getTime() : undefined;
+                                    }
+                                }, [activeHIdx, index, hourlyToRender]);
+
                                 return (
                                     <>
                                         {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
@@ -1088,13 +1104,14 @@ export const HeroSlide = React.memo(({
                                                     tideSeries={undefined}
                                                     modelUsed="WorldTides"
                                                     unitPref={units}
-                                                    customTime={customTime}
+                                                    customTime={visualTime}
                                                     showAllDayEvents={index > 0 && !customTime}
                                                     stationName={guiDetails?.stationName || "Local Station"}
                                                     secondaryStationName={guiDetails?.stationName}
                                                     guiDetails={guiDetails}
                                                     stationPosition="bottom"
                                                 />
+
                                             </div>
                                         ) : (
                                             // NON-COASTAL: Extra Rows (Uniform Compact Height)
