@@ -357,7 +357,8 @@ export const HeroSlide = React.memo(({
 
         if (!sourceHourly || sourceHourly.length === 0) return data;
 
-        const now = Date.now();
+        // FIX: Respect Custom Time (Scroll). Fallback to Now if live.
+        const now = customTime || Date.now();
         const oneHour = 3600 * 1000;
 
         // Find the hourly slot that covers the current time
@@ -382,7 +383,7 @@ export const HeroSlide = React.memo(({
             };
         }
         return data;
-    }, [data, hourly, isLive, fullHourly, tick]); // Added 'tick' to ensure Date.now() refreshes
+    }, [data, hourly, isLive, fullHourly, tick, customTime]); // Added 'customTime' dependency
 
     // Use effectiveData for all display logic used in the MAIN CARD
     const displayData = effectiveData;

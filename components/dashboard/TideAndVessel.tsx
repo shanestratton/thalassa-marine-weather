@@ -311,7 +311,7 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                   The ReferenceDot relies entirely on XAxis/YAxis domains, not the dataset.
                   Passing `dataPoints` caused Recharts to process the large array on every frame.
                 */}
-                <AreaChart data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                <AreaChart key={currentHour} data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                     {/* 
                        LAYOUT MATCHING FIX:
                        The Background chart has a visible XAxis which takes up vertical space.
