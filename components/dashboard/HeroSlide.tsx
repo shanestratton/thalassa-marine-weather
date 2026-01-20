@@ -911,7 +911,7 @@ export const HeroSlide = React.memo(({
 
                     <div className="relative z-10 w-full h-full flex flex-col p-0">
                         {/* Header Grid */}
-                        <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
+                        <div className="flex flex-col gap-2 md:gap-3 mb-6 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
 
                             {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
                             <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group h-[140px] border shadow-lg ${isCardDay
@@ -992,6 +992,12 @@ export const HeroSlide = React.memo(({
                                                     if (p < 0.5) desc = "Trace";
                                                     else if (cardData.condition?.toLowerCase().includes("shower")) desc = "Showers";
                                                     else desc = "Rain";
+                                                }
+                                                // Specific Fix for duplicate Trace
+                                                if (desc === "Trace") {
+                                                    return (
+                                                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{desc}</span>
+                                                    );
                                                 }
                                                 return (
                                                     <>
@@ -1348,14 +1354,14 @@ export const HeroSlide = React.memo(({
     const totalCards = 1 + hourlyToRender.length;
 
     return (
-        <div className="w-full min-w-full h-full relative flex flex-col justify-start">
-            <div className="relative w-full h-full rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border-none bg-transparent shadow-2xl shrink-0">
+        <div className="w-full min-w-full h-auto relative flex flex-col justify-start">
+            <div className="relative w-full h-auto rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border-none bg-transparent shadow-2xl shrink-0">
 
                 {/* HORIZONTAL CAROUSEL WRAPPER (Inner Axis) */}
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHScroll}
-                    className="relative z-10 w-full h-full shrink-0 overflow-x-auto scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0"
+                    className="relative z-10 w-full h-auto shrink-0 overflow-x-auto scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0"
                 >
 
                     {/* 1. MAIN DAY CARD (Only for Today/Index 0) */}
