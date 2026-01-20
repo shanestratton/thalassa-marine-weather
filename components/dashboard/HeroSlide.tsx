@@ -901,15 +901,15 @@ export const HeroSlide = React.memo(({
 
         return (
             <div
-                className={`w-full h-auto snap-start shrink-0 relative px-0.5 pb-0 flex flex-col`}
+                className={`w-full h-full snap-start shrink-0 relative px-0.5 pb-0 flex flex-col`}
             >
-                <div className={`relative w-full h-auto rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border border-white/10 bg-black/20 `}>
+                <div className={`relative w-full h-full rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border border-white/10 bg-black/20 `}>
                     {/* BG */}
                     <div className="absolute inset-0 z-0">
                         <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-blue-900/20 via-slate-900/40 to-black/60' : 'from-red-900/10 via-slate-900/40 to-black/60'} `} />
                     </div>
 
-                    <div className="relative z-10 w-full h-auto flex flex-col p-0">
+                    <div className="relative z-10 w-full h-full flex flex-col p-0">
                         {/* Header Grid */}
                         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
 
@@ -1348,14 +1348,14 @@ export const HeroSlide = React.memo(({
     const totalCards = 1 + hourlyToRender.length;
 
     return (
-        <div className="w-full min-w-full h-auto relative flex flex-col justify-start">
-            <div className="relative w-full h-auto rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border-none bg-transparent shadow-2xl shrink-0">
+        <div className="w-full min-w-full h-full relative flex flex-col justify-start">
+            <div className="relative w-full h-full rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border-none bg-transparent shadow-2xl shrink-0">
 
                 {/* HORIZONTAL CAROUSEL WRAPPER (Inner Axis) */}
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHScroll}
-                    className="relative z-10 w-full h-auto shrink-0 overflow-x-auto scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0"
+                    className="relative z-10 w-full h-full shrink-0 overflow-x-auto scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0"
                 >
 
                     {/* 1. MAIN DAY CARD (Only for Today/Index 0) */}
