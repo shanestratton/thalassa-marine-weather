@@ -159,8 +159,6 @@ export const HeroSection = ({
                             onTimeSelect={onTimeSelect}
                             isVisible={activeIndex === rIdx}
                         />
-                        {/* Spacer for bottom nav */}
-                        <div className="w-full h-4 shrink-0" />
                     </div>
                 ))}
             </div>
