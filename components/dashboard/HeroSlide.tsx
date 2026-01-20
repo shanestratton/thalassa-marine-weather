@@ -28,10 +28,15 @@ const renderHeroWidget = (
     values: any,
     units: UnitPreferences,
     isLive: boolean,
-    trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>
+    trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>,
+    align: 'left' | 'center' | 'right' = 'left'
 ) => {
     const hasWind = data.windSpeed !== null && data.windSpeed !== undefined;
     const trend = trends ? trends[id] : undefined;
+
+    const justifyClass = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';
+    const textClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
+    const flexColAlign = align === 'center' ? 'items-center' : align === 'right' ? 'items-end' : 'items-start';
 
     // Helper to render trend arrow
     const renderTrend = (t?: string, inverse = false) => {
@@ -74,12 +79,12 @@ const renderHeroWidget = (
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed || '--'}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
+                    <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
                             <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
                             {data.windDirection || 'VAR'}
@@ -97,12 +102,12 @@ const renderHeroWidget = (
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts || '--'}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
+                    <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
                         <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
                     </div>
                 </div>
@@ -114,14 +119,14 @@ const renderHeroWidget = (
                         <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
                             {values.waveHeight || '--'}
                         </span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.length || 'm'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
+                    <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
                             <ClockIcon className="w-2.5 h-2.5" />
                             {(data?.swellPeriod) ? `${Math.round(data.swellPeriod)} s` : '--'}
@@ -131,51 +136,51 @@ const renderHeroWidget = (
             );
         case 'pressure':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.pressure}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">hPa</span>
                         {renderTrend(trend, false)}
                     </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
+                    <div className={`mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70 ${textClass} w-full`}>
                         MSL
                     </div>
                 </div>
             );
         case 'visibility':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <EyeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Visibility</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.vis}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.visibility}</span>
                         {renderTrend(trend, false)}
                     </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
+                    <div className={`mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70 ${textClass} w-full`}>
                         --
                     </div>
                 </div>
             );
         case 'humidity':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.humidity}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
+                    <div className={`mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70 ${textClass} w-full`}>
                         --
                     </div>
                 </div>
@@ -196,12 +201,12 @@ const renderHeroWidget = (
             );
         case 'clouds':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <CloudIcon className={`w-3 h-3 ${isLive ? 'text-gray-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-gray-200' : 'text-slate-300'} `}>Cover</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.cloudCover}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
                         {renderTrend(trend, true)}
@@ -243,11 +248,11 @@ const renderHeroWidget = (
                         <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.uv}</span>
                         <span className="text-[10px] md:text-sm font-medium text-gray-400">/11</span>
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
+                    <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
                         <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">
                             {data.uvIndex && data.uvIndex > 8 ? 'Extreme' : data.uvIndex && data.uvIndex > 5 ? 'High' : 'Moderate'}
                         </span>
@@ -256,24 +261,24 @@ const renderHeroWidget = (
             );
         case 'sunrise':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Sunrise</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunrise}</span>
                     </div>
                 </div>
             );
         case 'sunset':
             return (
-                <div className="flex flex-col h-full justify-between">
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
+                    <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                         <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Sunset</span>
                     </div>
-                    <div className="flex items-baseline gap-0.5">
+                    <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                         <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunset}</span>
                     </div>
                 </div>
@@ -1191,9 +1196,10 @@ export const HeroSlide = React.memo(({
                                                         }
                                                     };
                                                     const themeClass = getTheme(id);
+                                                    const align = idx === 0 ? 'left' : idx === 1 ? 'center' : 'right';
                                                     return (
                                                         <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 shadow-lg border ${themeClass} ${justifyClass}`}>
-                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends, align)}
                                                         </div>
                                                     )
                                                 })}
