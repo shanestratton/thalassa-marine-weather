@@ -970,7 +970,7 @@ export const HeroSlide = React.memo(({
 
                                         {/* 2. Feels Like */}
                                         <div className={`flex items-center gap-1 justify-center w-full ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
-                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Feels</span>
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Feels Like</span>
                                             <span className="text-[10px] font-bold text-orange-200">
                                                 {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
                                             </span>
@@ -1004,27 +1004,26 @@ export const HeroSlide = React.memo(({
 
                                         {/* 5. Dew Point */}
                                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 justify-center w-full">
-                                            <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
+                                            <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew Point</span>
                                             {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
                                         </div>
                                     </div>
 
                                     {/* COLUMN 3: Context Header (33%) */}
                                     <div className="flex-1 p-2 flex flex-col justify-between items-end min-w-0 bg-white/0">
-                                        <div className="w-full flex justify-start items-end flex-col -translate-y-1">
-                                            {/* TOP LINE */}
-                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none mb-1 w-full text-right`}>
-                                                {cardIsLive ? "TODAY" : "FORECAST"}
-                                            </span>
-                                            {/* MIDDLE LINE */}
-                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-right whitespace-nowrap mb-0.5`}>
-                                                {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
-                                            </span>
-                                        </div>
+                                        {/* TOP LINE */}
+                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-right -translate-y-1`}>
+                                            {cardIsLive ? "TODAY" : "FORECAST"}
+                                        </span>
+
+                                        {/* MIDDLE LINE */}
+                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-right whitespace-nowrap -translate-y-1`}>
+                                            {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
+                                        </span>
 
                                         {/* BOTTOM LINE: Hour Range */}
                                         {(cardIsLive || (isHourly && hTime)) ? (
-                                            <span className={`text-xs md:text-sm font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1 text-right whitespace-nowrap`}>
+                                            <span className={`text-xs md:text-sm font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-right whitespace-nowrap translate-y-1`}>
                                                 {cardIsLive ? (() => {
                                                     const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
                                                     const nextDate = new Date();
@@ -1043,7 +1042,7 @@ export const HeroSlide = React.memo(({
                                                     return `${strictFmt(start)} - ${strictFmt(end)}`;
                                                 })()}
                                             </span>
-                                        ) : <div className="mt-auto" />}
+                                        ) : <div />}
                                     </div>
                                 </div>
 
