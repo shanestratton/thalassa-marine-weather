@@ -1012,7 +1012,7 @@ export const HeroSlide = React.memo(({
                                     {/* COLUMN 3: Context Header (33%) */}
                                     <div className="flex-1 p-2 flex flex-col justify-between items-end min-w-0 bg-white/0">
                                         {/* TOP LINE */}
-                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-right -translate-y-1`}>
+                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-right`}>
                                             {cardIsLive ? "TODAY" : "FORECAST"}
                                         </span>
 
@@ -1023,7 +1023,7 @@ export const HeroSlide = React.memo(({
 
                                         {/* BOTTOM LINE: Hour Range */}
                                         {(cardIsLive || (isHourly && hTime)) ? (
-                                            <span className={`text-xs md:text-sm font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-right whitespace-nowrap translate-y-1`}>
+                                            <span className={`text-xs md:text-sm font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-right whitespace-nowrap`}>
                                                 {cardIsLive ? (() => {
                                                     const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
                                                     const nextDate = new Date();
