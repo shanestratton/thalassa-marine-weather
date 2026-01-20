@@ -1368,7 +1368,7 @@ export const HeroSlide = React.memo(({
                     {/* 1. MAIN DAY CARD (Only for Today/Index 0) */}
                     {/* FIX: Use displayData which has the LIVE HOUR override applied */}
                     {index === 0 && (
-                        <div className="w-full h-full snap-start shrink-0">
+                        <div className="w-full h-auto snap-start shrink-0">
                             {renderCard(displayData as WeatherMetrics, false, undefined, rowDateLabel)}
                         </div>
                     )}
@@ -1396,7 +1396,7 @@ export const HeroSlide = React.memo(({
                             currentDirection: h.currentDirection ?? 0,
                             waterTemperature: h.waterTemperature ?? 0,
                         };
-                        return <div key={i} className="w-full h-full snap-start shrink-0">{renderCard(hMetrics, true, new Date(h.time).getTime(), rowDateLabel)}</div>
+                        return <div key={i} className="w-full h-auto snap-start shrink-0">{renderCard(hMetrics, true, new Date(h.time).getTime(), rowDateLabel)}</div>
                     })}
 
                     {/* Buffer for bounce */}
