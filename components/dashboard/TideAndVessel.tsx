@@ -713,8 +713,8 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             <div className={`absolute ${stationPosition === 'bottom' ? 'bottom-7 left-2' : 'top-16 left-2'} z-50 pointer-events-none`}>
                 {(stationName || guiDetails?.stationName) ? (
                     <div className="flex items-center gap-1.5 ml-1">
-                        {/* LOGIC SWAP: Show Secondary First if exists */}
-                        {secondaryStationName ? (
+                        {/* LOGIC SWAP: Show Secondary First if exists AND distinct */}
+                        {secondaryStationName && secondaryStationName !== stationName ? (
                             <>
                                 <span className="text-[9px] font-bold text-white tracking-widest uppercase truncate max-w-[120px]">
                                     {secondaryStationName}

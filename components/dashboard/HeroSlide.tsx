@@ -1215,7 +1215,7 @@ export const HeroSlide = React.memo(({
                                                     customTime={visualTime}
                                                     showAllDayEvents={index > 0 && !customTime}
                                                     stationName={guiDetails?.stationName || "Local Station"}
-                                                    secondaryStationName={guiDetails?.stationName}
+                                                    secondaryStationName={undefined}
                                                     guiDetails={guiDetails}
                                                     stationPosition="bottom"
                                                 />
