@@ -971,16 +971,16 @@ export const HeroSlide = React.memo(({
                         {/* Header Grid */}
                         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
 
-                            {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
-                            <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
-                                ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
-                                : 'bg-gradient-to-br from-indigo-900/20 via-slate-900/40 to-black/40 border-indigo-400/20 shadow-indigo-900/5'
+                            {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME - NO BLUR FOR STABILITY */}
+                            <div className={`col-span-3 rounded-2xl p-0 flex flex-col relative overflow-hidden group h-[110px] shrink-0 border shadow-lg ${isCardDay
+                                ? 'bg-gradient-to-br from-sky-900/40 via-slate-900/60 to-black/80 border-sky-400/20 shadow-sky-900/5'
+                                : 'bg-gradient-to-br from-indigo-900/40 via-slate-900/60 to-black/80 border-indigo-400/20 shadow-indigo-900/5'
                                 } `}>
                                 {/* Gradient Orb (Shared) */}
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
 
                                 {/* TOP SECTION (Split 58/42) */}
-                                <div className="flex flex-row w-full flex-1 border-b border-white/5 min-h-[70%]">
+                                <div className="flex flex-row w-full flex-1 border-b border-white/5 h-[76px] overflow-hidden">
                                     {/* LEFT PARTITION (Conditions)-~58% */}
                                     <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10">
 
@@ -991,7 +991,8 @@ export const HeroSlide = React.memo(({
                                                     const tempStr = cardDisplayValues.airTemp.toString();
                                                     const len = tempStr.length;
                                                     // Shrink for 3 chars (100 or -5) or 4 chars (-12)
-                                                    const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+                                                    // FIX: Enforce simpler sizing to prevent jumping
+                                                    const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
 
                                                     return (
                                                         <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none -translate-y-2 transition-all duration-300`}>
