@@ -924,84 +924,79 @@ export const HeroSlide = React.memo(({
                                 {/* TOP SECTION (Split 58/42) */}
                                 {/* TOP SECTION (Split 58/42) */}
                                 {/* TOP SECTION (Split 58/42) */}
+                                {/* TOP SECTION (3-Column Layout) */}
                                 <div className="flex flex-row w-full flex-1 border-b border-white/5 h-[90px]">
-                                    {/* LEFT PARTITION (Conditions)-~58% */}
-                                    <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10 gap-2">
 
-                                        {/* Main Temp + Condition (Left Side) */}
-                                        <div className="flex flex-col justify-between gap-0.5 w-full min-w-0">
-                                            {/* ROW 1: Temp */}
-                                            <div className="flex items-start leading-none relative -translate-y-1">
-                                                {(() => {
-                                                    const tempStr = cardDisplayValues.airTemp.toString();
-                                                    const len = tempStr.length;
-                                                    // Shrink for 3 chars (100 or -5) or 4 chars (-12)
-                                                    const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+                                    {/* COLUMN 1: Main Temp & Condition (33%) */}
+                                    <div className="flex-1 border-r border-white/5 p-4 flex flex-col justify-between items-start min-w-0 bg-white/0">
+                                        {/* Top: Main Temp */}
+                                        <div className="flex items-start leading-none relative -translate-y-1">
+                                            {(() => {
+                                                const tempStr = cardDisplayValues.airTemp.toString();
+                                                const len = tempStr.length;
+                                                const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+                                                return (
+                                                    <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
+                                                        {cardDisplayValues.airTemp}°
+                                                    </span>
+                                                )
+                                            })()}
+                                        </div>
 
-                                                    return (
-                                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
-                                                            {cardDisplayValues.airTemp}°
-                                                        </span>
-                                                    )
-                                                })()}
+                                        {/* Bottom: Condition */}
+                                        <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 truncate w-full ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
+                                            cardData.condition?.includes('POURING') ? 'text-orange-400' :
+                                                cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
+                                                    'text-sky-300'
+                                            } `}>
+                                            {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
+                                        </span>
+                                    </div>
+
+                                    {/* COLUMN 2: Metrics Stack (33%) */}
+                                    <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-between items-center min-w-0 bg-white/0">
+                                        {/* 1. Hi/Low */}
+                                        <div className="flex items-center gap-2 text-xs font-bold leading-none w-full justify-center">
+                                            <div className="flex items-center gap-0.5 text-white">
+                                                <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
+                                                {cardDisplayValues.highTemp}°
                                             </div>
+                                            <div className="w-px h-2.5 bg-white/20" />
+                                            <div className="flex items-center gap-0.5 text-gray-300">
+                                                <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
+                                                {cardDisplayValues.lowTemp}°
+                                            </div>
+                                        </div>
 
-                                            {/* ROW 2: Condition */}
-                                            <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 truncate max-w-[110px] ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
-                                                cardData.condition?.includes('POURING') ? 'text-orange-400' :
-                                                    cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
-                                                        'text-sky-300'
-                                                } `}>
-                                                {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
+                                        {/* 2. Feels Like */}
+                                        <div className={`flex items-center gap-1 justify-center w-full ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Feels</span>
+                                            <span className="text-[10px] font-bold text-orange-200">
+                                                {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
                                             </span>
                                         </div>
 
-                                        {/* Detail Stack (Right Aligned - Full Stack 5 Items) */}
-                                        {/* Top: Hi/Low, Next: Feels, Next: Cloud, Next: Rain, Bottom: Dew */}
-                                        <div className="flex flex-col justify-between items-end h-full py-0 gap-0 min-w-[60px] border-l border-white/5 pl-2 ml-1">
-                                            {/* 1. TOP: Hi/Low (Align with Top of Temp) - Using translate to fine tune visual top alignment */}
-                                            <div className="flex items-center gap-2 text-xs font-bold leading-none -translate-y-1">
-                                                <div className="flex items-center gap-0.5 text-white">
-                                                    <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
-                                                    {cardDisplayValues.highTemp}°
-                                                </div>
-                                                <div className="w-px h-2.5 bg-white/20" />
-                                                <div className="flex items-center gap-0.5 text-gray-300">
-                                                    <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
-                                                    {cardDisplayValues.lowTemp}°
-                                                </div>
-                                            </div>
+                                        {/* 3. Cloud */}
+                                        <div className="flex items-center gap-1 justify-center w-full">
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Cloud</span>
+                                            <span className="text-[10px] font-bold text-gray-300">{Math.round(cardData.cloudCover || 0)}%</span>
+                                        </div>
 
-                                            {/* 2. Feels Like */}
-                                            <div className={`flex items-center gap-1 justify-end transform -translate-y-0.5 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Feels</span>
-                                                <span className="text-[10px] font-bold text-orange-200 text-right">
-                                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
-                                                </span>
-                                            </div>
+                                        {/* 4. Rain */}
+                                        <div className="flex items-center gap-1 justify-center w-full">
+                                            <RainIcon className="w-2.5 h-2.5 text-cyan-400" />
+                                            <span className="text-[10px] font-bold text-cyan-300">{cardDisplayValues.precip}</span>
+                                        </div>
 
-                                            {/* 3. Cloud */}
-                                            <div className="flex items-center gap-1 justify-end transform -translate-y-0.5">
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Cloud</span>
-                                                <span className="text-[10px] font-bold text-gray-300 text-right">{Math.round(cardData.cloudCover || 0)}%</span>
-                                            </div>
-
-                                            {/* 4. Rain */}
-                                            <div className="flex items-center gap-1 justify-end transform -translate-y-0.5">
-                                                <RainIcon className="w-2.5 h-2.5 text-cyan-400" />
-                                                <span className="text-[10px] font-bold text-cyan-300 text-right">{cardDisplayValues.precip}</span>
-                                            </div>
-
-                                            {/* 5. BOTTOM: Dew Point (Align with Bottom of Description) */}
-                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 justify-end">
-                                                <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
-                                                {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
-                                            </div>
+                                        {/* 5. Dew Point */}
+                                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 justify-center w-full">
+                                            <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
+                                            {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
                                         </div>
                                     </div>
 
-                                    {/* RIGHT PARTITION (Clock/Label)-~42% */}
-                                    <div className="flex flex-col justify-between items-end p-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
+                                    {/* COLUMN 3: Context Header (33%) */}
+                                    <div className="flex-1 p-4 flex flex-col justify-between items-end min-w-0 bg-white/0">
                                         <div className="w-full flex justify-start items-end flex-col -translate-y-1.5">
                                             {/* TOP LINE */}
                                             <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-xs md: text-sm tracking-[0.2em] leading-none mb-1 w-full text-right`}>
@@ -1014,7 +1009,6 @@ export const HeroSlide = React.memo(({
                                         </div>
 
                                         {/* BOTTOM LINE: Hour Range */}
-                                        {/* Unified Logic: Show if Live OR (Hourly + hTime) */}
                                         {(cardIsLive || (isHourly && hTime)) ? (
                                             <span className={`text-sm md: text-base font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1 text-right`}>
                                                 {cardIsLive ? (() => {
