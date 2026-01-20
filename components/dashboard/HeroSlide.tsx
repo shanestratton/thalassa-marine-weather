@@ -923,15 +923,15 @@ export const HeroSlide = React.memo(({
 
                                 {/* TOP SECTION (Split 58/42) */}
                                 {/* TOP SECTION (Split 58/42) */}
+                                {/* TOP SECTION (Split 58/42) */}
                                 <div className="flex flex-row w-full flex-1 border-b border-white/5 h-[90px]">
                                     {/* LEFT PARTITION (Conditions)-~58% */}
                                     <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10 gap-2">
 
-                                        {/* Main Temp + Hi/Low + Desc + Dew */}
+                                        {/* Main Temp + Condition (Left Side) */}
                                         <div className="flex flex-col justify-between gap-0.5 w-full min-w-0">
-                                            {/* ROW 1: Temp & Hi/Low */}
-                                            <div className="flex items-center gap-2 md:gap-3 -translate-y-1">
-                                                {/* Main Temp */}
+                                            {/* ROW 1: Temp */}
+                                            <div className="flex items-start leading-none relative -translate-y-1">
                                                 {(() => {
                                                     const tempStr = cardDisplayValues.airTemp.toString();
                                                     const len = tempStr.length;
@@ -939,66 +939,63 @@ export const HeroSlide = React.memo(({
                                                     const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
 
                                                     return (
-                                                        <div className="flex items-start leading-none relative">
-                                                            <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
-                                                                {cardDisplayValues.airTemp}°
-                                                            </span>
-                                                        </div>
+                                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
+                                                            {cardDisplayValues.airTemp}°
+                                                        </span>
                                                     )
                                                 })()}
-
-                                                {/* Hi/Low (Moved Here - Vertical Stack) */}
-                                                <div className="flex flex-col gap-0.5 mt-1 border-l border-white/10 pl-2">
-                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-white leading-none">
-                                                        <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
-                                                        {cardDisplayValues.highTemp}°
-                                                    </div>
-                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400 leading-none">
-                                                        <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
-                                                        {cardDisplayValues.lowTemp}°
-                                                    </div>
-                                                </div>
                                             </div>
 
-                                            {/* ROW 2: Condition & Dew Point */}
-                                            <div className="flex items-center gap-2 pl-0.5">
-                                                <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 truncate max-w-[110px] ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
-                                                    cardData.condition?.includes('POURING') ? 'text-orange-400' :
-                                                        cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
-                                                            'text-sky-300'
-                                                    } `}>
-                                                    {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
-                                                </span>
-
-                                                {/* Dew Point (Moved Here - Dot Separator) */}
-                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 opacity-80 border-l border-white/10 pl-2">
-                                                    <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
-                                                    {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
-                                                </div>
-                                            </div>
+                                            {/* ROW 2: Condition */}
+                                            <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 truncate max-w-[110px] ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
+                                                cardData.condition?.includes('POURING') ? 'text-orange-400' :
+                                                    cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
+                                                        'text-sky-300'
+                                                } `}>
+                                                {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
+                                            </span>
                                         </div>
 
-                                        {/* Detail Stack (Right Aligned - Remaining Items) */}
-                                        {/* Feels, Cloud, Rain -> Clean Stack */}
-                                        <div className="flex flex-col justify-center items-end h-full py-0.5 gap-1.5 min-w-[50px] border-l border-white/5 pl-2 ml-1">
-                                            {/* Feels Like */}
-                                            <div className={`flex items-center gap-1 justify-end ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
+                                        {/* Detail Stack (Right Aligned - Full Stack 5 Items) */}
+                                        {/* Top: Hi/Low, Next: Feels, Next: Cloud, Next: Rain, Bottom: Dew */}
+                                        <div className="flex flex-col justify-between items-end h-full py-0 gap-0 min-w-[60px] border-l border-white/5 pl-2 ml-1">
+                                            {/* 1. TOP: Hi/Low (Align with Top of Temp) - Using translate to fine tune visual top alignment */}
+                                            <div className="flex items-center gap-2 text-xs font-bold leading-none -translate-y-1">
+                                                <div className="flex items-center gap-0.5 text-white">
+                                                    <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
+                                                    {cardDisplayValues.highTemp}°
+                                                </div>
+                                                <div className="w-px h-2.5 bg-white/20" />
+                                                <div className="flex items-center gap-0.5 text-gray-300">
+                                                    <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
+                                                    {cardDisplayValues.lowTemp}°
+                                                </div>
+                                            </div>
+
+                                            {/* 2. Feels Like */}
+                                            <div className={`flex items-center gap-1 justify-end transform -translate-y-0.5 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
                                                 <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Feels</span>
                                                 <span className="text-[10px] font-bold text-orange-200 text-right">
                                                     {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
                                                 </span>
                                             </div>
 
-                                            {/* Cloud */}
-                                            <div className="flex items-center gap-1 justify-end">
+                                            {/* 3. Cloud */}
+                                            <div className="flex items-center gap-1 justify-end transform -translate-y-0.5">
                                                 <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Cloud</span>
                                                 <span className="text-[10px] font-bold text-gray-300 text-right">{Math.round(cardData.cloudCover || 0)}%</span>
                                             </div>
 
-                                            {/* Rain */}
-                                            <div className="flex items-center gap-1 justify-end">
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Rain</span>
+                                            {/* 4. Rain */}
+                                            <div className="flex items-center gap-1 justify-end transform -translate-y-0.5">
+                                                <RainIcon className="w-2.5 h-2.5 text-cyan-400" />
                                                 <span className="text-[10px] font-bold text-cyan-300 text-right">{cardDisplayValues.precip}</span>
+                                            </div>
+
+                                            {/* 5. BOTTOM: Dew Point (Align with Bottom of Description) */}
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 justify-end">
+                                                <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
+                                                {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
                                             </div>
                                         </div>
                                     </div>
