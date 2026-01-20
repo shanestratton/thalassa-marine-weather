@@ -985,7 +985,21 @@ export const HeroSlide = React.memo(({
                                         {/* 4. Rain */}
                                         <div className="flex items-center gap-1 justify-center w-full">
                                             <RainIcon className="w-2.5 h-2.5 text-cyan-400" />
-                                            <span className="text-[10px] font-bold text-cyan-300">{cardDisplayValues.precip}</span>
+                                            {(() => {
+                                                const p = displayData.precipitation || 0;
+                                                let desc = "None";
+                                                if (p > 0) {
+                                                    if (p < 0.5) desc = "Trace";
+                                                    else if (cardData.condition?.toLowerCase().includes("shower")) desc = "Showers";
+                                                    else desc = "Rain";
+                                                }
+                                                return (
+                                                    <>
+                                                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{desc}</span>
+                                                        <span className="text-[10px] font-bold text-cyan-300">{cardDisplayValues.precip}</span>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
 
                                         {/* 5. Dew Point */}
