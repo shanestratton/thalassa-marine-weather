@@ -1144,9 +1144,11 @@ export const HeroSlide = React.memo(({
 
                                 return (
                                     <>
-                                        {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
-                                        <div className="px-0 shrink-0 mt-0.5">
-                                            <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                        {/* UNIFIED 3x3 GRID CONTAINER */}
+                                        {/* Wraps Row 1, Row 2, Row 3 with consistent vertical gap */}
+                                        <div className="flex flex-col gap-1.5 md:gap-2 w-full mt-0.5 relative z-10">
+                                            {/* ROW 1: Wind, Gust, Seas (ALWAYS VISIBLE) */}
+                                            <div className="grid grid-cols-3 gap-1.5 md:gap-2 w-full pb-0">
                                                 {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
                                                     const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                     const getTheme = (wid: string) => {
@@ -1165,14 +1167,53 @@ export const HeroSlide = React.memo(({
                                                     )
                                                 })}
                                             </div>
+
+                                            {/* ROW 2: Visibility, Humidity, Pressure */}
+                                            <div className="grid grid-cols-3 gap-1.5 md:gap-2 w-full pb-0">
+                                                {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
+                                                    const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                    const getTheme = (wid: string) => {
+                                                        switch (wid) {
+                                                            case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-green-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+                                                            case 'humidity': return 'bg-gradient-to-br from-cyan-900/40 via-sky-900/20 to-slate-900/10 border-cyan-400/20 shadow-cyan-900/5';
+                                                            case 'pressure': return 'bg-gradient-to-br from-teal-900/40 via-emerald-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
+                                                            default: return 'bg-black/10 border-white/5';
+                                                        }
+                                                    };
+                                                    const themeClass = getTheme(id);
+                                                    return (
+                                                        <div key={id} className={`rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+
+                                            {/* ROW 3: Sea Temp, Drift, Set */}
+                                            <div className="grid grid-cols-3 gap-1.5 md:gap-2 w-full pb-0">
+                                                {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
+                                                    const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                    const getTheme = (wid: string) => {
+                                                        switch (wid) {
+                                                            case 'waterTemp': return 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                            case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+                                                            case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
+                                                            default: return 'bg-black/10 border-white/5';
+                                                        }
+                                                    };
+                                                    const themeClass = getTheme(id);
+                                                    return (
+                                                        <div key={id} className={`rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
                                         </div>
 
-                                        {/* CONDITIONAL CONTENT: Tide Graph AND/OR Widget Rows */}
-                                        {/* FIX: Render BOTH if applicable (removed exclusive toggle) */}
-
-                                        {showTideGraph ? (
-                                            // COASTAL: Tide Graph
-                                            <div className="w-full h-44 px-0 pb-0 relative mt-1.5 mb-6">
+                                        {/* TIDE GRAPH (Moved to Bottom, Rendered Conditionally) */}
+                                        {showTideGraph && (
+                                            <div className="w-full h-44 px-0 pb-0 relative mt-6 mb-6">
                                                 <TideGraph
                                                     tides={tides || []}
                                                     unit={units.tideHeight || 'm'}
@@ -1188,55 +1229,6 @@ export const HeroSlide = React.memo(({
                                                     guiDetails={guiDetails}
                                                     stationPosition="bottom"
                                                 />
-                                            </div>
-                                        ) : (
-                                            // NON-COASTAL: Extra Rows (Uniform Compact Height)
-                                            <div className="flex flex-col gap-0 w-full mb-6">
-                                                {/* ROW 2: Visibility, Humidity, Pressure */}
-                                                <div className="px-0 shrink-0 mt-1.5">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
-                                                        {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
-                                                            const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
-                                                            const getTheme = (wid: string) => {
-                                                                switch (wid) {
-                                                                    case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-green-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
-                                                                    case 'humidity': return 'bg-gradient-to-br from-cyan-900/40 via-sky-900/20 to-slate-900/10 border-cyan-400/20 shadow-cyan-900/5';
-                                                                    case 'pressure': return 'bg-gradient-to-br from-teal-900/40 via-emerald-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
-                                                                    default: return 'bg-black/10 border-white/5';
-                                                                }
-                                                            };
-                                                            const themeClass = getTheme(id);
-                                                            return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
-
-                                                {/* ROW 3: Sea Temp, Drift, Set */}
-                                                <div className="px-0 shrink-0 mt-1.5">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
-                                                        {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
-                                                            const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
-                                                            const getTheme = (wid: string) => {
-                                                                switch (wid) {
-                                                                    case 'waterTemp': return 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
-                                                                    case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
-                                                                    case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
-                                                                    default: return 'bg-black/10 border-white/5';
-                                                                }
-                                                            };
-                                                            const themeClass = getTheme(id);
-                                                            return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
-                                                                </div>
-                                                            )
-                                                        })}
-                                                    </div>
-                                                </div>
                                             </div>
                                         )}
                                     </>
