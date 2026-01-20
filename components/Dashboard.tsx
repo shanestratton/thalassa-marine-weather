@@ -140,7 +140,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 guiDetails={data.tideGUIDetails}
                                 coordinates={data.coordinates}
                                 locationType={data.locationType}
-                                className="pt-20" // Fine-tuned: Reduced from pt-28
+                                className="pt-20" // Fine-tuned: Moved up to pt-20 (User req: one more crlf)
                                 onTimeSelect={setSelectedTime}
                                 customTime={selectedTime}
                             />
