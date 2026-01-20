@@ -132,7 +132,7 @@ export const HeroSection = ({
                 className="w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide flex flex-col"
             >
                 {dayRows.map((row, rIdx) => (
-                    <div key={rIdx} className="w-full h-full snap-start shrink-0 flex flex-col">
+                    <div key={rIdx} className="w-full h-auto snap-start shrink-0 flex flex-col">
                         <HeroSlide
                             index={rIdx}
                             data={row.data}
