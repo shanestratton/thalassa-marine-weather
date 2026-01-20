@@ -35,7 +35,16 @@ const renderHeroWidget = (
 
     // Helper to render trend arrow
     const renderTrend = (t?: string, inverse = false) => {
-        if (!t || t === 'steady' || t === 'neutral') return null;
+        if (!t || t === 'neutral') return null;
+
+        if (t === 'steady') {
+            return (
+                <div className="flex items-center ml-1.5 opacity-60">
+                    <MinusIcon className="w-2.5 h-2.5" />
+                </div>
+            );
+        }
+
         const isUp = t === 'rising';
 
         // Color Logic:
@@ -100,20 +109,22 @@ const renderHeroWidget = (
             );
         case 'wave':
             return (
-                <div className="flex flex-col h-full justify-between">
+                <div className="flex flex-col h-full justify-between w-full">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
                         <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waveHeight}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
+                            {values.waveHeight || '--'}
+                        </span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units?.length || 'm'}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
+                    <div className="flex items-center gap-1 mt-auto pt-1 w-full">
                         <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
                             <ClockIcon className="w-2.5 h-2.5" />
-                            {data.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
+                            {(data?.swellPeriod) ? `${Math.round(data.swellPeriod)} s` : '--'}
                         </div>
                     </div>
                 </div>
@@ -914,7 +925,7 @@ export const HeroSlide = React.memo(({
                         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
 
                             {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
-                            <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group h-[140px] border shadow-lg ${isCardDay
+                            <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
                                 ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
                                 : 'bg-gradient-to-br from-indigo-900/20 via-slate-900/40 to-black/40 border-indigo-400/20 shadow-indigo-900/5'
                                 } `}>
@@ -922,16 +933,13 @@ export const HeroSlide = React.memo(({
                                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
 
                                 {/* TOP SECTION (Split 58/42) */}
-                                {/* TOP SECTION (Split 58/42) */}
-                                <div className="flex flex-row w-full flex-1 border-b border-white/5 h-[90px]">
+                                <div className="flex flex-row w-full flex-1 border-b border-white/5 min-h-[70%]">
                                     {/* LEFT PARTITION (Conditions)-~58% */}
-                                    <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10 gap-2">
+                                    <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10">
 
-                                        {/* Main Temp + Hi/Low + Desc + Dew */}
-                                        <div className="flex flex-col justify-between gap-0.5 w-full min-w-0">
-                                            {/* ROW 1: Temp & Hi/Low */}
-                                            <div className="flex items-center gap-2 md:gap-3 -translate-y-1">
-                                                {/* Main Temp */}
+                                        {/* Main Temp + Condition */}
+                                        <div className="flex flex-col justify-between gap-0.5">
+                                            <div className="flex items-start">
                                                 {(() => {
                                                     const tempStr = cardDisplayValues.airTemp.toString();
                                                     const len = tempStr.length;
@@ -939,79 +947,69 @@ export const HeroSlide = React.memo(({
                                                     const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
 
                                                     return (
-                                                        <div className="flex items-start leading-none relative">
-                                                            <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
-                                                                {cardDisplayValues.airTemp}°
-                                                            </span>
-                                                        </div>
+                                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none -translate-y-2 transition-all duration-300`}>
+                                                            {cardDisplayValues.airTemp}°
+                                                        </span>
                                                     )
                                                 })()}
-
-                                                {/* Hi/Low (Moved Here - Vertical Stack) */}
-                                                <div className="flex flex-col gap-0.5 mt-1 border-l border-white/10 pl-2">
-                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-white leading-none">
-                                                        <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
-                                                        {cardDisplayValues.highTemp}°
-                                                    </div>
-                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400 leading-none">
-                                                        <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
-                                                        {cardDisplayValues.lowTemp}°
-                                                    </div>
-                                                </div>
+                                                <span className="text-sm font-bold text-white/50 mt-1 ml-0.5">{units.temp}</span>
                                             </div>
-
-                                            {/* ROW 2: Condition & Dew Point */}
-                                            <div className="flex items-center gap-2 pl-0.5">
-                                                <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 truncate max-w-[110px] ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
-                                                    cardData.condition?.includes('POURING') ? 'text-orange-400' :
-                                                        cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
-                                                            'text-sky-300'
-                                                    } `}>
-                                                    {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
-                                                </span>
-
-                                                {/* Dew Point (Moved Here - Dot Separator) */}
-                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-300 opacity-80 border-l border-white/10 pl-2">
-                                                    <span className="text-[8px] uppercase tracking-wider text-indigo-300/50">Dew</span>
-                                                    {cardData.dewPoint !== undefined ? convertTemp(cardData.dewPoint, units.temp) : '--'}°
-                                                </div>
-                                            </div>
+                                            <span className={`text-[10px] md: text-xs font-bold uppercase tracking-widest opacity-90 pl-1 ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
+                                                cardData.condition?.includes('POURING') ? 'text-orange-400' :
+                                                    cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
+                                                        'text-sky-300'
+                                                } `}>
+                                                {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
+                                            </span>
                                         </div>
 
-                                        {/* Detail Stack (Right Aligned - Remaining Items) */}
-                                        {/* Feels, Cloud, Rain -> Clean Stack */}
-                                        <div className="flex flex-col justify-center items-end h-full py-0.5 gap-1.5 min-w-[50px] border-l border-white/5 pl-2 ml-1">
-                                            {/* Feels Like */}
-                                            <div className={`flex items-center gap-1 justify-end ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''}`}>
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Feels</span>
-                                                <span className="text-[10px] font-bold text-orange-200 text-right">
-                                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°
+                                        {/* Detail Stack (Right Aligned-Squashed 4 Lines) */}
+                                        <div className="flex flex-col justify-between items-end h-full py-0.5">
+                                            {/* 1. Hi/Lo */}
+                                            <div className="flex items-center gap-2 text-xs font-bold leading-none -translate-y-1.5">
+                                                <div className="flex items-center gap-0.5 text-white">
+                                                    <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
+                                                    {cardDisplayValues.highTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
+                                                </div>
+                                                <div className="w-px h-2.5 bg-white/20" />
+                                                <div className="flex items-center gap-0.5 text-gray-300">
+                                                    <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
+                                                    {cardDisplayValues.lowTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* 2. Feels Like */}
+                                            <div className="flex items-center gap-1.5 justify-end">
+                                                <span className={`text-[9px] font-bold uppercase tracking-wider text-slate-400 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>Feels Like</span>
+                                                <span className={`text-xs font-bold text-orange-200 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>
+                                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°<span className="text-[9px] text-orange-200/50 ml-0.5">{units.temp}</span>
                                                 </span>
                                             </div>
 
-                                            {/* Cloud */}
-                                            <div className="flex items-center gap-1 justify-end">
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Cloud</span>
-                                                <span className="text-[10px] font-bold text-gray-300 text-right">{Math.round(cardData.cloudCover || 0)}%</span>
+                                            {/* 4. Cloud */}
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-gray-300 justify-end translate-y-0.5">
+                                                <CloudIcon className="w-2.5 h-2.5" />
+                                                {Math.round(cardData.cloudCover || 0)}%
+                                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 ml-0.5">Clouds</span>
                                             </div>
 
-                                            {/* Rain */}
-                                            <div className="flex items-center gap-1 justify-end">
-                                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider text-right">Rain</span>
-                                                <span className="text-[10px] font-bold text-cyan-300 text-right">{cardDisplayValues.precip}</span>
+                                            {/* 3. Rain */}
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-cyan-300 justify-end">
+                                                <RainIcon className="w-2.5 h-2.5" />
+                                                {cardData.precipValue || '0.0 mm'}
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* RIGHT PARTITION (Clock/Label)-~42% */}
-                                    <div className="flex flex-col justify-between items-end p-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
-                                        <div className="w-full flex justify-start items-end flex-col -translate-y-1.5">
+                                    <div className="flex flex-col justify-between items-start p-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
+                                        <div className="w-full flex justify-start items-start flex-col -translate-y-1.5">
                                             {/* TOP LINE */}
-                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-xs md: text-sm tracking-[0.2em] leading-none mb-1 w-full text-right`}>
+                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-xs md: text-sm tracking-[0.2em] leading-none mb-1 w-full text-left`}>
                                                 {cardIsLive ? "TODAY" : "FORECAST"}
                                             </span>
                                             {/* MIDDLE LINE */}
-                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-black tracking-tighter leading-none w-full text-right whitespace-nowrap mb-0.5`}>
+                                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-black tracking-tighter leading-none w-full text-left whitespace-nowrap mb-0.5`}>
                                                 {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
                                             </span>
                                         </div>
@@ -1019,7 +1017,7 @@ export const HeroSlide = React.memo(({
                                         {/* BOTTOM LINE: Hour Range */}
                                         {/* Unified Logic: Show if Live OR (Hourly + hTime) */}
                                         {(cardIsLive || (isHourly && hTime)) ? (
-                                            <span className={`text-sm md: text-base font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1 text-right`}>
+                                            <span className={`text-sm md: text-base font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1`}>
                                                 {cardIsLive ? (() => {
                                                     const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
                                                     const nextDate = new Date();
@@ -1127,6 +1125,7 @@ export const HeroSlide = React.memo(({
                                 // We accept that Offshore is slightly taller than the "Compressed" 240px version,
                                 // but this prioritizes "Uniform Box Size" which seems to be the user's main visual cue.
 
+                                // FIX: Use FIXED height instead of min-height to prevent layout "farting" (shifting) during data updates.
                                 const rowHeightClass = "h-[85px] overflow-hidden";
 
                                 // FIX: Local Visual Time Calculation using Hoisted State
@@ -1149,7 +1148,7 @@ export const HeroSlide = React.memo(({
                                                     };
                                                     const themeClass = getTheme(id);
                                                     return (
-                                                        <div key={id} className={`rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                        <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                             {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                         </div>
                                                     )
@@ -1183,7 +1182,7 @@ export const HeroSlide = React.memo(({
                                             <>
                                                 {/* ROW 2: Visibility, Humidity, Pressure */}
                                                 <div className="px-0 shrink-0 mt-1.5">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                    <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                         {['visibility', 'humidity', 'pressure'].map((id: string, idx: number) => {
                                                             const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                             const getTheme = (wid: string) => {
@@ -1196,7 +1195,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )
@@ -1205,8 +1204,9 @@ export const HeroSlide = React.memo(({
                                                 </div>
 
                                                 {/* ROW 3: Sea Temp, Drift, Set */}
+                                                {/* ROW 3: Sea Temp, Drift, Set */}
                                                 <div className="px-0 shrink-0 mt-1.5 mb-6">
-                                                    <div className="flex flex-row gap-1.5 md:gap-2 relative z-10 w-full pb-0">
+                                                    <div className="grid grid-cols-3 gap-1.5 md:gap-2 relative z-10 w-full pb-0">
                                                         {['waterTemp', 'currentSpeed', 'currentDirection'].map((id: string, idx: number) => {
                                                             const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                             const getTheme = (wid: string) => {
@@ -1219,7 +1219,7 @@ export const HeroSlide = React.memo(({
                                                             };
                                                             const themeClass = getTheme(id);
                                                             return (
-                                                                <div key={id} className={`flex-1 min-w-[30%] rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                <div key={id} className={`w-full rounded-xl p-2 md:p-3 relative flex flex-col justify-center ${rowHeightClass} shrink-0 backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
                                                                     {renderHeroWidget(id, cardData, cardDisplayValues, units, cardIsLive, trends)}
                                                                 </div>
                                                             )

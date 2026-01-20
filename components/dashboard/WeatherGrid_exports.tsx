@@ -12,7 +12,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
 
     if (!alerts || alerts.length === 0) {
         return (
-            <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-5 flex items-center gap-3 backdrop-blur-md mb-2">
+            <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-3 backdrop-blur-md mb-2">
                 <div className="p-1.5 bg-emerald-500/20 rounded-full">
                     <CheckIcon className="w-4 h-4 text-emerald-400" />
                 </div>
@@ -27,7 +27,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     return (
         <button
             onClick={() => setPage('warnings')}
-            className="w-full bg-red-500 hover:bg-red-600 transition-colors border border-red-400/50 rounded-xl p-5 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 cursor-pointer mb-2 group"
+            className="w-full bg-red-500 hover:bg-red-600 transition-colors border border-red-400/50 rounded-xl p-3 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 cursor-pointer mb-2 group"
         >
             <div className="flex items-center gap-2.5">
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
