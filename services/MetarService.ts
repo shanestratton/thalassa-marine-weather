@@ -75,7 +75,7 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
 
     // 1. DATABASE TARGET (Primary)
     // "Use this file to find our closest airport" - User Requirement
-    console.log(`[log] - [METAR GEO] Searching DB for ${lat}, ${lon}`);
+    // console.log(`[log] - [METAR GEO] Searching DB for ${lat}, ${lon}`);
     const dbTarget = findNearestAirport(lat, lon);
 
     if (dbTarget) {
@@ -85,16 +85,16 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
             // Attempt Direct Fetch
             const obs = await fetchMetarObservation(dbTarget.icao);
             if (obs) {
-                console.log(`[log] - [METAR GEO] DB Hit: ${dbTarget.name} (${dbTarget.icao})`);
+                // console.log(`[log] - [METAR GEO] DB Hit: ${dbTarget.name} (${dbTarget.icao})`);
                 return obs;
             } else {
-                console.log(`[METAR GEO] DB Found ${dbTarget.icao} but fetch failed/empty.`);
+                // console.log(`[METAR GEO] DB Found ${dbTarget.icao} but fetch failed/empty.`);
             }
         } catch (e) {
             console.error(`[METAR GEO] Database Fetch Error:`, e);
         }
     } else {
-        console.log(`[log] - [METAR GEO] No DB match within range.`);
+        // console.log(`[log] - [METAR GEO] No DB match within range.`);
     }
 
     // 2. DYNAMIC SEARCH (Fallback)
