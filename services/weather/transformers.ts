@@ -52,7 +52,9 @@ export const mapStormGlassToReport = (
     model: string = 'sg',
     astro?: any[], // Pass astronomy data
     metarData?: LocalObservation | null,
-    existingLocationType?: 'coastal' | 'offshore' | 'inland'
+    existingLocationType?: 'coastal' | 'offshore' | 'inland',
+    timeZone?: string,
+    utcOffset?: number
 ): MarineWeatherReport => {
     // 1. Current Conditions
     const now = new Date();
@@ -430,6 +432,8 @@ export const mapStormGlassToReport = (
         boatingAdvice: advice,
         isLandlocked: locType === 'inland',
         locationType: locType,
-        alerts: generateSafetyAlerts(current, dailies[0]?.highTemp, dailies)
+        alerts: generateSafetyAlerts(current, dailies[0]?.highTemp, dailies),
+        timeZone,
+        utcOffset
     };
 };

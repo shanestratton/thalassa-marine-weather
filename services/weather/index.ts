@@ -199,7 +199,8 @@ export const fetchPrecisionWeather = async (
         const cached = getFromCache(name);
         // Only return if it's a StormGlass cached report (High Quality)
         // If we only have OpenMeteo cached, we might want to upgrade to SG now.
-        if (cached && cached.modelUsed.includes('sg')) {
+        // FIX: Also check if utcOffset is present (ensure TZ fix is applied)
+        if (cached && cached.modelUsed.includes('sg') && cached.utcOffset !== undefined) {
 
             return cached;
         }

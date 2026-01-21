@@ -47,8 +47,8 @@ export const fetchStormGlassWeather = async (
             const marineBaseUrl = omKey ? "https://customer-api.open-meteo.com/v1/forecast" : "https://marine-api.open-meteo.com/v1/marine";
 
             // FIX: Added hourly=uv_index to support Current Card UV display
-            // FIX: Added timezone=UTC to align with StormGlass ISO strings
-            const weatherUrl = `${baseUrl}/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max&hourly=uv_index&timezone=UTC${omKey ? `&apikey=${omKey}` : ''}`;
+            // FIX: Changed timezone=UTC to timezone=auto to get location's offset
+            const weatherUrl = `${baseUrl}/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max&hourly=uv_index&timezone=auto${omKey ? `&apikey=${omKey}` : ''}`;
 
             // Fetch Marine (Waves) using Ring Search (Proximity)
             let distToWaterIdx = 9999;
@@ -117,13 +117,29 @@ export const fetchStormGlassWeather = async (
     if (hybridData?.weather?.hourly?.uv_index && weatherRes?.hours) {
         const omTimes = hybridData.weather.hourly.time as string[];
         const omValues = hybridData.weather.hourly.uv_index as number[];
+        const omOffset = hybridData.weather.utc_offset_seconds || 0;
 
         weatherRes.hours.forEach(h => {
-            // Match Times: SG is "2026-01-14T00:00:00+00:00", OM (UTC) is "2026-01-14T00:00"
-            const sgBrief = h.time.slice(0, 16);
-            const idx = omTimes.indexOf(sgBrief);
-            if (idx !== -1) {
-                h.uvIndex = omValues[idx];
+            // Match Times: SG is "2026-01-14T00:00:00+00:00" (UTC)
+            // OM (Auto) is "2026-01-14T10:00" (Local).
+            // Convert OM Local -> UTC to match SG.
+            // Formula: Local - Offset = UTC.
+            // Create Date from "T10:00" treated as UTC (Z), then subtract offset.
+
+            const sgTime = new Date(h.time).getTime();
+
+            // Find matching OM time
+            // Because OM returns aligned hours, we can theoretically rely on index if start times matched. 
+            // But robust way:
+            const matchIdx = omTimes.findIndex(tStr => {
+                // TStr: "2026-01-14T10:00"
+                const localEp = new Date(tStr + "Z").getTime(); // Treat as UTC
+                const utcEp = localEp - (omOffset * 1000);
+                return Math.abs(utcEp - sgTime) < 100000; // Within tolerance
+            });
+
+            if (matchIdx !== -1) {
+                h.uvIndex = omValues[matchIdx];
             }
         });
     }
@@ -151,7 +167,9 @@ export const fetchStormGlassWeather = async (
         'sg',
         astronomy,
         metar,
-        existingLocationType
+        existingLocationType,
+        hybridData?.weather?.timezone, // NEW: Timezone String
+        hybridData?.weather?.utc_offset_seconds // NEW: UTC Offset
     );
 
     // 4. Calculate Location Type (if not forced)

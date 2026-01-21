@@ -19,7 +19,8 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
             dStr = now.toLocaleDateString('en-US', { timeZone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
         } else if (utcOffset !== undefined) {
             // Manual Shift: Time = UTC + Offset. Display as UTC.
-            const targetTime = new Date(now.getTime() + (utcOffset * 3600000));
+            // API returns utcOffset in SECONDS. Convert to MS.
+            const targetTime = new Date(now.getTime() + (utcOffset * 1000));
             // We use 'UTC' as the timezone to display the shifted time "as is"
             tStr = targetTime.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
             dStr = targetTime.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
