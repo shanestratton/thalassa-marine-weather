@@ -565,7 +565,7 @@ export const HeroSlide = React.memo(({
     }, [effectiveData, fullHourly, visualTime]);
 
     // Debug Log for Trends
-    console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
+    // console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
 
     // Vertical Scroll Reset Logic
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)
@@ -1429,15 +1429,24 @@ export const HeroSlide = React.memo(({
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
     }, []);
 
-    // Emit Time Selection on horizontal scroll
-    // FIXED: Discrete "Snap" Logic (High Performance)
-    // Instead of continuous updates (which felt sluggish due to React overhead),
-    // we only update when the card explicitly snaps to a new index.
+    // EMIT Time Selection (Debounced for smoothness)
+    // We update the local state INSTANTLY for UI feedback (dots),
+    // but debounce the expensive parent callback (Context/Chart updates).
+    const debouncedTimeSelect = useMemo(() => {
+        let timeout: any;
+        return (time: number | undefined) => {
+            if (timeout) clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                if (onTimeSelect) onTimeSelect(time);
+            }, 100); // 100ms debounce
+        };
+    }, [onTimeSelect]);
+
     const handleHScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const x = e.currentTarget.scrollLeft;
         const w = e.currentTarget.clientWidth;
 
-        if (w === 0) return; // Prevent division by zero / hidden layout issues
+        if (w === 0) return;
 
         // Calculate new Snap Index
         const newIdx = Math.round(x / w);
@@ -1446,7 +1455,7 @@ export const HeroSlide = React.memo(({
         if (newIdx !== activeHIdx) {
             setActiveHIdx(newIdx);
 
-            if (!onTimeSelect || !isVisible) return;
+            if (!isVisible) return;
 
             // Calculate Target Time based on Index
             let targetTime: number | undefined = undefined;
@@ -1468,8 +1477,8 @@ export const HeroSlide = React.memo(({
                 if (hItem) targetTime = new Date(hItem.time).getTime();
             }
 
-            // INSTANT UPDATE (No Debounce)
-            onTimeSelect(targetTime);
+            // DEBOUNCED UPDATE
+            debouncedTimeSelect(targetTime);
         }
     };
 
@@ -1500,7 +1509,8 @@ export const HeroSlide = React.memo(({
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHScroll}
-                    className="relative z-10 w-full h-auto shrink-0 overflow-x-scroll scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0 will-change-scroll"
+                    className="relative z-10 w-full h-auto shrink-0 overflow-x-scroll scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0 will-change-scroll contain-paint"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
                 >
 
                     {/* 1. MAIN DAY CARD (Only for Today/Index 0) */}
