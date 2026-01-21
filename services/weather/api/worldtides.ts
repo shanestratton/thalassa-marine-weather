@@ -26,7 +26,7 @@ export const fetchWorldTides = async (
     // datum=LAT (Chart Datum) is standard for nautical.
     // stations=true allows snapping to virtual/real stations if needed, but we used lat/lon here.
     // REMOVED 'heights' to save bandwidth/credits, we only map 'extremes' in tides.ts
-    const url = `${BASE_URL}?extremes&lat=${lat}&lon=${lon}&days=${days}&datum=LAT&stationDistance=50&start=${start}&key=${key}`;
+    const url = `${BASE_URL}?extremes&lat=${lat}&lon=${lon}&days=${days}&datum=LAT&stationDistance=100&start=${start}&key=${key}`;
 
     try {
 

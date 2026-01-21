@@ -10,12 +10,10 @@ import { calculateDistance } from '../utils';
 // import { useSmartRefresh } from '../hooks/useSmartRefresh'; // (Commented out if logic is inline, but it was imported before. Keeping import locally if needed, but logic seems inline in previous file)
 // Reviewing previous file... Logic WAS inline in lines 439-491. So I will keep it inline for now to minimize risk.
 
-import { saveLargeData, loadLargeData, deleteLargeData } from '../services/nativeStorage';
+import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
-const CACHE_VERSION = 'v18.1-FILESYSTEM';
-const DATA_CACHE_KEY = 'thalassa_weather_cache_v5';
-const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
-const HISTORY_CACHE_KEY = 'thalassa_history_cache_v2';
+const CACHE_VERSION = 'v19.0-FIX';
+// Keys imported from nativeStorage to stay in sync
 const BASE_UPDATE_INTERVAL = 30 * 60 * 1000; // 30 mins
 const UNSTABLE_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 mins
 const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours

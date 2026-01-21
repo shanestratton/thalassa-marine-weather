@@ -1,8 +1,8 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
-const DATA_CACHE_KEY = 'thalassa_weather_cache_v6';
-const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
-const HISTORY_CACHE_KEY = 'thalassa_history_cache_v2';
+export const DATA_CACHE_KEY = 'thalassa_weather_cache_v8';
+export const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
+export const HISTORY_CACHE_KEY = 'thalassa_history_cache_v3';
 
 // --- DEBOUNCE TIMERS ---
 const saveTimers: Record<string, NodeJS.Timeout> = {};
@@ -71,7 +71,21 @@ export const loadLargeData = async (key: string) => {
                 encoding: Encoding.UTF8,
             });
 
-            return JSON.parse(contents.data as string);
+            const data = JSON.parse(contents.data as string);
+
+            // POISON PILL: Check for Corrupted Future Data (2030 Bug)
+            // If we detect data from 2028+, we NUKE this cache hit immediately.
+            if (data && data.hourly && Array.isArray(data.hourly) && data.hourly.length > 0) {
+                const poisonThreshold = new Date('2028-01-01').getTime();
+                const hasCorruption = data.hourly.some((h: any) => new Date(h.time).getTime() > poisonThreshold);
+
+                if (hasCorruption) {
+                    console.warn(`[Filesystem] Invalidating corrupt cache (2028+ dates detected).`);
+                    return null;
+                }
+            }
+
+            return data;
         } catch (readErr) {
             console.warn(`[Filesystem] Error parsing ${fileName}`, readErr);
         }

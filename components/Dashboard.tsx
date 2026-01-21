@@ -27,6 +27,7 @@ interface DashboardProps {
     viewMode?: 'overview' | 'details';
 }
 
+// Main Component
 export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // 1. Controller Hook (Encapsulated Logic)

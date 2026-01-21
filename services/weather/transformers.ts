@@ -63,6 +63,33 @@ export const mapStormGlassToReport = (
     let currentHour = hours[0];
     let minDiff = Infinity;
 
+    // FIX: Sanity Filter for Data Corruption (Year 2030 Bug)
+    // Filter out hours that are wildly in the past (>24h ago) or too far in future (>15 days)
+    // This strips the bad test data causing the vertical cards to fail.
+    const safeMin = nowTime - (24 * 60 * 60 * 1000);
+    const safeMax = nowTime + (15 * 24 * 60 * 60 * 1000);
+
+    const validHours = hours.filter(h => {
+        const t = new Date(h.time).getTime();
+        return t >= safeMin && t <= safeMax;
+    });
+
+    if (validHours.length > 0) {
+        hours = validHours;
+    } else {
+        console.error(`[Transformers] CRITICAL: 100% of data is corrupt (Dates outside of ${new Date(safeMin).toISOString()} - ${new Date(safeMax).toISOString()}).`);
+        console.error(`[Transformers] Sample Bad Date: ${hours[0]?.time}`);
+        // Return empty or throw, do NOT use bad data.
+        // Returning a dummy report with error flag/status to force UI to handle it gracefully?
+        // For now, let's allow it but log heavily. Actually, let's EMPTY the hours to force blank UI instead of incorrectly labeled cards.
+        // hours = []; // This might crash UI if it expects hours[0].
+        // currentHour will be undefined below and throw "Stormglass returned no data"
+        // This is BETTER than showing 2030 data.
+        throw new Error("Data Corruption: All weather data is date-invalid (2028-2030 Bug). Aborting transform.");
+    }
+
+    currentHour = hours[0];
+
     for (const h of hours) {
         const diff = Math.abs(new Date(h.time).getTime() - nowTime);
         if (diff < minDiff) {

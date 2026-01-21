@@ -15,6 +15,43 @@ const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: st
     }, apiKey).then(r => r.data).catch(() => []);
 };
 
+// FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
+// This restores the Tide Graph without needing the expensive SeaLevel API.
+const interpolateTides = (tides: any[]): any[] => {
+    if (!tides || tides.length < 2) return [];
+
+    const sorted = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const interpolated: any[] = [];
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const start = sorted[i];
+        const end = sorted[i + 1];
+
+        const tStart = new Date(start.time).getTime();
+        const tEnd = new Date(end.time).getTime();
+        const hStart = start.height;
+        const hEnd = end.height;
+
+        // Step every 30 mins
+        for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
+            // Ratio (0 to 1)
+            const ratio = (t - tStart) / (tEnd - tStart);
+
+            // Cosine Interpolation: y(t) = mu2 + (y1 - y2)/2 * cos(pi*t) ? 
+            // Formula: y = (y1 + y2)/2 + (y1 - y2)/2 * cos(x * pi)
+            // At x=0 (start), cos=1 => (y1+y2+y1-y2)/2 = y1. 
+            // At x=1 (end), cos=-1 => (y1+y2-y1+y2)/2 = y2. Correct.
+            const height = (hStart + hEnd) / 2 + (hStart - hEnd) / 2 * Math.cos(ratio * Math.PI);
+
+            interpolated.push({
+                time: new Date(t).toISOString(),
+                sg: height // Use 'sg' field as carrier for 'height' in meters
+            });
+        }
+    }
+    return interpolated;
+};
+
 export const fetchStormGlassWeather = async (
     lat: number,
     lon: number,
@@ -92,6 +129,11 @@ export const fetchStormGlassWeather = async (
 
     // 2. SECONDARY: Fetch supplements safely
     // If these fail, we log warning but continue with defaults
+    // DEBUG: Trace Source of 2030 Dates
+    if (weatherRes && weatherRes.hours && weatherRes.hours.length > 0) {
+        console.log(`[StormGlass API] Raw First Hour: ${weatherRes.hours[0].time} | Count: ${weatherRes.hours.length}`);
+    }
+
     const [tidesRes, astronomy, metar, hybridData] = await Promise.all([
         fetchRealTides(lat, lon).catch(e => {
             console.warn("[SG] Tides (WT) Fetch Failed", e);
@@ -163,13 +205,14 @@ export const fetchStormGlassWeather = async (
         name,
         hybridData?.weather?.daily, // Pass only the daily part to transformer
         tides,
-        [], // seaLevels REMOVED
+        // seaLevels: Use interpolated tides if available to restore graph!
+        tides.length > 0 ? interpolateTides(tides) : [],
         'sg',
         astronomy,
         metar,
         existingLocationType,
         hybridData?.weather?.timezone, // NEW: Timezone String
-        hybridData?.weather?.utc_offset_seconds // NEW: UTC Offset
+        hybridData?.weather?.utc_offset_seconds ? (hybridData.weather.utc_offset_seconds / 3600) : undefined // NEW: UTC Offset (Hours)
     );
 
     // 4. Calculate Location Type (if not forced)
