@@ -23,7 +23,8 @@ export const HeroSection = ({
     guiDetails,
     locationType,
     onTimeSelect,
-    customTime
+    customTime,
+    utcOffset
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -44,7 +45,8 @@ export const HeroSection = ({
     coordinates?: { lat: number, lon: number },
     locationType?: 'coastal' | 'offshore' | 'inland',
     onTimeSelect?: (time: number | undefined) => void,
-    customTime?: number // Received from Dashboard state
+    customTime?: number, // Received from Dashboard state
+    utcOffset?: number
 }) => {
 
     const { settings, updateSettings } = useSettings();
@@ -117,6 +119,7 @@ export const HeroSection = ({
             if (scrollRef.current) {
                 scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
             }
+            if (onTimeSelect) onTimeSelect(undefined);
         };
         window.addEventListener('hero-reset-scroll', handleReset);
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
@@ -129,7 +132,7 @@ export const HeroSection = ({
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide flex flex-col"
+                className="w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide flex flex-col gap-6 pb-[50vh]"
             >
                 {dayRows.map((row, rIdx) => (
                     <div key={rIdx} className="w-full h-auto snap-start shrink-0 flex flex-col">
@@ -158,6 +161,7 @@ export const HeroSection = ({
                             generatedAt={generatedAt}
                             onTimeSelect={onTimeSelect}
                             isVisible={activeIndex === rIdx}
+                            utcOffset={utcOffset}
                         />
                     </div>
                 ))}

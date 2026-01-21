@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-export const LocationClock = ({ timeZone }: { timeZone: string | undefined }) => {
+export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | undefined, utcOffset?: number }) => {
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
@@ -14,8 +14,20 @@ export const LocationClock = ({ timeZone }: { timeZone: string | undefined }) =>
     let dStr = '';
 
     try {
-        tStr = now.toLocaleTimeString('en-US', timeZone ? { timeZone, hour: 'numeric', minute: '2-digit' } : { hour: 'numeric', minute: '2-digit' });
-        dStr = now.toLocaleDateString('en-US', timeZone ? { timeZone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' } : { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        if (timeZone) {
+            tStr = now.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
+            dStr = now.toLocaleDateString('en-US', { timeZone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        } else if (utcOffset !== undefined) {
+            // Manual Shift: Time = UTC + Offset. Display as UTC.
+            const targetTime = new Date(now.getTime() + (utcOffset * 3600000));
+            // We use 'UTC' as the timezone to display the shifted time "as is"
+            tStr = targetTime.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
+            dStr = targetTime.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        } else {
+            // Fallback to Device Time
+            tStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            dStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        }
     } catch (e) {
         // Fallback to local time if timezone is invalid
         tStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
