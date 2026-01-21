@@ -1500,16 +1500,18 @@ export const HeroSlide = React.memo(({
     */
 
     const totalCards = 1 + hourlyToRender.length;
+    console.log('[HeroSlide DEBUG]', { index, totalCards, hourlyLen: hourlyToRender.length, hourlyRaw: hourly?.length });
 
     return (
         <div className="w-full min-w-full h-auto relative flex flex-col justify-start">
             <div className="relative w-full h-auto rounded-3xl overflow-hidden backdrop-blur-md flex flex-col border-none bg-transparent shadow-2xl shrink-0">
 
                 {/* HORIZONTAL CAROUSEL WRAPPER (Inner Axis) */}
+                {/* HORIZONTAL CAROUSEL WRAPPER (Inner Axis) */}
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHScroll}
-                    className="relative z-10 w-full h-auto shrink-0 overflow-x-scroll scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0 will-change-scroll contain-paint"
+                    className="relative z-10 w-full h-auto shrink-0 overflow-x-scroll scrollbar-hide flex flex-row pointer-events-auto snap-x snap-mandatory pb-0"
                     style={{ WebkitOverflowScrolling: 'touch' }}
                 >
 
