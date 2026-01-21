@@ -351,7 +351,8 @@ export const HeroSlide = React.memo(({
     generatedAt,
     onTimeSelect,
     isVisible = false,
-    utcOffset
+    utcOffset,
+    tideHourly
 }: {
     data: WeatherMetrics,
     index: number,
@@ -375,7 +376,8 @@ export const HeroSlide = React.memo(({
     generatedAt?: string,
     onTimeSelect?: (time: number | undefined) => void,
     isVisible?: boolean,
-    utcOffset?: number
+    utcOffset?: number,
+    tideHourly?: TidePoint[]
 }) => {
     const { nextUpdate } = useWeather();
 
@@ -386,43 +388,48 @@ export const HeroSlide = React.memo(({
     // 2. HOISTED DATA PREPARATION
     // Filter out the first hourly item (current hour) to avoid duplication with 'Now' card
     const hourlyToRender = React.useMemo(() => {
-        if (!hourly || hourly.length === 0) return [];
+        try {
+            if (!hourly || !Array.isArray(hourly) || hourly.length === 0) return [];
 
-        if (index === 0) {
-            // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
-            const now = new Date(); // Absolute Now
+            if (index === 0) {
+                // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
+                const now = new Date(); // Absolute Now
 
-            // Get Current Location Date String (YYYY-MM-DD)
-            // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
-            let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+                // Get Current Location Date String (YYYY-MM-DD)
+                // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
+                let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // Validate timezone
-            try {
-                Intl.DateTimeFormat(undefined, { timeZone: safeZone });
-            } catch (e) {
-                safeZone = 'UTC';
+                // Validate timezone
+                try {
+                    Intl.DateTimeFormat(undefined, { timeZone: safeZone });
+                } catch (e) {
+                    safeZone = 'UTC';
+                }
+
+                const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
+
+                // Filter: Time > Now (Absolute) AND Date == Today (Local)
+                const futureHourly = hourly.filter(h => {
+                    if (!h || !h.time) return false;
+                    const t = new Date(h.time);
+
+                    // 1. Must be in the future (absolute)
+                    if (t.getTime() <= now.getTime()) return false;
+
+                    // 2. Must be TODAY (Local Time)
+                    // This prevents scrolling past midnight into tomorrow's data
+                    const hDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
+                    return hDateStr === nowLocDateStr;
+                });
+
+                return futureHourly;
+            } else {
+                // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
+                return hourly;
             }
-
-            const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
-
-            // Filter: Time > Now (Absolute) AND Time is Same Day (Location)
-            return hourly.filter(h => {
-                const t = new Date(h.time);
-
-                // 1. Must be in the future (absolute)
-                // Add a small buffer (5 mins) to ensure we don't show an hour that just started 1 min ago if "Now" covers it? 
-                // We want strict future hour.
-                const isFuture = t.getTime() > now.getTime();
-
-                // 2. Must be "Today" in Location Time
-                const itemLocDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
-                const isSameDay = itemLocDateStr === nowLocDateStr;
-
-                return isFuture && isSameDay;
-            });
-        } else {
-            // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
-            return hourly;
+        } catch (err) {
+            console.error('[CRITICAL] HeroSlide hourlyToRender crash:', err);
+            return [];
         }
     }, [hourly, index, timeZone]);
 
@@ -479,16 +486,27 @@ export const HeroSlide = React.memo(({
         if (currentSlot) {
             // CRITICAL FIX: Do NOT override "Current" data (which might be real METAR) with "Hourly" data (which is model forecast).
             // The 'data' prop comes from 'weather.current' which has 'Ground Truth' overrides.
-            // ...
             return {
-                ...data,
-                // Only update time-sensitive fields
-                uvIndex: currentSlot.uvIndex !== undefined ? currentSlot.uvIndex : data.uvIndex,
-                precipitation: currentSlot.precipitation,
-                feelsLike: currentSlot.feelsLike,
-                currentSpeed: (currentSlot.currentSpeed !== undefined && currentSlot.currentSpeed !== null) ? currentSlot.currentSpeed : data.currentSpeed,
-                currentDirection: (currentSlot.currentDirection !== undefined && currentSlot.currentDirection !== null) ? currentSlot.currentDirection : data.currentDirection,
-                waterTemperature: (currentSlot.waterTemperature !== undefined && currentSlot.waterTemperature !== null) ? currentSlot.waterTemperature : data.waterTemperature
+                ...data, // Keep base data structure
+                // STABILIZATION: Ensure WE NEVER RETURN UNDEFINED for these critical fields
+                uvIndex: currentSlot.uvIndex ?? data.uvIndex ?? 0,
+                precipitation: currentSlot.precipitation ?? 0,
+                feelsLike: currentSlot.feelsLike ?? currentSlot.temperature ?? data.airTemperature,
+                cloudCover: currentSlot.cloudCover ?? data.cloudCover ?? 0,
+                humidity: currentSlot.humidity ?? data.humidity ?? 0,
+                visibility: currentSlot.visibility ?? data.visibility ?? 10,
+
+                // Wind/Marine overrides
+                currentSpeed: currentSlot.currentSpeed ?? data.currentSpeed,
+                currentDirection: currentSlot.currentDirection ?? data.currentDirection,
+                waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
+
+                // Display Values
+                windSpeed: currentSlot.windSpeed ?? data.windSpeed,
+                windGust: currentSlot.windGust ?? data.windGust,
+                windDirection: currentSlot.windDirection ?? data.windDirection, // Keep string if available
+                waveHeight: currentSlot.waveHeight ?? data.waveHeight,
+                pressure: currentSlot.pressure ?? data.pressure
             };
         }
         return data;
@@ -511,10 +529,26 @@ export const HeroSlide = React.memo(({
         });
 
         if (currentIndex === -1) {
-            // Fallback: if we are "live" (index 0), try to compare with the previous hour in the array if available?
-            // Or if we can't find exact, maybe we are at the start of the array?
-            // If we can't find current, we can't compare.
-            return undefined;
+            // STABILIZATION: If exact match fails (e.g. slight time drift), 
+            // try to find the Closest slot instead of giving up.
+            // This prevents "flickering" arrows during scroll transitions.
+            let minDiff = Infinity;
+            let bestIdx = -1;
+            fullHourly.forEach((h, i) => {
+                const t = new Date(h.time).getTime();
+                const diff = Math.abs(t - now);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestIdx = i;
+                }
+            });
+
+            // Allow if within 2 hours
+            if (minDiff < 7200000 && bestIdx !== -1) {
+                currentIndex = bestIdx;
+            } else {
+                return undefined;
+            }
         }
 
 
@@ -531,9 +565,13 @@ export const HeroSlide = React.memo(({
             }
         }
 
+        // Final Safety
+        if (!baseItem) return undefined;
+
         const prev = baseItem;
 
         const getTrend = (curr?: number | null, old?: number | null, threshold = 0): 'rising' | 'falling' | 'steady' => {
+            // STABILIZATION: Treat 0 as a valid number, check for null/undefined strictly
             if (curr === undefined || curr === null || old === undefined || old === null) return 'steady';
             let diff = curr - old;
 
@@ -560,7 +598,6 @@ export const HeroSlide = React.memo(({
             precip: getTrend(current.precipitation, prev.precipitation, 0.1),
             feels: getTrend(current.feelsLike, prev.feelsLike, 1),
             clouds: getTrend(current.cloudCover, prev.cloudCover, 5)
-            // dew: getTrend(current.dewPoint, prev.dewPoint, 1) - Removed due to type mismatch
         };
     }, [effectiveData, fullHourly, visualTime]);
 
@@ -1086,9 +1123,15 @@ export const HeroSlide = React.memo(({
                                                     const end = new Date(hTime!);
                                                     end.setHours(start.getHours() + 1);
                                                     const strictFmt = (d: Date) => {
-                                                        const h = d.getHours();
-                                                        const m = d.getMinutes().toString().padStart(2, '0');
-                                                        return `${h.toString().padStart(2, '0')}:${m}`;
+                                                        // FIX: Use Location Timezone for "10:00 - 11:00" labels (e.g. Perth Time)
+                                                        // This replaces the device local time (d.getHours()).
+                                                        const opts: Intl.DateTimeFormatOptions = {
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                            hour12: false,
+                                                            timeZone: timeZone || 'UTC' // Fallback to UTC if unspecified
+                                                        };
+                                                        return d.toLocaleTimeString('en-US', opts);
                                                     };
                                                     return `${strictFmt(start)} - ${strictFmt(end)}`;
                                                 })()}
@@ -1226,7 +1269,7 @@ export const HeroSlide = React.memo(({
                                                         unit={units.tideHeight || 'm'}
                                                         timeZone={timeZone}
                                                         hourlyTides={[]}
-                                                        tideSeries={undefined}
+                                                        tideSeries={tideHourly}
                                                         modelUsed="WorldTides"
                                                         unitPref={units}
                                                         customTime={visualTime}
@@ -1500,7 +1543,7 @@ export const HeroSlide = React.memo(({
     */
 
     const totalCards = 1 + hourlyToRender.length;
-    console.log('[HeroSlide DEBUG]', { index, totalCards, hourlyLen: hourlyToRender.length, hourlyRaw: hourly?.length });
+    // console.log('[HeroSlide DEBUG]', { index, totalCards, hourlyLen: hourlyToRender.length, hourlyRaw: hourly?.length });
 
     return (
         <div className="w-full min-w-full h-auto relative flex flex-col justify-start">
@@ -1522,7 +1565,12 @@ export const HeroSlide = React.memo(({
                             className="w-full h-auto snap-start shrink-0 transform-gpu"
                             style={{ WebkitBackfaceVisibility: 'hidden', WebkitTransform: 'translate3d(0,0,0)' }}
                         >
-                            {renderCard(displayData as WeatherMetrics, false, undefined, rowDateLabel)}
+                            {/* STABILIZATION FIX: 
+                                Use 'data' (Live) directly instead of 'displayData' (Reactive).
+                                This prevents the "Now" card from changing its text to match the "Future" card
+                                as you scroll it off-screen. It stays "Now" forever. 
+                            */}
+                            {renderCard(data as WeatherMetrics, false, undefined, rowDateLabel)}
                         </div>
                     )}
 

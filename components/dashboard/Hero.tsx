@@ -50,7 +50,6 @@ export const HeroSection = ({
 }) => {
 
     const { settings, updateSettings } = useSettings();
-    console.log('[PROP_TRACE] HeroSection Render. onTimeSelect:', !!onTimeSelect, 'customTime:', customTime);
     const [activeIndex, setActiveIndex] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -76,11 +75,12 @@ export const HeroSection = ({
                 // Fallback to f.date if isoDate missing (though type says isoDate optional?)
                 // Assuming h.time follows ISO, we can match YYYY-MM-DD
                 let dayHourly: HourlyForecast[] = [];
-                if (targetDate && hourly) {
-                    dayHourly = hourly.filter(h => {
+                if (targetDate && hourly && Array.isArray(hourly)) {
+                    dayHourly = hourly.filter((h, debugIdx) => {
                         // FIX: Convert UTC timestamp to Local Date String using Location's Timezone
                         // This ensures that "00:00 Local" (which might be "14:00 Previous Day UTC") matches the target date.
                         const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
+
                         return localDateStr === targetDate;
                     });
                 }
@@ -100,7 +100,6 @@ export const HeroSection = ({
                 });
             });
         }
-
         return rows;
     }, [current, forecasts, hourly]);
 
@@ -143,7 +142,7 @@ export const HeroSection = ({
                             tides={tides}
                             settings={settings}
                             updateSettings={updateSettings}
-                            addDebugLog={() => { }} // No-op logger or pass prop if available?
+                            addDebugLog={undefined} // Stable undefined instead of new function
                             timeZone={timeZone}
                             locationName={locationName}
                             isLandlocked={isLandlocked}

@@ -59,14 +59,13 @@ export const useDashboardController = (
         return getSkipperLockerItems(current, settings.units.temp, isLandlocked, data?.locationName || '');
     }, [current, settings.units.temp, isLandlocked, data]);
 
-    // 3. Hourly Data (Timezone Adjusted)
+    // 3. Hourly Data (Raw UTC)
+    // We NO LONGER shift this manually because the UI components (HeroSlide) use Intl with timeZone.
+    // Double shifting caused "13:00" Local to become "23:00" Visual.
     const hourly = useMemo(() => {
         if (!data?.hourly) return [];
-        return data.hourly.map((h: any) => ({
-            ...h,
-            time: new Date(new Date(h.time).getTime() + (data.utcOffset || 0) * 3600000).toISOString() // Visual shift only
-        }));
-    }, [data?.hourly, data?.utcOffset]);
+        return data.hourly;
+    }, [data?.hourly]);
 
     // AUDIO LOGIC (Simplified for Controller)
 
