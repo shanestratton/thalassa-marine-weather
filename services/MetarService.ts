@@ -48,7 +48,17 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
 
     try {
         console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
-        const response = await CapacitorHttp.get({ url });
+
+        // Race between fetch and 5s timeout
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('METAR_TIMEOUT')), 5000)
+        );
+
+        const response = await Promise.race([
+            CapacitorHttp.get({ url }),
+            timeoutPromise
+        ]);
+
         console.log(`[METAR] Response status: ${response?.status}, hasData: ${!!response?.data}`);
 
         if (!response || response.status !== 200) {
@@ -81,8 +91,12 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
         return result;
 
-    } catch (error) {
-        console.error("METAR Error:", error);
+    } catch (error: any) {
+        if (error.message === 'METAR_TIMEOUT') {
+            console.error(`[METAR] ⏱️ Timeout after 5s for ${icaoCode}`);
+        } else {
+            console.error(`[METAR] ❌ Error:`, error.message || error);
+        }
         return null;
     }
 };
