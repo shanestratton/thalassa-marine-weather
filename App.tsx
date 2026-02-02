@@ -303,10 +303,12 @@ const App: React.FC = () => {
 
             </div>
 
+
             {effectiveMode === 'night' && (
                 <div className="fixed inset-0 z-[9999] pointer-events-none touch-none" style={{ backdropFilter: 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(600%) contrast(0.8) brightness(0.8)' }}></div>
-            <DebugPanel />
             )}
+
+            <DebugPanel />
         </div>
     );
 };
