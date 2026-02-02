@@ -81,19 +81,19 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         }
 
         const data = response.data;
+        console.log(`[METAR] ✅ Parsed ${icaoCode}`);
+        const data = response.data;
         console.log(`[METAR] Data type: ${typeof data}`);
-
-        // CheckWX returns { data: [metar_object] } structure
-        const metarArray = (data as any)?.data || data;
-
-        if (!Array.isArray(metarArray) || metarArray.length === 0) {
+        
+        // AVWX returns raw METAR object directly
+        if (!data) {
             console.warn(`[METAR] ❌ No METAR data for ${icaoCode}`);
             return null;
         }
 
-        const metarData = metarArray[0];
-        const result = parseMetar(metarData);
+        const result = parseMetar(data);
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
+        return result;
         return result;
 
     } catch (error: any) {
