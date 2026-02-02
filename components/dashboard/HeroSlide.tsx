@@ -998,6 +998,15 @@ export const HeroSlide = ({
     };
 
     // --- RENDER LOOP PREPARATION ---
+    // Safety: Only create slides if we have valid data
+    if (!data) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="text-gray-400">Loading weather data...</div>
+            </div>
+        );
+    }
+
     const slides = [
         // Only include "current" slide for TODAY (index 0)
         ...(index === 0 ? [{ type: 'current', data: data, time: undefined as number | undefined }] : []),
