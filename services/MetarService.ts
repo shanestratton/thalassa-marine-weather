@@ -44,7 +44,8 @@ export interface LocalObservation {
  * @param icaoCode - The 4-letter airport code (e.g., 'YRED' for Redcliffe, 'YBBN' for Brisbane)
  */
 export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObservation | null> => {
-    const url = `https://aviationweather.gov/api/data/metar?ids=${icaoCode}&format=json`;
+    // CheckWX API - CORS-enabled, works in browser and native
+    const url = `https://api.checkwx.com/metar/${icaoCode}/decoded`;
 
     try {
         console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
@@ -59,13 +60,10 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
                 url,
                 headers: {
                     'Accept': 'application/json',
-                    'User-Agent': 'Thalassa Marine Weather/1.0'
+                    'X-API-Key': 'no-key-required' // CheckWX free tier
                 },
                 readTimeout: 5000,
-                connectTimeout: 5000,
-                webFetchExtra: {
-                    mode: 'cors'
-                }
+                connectTimeout: 5000
             }),
             timeoutPromise
         ]);
@@ -83,21 +81,17 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         }
 
         const data = response.data;
-        console.log(`[METAR] Data check: type=${typeof data}, isArray=${Array.isArray(data)}, length=${Array.isArray(data) ? data.length : 'N/A'}`);
+        console.log(`[METAR] Data type: ${typeof data}`);
 
-        // Handle both array and object responses
-        if (!data) {
-            console.warn(`[METAR] ❌ No data for ${icaoCode}`);
+        // CheckWX returns { data: [metar_object] } structure
+        const metarArray = (data as any)?.data || data;
+
+        if (!Array.isArray(metarArray) || metarArray.length === 0) {
+            console.warn(`[METAR] ❌ No METAR data for ${icaoCode}`);
             return null;
         }
 
-        // If array, check it has items
-        if (Array.isArray(data) && data.length === 0) {
-            console.warn(`[METAR] ❌ Empty array for ${icaoCode}`);
-            return null;
-        }
-
-        const metarData = Array.isArray(data) ? data[0] : data;
+        const metarData = metarArray[0];
         const result = parseMetar(metarData);
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
         return result;
@@ -106,7 +100,7 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         if (error.message === 'METAR_TIMEOUT') {
             console.error(`[METAR] ⏱️ Timeout after 5s for ${icaoCode}`);
         } else if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS')) {
-            console.error(`[METAR] 🚫 CORS/Network error for ${icaoCode} - API blocked in browser`);
+            console.error(`[METAR] 🚫 CORS/Network error for ${icaoCode}`);
         } else {
             console.error(`[METAR] ❌ Error:`, error.message || error);
         }
