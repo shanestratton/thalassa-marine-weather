@@ -1114,6 +1114,8 @@ export const HeroSlide = ({
 
                         // DYNAMIC SUN PHASE LOGIC (Per Card)
                         const sunPhase = (() => {
+                            if (!cardData) return { isDay: true, label: 'Sunset', time: '--:--' };
+
                             const currentTs = cardTime || Date.now();
                             const sRise = cardData.sunrise;
                             const sSet = cardData.sunset;
