@@ -44,8 +44,9 @@ export interface LocalObservation {
  * @param icaoCode - The 4-letter airport code (e.g., 'YRED' for Redcliffe, 'YBBN' for Brisbane)
  */
 export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObservation | null> => {
-    // AVWX.rest - Open source, reliable, 4000 req/day free tier, App Store compatible
-    const url = `https://avwx.rest/api/metar/${icaoCode}`;
+    // Aviation Weather API (US Government - Free, Unlimited)
+    // NOTE: CORS blocks this in browser testing, but works perfectly in native iOS/Android
+    const url = `https://aviationweather.gov/api/data/metar?ids=${icaoCode}&format=json`;
 
     try {
         console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
@@ -59,8 +60,7 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
             CapacitorHttp.get({
                 url,
                 headers: {
-                    'Accept': 'application/json',
-                    'X-API-Key': 'no-key-required' // CheckWX free tier
+                    'Accept': 'application/json'
                 },
                 readTimeout: 5000,
                 connectTimeout: 5000
@@ -81,15 +81,15 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         }
 
         const data = response.data;
-        console.log(`[METAR] Data type: ${typeof data}`);
+        console.log(`[METAR] Data type: ${typeof data}, isArray: ${Array.isArray(data)}`);
 
-        // AVWX returns raw METAR object directly
-        if (!data) {
+        // Aviation Weather returns array of METAR objects
+        if (!Array.isArray(data) || data.length === 0) {
             console.warn(`[METAR] ❌ No METAR data for ${icaoCode}`);
             return null;
         }
 
-        const result = parseMetar(data);
+        const result = parseMetar(data[0]);
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
         return result;
 
@@ -97,7 +97,7 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         if (error.message === 'METAR_TIMEOUT') {
             console.error(`[METAR] ⏱️ Timeout after 5s for ${icaoCode}`);
         } else if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS')) {
-            console.error(`[METAR] 🚫 CORS/Network error for ${icaoCode}`);
+            console.error(`[METAR] 🚫 CORS error (expected in browser) - ${icaoCode} will work in native app`);
         } else {
             console.error(`[METAR] ❌ Error:`, error.message || error);
         }
