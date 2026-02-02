@@ -81,10 +81,8 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         }
 
         const data = response.data;
-        console.log(`[METAR] ✅ Parsed ${icaoCode}`);
-        const data = response.data;
         console.log(`[METAR] Data type: ${typeof data}`);
-        
+
         // AVWX returns raw METAR object directly
         if (!data) {
             console.warn(`[METAR] ❌ No METAR data for ${icaoCode}`);
