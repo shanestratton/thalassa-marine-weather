@@ -101,7 +101,14 @@ export const fetchOpenMeteo = async (
 
     // Fetch Weather using Native HTTP to avoid silent failures/CORS
     const res = await CapacitorHttp.get({ url: `${baseUrl}?${params.toString()}` });
-    if (res.status !== 200) throw new Error(`OpenMeteo HTTP ${res.status}`);
+
+    if (!res || res.status !== 200) {
+        throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
+    }
+
+    if (!res.data) {
+        throw new Error('OpenMeteo returned no data');
+    }
 
     let wData: any = res.data;
     if (typeof wData === 'string') {
