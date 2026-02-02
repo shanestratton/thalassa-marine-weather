@@ -1043,6 +1043,8 @@ export const HeroSlide = ({
 
     // Calculate sunPhase for the active card for the static header's background
     const activeSunPhase = (() => {
+        if (!activeCardData) return { isDay: true, label: 'Sunset', time: '--:--' };
+
         const currentTs = activeCardTime || Date.now();
         const sRise = activeCardData.sunrise;
         const sSet = activeCardData.sunset;
