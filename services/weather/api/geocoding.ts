@@ -251,9 +251,9 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                     headers: { 'User-Agent': 'ThalassaMarine/1.0' }
                 });
 
-                if (!res || !res.data) {
-                    console.warn('[Geocoding] Nominatim search returned empty response');
-                    return;
+                if (!res.data) {
+                    console.error('[Geocoding] No data in Nominatim response');
+                    throw new Error('Geocoding failed: No data from Nominatim');
                 }
 
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
