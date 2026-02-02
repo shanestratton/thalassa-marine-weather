@@ -47,6 +47,7 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
     const url = `https://aviationweather.gov/api/data/metar?ids=${icaoCode}&format=json`;
 
     try {
+        console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
         const response = await CapacitorHttp.get({ url });
 
         if (!response || response.status !== 200) {
