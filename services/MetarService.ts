@@ -49,6 +49,7 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
     try {
         console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
         const response = await CapacitorHttp.get({ url });
+        console.log(`[METAR] Response status: ${response?.status}, hasData: ${!!response?.data}`);
 
         if (!response || response.status !== 200) {
             console.warn('[METAR] Invalid response or bad status');
