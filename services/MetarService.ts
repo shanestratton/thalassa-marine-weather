@@ -62,12 +62,21 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
 
         const data = response.data;
         console.log(`[METAR] Data check: type=${typeof data}, isArray=${Array.isArray(data)}, length=${Array.isArray(data) ? data.length : 'N/A'}`);
-        if (!data || data.length === 0) {
-            console.warn(`[METAR] ❌ Empty data for ${icaoCode}`);
+
+        // Handle both array and object responses
+        if (!data) {
+            console.warn(`[METAR] ❌ No data for ${icaoCode}`);
             return null;
         }
 
-        const result = parseMetar(data[0]);
+        // If array, check it has items
+        if (Array.isArray(data) && data.length === 0) {
+            console.warn(`[METAR] ❌ Empty array for ${icaoCode}`);
+            return null;
+        }
+
+        const metarData = Array.isArray(data) ? data[0] : data;
+        const result = parseMetar(metarData);
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
         return result;
 
