@@ -92,7 +92,6 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         const result = parseMetar(data);
         console.log(`[METAR] ✅ Parsed ${icaoCode}`);
         return result;
-        return result;
 
     } catch (error: any) {
         if (error.message === 'METAR_TIMEOUT') {
