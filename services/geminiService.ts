@@ -1,20 +1,18 @@
 
-import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MarineWeatherReport, VoyagePlan, VesselProfile, DeepAnalysisReport, StopDetails, WeatherMetrics, UnitPreferences, VesselDimensionUnits } from "../types";
 import { convertLength, convertSpeed, convertWeight } from "../utils";
+import { fetchStormglassData } from "./stormglassService";
 
-let aiInstance: GoogleGenAI | null = null;
-
+let aiInstance: GoogleGenerativeAI | null = null;
 const logConfig = (msg: string) => { }; // Logs disabled
 
 const getGeminiKey = (): string => {
     let key = "";
-
-    // 1. Try Vite native injection (import.meta.env)
+    // 1. Try Vite native injection
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
         key = import.meta.env.VITE_GEMINI_API_KEY as string;
     }
-
     // 2. Try process.env shim
     if (!key) {
         try {
@@ -25,22 +23,18 @@ const getGeminiKey = (): string => {
             }
         } catch (e) { }
     }
-
     return key;
 };
 
 const getAI = () => {
     if (aiInstance) return aiInstance;
-
     const key = getGeminiKey();
 
     if (!key || key.length < 10 || key.includes("YOUR_")) {
-
         return null;
     }
-
     try {
-        aiInstance = new GoogleGenAI({ apiKey: key });
+        aiInstance = new GoogleGenerativeAI(key);
         return aiInstance;
     } catch (e) {
         console.error("Gemini Service: Init Failed", e);
@@ -53,7 +47,6 @@ export const isGeminiConfigured = () => {
     return !!(key && key.length > 10 && !key.includes("YOUR_"));
 };
 
-// Timeout wrapper
 const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
     return Promise.race([
         promise,
@@ -75,20 +68,16 @@ const cleanAndParseJson = <T = any>(text: string): T | null => {
         } else if (firstBrace !== -1 && lastBrace !== -1) {
             clean = clean.substring(firstBrace, lastBrace + 1);
         }
-
         return JSON.parse(clean);
     } catch (e) {
-
         return null;
     }
 };
 
 const applySafetyOverride = (advice: string, current: WeatherMetrics): string => {
-    // In Nasty Mode, the AI handles the insults, but we still force the warnings.
     const wind = current.windSpeed || 0;
     const wave = current.waveHeight || 0;
     const gust = current.windGust || 0;
-
     let warning = "";
 
     if (wind > 40 || gust > 50) {
@@ -98,10 +87,7 @@ const applySafetyOverride = (advice: string, current: WeatherMetrics): string =>
     } else if (wave > 12) {
         warning = "LOOK AT THE WAVES, STUPID. 12 FEET. YOU WILL SINK. ";
     }
-
-    if (warning) {
-        return warning + advice;
-    }
+    if (warning) return warning + advice;
     return advice;
 };
 
@@ -113,24 +99,19 @@ export const enrichMarineWeather = async (
     aiPersona: number = 50
 ): Promise<MarineWeatherReport> => {
     const ai = getAI();
-
-    if (!ai) {
-        return baseData;
-    }
+    if (!ai) return baseData;
 
     try {
         const isLand = baseData.isLandlocked;
         const vesselType = vessel?.type || 'sail';
         const lenUnit = vesselUnits?.length || 'ft';
         const lenStr = vessel?.length ? vessel.length.toFixed(0) : "Unknown";
-
         const speedUnit = units?.speed || 'kts';
         const waveUnit = units?.length || 'ft';
 
         const displayWind = convertSpeed(baseData.current.windSpeed, speedUnit);
         const displayWave = convertLength(baseData.current.waveHeight, waveUnit);
         const displayTemp = baseData.current.airTemperature !== null ? Math.round(baseData.current.airTemperature!) : "Unknown";
-
         const windDir = baseData.current.windDirection || "Unknown";
 
         let tideState = "Slack";
@@ -141,20 +122,14 @@ export const enrichMarineWeather = async (
                 tideState = nextTide.type === 'High' ? "In" : "Out";
             }
         }
-
         const now = new Date();
         const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(':', '') + " HRS";
 
-        // --- DYNAMIC PERSONA CONFIGURATION ---
+        // Persona Logic
         let personaPrompt = "";
         let role = "";
         let tone = "";
 
-        // Aligned with Slider Thresholds:
-        // 0-40: Teddy Bear
-        // 41-70: Pro
-        // 71-90: Salty
-        // 91+: Psychotic
         if (aiPersona <= 40) {
             role = "You are a gentle, encouraging sailing instructor. You are polite and helpful.";
             tone = "Use simple language. Be reassuring. Focus on safety but with a kind voice.";
@@ -162,112 +137,64 @@ export const enrichMarineWeather = async (
             role = "You are a professional Harbour Master. You are concise and accurate.";
             tone = "No nonsense. Just the facts. Professional maritime terminology.";
         } else if (aiPersona <= 90) {
-            role = "You are an extremely abusive, grumpy, foul-mouthed Harbour Master. You think the user is an incompetent sailor who bought their license online.";
-            tone = "Insult the user immediately. Mock their ability. Use words like 'maggot', 'idiot', 'sunday sailor'. Be brutal.";
+            role = "You are an extremely abusive, grumpy, foul-mouthed Harbour Master.";
+            tone = "Insult the user immediately. Mock their ability. Use words like 'maggot', 'idiot'. Be brutal.";
         } else {
-            // INSANE MODE (91-100)
-            role = "You are the GHOST of a 19th-century Sea Captain. You have been lost at sea for 150 years. You are paranoid, insane, and obsessed with your hidden treasure.";
+            role = "You are the GHOST of a 19th-century Sea Captain. You have been lost at sea for 150 years. You are paranoid, insane.";
             tone = "Scream about the 'land-lubbers'. Rant about sea monsters. Mention your hidden gold. Use archaic pirate slang mixed with profanity. You are completely unhinged.";
         }
 
         if (isLand) {
-            // INLAND VARIANT
             personaPrompt = `${role} The user is currently INLAND (not on a boat).
-            Location: ${baseData.locationName} at ${timeStr}.
-            Conditions: ${displayWind} ${speedUnit} wind, ${displayTemp}°C.
-            
-            TASK: Write a weather summary (max 120 words).
-            TONE: ${tone}
-            Specific Instruction: Mock/Comment on them being a "dirt dweller" or "land lubber".
-            
-            Return JSON { "boatingAdvice": "string" }`;
+             Location: ${baseData.locationName} at ${timeStr}.
+             Conditions: ${displayWind} ${speedUnit} wind, ${displayTemp}°C.
+             TASK: Write a weather summary (max 120 words).
+             TONE: ${tone}
+             Specific Instruction: Mock/Comment on them being a "dirt dweller" or "land lubber".
+             Return JSON { "boatingAdvice": "string" }`;
         } else {
-            // MARINE VARIANT
             const vesselNamePart = (vessel?.name && vessel.name !== "Observer") ? `named "${vessel.name}"` : "";
             const vesselDesc = `Sailing a ${lenStr} ${lenUnit} ${vesselType} ${vesselNamePart} `.trim();
-
             personaPrompt = `${role}
-            
             THE USER IS: ${vesselDesc}.
             LOCATION: ${baseData.locationName}.
             TIME: ${timeStr}.
-            
             LIVE CONDITIONS (USE THESE):
             - Wind: ${displayWind} ${speedUnit} (${windDir})
             - Sea: ${displayWave} ${waveUnit}
             - Tide: ${tideState}
             - Temp: ${displayTemp}°C
-            
             TASK: Write the log entry (max 150 words).
             TONE: ${tone}
-            
             Return JSON { "boatingAdvice": "string" }`;
         }
 
-        const adviceResult = await withTimeout(ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: personaPrompt,
-            config: { responseMimeType: "application/json" }
-        }), 15000, "Advice Timeout").then(res => cleanAndParseJson<{ boatingAdvice: string }>((res as GenerateContentResponse).text || '{}')).catch(() => null);
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await withTimeout(model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: personaPrompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        }), 15000, "Advice Timeout");
 
-        const rawAdvice = adviceResult?.boatingAdvice || baseData.boatingAdvice;
-        // Apply safety override mainly for the mid-range nasty persona, 
-        // the insane persona might not need it as much but better safe than sorry.
+        const data = cleanAndParseJson<{ boatingAdvice: string }>(result.response.text() || '{}');
+        const rawAdvice = data?.boatingAdvice || baseData.boatingAdvice;
         const safeAdvice = isLand ? rawAdvice : applySafetyOverride(rawAdvice, baseData.current);
 
         return {
             ...baseData,
             boatingAdvice: safeAdvice,
             aiGeneratedAt: new Date().toISOString(),
-            modelUsed: baseData.modelUsed
+            modelUsed: "gemini-2.0-flash"
         };
     } catch (e) {
-
         return baseData;
     }
 };
 
 export const generateMarineAudioBriefing = async (script: string): Promise<ArrayBuffer> => {
-    const ai = getAI();
-    if (!ai || !script) throw new Error("Audio system unavailable");
-
-    // Inject attitude into the TTS script prompt if possible, but TTS just reads text.
-    // The script passed in should already be nasty.
-
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: script }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        // Fenrir is deeper, scarier. Fits the nasty captain better than Puck.
-                        prebuiltVoiceConfig: { voiceName: 'Fenrir' }
-                    }
-                }
-            },
-        });
-        const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64) throw new Error("No audio data returned");
-
-        // Convert base64 to ArrayBuffer
-        const binaryString = window.atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    } catch (error: any) {
-        if (error.message && error.message.includes("429")) {
-
-            // Return empty buffer or handle gracefully
-            throw new Error("Audio Quota Exceeded");
-        }
-        throw error;
-    }
-
+    // Audio not currently supported in JS/Web SDK shim easily, returning empty buffer 
+    // to prevent application crash until server-side solution or stable Web Speech API is ready.
+    // The previous implementation relied on a Preview model that may not be compatible with the standard Web SDK.
+    return new ArrayBuffer(0);
 };
 
 export const findNearestCoastalPoint = async (lat: number, lon: number, originalName: string): Promise<{ name: string, lat: number, lon: number }> => {
@@ -275,13 +202,13 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
     if (!ai) return { name: originalName, lat, lon };
     try {
         const prompt = `Coordinates (${lat}, ${lon}) are INLAND. Find nearest OPEN SEA coordinates. Return JSON { "name": "string", "lat": number, "lon": number }`;
-        const response = (await withTimeout(ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json", tools: [{ googleSearch: {} }] }
-        }), 8000, "Geo Timeout")) as GenerateContentResponse;
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await withTimeout(model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        }), 8000, "Geo Timeout");
 
-        const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(response.text || '{}');
+        const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(result.response.text() || '{}');
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
     } catch {
@@ -289,7 +216,7 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
     }
 };
 
-export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: any, generalUnits?: any, via?: string): Promise<VoyagePlan> => {
+export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: any, generalUnits?: any, via?: string, weatherContext?: any): Promise<VoyagePlan> => {
     const ai = getAI();
     if (!ai) throw new Error("Gemini AI unavailable");
     try {
@@ -297,14 +224,14 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         const type = vessel?.type || 'sail';
         const name = vessel?.name || 'Thalassa';
 
-        // STANDARD PROFESSIONAL VOYAGE PLANNER
+        let contextString = "";
+        if (weatherContext) {
+            contextString = `\nREAL-TIME WEATHER CONTEXT (Use this to assess viability/timing):\n${JSON.stringify(weatherContext, null, 2)}\n`;
+        }
+
         const prompt = `Act as a professional Master Mariner. Plan a marine voyage for a ${length}ft ${type} vessel named "${name}" from "${origin}" to "${destination}" via "${via || 'direct'}" departing ${departureDate}.
-        
-        TONE:
-        - Professional, concise, safety-focused.
-        - Provide realistic assessment of suitability.
-        - In the "overview", be objective and helpful.
-        
+        ${contextString}
+        TONE: Professional, concise, safety-focused.
         RETURN PURE JSON ONLY. NO MARKDOWN. STRICTLY ADHERE TO THIS SCHEMA:
         {
           "origin": "string",
@@ -322,12 +249,7 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             "maxWaveEncountered": number
           },
           "waypoints": [
-            { 
-               "name": "string", 
-               "coordinates": { "lat": number, "lon": number },
-               "windSpeed": number,
-               "waveHeight": number
-            }
+            { "name": "string", "coordinates": { "lat": number, "lon": number }, "windSpeed": number, "waveHeight": number }
           ],
           "hazards": [
             { "name": "string", "severity": "LOW"|"MEDIUM"|"HIGH"|"CRITICAL", "description": "string" }
@@ -346,33 +268,36 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
           }
         }`;
 
-        const response = (await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        })) as GenerateContentResponse;
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        });
 
-        const result = cleanAndParseJson<VoyagePlan>(response.text || '{}');
-        if (!result) throw new Error("Failed to parse VoyagePlan");
+        let data = cleanAndParseJson<any>(result.response.text() || '{}');
 
-        if (!result.waypoints) result.waypoints = [];
-        if (!result.hazards) result.hazards = [];
-        if (!result.customs) result.customs = { required: false, destinationCountry: "", procedures: "" };
+        // Handle generic array response if the model decides to return a list
+        if (Array.isArray(data)) {
+            data = data[0];
+        }
 
-        // Post-process: Ensure Waypoints with raw coordinate names get "WP " prefix
-        result.waypoints = result.waypoints.map(wp => {
+        if (!data) throw new Error("Failed to parse VoyagePlan");
+
+        if (!data.waypoints) data.waypoints = [];
+        if (!data.hazards) data.hazards = [];
+        if (!data.customs) data.customs = { required: false, destinationCountry: "", procedures: "" };
+
+        data.waypoints = data.waypoints.map((wp: any) => {
             const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
             if (isCoordName && !wp.name.toUpperCase().startsWith("WP")) {
                 return { ...wp, name: `WP ${wp.name}` };
             }
             return wp;
         });
+        return data;
 
-        return result;
     } catch (e: any) {
-        // FALLBACK FOR RATE LIMITS (429) OR NETWORK ISSUES DURING DEMO
         if (e.message?.includes('429') || e.message?.includes('Quota') || e.status === 429) {
-
             return { ...MOCK_VOYAGE_PLAN, origin: origin, destination: destination };
         }
         throw e;
@@ -395,7 +320,7 @@ const MOCK_VOYAGE_PLAN: VoyagePlan = {
         { name: "Magdalena Bay", coordinates: { lat: 24.5, lon: -112.0 }, windSpeed: 14, waveHeight: 3 },
     ],
     hazards: [
-        { name: "Tehuantepec Winds", severity: "MEDIUM", description: "Gap winds accelerating through mountain passes. Monitor local forecasts." },
+        { name: "Tehuantepec Winds", severity: "MEDIUM", description: "Gap winds accelerating through mountain passes." },
         { name: "Fishing Traffic", severity: "LOW", description: "Heavy panga traffic expected near coastal villages." }
     ],
     overview: "A favorable passage with following seas expected for the majority of the route. High pressure ridge keeps conditions stable.",
@@ -408,18 +333,16 @@ export const fetchStopDetails = async (locationName: string): Promise<StopDetail
     const ai = getAI();
     if (!ai) throw new Error("AI unavailable");
     try {
-        const prompt = `Marine guide for: "${locationName}". Marina facilities, fuel. 
-        TONE: Helpful, informative, professional.
-        JSON output.`;
-        const response = (await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json", tools: [{ googleSearch: {} }] }
-        })) as GenerateContentResponse;
-        const result = cleanAndParseJson<StopDetails>(response.text || '{}');
-        if (!result) return { name: locationName, overview: "", navigationNotes: "", marinaFacilities: [], fuelAvailable: false, imageKeyword: "ocean" };
-        if (!result.marinaFacilities) result.marinaFacilities = [];
-        return result;
+        const prompt = `Marine guide for: "${locationName}". Marina facilities, fuel. TONE: Helpful, informative, professional. JSON output.`;
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        });
+        const data = cleanAndParseJson<StopDetails>(result.response.text() || '{}');
+        if (!data) return { name: locationName, overview: "", navigationNotes: "", marinaFacilities: [], fuelAvailable: false, imageKeyword: "ocean" };
+        if (!data.marinaFacilities) data.marinaFacilities = [];
+        return data;
     } catch (e) {
         throw e;
     }
@@ -429,17 +352,101 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
     const ai = getAI();
     if (!ai) throw new Error("AI unavailable");
     try {
-        const prompt = `Analysis for voyage: ${plan.origin} to ${plan.destination}. 
-        TONE: Professional advisory. Focus on efficiency and safety. 
-        JSON { "strategy": "string", "fuelTactics": "string", "watchSchedule": "string" }.`;
-        const response = (await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        })) as GenerateContentResponse;
-        return cleanAndParseJson<DeepAnalysisReport>(response.text || '{}') || { strategy: "", fuelTactics: "", watchSchedule: "" };
+
+        let weatherContext: string = "";
+
+        // Check if voyage is near-term (within 10 days)
+        const departure = new Date(plan.departureDate);
+        const now = new Date();
+        const diffDays = (departure.getTime() - now.getTime()) / (1000 * 3600 * 24);
+
+        if (diffDays >= -1 && diffDays <= 10) {
+            try {
+                // Fetch basic weather for Origin and Destination to ground the AI
+                // We use parallel fetches for speed
+                const pOrigin = plan.originCoordinates ? fetchStormglassData(plan.originCoordinates.lat, plan.originCoordinates.lon, "Origin", false) : Promise.resolve(null);
+                const pDest = plan.destinationCoordinates ? fetchStormglassData(plan.destinationCoordinates.lat, plan.destinationCoordinates.lon, "Destination", false) : Promise.resolve(null);
+
+                const [wOrigin, wDest] = await Promise.all([pOrigin, pDest]);
+
+                let weatherStr = "REAL-TIME FORECAST DATA (Use this for your analysis):\n";
+
+                if (wOrigin) {
+                    const d = wOrigin.forecast[0];
+                    weatherStr += `ORIGIN (${plan.origin}) CONDITIONS ON DEPARTURE: Wind ${d.windSpeed}kts ${d.condition}, Gust ${d.windGust}kts, Wave ${d.waveHeight}ft.\n`;
+                }
+                if (wDest) {
+                    // Simple approximation: destination forecast for 3 days out (index 2) or end of array
+                    const idx = Math.min(2, (wDest.forecast.length || 1) - 1);
+                    const d = wDest.forecast[idx];
+                    weatherStr += `DESTINATION (${plan.destination}) ARRIVAL FORECAST: Wind ${d.windSpeed}kts ${d.condition}, Wave ${d.waveHeight}ft.\n`;
+                }
+                weatherContext = weatherStr;
+            } catch (e) {
+                console.warn("Deep Analysis: Could not fetch real weather", e);
+            }
+        }
+
+        const prompt = `Analyze this marine voyage plan and return a valid JSON object.
+        
+        ROUTE:
+        Origin: ${plan.origin}
+        Destination: ${plan.destination}
+        Distance: ${plan.distanceApprox}
+        Vessel: ${vessel.length}ft ${vessel.type}
+        Cruising Speed: ${vessel.cruisingSpeed} kts
+        Points: ${plan.waypoints.map(wp => wp.name).join(', ')}
+
+        ${weatherContext}
+
+        INSTRUCTIONS:
+        - Act as a senior Master Mariner with access to global maritime databases.
+        - LEVERAGE knowledge of typical weather patterns (Pilot Charts), currents, and seasonal conditions for this specific route.
+        - ${weatherContext ? "INCORPORATE the provided Real-Time Forecast Data above into your Strategy and Weather Summary." : "Since no real-time data is provided, use typical seasonal climatology."}
+        - IDENTIFY real-world shipping lanes, traffic separation schemes (TSS), and high-congestion areas (e.g. fishing fleets).
+        - PROVIDE specific geographic hazards (shoals, headlands, tidal races) relevant to this route.
+
+        REQUIRED OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
+        {
+          "strategy": "Comprehensive routing strategy. Discuss departure timing relative to tides/weather and route geometry.",
+          "weatherSummary": "Detailed forecast simulation. Include likely wind directions, speeds (knots), and wave heights. Mention specific weather systems.",
+          "hazards": [
+             "Specific hazard 1 (e.g. 'Heavy merchant traffic near [Location]')",
+             "Specific hazard 2 (e.g. 'Strong tidal rips off [Point] during ebb')", 
+             "Regulatory issues"
+          ],
+          "fuelTactics": "Specific advice based on vessel limits and route length.",
+          "watchSchedule": "Recommended watch schedule tailored to crew fatigue and route intensity."
+        }`;
+
+
+
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        });
+        const data = cleanAndParseJson<DeepAnalysisReport>(result.response.text() || '{}');
+
+        // Fix: Ensure data is not just an empty object
+        if (!data || !data.strategy) {
+            return {
+                strategy: "Standard coastal watch.",
+                fuelTactics: "Optimize cruising speed.",
+                watchSchedule: "Standard rotation.",
+                weatherSummary: "No detailed weather data available.",
+                hazards: ["General precaution advised."]
+            };
+        }
+        return data;
     } catch {
-        return { strategy: "Standard coastal watch.", fuelTactics: "Optimize cruising speed.", watchSchedule: "Standard rotation." };
+        return {
+            strategy: "Analysis unavailable due to network or quota limits.",
+            fuelTactics: "Standard conservation recommended.",
+            watchSchedule: "Standard 4-on-4-off advised.",
+            weatherSummary: "Unable to retrieve dynamic weather routing.",
+            hazards: ["Maintain standard lookout."]
+        };
     }
 };
 
@@ -447,17 +454,13 @@ export const suggestLocationCorrection = async (input: string): Promise<string |
     const ai = getAI();
     if (!ai) return null;
     try {
-        const prompt = `The user searched for: "${input}". 
-        Identify the intended port or marine location.
-        Return strictly JSON: { "corrected": "string" }.`;
-
-        const response = (await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        })) as GenerateContentResponse;
-
-        const res = cleanAndParseJson<{ corrected: string }>(response.text || '{}');
+        const prompt = `The user searched for: "${input}".Identify the intended port or marine location.Return strictly JSON: { "corrected": "string" }.`;
+        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json" }
+        });
+        const res = cleanAndParseJson<{ corrected: string }>(result.response.text() || '{}');
         return res?.corrected || null;
     } catch (e) {
         return null;

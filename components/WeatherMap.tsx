@@ -9,6 +9,7 @@ import { useLeafletMap } from '../hooks/useLeafletMap';
 import { useWeatherOverlay } from '../hooks/useWeatherOverlay';
 import { useMapMarkers } from '../hooks/useMapMarkers';
 import { fetchActiveBuoys } from '../services/weatherService';
+import { GlobalWindLayer } from './map/GlobalWindLayer';
 
 
 
@@ -104,16 +105,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     }, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
 
-    // Only enable weather overlay if NOT on Buoys layer
-    const isWeatherVisible = showWeather && activeLayer !== 'buoys';
+    // Only enable weather overlay if NOT on Buoys or Global Wind layer
+    const isWeatherVisible = showWeather && activeLayer !== 'buoys' && activeLayer !== 'global-wind';
 
-    useWeatherOverlay(
-        weatherCanvasRef,
-        mapInstance,
-        activeLayer === 'buoys' ? 'wind' : activeLayer,
-        activeMetrics,
-        isWeatherVisible
-    );
+    // Weather Overlay (particles)
+    useWeatherOverlay(weatherCanvasRef, mapInstance, activeLayer as 'wind' | 'waves' | 'rain' | 'global-wind', activeMetrics, isWeatherVisible);
+
+    // Global Wind Layer (streamlines)
+    const isGlobalWindVisible = activeLayer === 'global-wind';
 
     const { vesselPos, targetPos, routePath, waypointPositions } = useMapMarkers(
         mapInstance,
@@ -355,6 +354,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 Rain
                             </button>
                             <button
+                                onClick={() => { setActiveLayer('global-wind'); setPendingSelection(null); }}
+                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                            >
+                                <CompassIcon rotation={0} className="w-3 h-3" /> Global
+                            </button>
+                            <button
                                 onClick={() => setActiveLayer('buoys')}
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
@@ -365,8 +370,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 </div>
             </div>
 
-            <div className="flex-grow relative w-full h-full bg-[#0f172a]">
-                <div ref={mapContainerRef} className="absolute inset-0 z-0 bg-[#0f172a]" style={{ width: '100%', height: '100%' }}></div>
+            <div className="flex-grow relative w-full h-full bg-[#f8fafc]">
+                <div ref={mapContainerRef} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%', filter: 'brightness(1.05) contrast(1.08)' }}></div>
 
                 <canvas
                     ref={weatherCanvasRef}
@@ -376,6 +381,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 >
                     Your browser does not support HTML5 Canvas. Weather data is available in text format above.
                 </canvas>
+
+                {/* Global Wind Streamlines Layer */}
+                <GlobalWindLayer map={mapInstance.current} visible={isGlobalWindVisible} />
 
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {/* Route Line */}

@@ -36,10 +36,11 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
     }
 
     return (
-        <span className="text-white font-mono text-[10px] md:text-xs font-bold opacity-90 text-center flex flex-wrap justify-center gap-1 leading-tight">
-            <span className="opacity-70 whitespace-nowrap">Location Time:</span>
-            <span className="whitespace-nowrap">{tStr},</span>
-            <span className="whitespace-nowrap">{dStr}</span>
+        <span className="text-white font-mono text-[8px] md:text-[10px] font-bold opacity-80 text-center flex flex-wrap justify-center gap-0.5 leading-tight">
+            <span className="whitespace-nowrap">{tStr}</span>
+            <span className="opacity-50">•</span>
+            <span className="whitespace-nowrap hidden sm:inline">{dStr}</span>
+            <span className="whitespace-nowrap sm:hidden">{now.toLocaleDateString('en-US', { timeZone: timeZone || 'UTC', month: 'short', day: 'numeric' })}</span>
         </span>
     );
 };

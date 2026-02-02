@@ -1,0 +1,1508 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { TideGraph } from './TideAndVessel';
+import { WindIcon, WaveIcon, RadioTowerIcon, CompassIcon, DropletIcon, GaugeIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, MapIcon, RainIcon, SunIcon, EyeIcon, ClockIcon, GripIcon, TideCurveIcon, StarIcon, MoonIcon, SunriseIcon, SunsetIcon, ThermometerIcon } from '../Icons';
+import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
+import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, convertMetersTo, formatCoordinate } from '../../utils';
+import { ALL_STATIONS } from '../../services/TideService';
+import { useSettings } from '../../context/SettingsContext';
+import { useUI } from '../../context/UIContext';
+// DnD imports removed
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { ALL_HERO_WIDGETS } from '../WidgetDefinitions';
+import { StatusBadges } from './StatusBadges';
+import { TimerBadge } from './TimerBadge';
+import { Countdown } from './Countdown';
+import { LocationClock } from './LocationClock';
+import { useWeather } from '../../context/WeatherContext';
+import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
+import { SourceLegend } from '../SourceLegend';
+
+// --- STYLES ---
+// WIDGET_CARD_CLASS removed
+// --- STYLES ---
+// WIDGET_CARD_CLASS removed
+const STATIC_WIDGET_CLASS = "flex-1 min-w-[32%] md:min-w-[30%] bg-black/10 border border-white/5 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 opacity-80";
+
+// --- SOURCE COLOR HELPER ---
+/**
+ * Get Tailwind CSS classes for data source color indicators
+ * Green = Beacon, Amber = Airport, Red = StormGlass
+ */
+const getSourceIndicatorColor = (sourceColor?: 'green' | 'amber' | 'red'): string => {
+    switch (sourceColor) {
+        case 'green': return 'bg-emerald-400';
+        case 'amber': return 'bg-amber-400';
+        case 'red': return 'bg-red-400';
+        default: return 'bg-gray-400';
+    }
+};
+
+// --- WIDGET RENDERER (Pure Function) ---
+const renderHeroWidget = (
+    id: string,
+    data: WeatherMetrics,
+    values: any,
+    units: UnitPreferences,
+    isLive: boolean,
+    trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>,
+    align: 'left' | 'center' | 'right' = 'left',
+    sources?: any
+) => {
+    const hasWind = data.windSpeed !== null && data.windSpeed !== undefined;
+    const trend = trends ? trends[id] : undefined;
+
+    // Alignment Classes
+    const alignClass = align === 'center' ? 'items-center text-center' : align === 'right' ? 'items-end text-right' : 'items-start text-left';
+
+    // Helper to get source text color for a metric value
+    const getSourceTextColor = (metricKey: string): string => {
+        // Only show source colors on live card - forecast cards should be white
+        if (!isLive) return 'text-white';
+        if (!sources || !sources[metricKey]) return 'text-white';
+        const sourceColor = sources[metricKey]?.sourceColor;
+        switch (sourceColor) {
+            case 'green': return 'text-emerald-400';
+            case 'amber': return 'text-amber-400';
+            case 'red': return 'text-red-400';
+            default: return 'text-white';
+        }
+    };
+
+    // Helper to render trend arrow
+    const renderTrend = (t?: string, inverse = false) => {
+        if (!t || t === 'steady' || t === 'neutral') return null;
+        const isUp = t === 'rising';
+
+        // Color Logic:
+        // Standard (Pressure, Temp): Up = Green (or neutral white/teal), Down = Red (or neutral) regarding "Good/Bad"?
+        // Actually, user wants "Rising/Falling". 
+        // Let's use neutral/subtle colors (e.g. data color or white) but Arrow Direction is key.
+        // Or: 
+        // - Wind Rising = Bad (Red/Orange)
+        // - Pressure Rising = Good (Teal/Green)
+        // - Pressure Falling = Bad (Red/Orange)
+        // Let's stick to subtle arrows first to be "Professional".
+
+        return (
+            <div className={`flex items-center ml-1.5 opacity-80 ${isUp ? '-mt-1' : '-mt-1'}`}>
+                {isUp
+                    ? <ArrowUpIcon className="w-2.5 h-2.5" />
+                    : <ArrowDownIcon className="w-2.5 h-2.5" />}
+            </div>
+        );
+    };
+
+    switch (id) {
+        case 'wind':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windSpeed')}`}>{values.windSpeed}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-sky-300 border border-white/5">
+                            <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                            {data.windDirection || 'VAR'}
+                        </div>
+                        {hasWind && isLive && (
+                            <span className="text-[8px] md:text-[10px] text-orange-300 font-bold ml-auto hidden md:inline">G {values.gusts}</span>
+                        )}
+                    </div>
+                </div>
+            );
+        case 'gust':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windGust')}`}>{values.gusts}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
+                    </div>
+                </div>
+            );
+        case 'wave':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waveHeight')}`}>{values.waveHeight}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="flex items-center gap-1 mt-auto pt-1">
+                        <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
+                            <ClockIcon className="w-2.5 h-2.5" />
+                            {data.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
+                        </div>
+                    </div>
+                </div>
+            );
+        case 'pressure':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('pressure')}`}>{values.pressure}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">hPa</span>
+                        {renderTrend(trend, false)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
+                        MSL
+                    </div>
+                </div>
+            );
+        case 'visibility':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <EyeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Visibility</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('visibility')}`}>{values.vis}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.visibility}</span>
+                        {renderTrend(trend, false)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'humidity':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('humidity')}`}>{values.humidity}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'feels':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Feels Like</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.feelsLike}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'clouds':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <CloudIcon className={`w-3 h-3 ${isLive ? 'text-gray-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-gray-200' : 'text-slate-300'} `}>Cover</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.cloudCover}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'precip':
+            const pVal = data.precipitation || 0;
+            let pDesc = "None";
+            if (pVal > 0) {
+                if (pVal < 0.5) pDesc = "Trace";
+                else if (data.condition?.toLowerCase().includes("shower")) pDesc = "Showers";
+                else pDesc = "Rain";
+            }
+            if (pDesc === "Trace") {
+                return (
+                    <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                        <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
+                            <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                        </div>
+                        <div className="flex flex-col justify-center items-end flex-1">
+                            <span className="text-sm md:text-lg font-bold text-gray-400 uppercase tracking-wider">{pDesc}</span>
+                        </div>
+                        <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-blue-300 font-bold opacity-70">
+                            --
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                    </div>
+                    {/* Middle: Value + Unit (Baseline) */}
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.precip}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length === 'm' ? 'mm' : 'in'}</span>
+                    </div>
+                    {/* Bottom: Description */}
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-blue-300 font-bold opacity-70 uppercase tracking-wider">
+                        {pDesc}
+                    </div>
+                </div>
+            );
+        case 'dew':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.dewPoint}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                </div>
+            );
+        case 'waterTemperature':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waterTemperature')}`}>{values.waterTemperature}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
+                        Surface
+                    </div>
+                </div>
+            );
+        case 'currentSpeed':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Drift</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('currentSpeed')}`}>{values.currentSpeed}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400">kts</span>
+                        {renderTrend(trend, true)}
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'currentDirection':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        {/* Fix: CompassIcon requires 'rotation' prop */}
+                        <CompassIcon
+                            className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `}
+                            rotation={typeof data.currentDirection === 'number' ? data.currentDirection : 0}
+                        />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        {/* We want just the cardinal direction here, e.g. "NE" */}
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('currentDirection')}`}>{values.currentDirection}</span>
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
+                        {/* Fix: Ensure currentDirection is a number before Math.round, handle string case */}
+                        {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True
+                    </div>
+                </div>
+            );
+        case 'uv':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.uv}</span>
+                    </div>
+                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-orange-300 font-bold opacity-70">
+                        --
+                    </div>
+                </div>
+            );
+        case 'sunrise':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Sunrise</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-xl md:text-3xl font-black tracking-tighter text-white">{values.sunrise}</span>
+                    </div>
+                </div>
+            );
+        case 'sunset':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-purple-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-purple-200' : 'text-slate-300'} `}>Sunset</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-xl md:text-3xl font-black tracking-tighter text-white">{values.sunset}</span>
+                    </div>
+                </div>
+            );
+        case 'moon':
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <MoonIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
+                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Moon</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-sm md:text-lg font-bold text-white whitespace-nowrap">{values.moon || '--'}</span>
+                    </div>
+                </div>
+            );
+        default:
+            return null;
+    }
+};
+// --- HOISTED HELPERS ---
+const formatTemp = (t?: number | null) => Math.round(t || 0);
+const formatCondition = (c?: string) => c || 'Clear';
+const renderHighLow = (d: WeatherMetrics) => (
+    <div className="flex gap-2 text-[10px] uppercase font-bold text-white/60">
+        <span>H: {Math.round((d as any).maxTemp || (d.airTemperature || 0) + 2)}°</span>
+        <span>L: {Math.round((d as any).minTemp || (d.airTemperature || 0) - 2)}°</span>
+    </div>
+);
+
+// --- HERO SLIDE COMPONENT (Individual Day Card) ---
+export const HeroSlide = ({
+    data,
+    index,
+    units,
+    tides,
+    settings,
+    updateSettings,
+    addDebugLog,
+    timeZone,
+    locationName,
+    isLandlocked,
+    displaySource,
+    vessel,
+    customTime,
+    hourly,
+    fullHourly,
+    guiDetails,
+    coordinates,
+    locationType,
+    generatedAt,
+    onTimeSelect,
+    isVisible = false,
+    utcOffset,
+    tideHourly
+}: {
+    data: WeatherMetrics,
+    index: number,
+    units: UnitPreferences,
+    tides?: Tide[],
+    settings: any,
+    updateSettings: any,
+    addDebugLog: any,
+    timeZone?: string,
+    locationName?: string,
+    isLandlocked?: boolean,
+    displaySource: string,
+    vessel?: VesselProfile,
+    customTime?: number,
+    hourly?: HourlyForecast[],
+    fullHourly?: HourlyForecast[],
+    lat?: number,
+    guiDetails?: any,
+    coordinates?: { lat: number, lon: number },
+    locationType?: 'coastal' | 'offshore' | 'inland',
+    generatedAt?: string,
+    onTimeSelect?: (time: number | undefined) => void,
+    isVisible?: boolean,
+    utcOffset?: number,
+    tideHourly?: TidePoint[]
+}) => {
+    const { nextUpdate, weatherData } = useWeather();
+    const forecast = weatherData?.forecast || [];
+
+    // 1. STATE HOISTING (Zero-Latency Architecture)
+    // We define the scroll state AT THE TOP so it drives the entire component synchronously.
+    const [activeHIdx, setActiveHIdx] = useState(0);
+
+    // 2. HOISTED DATA PREPARATION
+    // Filter out the first hourly item (current hour) to avoid duplication with 'Now' card
+    const hourlyToRender = React.useMemo(() => {
+        try {
+            if (!hourly || !Array.isArray(hourly) || hourly.length === 0) return [];
+
+            if (index === 0) {
+                // TODAY: Start from Next Hour, Finish at Midnight (Location Time)
+                const now = new Date(); // Absolute Now
+
+                // Get Current Location Date String (YYYY-MM-DD)
+                // Fallback to 'UTC' if timeZone is missing (Ocean) to avoid crash, or use local.
+                let safeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+                // Validate timezone
+                try {
+                    Intl.DateTimeFormat(undefined, { timeZone: safeZone });
+                } catch (e) {
+                    safeZone = 'UTC';
+                }
+
+                const nowLocDateStr = now.toLocaleDateString('en-CA', { timeZone: safeZone }); // YYYY-MM-DD
+
+                // Filter: Time > Now (Absolute) AND Date == Today (Local)
+                const futureHourly = hourly.filter(h => {
+                    if (!h || !h.time) return false;
+                    const t = new Date(h.time);
+
+                    // 1. Must be "Relevant" (End of hour > Now)
+                    // If Now is 10:15, we want to see the 10:00 card (which covers 10:00-11:00).
+                    // So we keep if t + 1 hour > now.
+                    if (t.getTime() + 3600000 <= now.getTime()) return false;
+
+                    // 2. Must be TODAY (Local Time)
+                    // This prevents scrolling past midnight into tomorrow's data
+                    const hDateStr = t.toLocaleDateString('en-CA', { timeZone: safeZone });
+                    return hDateStr === nowLocDateStr;
+                }).sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
+
+                return futureHourly;
+            } else {
+                // FORECAST: 00:00 to 23:00 (Already filtered by day in Hero.tsx, just return all)
+                return hourly.slice().sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
+            }
+        } catch (err) {
+            console.error('[CRITICAL] HeroSlide hourlyToRender crash:', err);
+            return [];
+        }
+    }, [hourly, index, timeZone]);
+
+    // --- RESTORED HELPERS ---
+    const rowHeightClass = "h-[85px] sm:h-auto sm:flex-1 overflow-hidden";
+
+    // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
+    // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
+    const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
+    const showGrid = !showTideGraph; // Explicit switch
+
+
+    // 3. DERIVED VISUAL TIME (The "Fast" Time)
+    // This updates instantly on scroll render, unlike 'customTime' prop which lags.
+    const visualTime = useMemo(() => {
+        if (index === 0) {
+            // TODAY
+            if (activeHIdx === 0) return undefined; // Live
+            const hItem = hourlyToRender[activeHIdx - 1];
+            return hItem ? new Date(hItem.time).getTime() : undefined;
+        } else {
+            // FORECAST
+            const hItem = hourlyToRender[activeHIdx];
+            return hItem ? new Date(hItem.time).getTime() : undefined;
+        }
+    }, [activeHIdx, index, hourlyToRender]);
+
+    // Ticker for Live Countdown
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        if (index !== 0) return; // Optimization: Only tick for Live card
+        const timer = setInterval(() => setTick(t => t + 1), 30000); // 30s check
+        return () => clearInterval(timer);
+    }, [index]);
+
+    const isLive = index === 0 && activeHIdx === 0;
+
+    // FIX: Live Data Override using Hourly Array
+    // This ensures that if the app is open for hours (or data fetched earlier), 
+    // we show the forecast for the *current wall-clock hour* rather than the fetch-time snapshot.
+    const effectiveData = useMemo(() => {
+        // Use fullHourly if available (preferred for timezone safety), else fallback to filtered hourly
+        const sourceHourly = fullHourly && fullHourly.length > 0 ? fullHourly : hourly;
+
+        // FIX: If this is the "Live" card, we MUST rely on the 'data' prop (which has METAR overrides).
+        // Trying to "find the current slot" from the hourly array (which is raw model data) causes
+        // a race condition at the top of the hour where the UI flashes raw data before the refresh completes.
+        if (isLive) return data;
+
+        if (!sourceHourly || sourceHourly.length === 0) return data;
+
+        // FIX: Respect Visual Time (Scroll). Fallback to Now if live.
+        // We use 'visualTime' (local) instead of 'customTime' (prop) for zero latency.
+        const now = visualTime || Date.now();
+        const oneHour = 3600 * 1000;
+
+        // Find the hourly slot that covers the current time
+        const currentSlot = sourceHourly.find(h => {
+            const t = new Date(h.time).getTime();
+            return now >= t && now < t + oneHour;
+        });
+
+        if (currentSlot) {
+            // CRITICAL FIX: Do NOT override "Current" data (which might be real METAR) with "Hourly" data (which is model forecast).
+            // The 'data' prop comes from 'weather.current' which has 'Ground Truth' overrides.
+            return {
+                ...data, // Keep base data structure
+                // STABILIZATION: Ensure WE NEVER RETURN UNDEFINED for these critical fields
+                uvIndex: currentSlot.uvIndex ?? data.uvIndex ?? 0,
+                precipitation: currentSlot.precipitation ?? 0,
+                feelsLike: currentSlot.feelsLike ?? currentSlot.temperature ?? data.airTemperature,
+                cloudCover: currentSlot.cloudCover ?? data.cloudCover ?? 0,
+                humidity: currentSlot.humidity ?? data.humidity ?? 0,
+                visibility: currentSlot.visibility ?? data.visibility ?? 10,
+
+                // Wind/Marine overrides
+                currentSpeed: currentSlot.currentSpeed ?? data.currentSpeed,
+                currentDirection: currentSlot.currentDirection ?? data.currentDirection,
+                waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
+
+                // Display Values
+                windSpeed: currentSlot.windSpeed ?? data.windSpeed,
+                windGust: currentSlot.windGust ?? data.windGust,
+                windDirection: currentSlot.windDirection ?? data.windDirection, // Keep string if available
+                waveHeight: currentSlot.waveHeight ?? data.waveHeight,
+                pressure: currentSlot.pressure ?? data.pressure
+            };
+        }
+        return data;
+    }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
+
+    // Use effectiveData for all display logic used in the MAIN CARD
+    const displayData = effectiveData;
+
+    // Trend Calculation
+    const trends = useMemo(() => {
+        if (!fullHourly || fullHourly.length < 2) return undefined;
+
+        // Find current index based on time
+        // Use visualTime for instant trend updates
+        const now = visualTime || Date.now();
+        // Look for the slot that matches 'now'
+        let currentIndex = fullHourly.findIndex(h => {
+            const t = new Date(h.time).getTime();
+            return now >= t && now < t + 3600000;
+        });
+
+        if (currentIndex === -1) {
+            // STABILIZATION: If exact match fails (e.g. slight time drift), 
+            // try to find the Closest slot instead of giving up.
+            // This prevents "flickering" arrows during scroll transitions.
+            let minDiff = Infinity;
+            let bestIdx = -1;
+            fullHourly.forEach((h, i) => {
+                const t = new Date(h.time).getTime();
+                const diff = Math.abs(t - now);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestIdx = i;
+                }
+            });
+
+            // Allow if within 2 hours
+            if (minDiff < 7200000 && bestIdx !== -1) {
+                currentIndex = bestIdx;
+            } else {
+                return undefined;
+            }
+        }
+
+
+        const current = effectiveData; // Use the effective (potentially live) data
+        let baseItem = fullHourly[currentIndex - 1]; // Previous hour
+        let isForecast = false;
+
+        // Fallback: If no previous data (start of array), look ahead to show "Forecast Trend"
+        if (!baseItem) {
+            const nextItem = fullHourly[currentIndex + 1];
+            if (nextItem) {
+                baseItem = nextItem;
+                isForecast = true;
+            }
+        }
+
+        // Final Safety
+        if (!baseItem) return undefined;
+
+        const prev = baseItem;
+
+        const getTrend = (curr?: number | null, old?: number | null, threshold = 0): 'rising' | 'falling' | 'steady' => {
+            // STABILIZATION: Treat 0 as a valid number, check for null/undefined strictly
+            if (curr === undefined || curr === null || old === undefined || old === null) return 'steady';
+            let diff = curr - old;
+
+            // If comparing to Future (Next Hour), invert logic:
+            // e.g. Current(10) -> Next(15). Diff(10-15)=-5. But Trend is Rising (+5).
+            if (isForecast) {
+                diff = old - curr;
+            }
+
+            if (diff > threshold) return 'rising';
+            if (diff < -threshold) return 'falling';
+            return 'steady';
+        };
+
+        return {
+            wind: getTrend(current.windSpeed, prev.windSpeed, 1),
+            gust: getTrend(current.windGust, prev.windGust, 2),
+            wave: getTrend(current.waveHeight, prev.waveHeight, 0.1),
+            pressure: getTrend(current.pressure, prev.pressure, 0.5),
+            waterTemp: getTrend(current.waterTemperature, prev.waterTemperature, 0.2),
+            currentSpeed: getTrend(current.currentSpeed, prev.currentSpeed, 0.2),
+            humidity: getTrend(current.humidity, prev.humidity, 3),
+            visibility: getTrend(current.visibility, prev.visibility, 1),
+            precip: getTrend(current.precipitation, prev.precipitation, 0.1),
+            feels: getTrend(current.feelsLike, prev.feelsLike, 1),
+            clouds: getTrend(current.cloudCover, prev.cloudCover, 5)
+        };
+    }, [effectiveData, fullHourly, visualTime]);
+
+    // Debug Log for Trends
+    // console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
+
+    // Vertical Scroll Reset Logic
+    // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)
+    const horizontalScrollRef = useRef<HTMLDivElement>(null);
+
+    // FIX V5: PRE-CALCULATE THE DATE LABEL FROM THE PARENT ROW DATA
+    const rowDateLabel = useMemo(() => {
+        if (index === 0) return "TODAY";
+
+        // Critical: Use displayData.isoDate if available to LOCK the date to the row's day
+        if (displayData.isoDate) {
+            const [y, m, day] = displayData.isoDate.split('-').map(Number);
+            const d = new Date(y, m - 1, day, 12, 0, 0);
+            return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        }
+
+        // Fallback for generic date objects
+        const d = displayData.date ? new Date(displayData.date) : new Date();
+        return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    }, [index, displayData.isoDate, displayData.date]);
+
+    useEffect(() => {
+        const handleReset = () => {
+            // Reset to Start (Left)
+            if (horizontalScrollRef.current) {
+                horizontalScrollRef.current.scrollTo({ left: 0 });
+            }
+        };
+        window.addEventListener('hero-reset-scroll', handleReset);
+        return () => window.removeEventListener('hero-reset-scroll', handleReset);
+    }, []);
+
+    const fullWidgetList = settings.heroWidgets && settings.heroWidgets.length > 0 ? settings.heroWidgets : ['wind', 'wave', 'pressure'];
+    const displayWidgets = fullWidgetList.slice(0, 3);
+
+    // Display Logic used for WIDGETS (Not the Card itself? Wait, Widgets use this too)
+    const rawGust = displayData.windGust || ((displayData.windSpeed || 0) * 1.3);
+    const hasWind = displayData.windSpeed !== null && displayData.windSpeed !== undefined;
+
+    // Calculate Day/Night state
+    const isCardDay = useMemo(() => {
+        if (index > 0) return true;
+        if (!displayData.sunrise || !displayData.sunset) return true;
+
+        const now = visualTime || Date.now();
+        const d = new Date(now);
+        const [rH, rM] = displayData.sunrise.split(':').map(Number);
+        const [sH, sM] = displayData.sunset.split(':').map(Number);
+
+        const rise = new Date(d).setHours(rH, rM, 0, 0);
+        const set = new Date(d).setHours(sH, sM, 0, 0);
+
+        return d.getTime() >= rise && d.getTime() < set;
+    }, [index, displayData.sunrise, displayData.sunset, visualTime, tick]); // Added tick
+
+    const isHighGust = hasWind && (rawGust > ((displayData.windSpeed || 0) * 1.5));
+    const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
+
+    const displayValues = {
+        airTemp: displayData.airTemperature !== null ? convertTemp(displayData.airTemperature, units.temp) : '--',
+        highTemp: (displayData as any).highTemp !== undefined ? convertTemp((displayData as any).highTemp, units.temp) : '--',
+        lowTemp: (displayData as any).lowTemp !== undefined ? convertTemp((displayData as any).lowTemp, units.temp) : '--',
+        windSpeed: hasWind ? convertSpeed(displayData.windSpeed, units.speed) : '--',
+        waveHeight: isLandlocked ? "0" : (hasWave ? convertLength(displayData.waveHeight, units.length) : '--'),
+        vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
+        gusts: hasWind ? convertSpeed(rawGust, units.speed) : '--',
+        precip: convertPrecip(displayData.precipitation, units.length),
+        pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
+        cloudCover: (displayData.cloudCover !== null && displayData.cloudCover !== undefined) ? Math.round(displayData.cloudCover) : '--',
+        uv: (displayData.uvIndex !== undefined && displayData.uvIndex !== null) ? Math.round(displayData.uvIndex) : '--',
+        sunrise: displayData.sunrise || '--:--',
+        sunset: displayData.sunset || '--:--',
+        currentSpeed: displayData.currentSpeed !== undefined && displayData.currentSpeed !== null ? Number(displayData.currentSpeed).toFixed(1) : '--',
+        humidity: (displayData.humidity !== undefined && displayData.humidity !== null) ? Math.round(displayData.humidity) : '--',
+        feelsLike: (displayData.feelsLike !== undefined && displayData.feelsLike !== null) ? convertTemp(displayData.feelsLike, units.temp) : '--',
+        dewPoint: (displayData.dewPoint !== undefined && displayData.dewPoint !== null) ? convertTemp(displayData.dewPoint, units.temp) : '--',
+
+
+        // Critical: Added missing Marine keys for Third Row widgets
+        waterTemperature: displayData.waterTemperature !== undefined && displayData.waterTemperature !== null ? convertTemp(displayData.waterTemperature, units.temp) : '--',
+        currentDirection: (() => {
+            const val = displayData.currentDirection;
+            if (typeof val === 'number') return degreesToCardinal(val);
+            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+            return '--';
+        })()
+    };
+
+    // Score Calculation
+    const score = calculateDailyScore(displayData.windSpeed || 0, displayData.waveHeight || 0, vessel);
+    const scoreColor = getSailingScoreColor(score);
+    const scoreText = getSailingConditionText(score);
+
+    // WidgetMap removed (replaced by renderHeroWidget helper)
+
+    // ... (Skipping to renderTideGraph)
+
+    const renderTideGraph = (targetTime?: number, targetDateStr?: string) => {
+        // 1. INLAND MODE
+        if (locationType === 'inland' || isLandlocked) {
+            return (
+                <div className="mt-0.5 pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
+                    {/* Humidity */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <DropletIcon className="w-3 h-3 text-cyan-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-200">Humidity</span>
+                        </div>
+                        <div className="flex items-baseline gap-0.5">
+                            <span className="text-3xl font-black text-white">{displayValues.humidity}</span>
+                            <span className="text-xs text-gray-400 font-medium">%</span>
+                        </div>
+                    </div>
+
+                    {/* Visibility */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <EyeIcon className="w-3 h-3 text-emerald-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-200">Visibility</span>
+                        </div>
+                        <div className="flex items-baseline gap-0.5">
+                            <span className="text-3xl font-black text-white">{displayValues.vis}</span>
+                            <span className="text-xs text-gray-400 font-medium">{units.visibility}</span>
+                        </div>
+                    </div>
+
+                    {/* UV/Pressure */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <SunIcon className="w-3 h-3 text-orange-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-orange-200">UV Index</span>
+                        </div>
+                        <div className="flex items-baseline gap-0.5">
+                            <span className="text-3xl font-black text-white">{displayValues.uv}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // 2. OFFSHORE MODE 
+        if (locationType === 'offshore' || (!tides?.length && !isLandlocked)) {
+            return (
+                <div className="mt-0.5 pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
+                    {/* Water Temp */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <ThermometerIcon className="w-3 h-3 text-blue-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Water</span>
+                        </div>
+                        <div className="flex items-baseline gap-0.5">
+                            <span className="text-3xl font-black text-white">
+                                {data.waterTemperature ? convertTemp(data.waterTemperature, units.temp) : '--'}
+                            </span>
+                            <span className="text-xs text-gray-400 font-medium">°{units.temp}</span>
+                        </div>
+                    </div>
+
+                    {/* Set (Current Speed) */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <GaugeIcon className="w-3 h-3 text-violet-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Drift</span>
+                        </div>
+                        <div className="flex items-baseline gap-0.5">
+                            <span className="text-3xl font-black text-white">{displayValues.currentSpeed}</span>
+                            <span className="text-xs text-gray-400 font-medium">kts</span>
+                        </div>
+                    </div>
+
+                    {/* Drift (Current Direction) */}
+                    <div className={STATIC_WIDGET_CLASS}>
+                        <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                            <CompassIcon rotation={0} className="w-3 h-3 text-violet-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Set</span>
+                        </div>
+                        <div className="flex flex-col justify-center">
+                            <span className="text-3xl font-black text-white">
+                                {(() => {
+                                    const val = data.currentDirection;
+                                    if (typeof val === 'number') return degreesToCardinal(val);
+                                    if (typeof val === 'string') {
+                                        return val.replace(/[\d.°]+/g, '').trim() || val;
+                                    }
+                                    return '--';
+                                })()}
+                            </span>
+                        </div>
+                        <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80 text-center">
+                            {(() => {
+                                const val = data.currentDirection;
+                                let degrees: number | null = null;
+                                if (typeof val === 'number') degrees = val;
+                                else if (typeof val === 'string') {
+                                    const match = val.match(/(\d+)/);
+                                    if (match) degrees = parseInt(match[1]);
+                                }
+
+                                if (degrees !== null && !isNaN(degrees)) {
+                                    return `${Math.round(degrees)}° True`;
+                                }
+                                return 'True';
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        if (!tides || tides.length === 0) return null;
+
+        return (
+            <div className="w-full h-36 px-0 pb-0 relative mb-8">
+                <TideGraph
+                    tides={tides}
+                    unit={units.tideHeight || 'm'}
+                    timeZone={timeZone}
+                    hourlyTides={[]}
+                    tideSeries={undefined}
+                    modelUsed="WorldTides"
+                    unitPref={units}
+                    customTime={targetTime || customTime}
+                    showAllDayEvents={index > 0 && !targetTime}
+                    /* Logic to resolve Primary vs Secondary */
+                    stationName={(() => {
+                        const sName = guiDetails?.stationName;
+                        if (!sName) return "Local Station";
+                        const sObj = ALL_STATIONS.find(s => s.name === sName);
+                        if (sObj?.referenceStationId) {
+                            const ref = ALL_STATIONS.find(r => r.id === sObj.referenceStationId);
+                            return ref ? ref.name : sName;
+                        }
+                        return sName;
+                    })()}
+                    secondaryStationName={(() => {
+                        const sName = guiDetails?.stationName;
+                        if (!sName) return undefined;
+                        const sObj = ALL_STATIONS.find(s => s.name === sName);
+                        if (sObj?.referenceStationId) {
+                            return sName; // The User's specific location is the Secondary
+                        }
+                        return undefined;
+                    })()}
+                    guiDetails={guiDetails}
+                    stationPosition="bottom"
+                />
+            </div>
+        );
+    };
+
+    const renderTopWidget = () => {
+        const topWidgetId = settings.topHeroWidget || 'sunrise'; // Default
+
+        if (topWidgetId === 'sunrise') {
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <SunIcon className="w-3 h-3 text-orange-400" />
+                        <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-orange-200">Sun Phz</span>
+                    </div>
+                    <div className="flex flex-col justify-center">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-orange-300 font-bold uppercase mr-1">Rise</span>
+                            <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunrise}</span>
+                        </div>
+                        <div className="w-full h-px bg-white/5 my-0.5"></div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-purple-300 font-bold uppercase mr-1">Set</span>
+                            <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunset}</span>
+                        </div>
+                    </div>
+                    <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
+                </div>
+            );
+        }
+
+        if (topWidgetId === 'score') {
+            return (
+                <div className="flex flex-col h-full justify-between">
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <StarIcon className="w-3 h-3 text-yellow-400" />
+                        <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-yellow-200">Boating</span>
+                    </div>
+                    <div className="flex items-baseline gap-0.5">
+                        <span className="text-3xl md:text-5xl font-black tracking-tighter text-white">{score}</span>
+                        <span className="text-[10px] md:text-xs font-medium text-gray-400">/100</span>
+                    </div>
+                    <div className={`mt-auto pt-1 text-[8px] md: text-[10px] font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}>
+                        {scoreText}
+                    </div>
+                </div>
+            );
+        }
+
+        // Use Common Renderer
+        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as any).sources : undefined);
+        if (customWidget) {
+            return customWidget;
+        }
+        return null;
+    };
+
+    // --- RENDER LOOP PREPARATION ---
+    const slides = [
+        { type: 'current', data: data, time: undefined as number | undefined },
+        ...(hourlyToRender || []).map(h => {
+            // Find matching daily forecast for High/Low
+            const hDate = new Date(h.time);
+            const hDayStr = hDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+            const matchDay = forecast.find(d => d.isoDate === hDayStr || d.date === hDayStr);
+
+            return {
+                type: 'hourly',
+                data: {
+                    ...h,
+                    airTemperature: h.temperature, // Map for compatibility
+                    feelsLike: h.feelsLike,
+                    windSpeed: h.windSpeed,
+                    waveHeight: h.waveHeight,
+                    highTemp: matchDay?.highTemp, // Inject Daily High
+                    lowTemp: matchDay?.lowTemp    // Inject Daily Low
+                } as any,
+                time: hDate.getTime()
+            };
+        })
+    ];
+
+    return (
+        <div
+            ref={horizontalScrollRef}
+            className="w-full h-full flex flex-row overflow-x-auto snap-x snap-mandatory no-scrollbar"
+        >
+            {slides.map((slide, slideIdx) => {
+                const isHourly = slide.type === 'hourly';
+                // Type cast/safety: Assume hourly data is compatible enough or pick specific fields
+                const cardData = slide.data as WeatherMetrics;
+                const cardTime = slide.time || customTime;
+
+                // DYNAMIC SUN PHASE LOGIC (Per Card)
+                const sunPhase = (() => {
+                    const currentTs = cardTime || Date.now();
+                    const sRise = cardData.sunrise;
+                    const sSet = cardData.sunset;
+                    const fallbackCheck = () => {
+                        const h = new Date(currentTs).getHours();
+                        return { isDay: h >= 6 && h < 18, label: h >= 6 && h < 18 ? 'Sunset' : 'Sunrise', time: '--:--' };
+                    };
+                    if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck();
+
+                    try {
+                        const [rH, rM] = sRise.replace(/[^0-9:]/g, '').split(':').map(Number);
+                        const [sH, sM] = sSet.replace(/[^0-9:]/g, '').split(':').map(Number);
+                        if (isNaN(rH) || isNaN(sH)) return fallbackCheck();
+
+                        const d = new Date(currentTs);
+                        const riseDt = new Date(d); riseDt.setHours(rH, rM, 0);
+                        const setDt = new Date(d); setDt.setHours(sH, sM, 0);
+
+                        if (d < riseDt) return { isDay: false, label: 'Sunrise', time: sRise };
+                        if (d >= riseDt && d < setDt) return { isDay: true, label: 'Sunset', time: sSet };
+                        return { isDay: false, label: 'Sunrise', time: sRise };
+                    } catch (e) {
+                        return fallbackCheck();
+                    }
+                })();
+
+                const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
+                const cardIsLive = !isHourly && index === 0;
+                const forceLabel = rowDateLabel;
+
+                // DISPLAY VALUES (Per Card)
+                const cardDisplayValues = {
+                    airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
+                    highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
+                    lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
+                    windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? convertSpeed(cardData.windSpeed, units.speed) : '--',
+                    waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? convertLength(cardData.waveHeight, units.waveHeight) : '--'),
+                    vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
+                    gusts: cardData.windSpeed !== null ? convertSpeed((cardData.windGust || (cardData.windSpeed * 1.3)), units.speed) : '--',
+                    precip: convertPrecip(cardData.precipitation, units.length),
+                    pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
+                    cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
+                    uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
+                    sunrise: cardData.sunrise,
+                    sunset: cardData.sunset,
+                    humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
+                    dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null) ? convertTemp(cardData.dewPoint, units.temp) : '--',
+                    waterTemperature: (() => {
+                        const val = cardData.waterTemperature ?? (cardData as any).seaSurfaceTemperature ?? (cardData as any).seaTemp;
+                        return (val !== undefined && val !== null) ? convertTemp(val, units.temp) : '--';
+                    })(),
+                    currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
+                    currentDirection: (() => {
+                        const val = cardData.currentDirection;
+                        if (typeof val === 'number') return degreesToCardinal(val);
+                        if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+                        return '--';
+                    })(),
+                    moon: (cardData as any).moonPhase || 'Waxing' // Placeholder or Data
+
+                };
+
+                // Helper to get source color for card metrics
+                const cardSources = (cardData as any).sources;
+                const getCardSourceColor = (metricKey: string): string => {
+                    // Only show source colors on the live/current card (index 0)
+                    // All forecast cards should be white since they're all from StormGlass
+                    if (!cardIsLive) return 'text-white';
+                    if (!cardSources || !cardSources[metricKey]) return 'text-white';
+                    const sourceColor = cardSources[metricKey]?.sourceColor;
+                    switch (sourceColor) {
+                        case 'green': return 'text-emerald-400';
+                        case 'amber': return 'text-amber-400';
+                        case 'red': return 'text-red-400';
+                        default: return 'text-white';
+                    }
+                };
+
+                // Determine Widgets to Show (Hourly might have different needs, but keeping same for now)
+                // Mega Sub Card Logic:
+                // If showTideGraph is true, we show the Grid + Tide Graph
+                // If false, we show the 3-column simple grid
+
+                return (
+                    <div
+                        key={slideIdx}
+                        className={`w-full h-auto md:h-full snap-start shrink-0 relative px-0.5 pb-0 flex flex-col`}
+                        style={{ height: isHourly ? '100%' : '100%' }}
+                    >
+                        <div className={`relative w-full h-auto md:h-full rounded-3xl overflow-hidden backdrop-blur-md flex flex-col gap-2 border border-white/10 bg-black/20 `}>
+                            {/* BG */}
+                            <div className="absolute inset-0 z-0">
+                                <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-blue-900/20 via-slate-900/40 to-black/60' : 'from-red-900/10 via-slate-900/40 to-black/60'} `} />
+                            </div>
+
+                            {/* 1. HEADER (Auto Height) */}
+                            {/* 1. HEADER (Auto Height) */}
+                            {/* REMOVED WRAPPER: Direct Child now */}
+                            <div className={`col-span-3 mb-0 relative z-10 shrink-0 rounded-2xl p-0 backdrop-blur-md flex flex-col overflow-hidden group h-auto border shadow-lg ${isCardDay
+                                ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
+                                : 'bg-gradient-to-br from-indigo-900/20 via-slate-900/40 to-black/40 border-indigo-400/20 shadow-indigo-900/5'
+                                } `}>
+                                {/* Gradient Orb */}
+                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
+
+                                {/* TOP SECTION (Split 58/42) */}
+                                <div className="flex flex-row w-full border-b border-white/5 min-h-[90px]">
+
+                                    {/* COLUMN 1: Main Temp & Hi/Lo (33%) */}
+                                    <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-center items-start min-w-0 bg-white/0">
+                                        {/* Main Temp */}
+                                        <div className="flex items-start leading-none relative">
+                                            {(() => {
+                                                const tempStr = cardDisplayValues.airTemp.toString();
+                                                const len = tempStr.length;
+                                                const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+                                                return (
+                                                    <span className={`${sizeClass} font-black tracking-tighter ${getCardSourceColor("airTemperature")} drop-shadow-2xl leading-none transition-all duration-300`}>
+                                                        {cardDisplayValues.airTemp}°
+                                                    </span>
+                                                )
+                                            })()}
+                                        </div>
+
+                                        {/* Hi/Lo directly underneath */}
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <div className="flex items-center gap-0.5">
+                                                <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
+                                                <span className={`text-[10px] font-bold ${getCardSourceColor('airTemperature')} opacity-80`}>
+                                                    {cardDisplayValues.highTemp}°
+                                                </span>
+                                            </div>
+                                            <div className="w-px h-2.5 bg-white/20"></div>
+                                            <div className="flex items-center gap-0.5">
+                                                <ArrowDownIcon className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
+                                                <span className={`text-[10px] font-bold ${getCardSourceColor('airTemperature')} opacity-80`}>
+                                                    {cardDisplayValues.lowTemp}°
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* COLUMN 2: Weather Narrative Blurb (33%) */}
+                                    <div className="flex-1 border-r border-white/5 p-3 flex flex-col justify-center items-center min-w-0 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-sm">
+                                        <p className="text-xs md:text-sm font-medium text-center leading-relaxed text-white/90 line-clamp-3 overflow-hidden max-w-full">
+                                            {generateWeatherNarrative(cardData)}
+                                        </p>
+                                    </div>
+
+                                    {/* COLUMN 3: Context Header (33%) */}
+                                    <div className="flex-1 p-2 flex flex-col justify-between items-end min-w-0 bg-white/0">
+                                        {/* TOP LINE */}
+                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-right`}>
+                                            {cardIsLive ? "TODAY" : "FORECAST"}
+                                        </span>
+
+                                        {/* MIDDLE LINE */}
+                                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-right whitespace-nowrap -translate-y-1`}>
+                                            {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
+                                        </span>
+
+                                        {/* BOTTOM LINE: Hour Range */}
+                                        {(cardIsLive || cardTime) ? (
+                                            <span className={`text-xs md:text-sm font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-right whitespace-nowrap`}>
+                                                {cardIsLive ? (() => {
+                                                    const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
+                                                    const nextDate = new Date();
+                                                    nextDate.setHours(nextDate.getHours() + 1);
+                                                    const nextH = nextDate.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
+                                                    return `${startH}:00 - ${nextH}:00`;
+                                                })() : (() => {
+                                                    if (!cardTime) return '--:--';
+                                                    const start = new Date(cardTime);
+                                                    const end = new Date(cardTime);
+                                                    end.setHours(start.getHours() + 1);
+                                                    const strictFmt = (d: Date) => {
+                                                        const h = d.getHours();
+                                                        const m = d.getMinutes().toString().padStart(2, '0');
+                                                        return `${h.toString().padStart(2, '0')}:${m}`;
+                                                    };
+                                                    return `${strictFmt(start)} - ${strictFmt(end)}`;
+                                                })()}
+                                            </span>
+                                        ) : <div />}
+                                    </div>
+                                </div>
+
+                                {/* TOP ROW: Maritime Navigation Critical - 5 Items */}
+                                <div className="w-full grid grid-cols-5 gap-2 px-3 py-2 bg-black/10 border-t border-white/5">
+                                    {/* Wind Speed */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <WindIcon className="w-3.5 h-3.5 text-sky-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Wind</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('windSpeed')}`}>
+                                                {cardDisplayValues.windSpeed}
+                                            </span>
+                                            {trends?.wind === 'rising' && <span className="text-[10px] text-red-400">↑</span>}
+                                            {trends?.wind === 'falling' && <span className="text-[10px] text-emerald-400">↓</span>}
+                                            {trends?.wind === 'steady' && <span className="text-[10px] text-slate-400">→</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* Wind Gust */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <WindIcon className="w-3.5 h-3.5 text-purple-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Gust</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('windGust')}`}>
+                                                {cardDisplayValues.gusts}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Wave Height */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <WaveIcon className="w-3.5 h-3.5 text-cyan-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Wave</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('waveHeight')}`}>
+                                                {cardDisplayValues.waveHeight}
+                                            </span>
+                                            {trends?.wave === 'rising' && <span className="text-[10px] text-red-400">↑</span>}
+                                            {trends?.wave === 'falling' && <span className="text-[10px] text-emerald-400">↓</span>}
+                                            {trends?.wave === 'steady' && <span className="text-[10px] text-slate-400">→</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* Visibility */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <EyeIcon className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Vis</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('visibility')}`}>
+                                                {cardDisplayValues.vis}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Water Temperature */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <WaveIcon className="w-3.5 h-3.5 text-blue-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Water</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('waterTemperature')}`}>
+                                                {cardDisplayValues.waterTemperature}°
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                                {/* BOTTOM ROW: Planning Context - 5 Items */}
+                                <div className="w-full grid grid-cols-5 gap-2 px-3 py-2 bg-black/20 border-t border-white/5">
+
+
+                                    {/* Sunrise */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <SunriseIcon className="w-3.5 h-3.5 text-orange-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Rise</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-base font-bold text-white">
+                                                {cardDisplayValues.sunrise || '--:--'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Sunset */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Set</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-base font-bold text-white">
+                                                {cardDisplayValues.sunset || '--:--'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* UV Index */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <SunIcon className="w-3.5 h-3.5 text-amber-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">UV</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('uvIndex')}`}>
+                                                {cardDisplayValues.uv}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Pressure */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <GaugeIcon className="w-3.5 h-3.5 text-teal-400" />
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">hPa</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className={`text-base font-bold ${getCardSourceColor('pressure')}`}>
+                                                {cardDisplayValues.pressure}
+                                            </span>
+                                            {trends?.pressure === 'rising' && <span className="text-[10px] text-emerald-400">↑</span>}
+                                            {trends?.pressure === 'falling' && <span className="text-[10px] text-red-400">↓</span>}
+                                            {trends?.pressure === 'steady' && <span className="text-[10px] text-slate-400">→</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* Moon Phase */}
+                                    <div className="flex flex-col items-center justify-center gap-1 bg-white/5 rounded-lg p-1.5 min-h-[50px]">
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-[9px] text-slate-400 uppercase tracking-wider">Moon</span>
+                                        </div>
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-2xl leading-none">
+                                                {getMoonPhase(new Date(cardTime || Date.now())).emoji}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            {/* 2. MAIN CONTENT */}
+                            <div className="relative w-full min-h-[280px] md:min-h-[350px] overflow-hidden flex flex-col justify-start flex-1 mt-0">
+                                {showTideGraph ? (
+                                    <div className="flex flex-col w-full h-full">
+                                        {/* Row 1: Small Widgets */}
+                                        <div className="px-0 shrink-0 mt-0.5 sm:flex sm:flex-col sm:justify-center">
+                                            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative z-10 w-full pb-0">
+                                                {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
+                                                    const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                    const getTheme = (wid: string) => {
+                                                        switch (wid) {
+                                                            case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+                                                            case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
+                                                            case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                            default: return 'bg-black/10 border-white/5';
+                                                        }
+                                                    };
+                                                    const themeClass = getTheme(id);
+                                                    return (
+                                                        <div key={id} className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass.replace('md:', 'sm:')} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined)}
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {/* Tide Graph: Fills ALL Remaining Space */}
+                                        {/* Only show Tide Graph on Main Card (idx 0) or if we want it everywhere? Usually just Main. 
+                                            Let's show it on all for consistency if data exists, otherwise blank space is weird. */}
+                                        <div className="flex-1 min-h-0 w-full relative mt-2 mb-8">
+                                            <TideGraph
+                                                tides={tides || []}
+                                                unit={units.tideHeight || 'm'}
+                                                timeZone={timeZone}
+                                                hourlyTides={[]}
+                                                tideSeries={tideHourly}
+                                                modelUsed="WorldTides"
+                                                unitPref={units}
+                                                customTime={cardTime} // USE CARD TIME
+                                                showAllDayEvents={index > 0 && !cardTime}
+                                                stationName={guiDetails?.stationName || "Local Station"}
+                                                secondaryStationName={guiDetails?.stationName}
+                                                guiDetails={guiDetails}
+                                                stationPosition="bottom"
+                                                className="h-full w-full"
+                                                style={{ height: '100%', width: '100%' }}
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* INLAND / OFFSHORE LAYOUT */
+                                    <div className="w-full h-full flex flex-col justify-start gap-1">
+                                        <div className="grid grid-cols-3 gap-2 w-full px-2">
+                                            {(() => {
+                                                // 1. Define Layouts based on User Request
+                                                // Offshore: Wind, Gust, Seas, Pressure, Cloud, Precip, Sea Temp, Drift, Set
+                                                const OFFSHORE_WIDGETS = ['wind', 'gust', 'wave', 'pressure', 'visibility', 'precip', 'waterTemperature', 'currentSpeed', 'currentDirection'];
+
+                                                // Inland: Wind, Gust, UV, Pressure, Humidity, Precip, Sunrise, Sunset, Moon Phase
+                                                const INLAND_WIDGETS = ['wind', 'gust', 'uv', 'pressure', 'humidity', 'precip', 'sunrise', 'sunset', 'moon'];
+
+                                                const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS : OFFSHORE_WIDGETS;
+
+                                                return widgets.map((id: string, idx: number) => {
+                                                    // 2. Alignment Logic: Left | Center | Right
+                                                    const align = idx % 3 === 0 ? 'left' : idx % 3 === 1 ? 'center' : 'right';
+
+                                                    // 3. Justification classes for container
+                                                    const justifyClass = align === 'left' ? 'items-start' : align === 'center' ? 'items-center' : 'items-end';
+
+                                                    return (
+                                                        <div key={id} className={`bg-white/5 rounded-xl p-2 flex flex-col justify-center ${justifyClass}`}>
+                                                            {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as any).sources : undefined)}
+                                                        </div>
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 3. FOOTER */}
+                            <div className="mt-auto w-full relative z-20">
+                                <div className="mb-3">
+                                    {(() => {
+                                        // Extract source names from cardSources
+                                        // Only for live/current card - forecast cards don't have beacon/airport data
+                                        let beaconName = '';
+                                        let airportName = '';
+
+                                        if (cardIsLive && cardSources) {
+                                            Object.values(cardSources).forEach((src: any) => {
+                                                if (src?.source === 'beacon' && src?.sourceName && !beaconName) {
+                                                    beaconName = src.sourceName;
+                                                } else if (src?.source === 'airport' && src?.sourceName && !airportName) {
+                                                    airportName = src.sourceName;
+                                                }
+                                            });
+                                        }
+
+                                        return (
+                                            <StatusBadges
+                                                isLandlocked={isLandlocked || false}
+                                                locationName={locationName || ''}
+                                                displaySource={displaySource}
+                                                nextUpdate={nextUpdate}
+                                                fallbackInland={false}
+                                                stationId={effectiveData?.stationId}
+                                                locationType={locationType}
+                                                beaconName={beaconName}
+                                                airportName={airportName}
+                                            />
+                                        );
+                                    })()}
+
+                                    {/* Source Legend - Only on live card */}
+                                    {cardIsLive && (
+                                        <div className="mt-2">
+                                            <SourceLegend />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="w-full flex justify-center pb-4">
+                                    <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
+                                </div>
+                            </div>
+                        </div>
+                    </div >
+                );
+            })}
+        </div >
+    );
+};
+

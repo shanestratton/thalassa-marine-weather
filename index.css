@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,18 +26,36 @@
   background: rgba(255, 255, 255, 0.4);
 }
 
+/* Hide Scrollbars Completely */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
 /* App Shell Reset */
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
-  overflow: hidden; /* Prevent body scroll */
-  overscroll-behavior: none; /* Kill bounce globally */
-  -webkit-overflow-scrolling: auto; /* Dissuade native momentum on body */
+  overflow-y: auto;
+  /* Allow vertical scroll */
+  overscroll-behavior-y: none;
+  /* Prevent bounce */
+  -webkit-overflow-scrolling: touch;
+  /* Momentum scrolling */
 }
 
 /* Ensure dynamic viewport units are respected where supported */
 @supports (height: 100dvh) {
-  html, body, #root {
+
+  html,
+  body,
+  #root {
     min-height: 100dvh;
   }
 }
@@ -47,9 +64,9 @@ html, body, #root {
 /* This limits the scaling to Mobile range (320px - 450px) */
 /* On iPhone SE (375px), font will be ~15px. On Pro Max (430px), ~17px. */
 @media screen and (max-width: 768px) {
-    html {
-        font-size: clamp(13px, 4vw, 17px);
-    }
+  html {
+    font-size: clamp(13px, 4vw, 17px);
+  }
 }
 
 /* Animations matching the 'tailwindcss-animate' style classes used in React components */
@@ -84,8 +101,8 @@ html, body, #root {
 }
 
 .slide-in-from-top-2 {
-    --tw-enter-translate-y: -0.5rem;
-    animation-name: slideInTop;
+  --tw-enter-translate-y: -0.5rem;
+  animation-name: slideInTop;
 }
 
 .zoom-in-95 {
@@ -94,31 +111,64 @@ html, body, #root {
 }
 
 .zoom-in {
-    --tw-enter-scale: 0.95;
-    animation-name: zoomIn;
+  --tw-enter-scale: 0.95;
+  animation-name: zoomIn;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideInBottom {
-  from { transform: translateY(var(--tw-enter-translate-y, 100%)); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(var(--tw-enter-translate-y, 100%));
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes slideInTop {
-    from { transform: translateY(var(--tw-enter-translate-y, -100%)); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(var(--tw-enter-translate-y, -100%));
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes slideInRight {
-  from { transform: translateX(var(--tw-enter-translate-x, 100%)); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(var(--tw-enter-translate-x, 100%));
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 @keyframes zoomIn {
-  from { transform: scale(var(--tw-enter-scale, 0.95)); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  from {
+    transform: scale(var(--tw-enter-scale, 0.95));
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }

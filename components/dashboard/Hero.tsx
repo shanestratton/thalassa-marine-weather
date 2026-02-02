@@ -24,7 +24,9 @@ export const HeroSection = ({
     locationType,
     onTimeSelect,
     customTime,
-    utcOffset
+    utcOffset,
+    onDayChange,
+    onHourChange
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -46,7 +48,9 @@ export const HeroSection = ({
     locationType?: 'coastal' | 'offshore' | 'inland',
     onTimeSelect?: (time: number | undefined) => void,
     customTime?: number, // Received from Dashboard state
-    utcOffset?: number
+    utcOffset?: number,
+    onDayChange?: (day: number) => void,
+    onHourChange?: (hour: number) => void
 }) => {
 
     const { settings, updateSettings } = useSettings();
@@ -96,7 +100,7 @@ export const HeroSection = ({
                     data: metrics as WeatherMetrics,
                     hourly: dayHourly,
                     // Set customTime to Noon of that day to centre the graph
-                    customTime: new Date(targetDate + 'T12:00:00').getTime()
+                    customTime: new Date(targetDate + 'T00:00:00').getTime()
                 });
             });
         }
@@ -108,7 +112,11 @@ export const HeroSection = ({
         const h = e.currentTarget.clientHeight;
         if (h > 0) {
             const idx = Math.round(y / h);
-            if (idx !== activeIndex) setActiveIndex(idx);
+            if (idx !== activeIndex) {
+                setActiveIndex(idx);
+                if (onDayChange) onDayChange(idx);
+                if (onHourChange) onHourChange(0); // Reset to first hour of new day
+            }
         }
     };
 
@@ -131,10 +139,12 @@ export const HeroSection = ({
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="w-full h-full overflow-y-auto snap-y snap-mandatory scrollbar-hide flex flex-col gap-6 pb-[50vh]"
+                className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar flex flex-col gap-0"
             >
                 {dayRows.map((row, rIdx) => (
-                    <div key={rIdx} className="w-full h-auto snap-start shrink-0 flex flex-col">
+                    // Each day: relative positioning creates context for HeroSlide's absolute headers
+                    // overflow-hidden prevents headers from escaping during vertical scroll
+                    <div key={rIdx} className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
                         <HeroSlide
                             index={rIdx}
                             data={row.data}
@@ -147,7 +157,7 @@ export const HeroSection = ({
                             locationName={locationName}
                             isLandlocked={isLandlocked}
                             locationType={locationType}
-                            displaySource={modelUsed || groundingSource || ''}
+                            displaySource={groundingSource || modelUsed || ''}
                             vessel={vessel}
                             // CRITICAL FIX: If this slide is active, allow the Dashboard's selected time (from horiz scroll) to override.
                             // Otherwise, fall back to row defaults (Live for Today, Noon for Future).
@@ -158,7 +168,31 @@ export const HeroSection = ({
                             guiDetails={guiDetails}
                             coordinates={coordinates}
                             generatedAt={generatedAt}
-                            onTimeSelect={onTimeSelect}
+                            onTimeSelect={(time) => {
+                                // Forward to Dashboard
+                                if (onTimeSelect) onTimeSelect(time);
+
+                                // Calculate hour index for Dashboard's activeHour state
+                                if (onHourChange && time) {
+                                    const selectedDate = new Date(time);
+                                    const hour = selectedDate.getHours();
+
+                                    if (rIdx === 0) {
+                                        // TODAY - calculate offset from current hour
+                                        const now = new Date();
+                                        const currentHour = now.getHours();
+                                        const hourOffset = hour - currentHour;
+                                        // activeHour for TODAY: 0 = NOW, 1 = current+1, etc.
+                                        onHourChange(hourOffset);
+                                    } else {
+                                        // FORECAST - hour is just the hour of day (0-23)
+                                        onHourChange(hour);
+                                    }
+                                } else if (onHourChange && !time) {
+                                    // NOW card selected
+                                    onHourChange(0);
+                                }
+                            }}
                             isVisible={activeIndex === rIdx}
                             utcOffset={utcOffset}
                         />

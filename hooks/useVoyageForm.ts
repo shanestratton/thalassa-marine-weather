@@ -104,7 +104,37 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setError(null);
         setDeepReport(null);
         try {
-            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia);
+            // ENHANCED INTELLIGENCE: Try to get weather context for the origin
+            let weatherContext = null;
+            try {
+                // Check if origin contains coordinates (e.g. "WP 32.5, -117.2" or just raw coords)
+                const coordMatch = fmtOrigin.match(/([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)/);
+                if (coordMatch) {
+                    const lat = parseFloat(coordMatch[1]);
+                    const lon = parseFloat(coordMatch[2]);
+                    // Lazy import to avoid circular dependency issues if any
+                    const { fetchFastWeather } = await import('../services/weatherService');
+                    // Use Fast Weather to get context quickly without burning premium API credits just for context
+                    const wx = await fetchFastWeather("Origin-Context", { lat, lon });
+                    if (wx) {
+                        weatherContext = {
+                            current: wx.current,
+                            tides: wx.tides?.slice(0, 4), // Next 4 tide events
+                            forecastSample: wx.hourly?.slice(0, 24).map((h: any) => ({ // First 24h
+                                time: h.time,
+                                wind: h.windSpeed,
+                                gust: h.windGust,
+                                wave: h.waveHeight,
+                                dir: h.windDirection
+                            }))
+                        };
+                    }
+                }
+            } catch (err) {
+                console.warn("Weather context fetch failed, proceeding without it", err);
+            }
+
+            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
             saveVoyagePlan(result);
         } catch (err: any) {
             setError(err.message || 'Calculation Systems Failure');
@@ -199,7 +229,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         routeCoords,
         isShortTrip,
         activeChecklistTab, setActiveChecklistTab,
-        minDate: new Date().toISOString().split('T')[0],
+        minDate: new Date().toLocaleDateString('en-CA'),
 
         // Context
         voyagePlan,

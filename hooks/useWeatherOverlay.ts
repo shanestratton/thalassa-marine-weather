@@ -6,7 +6,7 @@ import { WeatherMetrics } from '../types';
 export const useWeatherOverlay = (
     canvasRef: MutableRefObject<HTMLCanvasElement | null>,
     mapInstance: MutableRefObject<any>,
-    activeLayer: 'wind' | 'waves' | 'rain',
+    activeLayer: 'wind' | 'waves' | 'rain' | 'global-wind',
     metrics: WeatherMetrics,
     showWeather: boolean
 ) => {
