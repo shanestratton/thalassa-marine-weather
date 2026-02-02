@@ -1037,8 +1037,8 @@ export const HeroSlide = ({
     // Calculate active slide data for static displays
     // ALWAYS use first slide (live/current data) for static bands - they should not change when scrolling
     const activeSlide = slides[0]; // Changed from slides[activeHIdx] to keep static bands truly static
-    const activeCardData = activeSlide.data as WeatherMetrics;
-    const activeCardTime = activeSlide.time || customTime;
+    const activeCardData = activeSlide?.data as WeatherMetrics;
+    const activeCardTime = activeSlide?.time || customTime;
     const activeIsLive = index === 0 && activeHIdx === 0;
 
     // Calculate sunPhase for the active card for the static header's background
