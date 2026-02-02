@@ -48,7 +48,16 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
 
     try {
         const response = await CapacitorHttp.get({ url });
-        if (response.status !== 200) throw new Error("Fetch failed");
+
+        if (!response || response.status !== 200) {
+            console.warn('[METAR] Invalid response or bad status');
+            return null;
+        }
+
+        if (!response.data) {
+            console.warn('[METAR] No data in response for', icaoCode);
+            return null;
+        }
 
         const data = response.data;
         if (!data || data.length === 0) return null;
@@ -122,8 +131,12 @@ export const fetchNearestMetar = async (lat: number, lon: number): Promise<Local
             const response = await CapacitorHttp.get({ url });
 
             // If valid data found (Status 200 and Not Empty)
-            if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
+            if (!response || !response.data || response.status !== 200) {
+                console.warn('[METAR GEO] No valid response in ring', range);
+                continue;
+            }
 
+            if (Array.isArray(response.data) && response.data.length > 0) {
 
                 const stations = response.data;
 
