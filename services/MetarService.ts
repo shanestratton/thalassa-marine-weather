@@ -55,14 +55,25 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
         );
 
         const response = await Promise.race([
-            CapacitorHttp.get({ url }),
+            CapacitorHttp.get({
+                url,
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Thalassa Marine Weather/1.0'
+                },
+                readTimeout: 5000,
+                connectTimeout: 5000,
+                webFetchExtra: {
+                    mode: 'cors'
+                }
+            }),
             timeoutPromise
         ]);
 
         console.log(`[METAR] Response status: ${response?.status}, hasData: ${!!response?.data}`);
 
         if (!response || response.status !== 200) {
-            console.warn('[METAR] Invalid response or bad status');
+            console.warn(`[METAR] Invalid response (status: ${response?.status})`);
             return null;
         }
 
@@ -94,6 +105,8 @@ export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObse
     } catch (error: any) {
         if (error.message === 'METAR_TIMEOUT') {
             console.error(`[METAR] ⏱️ Timeout after 5s for ${icaoCode}`);
+        } else if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS')) {
+            console.error(`[METAR] 🚫 CORS/Network error for ${icaoCode} - API blocked in browser`);
         } else {
             console.error(`[METAR] ❌ Error:`, error.message || error);
         }
