@@ -44,8 +44,8 @@ export interface LocalObservation {
  * @param icaoCode - The 4-letter airport code (e.g., 'YRED' for Redcliffe, 'YBBN' for Brisbane)
  */
 export const fetchMetarObservation = async (icaoCode: string): Promise<LocalObservation | null> => {
-    // CheckWX API - CORS-enabled, works in browser and native
-    const url = `https://api.checkwx.com/metar/${icaoCode}/decoded`;
+    // AVWX.rest - Open source, reliable, 4000 req/day free tier, App Store compatible
+    const url = `https://avwx.rest/api/metar/${icaoCode}`;
 
     try {
         console.log(`[METAR] 🛫 Fetching ${icaoCode}`);
