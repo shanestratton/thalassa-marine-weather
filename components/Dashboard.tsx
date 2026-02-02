@@ -6,8 +6,11 @@ import { HeroSection } from './dashboard/Hero';
 import { TideWidget, SunMoonWidget } from './dashboard/TideAndVessel';
 import { AlertsBanner } from './dashboard/WeatherGrid';
 import { AdviceWidget } from './dashboard/Advice';
+import { LogPage } from '../pages/LogPage';
+import { HeroHeader } from './dashboard/HeroHeader';
+import { HeroWidgets } from './dashboard/HeroWidgets';
 
-import { InteractionHint } from './dashboard/InteractionHint';
+
 
 import { DashboardWidgetContext } from './WidgetRenderer';
 import { UnitPreferences } from '../types';
@@ -57,7 +60,53 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
     const [selectedTime, setSelectedTime] = useState<number | undefined>(undefined);
-    console.log('[PROP_TRACE] Dashboard Render. setSelectedTime:', !!setSelectedTime);
+
+    // Fixed header state management
+    const [activeDay, setActiveDay] = useState(0);
+    const [activeHour, setActiveHour] = useState(0);
+    const [activeDayData, setActiveDayData] = useState(current);
+
+    // Helper to generate proper date labels
+    const getDateLabel = (dayIndex: number): string => {
+        if (dayIndex === 0) return "TODAY";
+
+        const forecast = data.forecast[dayIndex];
+        if (forecast?.isoDate) {
+            const [y, m, day] = forecast.isoDate.split('-').map(Number);
+            const d = new Date(y, m - 1, day, 12, 0, 0);
+            return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+        }
+
+        return `DAY ${dayIndex + 1}`; // Fallback
+    };
+
+    // Helper to generate time label for active hour
+    const getTimeLabel = (): string => {
+        if (activeDay === 0 && activeHour === 0) {
+            // Live card - show current hour
+            const now = new Date();
+            const currentHour = now.getHours();
+            const nextHour = (currentHour + 1) % 24;
+            return `${String(currentHour).padStart(2, '0')}:00 - ${String(nextHour).padStart(2, '0')}:00`;
+        }
+
+        // For other hours, calculate based on activeHour index
+        // For TODAY: activeHour 0 = NOW, 1 = next hour, etc.
+        // For FORECAST days: activeHour 0 = 00:00, 1 = 01:00, etc.
+        if (activeDay === 0) {
+            // TODAY - offset by current hour
+            const now = new Date();
+            const currentHour = now.getHours();
+            const hour = currentHour + activeHour;
+            const nextHour = (hour + 1) % 24;
+            return `${String(hour).padStart(2, '0')}:00 - ${String(nextHour).padStart(2, '0')}:00`;
+        } else {
+            // FORECAST - start from midnight
+            const hour = activeHour;
+            const nextHour = (hour + 1) % 24;
+            return `${String(hour).padStart(2, '0')}:00 - ${String(nextHour).padStart(2, '0')}:00`;
+        }
+    };
 
 
     // Use Global Settings for Units
@@ -121,31 +170,87 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {!isDetailMode && (
                         <div className="absolute inset-0">
                             {/* Alerts only on Hero View */}
-                            <div className="flex-shrink-0 z-10 w-full bg-gradient-to-b from-black/80 to-transparent px-4 pt-2 pb-2 space-y-4 fixed top-0 left-0 right-0 pointer-events-none">
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pt-2 pb-2 space-y-4 fixed top-0 left-0 right-0 pointer-events-none">
                                 <div className="pointer-events-auto">
                                     <AlertsBanner alerts={data.alerts} />
                                 </div>
                             </div>
 
-                            <HeroSection
-                                current={current}
-                                forecasts={data.forecast}
-                                units={units}
-                                generatedAt={data.generatedAt}
-                                locationName={props.displayTitle}
-                                tides={data.tides}
-                                tideHourly={data.tideHourly}
-                                timeZone={data.timeZone}
-                                hourly={hourly}
-                                modelUsed={data.modelUsed}
-                                guiDetails={data.tideGUIDetails}
-                                coordinates={data.coordinates}
-                                locationType={data.locationType}
-                                utcOffset={data.utcOffset}
-                                className="pt-20" // Fine-tuned: Moved up to pt-20 (User req: one more crlf)
-                                onTimeSelect={setSelectedTime}
-                                customTime={selectedTime}
-                            />
+                            {/* MAXIMUM BLOCKER - Covers entire gap */}
+                            <div className="absolute top-[0px] left-0 right-0 h-[350px] bg-black z-[100]"></div>
+
+                            {/* FIXED HEADER - Absolutely positioned at top */}
+                            <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
+                                <HeroHeader
+                                    data={activeDayData}
+                                    units={units}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                    isDay={true}
+                                    dateLabel={getDateLabel(activeDay)}
+                                    timeLabel={getTimeLabel()}
+                                    timeZone={data.timeZone}
+                                    sources={(activeDayData as any).sources}
+                                />
+                            </div>
+
+
+                            {/* FIXED WIDGETS - Absolutely positioned below header */}
+                            <div className="absolute top-[186px] left-0 right-0 z-[110] px-4">
+                                <HeroWidgets
+                                    data={activeDayData}
+                                    units={units}
+                                    cardTime={Date.now()}
+                                    sources={(activeDayData as any).sources}
+                                    trends={(() => {
+                                        // Calculate trends by comparing current with next hour
+                                        if (!hourly || hourly.length < 2) return undefined;
+                                        const nextHour = hourly[1];
+                                        const trends: Record<string, 'up' | 'down' | 'stable'> = {};
+
+                                        const compare = (current: number | null | undefined, next: number | null | undefined, threshold = 0.5): 'up' | 'down' | 'stable' => {
+                                            if (current == null || next == null) return 'stable';
+                                            const diff = next - current;
+                                            if (Math.abs(diff) < threshold) return 'stable';
+                                            return diff > 0 ? 'up' : 'down';
+                                        };
+
+                                        trends['windSpeed'] = compare(activeDayData.windSpeed, nextHour.windSpeed, 2);
+                                        trends['windGust'] = compare(activeDayData.windGust, nextHour.windGust, 2);
+                                        trends['waveHeight'] = compare(activeDayData.waveHeight, nextHour.waveHeight, 0.3);
+                                        trends['waterTemperature'] = compare(activeDayData.waterTemperature, nextHour.waterTemperature, 0.5);
+                                        trends['pressure'] = compare(activeDayData.pressure, nextHour.pressure, 1);
+                                        trends['visibility'] = compare(activeDayData.visibility, nextHour.visibility, 1);
+
+                                        return trends;
+                                    })()}
+                                />
+                            </div>
+
+
+                            {/* HERO CONTAINER - Positioned below fixed headers */}
+                            <div className="absolute top-[350px] left-0 right-0 bottom-0 overflow-hidden bg-black">
+                                <HeroSection
+                                    current={current}
+                                    forecasts={data.forecast}
+                                    units={units}
+                                    generatedAt={data.generatedAt}
+                                    locationName={props.displayTitle}
+                                    tides={data.tides}
+                                    tideHourly={data.tideHourly}
+                                    timeZone={data.timeZone}
+                                    hourly={hourly}
+                                    modelUsed={data.modelUsed}
+                                    guiDetails={data.tideGUIDetails}
+                                    coordinates={data.coordinates}
+                                    locationType={data.locationType}
+                                    utcOffset={data.utcOffset}
+                                    className="px-4"
+                                    onTimeSelect={setSelectedTime}
+                                    customTime={selectedTime}
+                                    onDayChange={setActiveDay}
+                                    onHourChange={setActiveHour}
+                                />
+                            </div>
 
                             {data.tides && !isLandlocked && data.locationType !== 'offshore' && (
                                 <TideWidget
@@ -162,41 +267,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         </div>
                     )}
 
-                    {/* DETAILED GRIDS */}
+                    {/* DETAILED GRIDS / LOG PAGE */}
                     {isDetailMode && (
-                        <div className="h-full overflow-y-auto pb-32 px-2 space-y-4 pt-4">
-
-                            {/* 1. Celestial (Promoted to Top) */}
-                            <SunMoonWidget
-                                current={current}
-                                units={units}
-                                timeZone={data.timeZone}
-                                lat={data.coordinates?.lat}
-                            />
-
-                            {/* 2. Captain's Log (Hidden for Inland) */}
-                            {!isLandlocked && (
-                                <AdviceWidget
-                                    advice={boatingAdvice || ""}
-                                    isPro={isPro}
-                                    onUpgrade={props.onTriggerUpgrade}
-                                    isSpeaking={isPlaying}
-                                    isBuffering={false}
-                                    isAudioPreloading={false}
-                                    toggleBroadcast={handleAudioBroadcast}
-                                    handleShare={shareReport}
-                                    uvIndex={current.uvIndex || 0}
-                                    lockerItems={lockerItems}
-                                    isBackgroundUpdating={props.isRefreshing}
-                                />
-                            )}
-                        </div>
+                        <LogPage />
                     )}
                 </div>
 
                 {data && (
                     <div className="mt-8 text-center pb-8 opacity-40 hover:opacity-100 transition-opacity">
-                        <InteractionHint />
+
                         <div className="mt-4 flex items-center justify-center gap-2 text-[10px] font-mono text-sky-500/50">
                             <ClockIcon className="w-3 h-3" />
                             <span>UPDATED: {new Date(data.generatedAt).toLocaleTimeString('en-US', { timeZone: data.timeZone, hour: 'numeric', minute: '2-digit' })}</span>

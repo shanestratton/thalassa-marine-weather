@@ -1,0 +1,451 @@
+/**
+ * Log Page - Ship's GPS-based Log
+ * Displays automatic voyage tracking with 15-minute GPS intervals
+ */
+
+import React, { useState, useEffect } from 'react';
+import { ShipLogService } from '../services/ShipLogService';
+import { ShipLogEntry } from '../types';
+import {
+    PlayIcon,
+    PauseIcon,
+    StopIcon,
+    CompassIcon,
+    WindIcon
+} from '../components/Icons';
+import { AddEntryModal } from '../components/AddEntryModal';
+import { exportToCSV, exportToPDF } from '../utils/logExport';
+import { generateDemoVoyage } from '../utils/generateDemoLog';
+import { useToast } from '../components/Toast';
+import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
+import { LogFilterToolbar, LogFilters } from '../components/LogFilterToolbar';
+import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
+import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
+
+// Inline icons not in Icons.tsx
+const PlusIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+    </svg>
+);
+
+const AnchorIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+);
+
+
+export const LogPage: React.FC = () => {
+    const [entries, setEntries] = useState<ShipLogEntry[]>([]);
+    const [isTracking, setIsTracking] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [showStats, setShowStats] = useState(false);
+    const [filters, setFilters] = useState<LogFilters>({
+        types: ['auto', 'manual', 'waypoint'],
+        searchQuery: ''
+    });
+    const toast = useToast();
+
+    // Load tracking status and entries
+    useEffect(() => {
+        initializeService();
+    }, []);
+
+    const initializeService = async () => {
+        try {
+            await ShipLogService.initialize();
+            await loadData();
+        } catch (error) {
+            console.error('Failed to initialize Ship Log Service:', error);
+            setLoading(false);
+        }
+    };
+
+    const loadData = async () => {
+        const status = ShipLogService.getTrackingStatus();
+        setIsTracking(status.isTracking);
+        setIsPaused(status.isPaused);
+
+        // Try to get entries from database first
+        let logs = await ShipLogService.getLogEntries(100);
+
+        // If no database entries, show offline queue
+        if (logs.length === 0) {
+            const offlineEntries = await ShipLogService.getOfflineEntries();
+            if (offlineEntries.length > 0) {
+                console.log(`[LogPage] Displaying ${offlineEntries.length} offline entries`);
+                logs = offlineEntries;
+            }
+        }
+
+        setEntries(logs);
+        setLoading(false);
+    };
+
+    const handleStartTracking = async () => {
+        try {
+            console.log('[LogPage] Starting tracking...');
+            await ShipLogService.startTracking();
+            console.log('[LogPage] Tracking started successfully');
+            setIsTracking(true);
+            setIsPaused(false);
+            await loadData();
+        } catch (error: any) {
+            console.error('[LogPage] Error starting tracking:', error);
+            alert(error.message || 'Failed to start tracking');
+        }
+    };
+
+    const handlePauseTracking = async () => {
+        await ShipLogService.pauseTracking();
+        setIsTracking(false);
+        setIsPaused(true);
+    };
+
+    const handleStopTracking = async () => {
+        if (confirm('End voyage and stop tracking? This will finalize your log.')) {
+            await ShipLogService.stopTracking();
+            setIsTracking(false);
+            setIsPaused(false);
+            await loadData();
+        }
+    };
+
+    const handleLoadDemoVoyage = () => {
+        if (confirm('Load demo voyage (Newport → Noumea ~770nm)? This will replace current entries.')) {
+            const demoEntries = generateDemoVoyage();
+            setEntries(demoEntries);
+            toast.success(`Loaded ${demoEntries.length} demo entries!`);
+        }
+    };
+
+    const handleExportCSV = () => {
+        const loadingId = toast.loading('Preparing CSV export...');
+
+        exportToCSV(entries, 'ships_log.csv', {
+            onProgress: (msg) => console.log(msg),
+            onSuccess: () => {
+                toast.hideToast(loadingId);
+                toast.success('CSV exported successfully!');
+            },
+            onError: (err) => {
+                toast.hideToast(loadingId);
+                toast.error(err);
+            }
+        });
+    };
+
+    const handleExportPDF = () => {
+        const loadingId = toast.loading('Preparing PDF export...');
+
+        exportToPDF(entries, 'ships_log.pdf', {
+            onProgress: (msg) => console.log(msg),
+            onSuccess: () => {
+                toast.hideToast(loadingId);
+                toast.success('PDF opened for printing!');
+            },
+            onError: (err) => {
+                toast.hideToast(loadingId);
+                toast.error(err);
+            }
+        });
+    };
+
+    // Apply filters
+    const filteredEntries = React.useMemo(() => {
+        let filtered = entries;
+
+        // Filter by type
+        filtered = filterEntriesByType(filtered, filters.types);
+
+        // Search
+        filtered = searchEntries(filtered, filters.searchQuery);
+
+        return filtered;
+    }, [entries, filters]);
+
+    // Group by date
+    const groupedEntries = React.useMemo(() => {
+        return groupEntriesByDate(filteredEntries);
+    }, [filteredEntries]);
+
+    // Calculate stats
+    const totalDistance = filteredEntries.length > 0 ? filteredEntries[0].cumulativeDistanceNM || 0 : 0;
+    const avgSpeed = filteredEntries.length > 0
+        ? filteredEntries.filter(e => e.speedKts).reduce((sum, e) => sum + (e.speedKts || 0), 0) / filteredEntries.filter(e => e.speedKts).length
+        : 0;
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-slate-950">
+            {/* Header with Controls */}
+            <div className="p-4 bg-slate-900 border-b border-white/10 shrink-0">
+                <div className="flex justify-between items-center mb-3">
+                    <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                        <AnchorIcon className="w-6 h-6 text-sky-400" />
+                        Ship's Log
+                    </h1>
+
+                    {/* Tracking Controls */}
+                    <div className="flex gap-2">
+                        {!isTracking && !isPaused && (
+                            <button
+                                onClick={handleStartTracking}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold flex items-center gap-2 transition-colors"
+                            >
+                                <PlayIcon className="w-4 h-4" />
+                                Start Tracking
+                            </button>
+                        )}
+
+                        {isTracking && (
+                            <button
+                                onClick={handlePauseTracking}
+                                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold flex items-center gap-2 transition-colors"
+                            >
+                                <PauseIcon className="w-4 h-4" />
+                                Pause
+                            </button>
+                        )}
+
+                        {(isTracking || isPaused) && (
+                            <button
+                                onClick={handleStopTracking}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-2 transition-colors"
+                            >
+                                <StopIcon className="w-4 h-4" />
+                                End Voyage
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Stats Summary */}
+                <div className="grid grid-cols-3 gap-3">
+                    <StatBox label="Distance" value={`${totalDistance.toFixed(1)} NM`} />
+                    <StatBox label="Avg Speed" value={`${avgSpeed.toFixed(1)} kts`} />
+                    <StatBox label="Entries" value={entries.length} />
+                </div>
+
+                {/* Status Badge */}
+                {isTracking && (
+                    <div className="mt-3 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-emerald-400 text-sm font-bold flex items-center gap-2">
+                        <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                        TRACKING ACTIVE - Logging every 15 min
+                    </div>
+                )}
+                {isPaused && (
+                    <div className="mt-3 px-3 py-1.5 bg-orange-500/20 border border-orange-500/30 rounded-lg text-orange-400 text-sm font-bold">
+                        PAUSED - Resume or end voyage
+                    </div>
+                )}
+
+                {/* Export Buttons */}
+                {entries.length > 0 && (
+                    <div className="mt-3 flex gap-2">
+                        <button
+                            onClick={handleExportCSV}
+                            className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Export CSV
+                        </button>
+                        <button
+                            onClick={handleExportPDF}
+                            className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Export PDF
+                        </button>
+                    </div>
+                )}
+
+                {/* Load Demo Button - for testing */}
+                {entries.length === 0 && (
+                    <div className="mt-3">
+                        <button
+                            onClick={handleLoadDemoVoyage}
+                            className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Load Demo Voyage (Newport → Noumea)
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Log Entries Timeline */}
+            <div className="flex-1 overflow-auto p-4">
+                {entries.length === 0 ? (
+                    <div className="text-center py-20 text-slate-400">
+                        <AnchorIcon className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                        <p className="text-lg font-bold mb-2">No Log Entries</p>
+                        <p className="text-sm">Start tracking to begin your voyage log</p>
+                    </div>
+                ) : (
+                    <>
+                        {/* Voyage Statistics Panel */}
+                        {showStats && <VoyageStatsPanel entries={filteredEntries} />}
+
+                        {/* Toggle Stats Button */}
+                        <button
+                            onClick={() => setShowStats(!showStats)}
+                            className="w-full mb-3 px-4 py-2 bg-slate-800/50 hover:bg-slate-800 border border-white/10 rounded-lg text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            {showStats ? 'Hide' : 'Show'} Statistics
+                        </button>
+
+                        {/* Filter Toolbar */}
+                        <LogFilterToolbar
+                            filters={filters}
+                            onFiltersChange={setFilters}
+                            totalEntries={entries.length}
+                            filteredCount={filteredEntries.length}
+                        />
+
+                        {/* Date Grouped Timeline */}
+                        <DateGroupedTimeline groupedEntries={groupedEntries} />
+                    </>
+                )}
+            </div>
+
+            {/* Toast Notifications */}
+            <toast.ToastContainer />
+
+            {/* Add Manual Entry Button */}
+            <button
+                onClick={() => setShowAddModal(true)}
+                className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110"
+            >
+                <PlusIcon className="w-6 h-6" />
+            </button>
+
+            {/* Manual Entry Modal */}
+            <AddEntryModal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                onSuccess={loadData}
+            />
+        </div>
+    );
+};
+
+// --- SUB-COMPONENTS ---
+
+const StatBox: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
+    <div className="bg-slate-800 rounded-lg p-3 text-center">
+        <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
+        <div className="text-xl font-bold text-white">{value}</div>
+    </div>
+);
+
+const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = ({ entry }) => {
+    const timestamp = new Date(entry.timestamp);
+    const timeStr = timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    // Entry type colors
+    const typeColors = {
+        auto: 'bg-green-500/20 text-green-400 border-green-500/30',
+        manual: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+        waypoint: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+    };
+
+    return (
+        <div className="bg-slate-800/50 border border-white/10 rounded-xl p-4 hover:bg-slate-800 transition-colors">
+            {/* Header: Time + Type */}
+            <div className="flex justify-between items-start mb-3">
+                <div>
+                    <div className="text-white font-bold text-lg">{timeStr}</div>
+                    <div className="text-slate-400 text-xs">{dateStr}</div>
+                </div>
+                <span className={`px-2 py-1 rounded-lg text-xs font-bold uppercase border ${typeColors[entry.entryType]}`}>
+                    {entry.entryType}
+                </span>
+            </div>
+
+            {/* Position */}
+            <div className="mb-3">
+                <div className="text-xs text-slate-400 mb-1">Position</div>
+                <div className="text-emerald-400 font-mono font-bold text-base">
+                    {entry.positionFormatted}
+                </div>
+            </div>
+
+            {/* Navigation Stats */}
+            {(entry.distanceNM || entry.speedKts || entry.courseDeg !== undefined) && (
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                    {entry.distanceNM !== undefined && (
+                        <div className="bg-slate-900/50 rounded-lg p-2">
+                            <div className="text-[10px] text-slate-400 uppercase">Distance</div>
+                            <div className="text-sm font-bold text-white">{entry.distanceNM.toFixed(1)} NM</div>
+                        </div>
+                    )}
+                    {entry.speedKts !== undefined && (
+                        <div className="bg-slate-900/50 rounded-lg p-2">
+                            <div className="text-[10px] text-slate-400 uppercase">Speed</div>
+                            <div className="text-sm font-bold text-white">{entry.speedKts.toFixed(1)} kts</div>
+                        </div>
+                    )}
+                    {entry.courseDeg !== undefined && (
+                        <div className="bg-slate-900/50 rounded-lg p-2 flex items-center gap-2">
+                            <CompassIcon className="w-4 h-4 text-sky-400" rotation={entry.courseDeg} />
+                            <div>
+                                <div className="text-[10px] text-slate-400 uppercase">Course</div>
+                                <div className="text-sm font-bold text-white">{entry.courseDeg}°</div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Weather Snapshot */}
+            {(entry.windSpeed || entry.waveHeight) && (
+                <div className="pt-2 border-t border-white/5 text-xs text-slate-400 flex items-center gap-3">
+                    {entry.windSpeed && (
+                        <span className="flex items-center gap-1">
+                            <WindIcon className="w-3 h-3" />
+                            {entry.windSpeed}kts {entry.windDirection}
+                        </span>
+                    )}
+                    {entry.waveHeight && <span>Seas: {entry.waveHeight.toFixed(1)}m</span>}
+                    {entry.airTemp && <span>Air: {entry.airTemp}°</span>}
+                </div>
+            )}
+
+            {/* Notes */}
+            {entry.notes && (
+                <div className="mt-3 pt-3 border-t border-white/5">
+                    <div className="text-xs text-slate-400 mb-1">Notes</div>
+                    <div className="text-sm text-white italic">"{entry.notes}"</div>
+                </div>
+            )}
+
+            {/* Waypoint Name */}
+            {entry.waypointName && (
+                <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded text-blue-400 text-xs font-bold">
+                    📍 {entry.waypointName}
+                </div>
+            )}
+        </div>
+    );
+};

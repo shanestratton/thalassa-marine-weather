@@ -25,8 +25,48 @@ export interface BuoyStation {
     name: string;
     lat: number;
     lon: number;
-    type: 'noaa' | 'bom' | 'other';
+    type: 'noaa' | 'bom' | 'imos' | 'ukmo' | 'eurogoos' | 'jma' | 'other';
 }
+
+// --- MULTI-SOURCE DATA TRACKING ---
+
+export interface BeaconObservation {
+    buoyId: string;
+    name: string;
+    lat: number;
+    lon: number;
+    distance: number; // in nautical miles
+    timestamp: string;
+    windSpeed?: number | null;
+    windDirection?: number | null;
+    windGust?: number | null;
+    waveHeight?: number | null;
+    swellPeriod?: number | null;
+    swellDirection?: number | null;
+    waterTemperature?: number | null;
+    airTemperature?: number | null;
+    pressure?: number | null;
+    currentSpeed?: number | null;
+    currentDegree?: number | null;
+}
+
+export type DataSource = 'beacon' | 'airport' | 'stormglass';
+export type SourceColor = 'green' | 'amber' | 'red';
+
+export interface MetricSource {
+    value: any;
+    source: DataSource;
+    sourceColor: SourceColor;
+    sourceName: string; // e.g., "Buoy 46086", "YBBN Airport", "StormGlass Pro"
+    distance?: string;  // e.g., "5.2nm"
+}
+
+export interface SourcedWeatherMetrics extends WeatherMetrics {
+    sources?: {
+        [K in keyof WeatherMetrics]?: MetricSource;
+    };
+}
+
 
 export interface VoyageHazard {
     name: string;
@@ -245,7 +285,7 @@ export interface GroundingSource {
 export interface MarineWeatherReport {
     locationName: string;
     coordinates?: { lat: number, lon: number };
-    current: WeatherMetrics;
+    current: SourcedWeatherMetrics; // UPDATED: Now supports source tracking
     forecast: ForecastDay[];
     hourly: HourlyForecast[];
     tides: Tide[];
@@ -253,6 +293,7 @@ export interface MarineWeatherReport {
     boatingAdvice: string;
     alerts?: string[];
     observations?: ObservationStation[];
+    beaconObservation?: BeaconObservation; // NEW: Weather beacon/buoy data
     generatedAt: string;
     aiGeneratedAt?: string;
     modelUsed: string;
@@ -313,10 +354,47 @@ export interface VoyagePlan {
     };
 }
 
+// --- SHIP'S LOG (GPS-BASED TRACKING) ---
+
+export interface ShipLogEntry {
+    id: string;
+    userId: string;
+    timestamp: string; // ISO 8601
+
+    // Position
+    latitude: number;
+    longitude: number;
+    positionFormatted: string; // "27°28.5'S 153°22.1'E"
+
+    // Navigation (calculated from previous entry)
+    distanceNM?: number; // Distance traveled since last entry
+    cumulativeDistanceNM?: number; // Total voyage distance
+    speedKts?: number; // Speed over ground
+    courseDeg?: number; // 0-360 degrees
+
+    // Weather snapshot (at time of entry)
+    windSpeed?: number;
+    windDirection?: string;
+    waveHeight?: number;
+    pressure?: number;
+    airTemp?: number;
+    waterTemp?: number;
+
+    // Entry metadata
+    entryType: 'auto' | 'manual' | 'waypoint'; // Auto = GPS tracking, Manual = user added, Waypoint = navigation mark
+    notes?: string; // User notes
+    waypointName?: string; // For waypoint entries
+
+    // Tracking metadata
+    createdAt?: string;
+}
+
 export interface DeepAnalysisReport {
     strategy: string;
     fuelTactics: string;
     watchSchedule: string;
+    weatherSummary: string;
+    hazards: string[];
 }
 
 export interface StopDetails {

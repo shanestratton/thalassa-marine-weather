@@ -27,14 +27,21 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                     'User-Agent': 'ThalassaMarine/1.0'
                 }
             });
-            let data = res.data;
-            if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch (e) { console.error("Mapbox JSON Parse Error", e); }
+
+            if (!res || !res.data) {
+                console.warn('[Geocoding] Mapbox returned empty response');
+                return null;
             }
 
+            let data = res.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) {
+                    console.error("Mapbox JSON Parse Error", e);
+                    return null;
+                }
+            }
 
-
-            if (data.features && data.features.length > 0) {
+            if (data && data.features && data.features.length > 0) {
                 const place = data.features[0];
                 // Mapbox Context: find country and region
                 const context = place.context || [];
@@ -85,10 +92,25 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             url: `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
             headers: { 'User-Agent': 'ThalassaMarine/1.0' }
         });
+
+        if (!res || !res.data) {
+            console.warn('[Geocoding] Nominatim returned empty response');
+            return null;
+        }
+
         let data = res.data;
         if (typeof data === 'string') {
-            try { data = JSON.parse(data); } catch (e) { console.error("Nominatim JSON Parse Error", e); }
+            try { data = JSON.parse(data); } catch (e) {
+                console.error("Nominatim JSON Parse Error", e);
+                return null;
+            }
         }
+
+        if (!data || !data.address) {
+            console.warn('[Geocoding] Nominatim returned no address data');
+            return null;
+        }
+
         const addr = data.address;
 
 
@@ -208,12 +230,49 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 const res = await CapacitorHttp.get({
                     url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
                 });
+
+                if (!res || !res.data) {
+                    console.warn('[Geocoding] OpenMeteo returned empty response');
+                    return [];
+                }
+
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-                return data.results || [];
+                return (data && data.results) || [];
             } catch { return []; }
         }
 
         let results = await fetchOpenMeteoGeo(location);
+
+        // FALLBACK: Nominatim (Better for POIs like "Marina")
+        if (!results || results.length === 0) {
+            try {
+                const res = await CapacitorHttp.get({
+                    url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`,
+                    headers: { 'User-Agent': 'ThalassaMarine/1.0' }
+                });
+
+                if (!res || !res.data) {
+                    console.warn('[Geocoding] Nominatim search returned empty response');
+                    return;
+                }
+
+                const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                if (data && data.length > 0) {
+                    const r = data[0];
+                    // Map Nominatim result to OpenMeteo-like structure to reuse logic below
+                    results = [{
+                        latitude: parseFloat(r.lat),
+                        longitude: parseFloat(r.lon),
+                        name: r.name || r.display_name.split(',')[0],
+                        admin1: '', // Nominatim breakdown is complex, leaving blank is safe
+                        country_code: '', // Can extract from display_name but optional
+                        timezone: 'UTC' // We don't get TZ from Nominatim easily, but we can live without it or fetch it later
+                    }];
+                }
+            } catch (e) {
+                console.warn("Nominatim Search Failed", e);
+            }
+        }
 
         // AUTOCORRECT LOGIC
         if (!results || results.length === 0) {

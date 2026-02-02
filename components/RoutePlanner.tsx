@@ -124,7 +124,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
             )}
 
             {/* HEADER: MISSION PARAMETERS */}
-            <div className="sticky top-0 z-40 pt-4 pb-4 -mx-2 md:-mx-6 px-4 md:px-8 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
+            <div className="relative md:sticky md:top-0 z-40 pt-4 pb-4 -mx-2 md:-mx-6 px-4 md:px-8 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
                 <div className="max-w-7xl mx-auto space-y-4">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-3">
@@ -233,7 +233,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                                         type="date"
                                         min={minDate}
                                         value={departureDate}
-                                        onChange={(e) => setDepartureDate(e.target.value)}
+                                        onChange={(e) => {
+                                            const newDate = e.target.value;
+                                            if (!minDate || newDate >= minDate) {
+                                                setDepartureDate(newDate);
+                                            }
+                                        }}
                                         className="w-full h-14 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }}
                                     />

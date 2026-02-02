@@ -48,7 +48,8 @@ export const useLeafletMap = (
         const effectiveToken = mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
         if (effectiveToken && effectiveToken.length > 10) {
-            L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${effectiveToken}`, {
+            // ENHANCED: Switched to light-v11 for better coastline/land visibility
+            L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}?access_token=${effectiveToken}`, {
                 tileSize: 512,
                 zoomOffset: -1,
                 attribution: '© Mapbox',
@@ -57,8 +58,8 @@ export const useLeafletMap = (
                 bounds: enableWrapping ? undefined : [[-90, -180], [90, 180]]
             }).addTo(map);
         } else {
-            // Fallback to free CartoDB Dark Matter if no valid Mapbox token
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+            // Fallback to light CartoDB for coastline visibility
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20,
                 attribution: '© OpenStreetMap, © CartoDB',
                 noWrap: !enableWrapping,

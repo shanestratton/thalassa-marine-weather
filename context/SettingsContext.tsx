@@ -86,6 +86,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Initial Load from Native Storage (Async)
     useEffect(() => {
+        console.log('[SettingsContext] Mount - Starting initial load');
         const loadNativeSettings = async () => {
             try {
                 const { value } = await Preferences.get({ key: 'thalassa_settings' });
@@ -132,13 +133,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     }));
                     const order = validHeroWidgets.join(', ');
                     addDebugLog(`LOADED: [${order}] from Disk.`);
+                    console.log('[SettingsContext] Settings loaded successfully');
                 } else {
                     addDebugLog(`INIT: No Settings Found (Starting Defaults)`);
+                    console.log('[SettingsContext] No saved settings, using defaults');
                 }
             } catch (e) {
-                console.error("Native Load Failed", e);
+                console.error("[SettingsContext] Native Load Failed", e);
                 addDebugLog(`ERROR: Native Load Failed`);
             } finally {
+                console.log('[SettingsContext] Setting loading=false');
                 setLoading(false);
             }
         };

@@ -1294,20 +1294,13 @@ export const HeroSlide = ({
                                                 let airportName = '';
 
                                                 if (cardIsLive && cardSources) {
-                                                    // DEBUG: Log all sources to see what we have
-                                                    console.log('[StatusBadge] Card sources:', cardSources);
-
                                                     Object.values(cardSources).forEach((src: any) => {
-                                                        console.log('[StatusBadge] Checking source:', src);
                                                         if (src?.source === 'beacon' && src?.sourceName && !beaconName) {
                                                             beaconName = src.sourceName;
                                                         } else if (src?.source === 'airport' && src?.sourceName && !airportName) {
                                                             airportName = src.sourceName;
-                                                            console.log('[StatusBadge] ✅ Found airport:', airportName);
                                                         }
                                                     });
-
-                                                    console.log('[StatusBadge] Final - Beacon:', beaconName, 'Airport:', airportName);
                                                 }
 
                                                 return (
