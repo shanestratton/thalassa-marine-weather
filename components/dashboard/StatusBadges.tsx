@@ -10,9 +10,39 @@ interface StatusBadgesProps {
     fallbackInland?: boolean;
     stationId?: string;
     locationType?: 'coastal' | 'offshore' | 'inland';
+    beaconName?: string;
+    airportName?: string;
 }
 
-export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locationName, displaySource, nextUpdate, fallbackInland, stationId, locationType }) => {
+export const StatusBadges: React.FC<StatusBadgesProps> = ({
+    isLandlocked,
+    locationName,
+    displaySource,
+    nextUpdate,
+    fallbackInland,
+    stationId,
+    locationType,
+    beaconName,
+    airportName
+}) => {
+    // Helper to shorten source names for compact badge display
+    const shortenSourceName = (name: string): string => {
+        // Remove common suffixes
+        name = name.replace(/ Airport$/i, '').replace(/ Intl$/i, '').replace(/ International$/i, '');
+
+        // Abbreviate "Brisbane" -> "Bris", "Moreton Bay" -> "MB", etc.
+        name = name.replace(/Brisbane/i, 'Bris');
+        name = name.replace(/Moreton Bay/i, 'MB');
+        name = name.replace(/Central/i, 'Ctr');
+
+        // If still too long (>15 chars), truncate
+        if (name.length > 15) {
+            name = name.substring(0, 15) + '..';
+        }
+
+        return name;
+    };
+
     // BADGES Logic
     let statusBadgeLabel = "OFFSHORE";
     let statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
@@ -32,16 +62,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locati
 
     let timerBadgeColor = "bg-blue-500/20 text-blue-300 border-blue-500/30";
 
-    // CLEAN SOURCE LABEL
-    const rawSource = displaySource ? displaySource.toLowerCase() : "";
-    // REVERTED DEBUG FOR PRODUCTION FEEL
-    const isSG = rawSource.includes('storm') || rawSource.includes('sg');
-    const cleanSource = isSG ? "STORMGLASS PRO" : displaySource;
-
-    // console.log(`[STATUS BADGE DEBUG] Raw: "${displaySource}", Clean: "${cleanSource}", StationID: "${stationId}"`);
-    if (locationType === 'offshore' && statusBadgeLabel !== 'OFFSHORE') {
-
-    }
+    const hasStormGlass = true; // Always present as fallback
 
     return (
         <div className="px-0 -mt-4 shrink-0 relative z-20">
@@ -51,13 +72,26 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({ isLandlocked, locati
                     {statusBadgeLabel}
                 </div>
 
-                {/* Source Badge (With Tick for Stormglass) */}
-                <div className={`px-2 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider ${isSG ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'} bg-black/40 flex-1 min-w-0 flex items-center justify-center gap-1 overflow-hidden`}>
-                    <RadioTowerIcon className="w-2.5 h-2.5 shrink-0" />
-                    <span className="truncate flex items-center gap-1">
-                        {cleanSource}
-                        {stationId && <span className="text-white opacity-90">• {stationId}</span>}
-                    </span>
+                {/* Multi-Source Badge */}
+                <div className="px-2 py-1.5 rounded-lg border text-[9px] font-bold uppercase tracking-wider bg-black/40 border-white/20 flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden">
+                    <RadioTowerIcon className="w-2.5 h-2.5 shrink-0 text-white/70" />
+                    <div className="flex items-center gap-1.5 truncate">
+                        {beaconName && (
+                            <>
+                                <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
+                                {(airportName || hasStormGlass) && <span className="text-white/30">•</span>}
+                            </>
+                        )}
+                        {airportName && (
+                            <>
+                                <span className="text-amber-400 font-bold">{shortenSourceName(airportName)}</span>
+                                {hasStormGlass && <span className="text-white/30">•</span>}
+                            </>
+                        )}
+                        {hasStormGlass && (
+                            <span className="text-red-400 font-bold">SG</span>
+                        )}
+                    </div>
                 </div>
 
                 {/* Timer Badge */}

@@ -14,6 +14,7 @@ import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 
+
 // --- LAZY LOAD HEAVY COMPONENTS ---
 const VoyagePlanner = React.lazy(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
 const SettingsView = React.lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
@@ -21,6 +22,7 @@ const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(m
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
+const CompassPage = React.lazy(() => import('./components/CompassPage').then(module => ({ default: module.CompassPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -47,7 +49,6 @@ const App: React.FC = () => {
         return (
             <div className="flex items-center justify-center h-screen w-full bg-[#0f172a] text-sky-500 flex-col gap-4">
                 <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-                <span className="font-mono text-xs uppercase tracking-widest opacity-70">Loading Config...</span>
             </div>
         );
     }
@@ -104,7 +105,7 @@ const App: React.FC = () => {
                 <div className={`absolute inset-0 z-0 ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'bg-black' : 'bg-[#0f172a]'}`}></div>
             )}
 
-            {loading && <ProcessOverlay message={loadingMessage || "Updating Marine Data..."} />}
+            {loading && <ProcessOverlay message={loadingMessage} />}
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}
@@ -128,7 +129,7 @@ const App: React.FC = () => {
 
                 {/* HEADER */}
                 {showHeader && (
-                    <header className={`px-2 md:px-6 ${isMobileLandscape ? 'py-1' : 'py-2'} flex flex-col md:flex-row md:items-center justify-between gap-3 pointer-events-none shrink-0 ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}>
+                    <header className={`px-2 md:px-6 ${isMobileLandscape ? 'py-1' : 'py-2'} flex flex-col justify-between gap-3 pointer-events-none shrink-0 ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}>
                         <div className="flex items-center space-x-2 pointer-events-auto">
                             <div className="bg-sky-500/20 p-2 rounded-lg backdrop-blur-md border border-sky-500/30">
                                 <WindIcon className="w-6 h-6 text-sky-400" />
@@ -180,7 +181,7 @@ const App: React.FC = () => {
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
                     <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage'}>
-                        <main className={`flex-grow relative flex flex-col ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'}`}>
+                        <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['voyage', 'settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <Suspense fallback={<SkeletonDashboard />}>
                                 {(currentView === 'dashboard' || currentView === 'details') && (
                                     <>
@@ -226,6 +227,8 @@ const App: React.FC = () => {
                                 )}
 
                                 {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
+
+                                {currentView === 'compass' && <CompassPage onBack={() => setPage('dashboard')} />}
                             </Suspense>
                         </main>
                     </PullToRefresh>
@@ -288,13 +291,15 @@ const App: React.FC = () => {
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
                         <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative">
                             <NavButton icon={<WindIcon className="w-5 h-5 mb-0.5" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<CompassIcon className="w-5 h-5 mb-0.5" rotation={0} />} label="Metrics" active={currentView === 'details'} onClick={handleTabMetrics} />
+                            <NavButton icon={<CompassIcon className="w-5 h-5 mb-0.5" rotation={0} />} label="Log" active={currentView === 'details'} onClick={handleTabMetrics} />
                             <NavButton icon={<BoatIcon className="w-5 h-5 mb-0.5" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
                             <NavButton icon={<MapIcon className="w-5 h-5 mb-0.5" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
+                            <NavButton icon={<CompassIcon className="w-6 h-6 mb-0.5" rotation={45} />} label="Compass" active={currentView === 'compass'} onClick={() => setPage('compass')} />
                             <NavButton icon={<GearIcon className="w-5 h-5 mb-0.5" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
                         </div>
                     </div>
                 )}
+
             </div>
 
             {effectiveMode === 'night' && (

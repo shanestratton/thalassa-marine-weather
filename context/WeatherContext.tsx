@@ -7,6 +7,7 @@ import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/stormglassService';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
 import { calculateDistance } from '../utils';
+import { enhanceWithBeaconData } from '../services/beaconIntegration';
 // import { useSmartRefresh } from '../hooks/useSmartRefresh'; // (Commented out if logic is inline, but it was imported before. Keeping import locally if needed, but logic seems inline in previous file)
 // Reviewing previous file... Logic WAS inline in lines 439-491. So I will keep it inline for now to minimize risk.
 
@@ -14,23 +15,68 @@ import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_C
 
 const CACHE_VERSION = 'v19.0-FIX';
 // Keys imported from nativeStorage to stay in sync
-const BASE_UPDATE_INTERVAL = 30 * 60 * 1000; // 30 mins
-const UNSTABLE_UPDATE_INTERVAL = 10 * 60 * 1000; // 10 mins
+
+// INTELLIGENT UPDATE INTERVALS
+const INLAND_INTERVAL = 60 * 60 * 1000;        // 60 mins (hourly)
+const COASTAL_INTERVAL = 30 * 60 * 1000;       // 30 mins
+const BAD_WEATHER_INTERVAL = 10 * 60 * 1000;   // 10 mins
 const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
 
-// Helper to calculate aligned update time
-const calculateNextUpdateTime = (unstable: boolean = false) => {
+// Bad Weather Detection
+const isBadWeather = (weather: MarineWeatherReport): boolean => {
+    const current = weather.current;
+    const next12 = weather.hourly?.slice(0, 12) || [];
+
+    const hasAlerts = weather.alerts && weather.alerts.length > 0;
+    const highWind = (current.windGust || current.windSpeed || 0) > 25;  // kts
+    const highWaves = (current.waveHeight || 0) > 2.5;  // meters
+    const heavyRain = (current.precipitation || 0) > 5;  // mm/h
+    const poorVisibility = (current.visibility ?? 10) < 2;  // nm (default 10 if undefined)
+    const forecastHighWind = Math.max(...next12.map(h => h.windGust || h.windSpeed || 0)) > 30;
+
+    return hasAlerts || highWind || highWaves || heavyRain || poorVisibility || forecastHighWind;
+};
+
+// Get update interval based on location type and weather
+const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport): number => {
+    if (locationType === 'inland') {
+        return INLAND_INTERVAL;  // Always hourly for inland
+    }
+
+    // Coastal/Offshore: check weather
+    if (isBadWeather(weather)) {
+        return BAD_WEATHER_INTERVAL;  // 10 min
+    }
+
+    return COASTAL_INTERVAL;  // 30 min
+};
+
+// Smart time alignment for update intervals
+const alignToNextInterval = (intervalMs: number): number => {
     const now = Date.now();
-    const interval = unstable ? UNSTABLE_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
+    const date = new Date(now);
 
-    // Align to next bucket
-    // E.g. if interval 30m, and now is 12:05, next is 12:30.
-    const remainder = now % interval;
-    const padding = interval - remainder;
+    // Hourly: align to top of hour (e.g., 12:00, 13:00)
+    if (intervalMs === INLAND_INTERVAL) {
+        date.setMinutes(0, 0, 0);
+        date.setHours(date.getHours() + 1);
+        return date.getTime();
+    }
 
-    // Add minimal buffer (e.g. 10s) to avoid immediate re-trigger if logic is fast
-    const target = now + padding + 10000;
-    return target;
+    // 30min: align to :00 or :30
+    if (intervalMs === COASTAL_INTERVAL) {
+        const mins = date.getMinutes();
+        if (mins < 30) {
+            date.setMinutes(30, 0, 0);
+        } else {
+            date.setHours(date.getHours() + 1);
+            date.setMinutes(0, 0, 0);
+        }
+        return date.getTime();
+    }
+
+    // Bad weather (10min): immediate, no alignment
+    return now + intervalMs;
 };
 
 interface WeatherContextType {
@@ -60,8 +106,9 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const { settings, updateSettings } = useSettings();
 
     const [loading, setLoading] = useState(true);
-    const [loadingMessage, setLoadingMessage] = useState("Updating Marine Data...");
+    const [loadingMessage, setLoadingMessage] = useState("Initializing Weather Data...");
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
+    const [locationMode, setLocationMode] = useState<'gps' | 'selected'>('gps');
     const [error, setError] = useState<string | null>(null);
     const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
     const [quotaUsed, setQuotaUsed] = useState(0);
@@ -125,31 +172,47 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                 if (d) {
                     setWeatherData(d);
+                    // Enhance with beacon/source tracking
+                    if (d.coordinates) {
+                        enhanceWithBeaconData(d, d.coordinates).then(enhanced => {
+                            setWeatherData(enhanced);
+                        });
+                    }
                     // Unblock UI immediately if we have data
                     setLoading(false);
+
+                    // SET LOCATION MODE on startup
+                    const isCurrent = d.locationName === "Current Location";
+                    setLocationMode(isCurrent ? 'gps' : 'selected');
 
                     // SMART REFRESH CHECK (If cache > 60m old, refresh in background)
                     const age = Date.now() - (d.generatedAt ? new Date(d.generatedAt).getTime() : 0);
                     if (age > 60 * 60 * 1000 && navigator.onLine) {
-                        // Trigger immediate background refresh (No artificial delay)
+                        // Trigger immediate background refresh
                         const loc = d.locationName || settingsRef.current.defaultLocation || '';
                         if (loc) {
                             // Use setTimeout 0 to push to next tick, keeping this execution frame light
                             setTimeout(() => {
-                                fetchWeather(loc, true, d.coordinates, false, true);
+                                // If GPS mode, get fresh coordinates
+                                if (isCurrent && navigator.geolocation) {
+                                    navigator.geolocation.getCurrentPosition(
+                                        (pos) => fetchWeather(loc, true, { lat: pos.coords.latitude, lon: pos.coords.longitude }, false, true),
+                                        () => fetchWeather(loc, true, d.coordinates, false, true)  // Fallback to cached coords
+                                    );
+                                } else {
+                                    fetchWeather(loc, true, d.coordinates, false, true);
+                                }
                             }, 0);
                         }
                     }
                 }
 
-                // 2. SECONDARY PATH: History & Voyage (Background)
-                // We don't block the UI for this
-                const [v, h] = await Promise.all([
-                    loadLargeData(VOYAGE_CACHE_KEY),
-                    loadLargeData(HISTORY_CACHE_KEY)
-                ]);
+                // 2. SECONDARY PATH: History (Background)
+                const h = await loadLargeData(HISTORY_CACHE_KEY);
 
-                if (v) setVoyagePlan(v);
+                // NOTE: Voyage Plan is now transient (Session only). We do NOT load it from disk per user request.
+                // if (v) setVoyagePlan(v); 
+
                 if (h) setHistoryCache(h);
                 else setHistoryCache({});
 
@@ -170,7 +233,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     }, [weatherData]);
 
-    // Persist History when it changes (Debounce could be good, but direct write is OK for now)
+    // Persist History
     useEffect(() => {
         if (Object.keys(historyCache).length > 0) {
             saveLargeData(HISTORY_CACHE_KEY, historyCache);
@@ -179,7 +242,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const handleSaveVoyagePlan = (plan: VoyagePlan) => {
         setVoyagePlan(plan);
-        saveLargeData(VOYAGE_CACHE_KEY, plan);
+        // Transient: Do not save to disk
+        // saveLargeData(VOYAGE_CACHE_KEY, plan);
     };
 
     const clearVoyagePlan = () => {
@@ -241,7 +305,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const isBackground = isServingFromCache || ((!!weatherDataRef.current && !force) || silent) && !showOverlay;
         if (!isBackground) {
             setLoading(true);
-            setLoadingMessage("Updating Marine Data...");
+            setLoadingMessage("Fetching Weather Data...");
         }
         else setBackgroundUpdating(true);
         setError(null);
@@ -415,6 +479,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentReport.coordinates = coords;
             }
 
+            // 4. BEACON ENHANCEMENT & MULTI-SOURCE LOGGING  
+            // Fetch NOAA buoy data (if within 10nm) and log source breakdown
+            if (currentReport && currentReport.coordinates) {
+                currentReport = await enhanceWithBeaconData(currentReport, currentReport.coordinates);
+            }
+
             if (currentReport) {
                 setWeatherData(currentReport);
                 // Clean up non-null assertion
@@ -424,15 +494,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (!isBackground) setLoading(false);
             }
 
-            // 5. CALCULATE NEXT UPDATE TIME
-            // Check instability (Alerts present OR high wind/rain)
-            // Ensure currentReport exists
+            // 5. CALCULATE NEXT UPDATE TIME using intelligent intervals
             if (currentReport) {
-                const hasAlerts = currentReport.alerts && currentReport.alerts.length > 0;
-                const maxGust = Math.max(...(currentReport.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
-                const isUnstable = hasAlerts || maxGust > 20;
-
-                const nextTs = calculateNextUpdateTime(isUnstable);
+                const locationType = currentReport.locationType || 'coastal';
+                const interval = getUpdateInterval(locationType, currentReport);
+                const nextTs = alignToNextInterval(interval);
 
                 setNextUpdate(nextTs);
                 localStorage.setItem('thalassa_next_update', nextTs.toString());
@@ -489,6 +555,9 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const selectLocation = useCallback(async (location: string, coords?: { lat: number, lon: number }) => {
 
         const isCurrent = location === "Current Location";
+
+        // SET LOCATION MODE: GPS tracking vs Fixed location
+        setLocationMode(isCurrent ? 'gps' : 'selected');
         isTrackingCurrentLocation.current = isCurrent;
 
         // PERSISTENCE FIX: Identify and Save User Intent
@@ -568,31 +637,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // --- WATCHDOG: Ensure nextUpdate is set if data exists ---
     useEffect(() => {
         if (weatherData && !nextUpdate) {
-            // Check if unstable
-            const hasAlerts = weatherData.alerts && weatherData.alerts.length > 0;
-            const maxGust = Math.max(...(weatherData.hourly?.slice(0, 12).map(h => h.windGust || 0) || [0]));
-            const isUnstable = hasAlerts || maxGust > 20;
-
-            // Recalculate based on existing generation time IS WRONG.
-            // We should calculate based on NOW relative to GENERATED?
-            // Actually, we want to snap to the NEXT slot.
-            // If data generated 20 mins ago (Stable -> 30m interval).
-            // Next update should be generation + 30m.
-
+            const locationType = weatherData.locationType || 'coastal';
+            const interval = getUpdateInterval(locationType, weatherData);
             const gen = new Date(weatherData.generatedAt).getTime();
+            const target = gen + interval;
             const now = Date.now();
 
-            // Logic: Target = gen + interval.
-            // We use the same interval logic as fresh fetch
-            const interval = isUnstable ? UNSTABLE_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
-            const target = gen + interval;
-
             if (target > now) {
-
                 setNextUpdate(target);
             } else {
-                // Expired. Set to immediate future to trigger refresh on next loop
-
+                // Expired: trigger immediate update
                 setNextUpdate(now + 1000);
             }
         }
@@ -616,12 +670,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!nextUpdate) return;
             if (Date.now() >= nextUpdate) {
 
-                if (isTrackingCurrentLocation.current && navigator.geolocation) {
+                // INTELLIGENT GPS vs SELECTED MODE
+                if (locationMode === 'gps' && navigator.geolocation) {
+                    // GPS Mode: Get fresh coordinates
                     navigator.geolocation.getCurrentPosition(
-                        (pos) => fetchWeather("Current Location", true, { lat: pos.coords.latitude, lon: pos.coords.longitude }),
-                        () => { }
+                        (pos) => fetchWeather("Current Location", true, { lat: pos.coords.latitude, lon: pos.coords.longitude }, false, true),
+                        (error) => {
+                            console.warn('[AutoRefresh] GPS failed:', error);
+                            // Fallback to last known location
+                            const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
+                            const coords = weatherDataRef.current?.coordinates;
+                            if (loc) fetchWeather(loc, false, coords, false, true);
+                        }
                     );
                 } else {
+                    // Selected Mode: Keep location fixed, don't update GPS
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                     const coords = weatherDataRef.current?.locationName === loc ? weatherDataRef.current?.coordinates : undefined;
                     if (loc) {
@@ -632,7 +695,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         }, 10000);
         return () => clearInterval(checkInterval);
-    }, [nextUpdate, fetchWeather]);
+    }, [nextUpdate, fetchWeather, locationMode]);
 
     // Model Change Effect
     const prevModelRef = useRef(settings.preferredModel);
