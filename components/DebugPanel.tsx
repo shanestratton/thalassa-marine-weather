@@ -1,149 +1,122 @@
 import React, { useState, useEffect } from 'react';
 
+interface DebugLog {
+    timestamp: string;
+    message: string;
+    type: 'log' | 'warn' | 'error';
+}
+
+// Intercept console methods
+const debugLogs: DebugLog[] = [];
+const MAX_LOGS = 50;
+
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+
+console.log = (...args: any[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('[METAR]') || msg.includes('[DataSourceMerger]')) {
+        debugLogs.push({
+            timestamp: new Date().toLocaleTimeString(),
+            message: msg,
+            type: 'log'
+        });
+        if (debugLogs.length > MAX_LOGS) debugLogs.shift();
+    }
+    originalLog.apply(console, args);
+};
+
+console.warn = (...args: any[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('[METAR]')) {
+        debugLogs.push({
+            timestamp: new Date().toLocaleTimeString(),
+            message: msg,
+            type: 'warn'
+        });
+        if (debugLogs.length > MAX_LOGS) debugLogs.shift();
+    }
+    originalWarn.apply(console, args);
+};
+
+console.error = (...args: any[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('[METAR]')) {
+        debugLogs.push({
+            timestamp: new Date().toLocaleTimeString(),
+            message: msg,
+            type: 'error'
+        });
+        if (debugLogs.length > MAX_LOGS) debugLogs.shift();
+    }
+    originalError.apply(console, args);
+};
+
 export const DebugPanel: React.FC = () => {
-    const [debug, setDebug] = useState<any>(null);
-    const [expanded, setExpanded] = useState(false); // Start collapsed
+    const [isOpen, setIsOpen] = useState(false);
+    const [logs, setLogs] = useState<DebugLog[]>([]);
 
     useEffect(() => {
-        const interval = setInterval(() => {
-            const d = (window as any).THALASSA_DEBUG;
-            if (d) {
-                setDebug({ ...d });
-            }
-        }, 500);
-        return () => clearInterval(interval);
-    }, []);
+        if (isOpen) {
+            const interval = setInterval(() => {
+                setLogs([...debugLogs]);
+            }, 500);
+            return () => clearInterval(interval);
+        }
+    }, [isOpen]);
 
-    if (!debug) return null;
+    if (!isOpen) {
+        return (
+            <button
+                onClick={() => setIsOpen(true)}
+                className="fixed bottom-4 right-4 z-[9999] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg font-bold text-sm"
+            >
+                🐛 Debug
+            </button>
+        );
+    }
 
     return (
-        <>
-            {/* Small Bug Icon - Bottom Right Corner */}
-            {!expanded && (
-                <button
-                    onClick={() => setExpanded(true)}
-                    style={{
-                        position: 'fixed',
-                        bottom: '20px',
-                        right: '20px',
-                        width: '44px',
-                        height: '44px',
-                        borderRadius: '50%',
-                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                        border: '2px solid rgba(255, 255, 255, 0.2)',
-                        color: '#00ffff',
-                        fontSize: '24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        zIndex: 9998,
-                        backdropFilter: 'blur(10px)',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)'
-                    }}
-                >
-                    🐛
-                </button>
-            )}
-
-            {/* Expanded Debug Panel */}
-            {expanded && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.95)',
-                        color: '#fff',
-                        padding: '16px',
-                        fontSize: '12px',
-                        fontFamily: 'monospace',
-                        borderTop: '2px solid #00ffff',
-                        zIndex: 9999,
-                        maxHeight: '400px',
-                        overflowY: 'auto',
-                        backdropFilter: 'blur(10px)'
-                    }}
-                >
-                    {/* Close Button */}
+        <div className="fixed inset-0 z-[9999] pointer-events-none">
+            <div className="absolute bottom-4 right-4 w-96 max-h-96 bg-black/95 text-white rounded-lg shadow-2xl pointer-events-auto overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
+                    <h3 className="font-bold text-sm">🐛 METAR Debug Log</h3>
                     <button
-                        onClick={() => setExpanded(false)}
-                        style={{
-                            position: 'absolute',
-                            top: '8px',
-                            right: '8px',
-                            background: 'transparent',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                            color: '#fff',
-                            borderRadius: '4px',
-                            padding: '4px 12px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                        }}
+                        onClick={() => setLogs([])}
+                        className="px-2 py-1 bg-blue-700 rounded text-xs mr-2"
                     >
-                        ✕ Close
+                        Clear
                     </button>
-
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#00ffff' }}>
-                        🐛 DATA SOURCES DEBUG
-                    </div>
-
-                    {/* Beacon */}
-                    <div style={{ marginBottom: '8px' }}>
-                        <span style={{ color: '#4ade80' }}>🟢 BEACON:</span> {debug.beacon || 'Loading...'}
-                    </div>
-
-                    {/* Airport */}
-                    <div style={{ marginBottom: '8px' }}>
-                        <span style={{ color: '#fbbf24' }}>🟠 AIRPORT:</span> {debug.airport || 'Loading...'}
-                    </div>
-
-                    {/* Merge Input */}
-                    {debug.mergeInput && (
-                        <div style={{ marginBottom: '12px', fontSize: '11px', opacity: 0.8 }}>
-                            Merge: Beacon={debug.mergeInput.hasBeacon ? '✓' : '✗'}
-                            Airport={debug.mergeInput.hasAirport ? '✓' : '✗'}
-                            SG={debug.mergeInput.hasStormGlass ? '✓' : '✗'}
+                    <button
+                        onClick={() => setIsOpen(false)}
+                        className="text-xl leading-none"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-1 text-xs font-mono">
+                    {logs.length === 0 ? (
+                        <div className="text-gray-400 text-center py-8">
+                            No METAR logs yet.<br />
+                            Refresh a location to see logs.
                         </div>
-                    )}
-
-                    {/* Metric Sources */}
-                    {debug.sources && (
-                        <div>
-                            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#00ffff' }}>
-                                📊 METRIC SOURCES:
+                    ) : (
+                        logs.map((log, i) => (
+                            <div
+                                key={i}
+                                className={`px-2 py-1 rounded ${log.type === 'error' ? 'bg-red-900/50 text-red-200' :
+                                        log.type === 'warn' ? 'bg-yellow-900/50 text-yellow-200' :
+                                            'bg-gray-800/50 text-green-200'
+                                    }`}
+                            >
+                                <span className="text-gray-500 mr-2">{log.timestamp}</span>
+                                {log.message}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
-                                {Object.entries(debug.sources).map(([key, value]: [string, any]) => {
-                                    const color = value?.sourceColor === 'green' ? '#4ade80'
-                                        : value?.sourceColor === 'amber' ? '#fbbf24'
-                                            : '#ef4444';
-                                    return (
-                                        <div key={key} style={{ fontSize: '11px' }}>
-                                            <span style={{ color }}>●</span> {key}: {value?.sourceName}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Error */}
-                    {debug.error && (
-                        <div style={{ marginTop: '12px', color: '#ef4444' }}>
-                            ❌ ERROR: {debug.error}
-                        </div>
-                    )}
-
-                    {/* Last Update */}
-                    {debug.lastUpdate && (
-                        <div style={{ marginTop: '12px', fontSize: '10px', opacity: 0.6 }}>
-                            Last update: {debug.lastUpdate}
-                        </div>
+                        ))
                     )}
                 </div>
-            )}
-        </>
+            </div>
+        </div>
     );
 };
