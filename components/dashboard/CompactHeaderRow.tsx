@@ -53,7 +53,21 @@ export const CompactHeaderRow = ({
                 )}
             </button>
 
-            {/* CONSOLIDATED CELESTIAL CARD - Sunrise, Sunset, Moon in one card */}
+            {/* Dashboard Mode Toggle - Standalone button */}
+            {onToggleDashboardMode && (
+                <button
+                    onClick={onToggleDashboardMode}
+                    className={`px-2 py-2.5 rounded-xl text-[9px] font-bold uppercase tracking-wide transition-all flex-shrink-0 ${dashboardMode === 'essential'
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                        : 'bg-slate-800/60 text-white/70 border border-white/10 hover:bg-white/10'
+                        }`}
+                    title={dashboardMode === 'essential' ? 'Switch to Full Marine Mode' : 'Switch to Essential Mode'}
+                >
+                    {dashboardMode === 'essential' ? 'ESS' : 'FULL'}
+                </button>
+            )}
+
+            {/* CELESTIAL CARD - Sunrise, Sunset, Moon */}
             <div className="bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3 backdrop-blur-md flex-shrink-0">
                 {/* Sunrise */}
                 {sunrise && (
@@ -80,20 +94,6 @@ export const CompactHeaderRow = ({
                     <span className="text-base leading-none">
                         {moonPhase}
                     </span>
-                )}
-
-                {/* Dashboard Mode Toggle */}
-                {onToggleDashboardMode && (
-                    <button
-                        onClick={onToggleDashboardMode}
-                        className={`ml-1 px-1.5 py-1 rounded-md text-base transition-all ${dashboardMode === 'essential'
-                            ? 'bg-cyan-500/20 border border-cyan-500/30'
-                            : 'bg-white/10 border border-white/20 hover:bg-white/20'
-                            }`}
-                        title={dashboardMode === 'essential' ? 'Switch to Full Marine Mode' : 'Switch to Essential Mode'}
-                    >
-                        {dashboardMode === 'essential' ? '⚓' : '🔬'}
-                    </button>
                 )}
             </div>
         </div>
