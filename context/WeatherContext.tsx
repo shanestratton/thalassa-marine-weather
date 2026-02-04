@@ -194,10 +194,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             } catch (e) {
                 console.error("[Context] Failed to load cache", e);
-            } finally {
-                // Mark loading as complete
                 setLoading(false);
-
+            } finally {
                 // Trigger initial fetch if we have a default location
                 // This ensures fresh data loads immediately
                 if (settingsRef.current.defaultLocation) {
@@ -206,26 +204,37 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                     // Handle GPS-based "Current Location" specially
                     if (loc === "Current Location" && navigator.geolocation) {
-                        setTimeout(() => {
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => {
-                                    fetchWeather(loc, true, {  // force=true to bypass cache
-                                        lat: pos.coords.latitude,
-                                        lon: pos.coords.longitude
-                                    });
-                                },
-                                (error) => {
-                                    console.error('[WeatherContext] GPS error on startup:', error);
-                                    // Fall back to a named location or skip
-                                }
-                            );
-                        }, 100);
+                        // Keep loading=true until GPS resolves
+                        setLoadingMessage("Getting GPS Location...");
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                // GPS success - fetchWeather will manage loading state from here
+                                fetchWeather(loc, true, {  // force=true to bypass cache
+                                    lat: pos.coords.latitude,
+                                    lon: pos.coords.longitude
+                                });
+                            },
+                            (error) => {
+                                console.error('[WeatherContext] GPS error on startup:', error);
+                                setError("Unable to get GPS location. Please select a location.");
+                                setLoading(false);
+                            },
+                            {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 60000
+                            }
+                        );
                     } else {
-                        // Named location - fetch directly
+                        // Named location - fetchWeather will manage loading state
+                        setLoading(false); // Safe: fetchWeather will set loading=true when it starts
                         setTimeout(() => {
                             fetchWeather(loc, true);
                         }, 100);
                     }
+                } else {
+                    // No default location - done loading
+                    setLoading(false);
                 }
             }
         };
