@@ -78,65 +78,62 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
     const condition = data.condition || 'Clear';
 
     return (
-        <div className="w-full">
-            <div className={`bg-gradient-to-r ${getWeatherGradient()} backdrop-blur-md rounded-xl border border-white/10 p-3`}>
-                {/* Single Row: Icon + Condition + Stats */}
-                <div className="flex items-center justify-between">
-                    {/* Left: Weather condition */}
-                    <div className="flex items-center gap-2">
-                        {getWeatherIcon()}
-                        <span className="text-white/90 font-semibold text-sm capitalize">
-                            {condition}
-                        </span>
+        <div className="w-full h-[140px]">
+            <div className={`bg-gradient-to-br ${getWeatherGradient()} backdrop-blur-md rounded-xl border border-white/10 p-4 h-full flex flex-col justify-between`}>
+                {/* TOP ROW: Weather Icon + Condition */}
+                <div className="flex items-center gap-3">
+                    {getWeatherIcon()}
+                    <span className="text-white font-bold text-lg capitalize">
+                        {condition}
+                    </span>
+                </div>
+
+                {/* BOTTOM ROW: Stats Grid - 5 columns */}
+                <div className="flex items-end justify-between mt-3">
+                    {/* Wind */}
+                    <div className="flex flex-col items-center flex-1">
+                        <div className="flex items-center gap-1 mb-1">
+                            <svg
+                                className="w-4 h-4 text-cyan-400"
+                                style={{ transform: `rotate(${windRotation + 180}deg)` }}
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                            >
+                                <path d="M12 2L8 10h8L12 2z" />
+                                <rect x="10" y="10" width="4" height="12" />
+                            </svg>
+                            <span className="text-[10px] text-white/60 font-bold">{windDir}</span>
+                        </div>
+                        <span className="text-xl font-black text-white">{windSpeed}</span>
+                        <span className="text-[9px] text-white/50 uppercase tracking-wide">{units.speed}</span>
                     </div>
 
-                    {/* Right: Stats - 5 columns */}
-                    <div className="flex items-center gap-4">
-                        {/* Wind */}
-                        <div className="flex flex-col items-center">
-                            <div className="flex items-center gap-0.5">
-                                <svg
-                                    className="w-3 h-3 text-cyan-400"
-                                    style={{ transform: `rotate(${windRotation + 180}deg)` }}
-                                    viewBox="0 0 24 24"
-                                    fill="currentColor"
-                                >
-                                    <path d="M12 2L8 10h8L12 2z" />
-                                    <rect x="10" y="10" width="4" height="12" />
-                                </svg>
-                                <span className="text-[9px] text-white/50 font-bold">{windDir}</span>
-                            </div>
-                            <span className="text-xs font-bold text-white">{windSpeed}</span>
-                            <span className="text-[7px] text-white/40 uppercase">{units.speed}</span>
-                        </div>
+                    {/* Rain */}
+                    <div className="flex flex-col items-center flex-1">
+                        <RainIcon className="w-4 h-4 text-blue-400 mb-1" />
+                        <span className="text-xl font-black text-white">{rainChance}</span>
+                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Rain</span>
+                    </div>
 
-                        {/* Rain */}
-                        <div className="flex flex-col items-center">
-                            <RainIcon className="w-3 h-3 text-blue-400" />
-                            <span className="text-xs font-bold text-white">{rainChance}</span>
-                            <span className="text-[7px] text-white/40 uppercase">Rain</span>
-                        </div>
+                    {/* UV */}
+                    <div className="flex flex-col items-center flex-1">
+                        <SunIcon className="w-4 h-4 text-orange-400 mb-1" />
+                        <span className="text-xl font-black text-white">{uvIndex}</span>
+                        <span className="text-[9px] text-white/50 uppercase tracking-wide">UV</span>
+                    </div>
 
-                        {/* UV */}
-                        <div className="flex flex-col items-center">
-                            <SunIcon className="w-3 h-3 text-orange-400" />
-                            <span className="text-xs font-bold text-white">{uvIndex}</span>
-                            <span className="text-[7px] text-white/40 uppercase">UV</span>
-                        </div>
+                    {/* Humidity */}
+                    <div className="flex flex-col items-center flex-1">
+                        <DropletIcon className="w-4 h-4 text-sky-400 mb-1" />
+                        <span className="text-xl font-black text-white">{humidity}</span>
+                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Humid</span>
+                    </div>
 
-                        {/* Humidity */}
-                        <div className="flex flex-col items-center">
-                            <DropletIcon className="w-3 h-3 text-sky-400" />
-                            <span className="text-xs font-bold text-white">{humidity}</span>
-                            <span className="text-[7px] text-white/40 uppercase">Humid</span>
-                        </div>
-
-                        {/* Dew Point */}
-                        <div className="flex flex-col items-center">
-                            <ThermometerIcon className="w-3 h-3 text-teal-400" />
-                            <span className="text-xs font-bold text-white">{dewPoint}</span>
-                            <span className="text-[7px] text-white/40 uppercase">Dew</span>
-                        </div>
+                    {/* Dew Point */}
+                    <div className="flex flex-col items-center flex-1">
+                        <ThermometerIcon className="w-4 h-4 text-teal-400 mb-1" />
+                        <span className="text-xl font-black text-white">{dewPoint}</span>
+                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Dew</span>
                     </div>
                 </div>
             </div>
