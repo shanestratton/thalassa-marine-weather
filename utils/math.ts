@@ -1,3 +1,22 @@
+/**
+ * @fileoverview Mathematical utilities for weather calculations including
+ * wind chill, heat index, apparent temperature, distance, and sun times.
+ * @module utils/math
+ */
+
+/**
+ * Calculates wind chill temperature using the NWS Wind Chill Formula.
+ * Wind chill is only valid when temperature <= 50°F and wind speed >= 3 mph.
+ * 
+ * @param {number} temp - Temperature value
+ * @param {number} speedKnots - Wind speed in knots
+ * @param {string} unit - Temperature unit ('C' or 'F')
+ * @returns {number | null} Wind chill temperature in the same unit, or null if not applicable
+ * @see https://www.weather.gov/media/epz/wxcalc/windChill.pdf
+ * @example
+ * calculateWindChill(5, 20, 'C')  // returns approx -2.5°C
+ * calculateWindChill(60, 10, 'F') // returns null (temp too high)
+ */
 export const calculateWindChill = (temp: number, speedKnots: number, unit: string): number | null => {
     if (temp === undefined || temp === null || speedKnots === undefined || speedKnots === null) return null;
     const tempF = unit === 'C' ? (temp * 9 / 5) + 32 : temp;
@@ -7,6 +26,18 @@ export const calculateWindChill = (temp: number, speedKnots: number, unit: strin
     return unit === 'C' ? (wcF - 32) * 5 / 9 : wcF;
 };
 
+/**
+ * Calculates heat index using the NWS Heat Index Formula.
+ * Heat index is only valid when temperature >= 80°F (26.7°C).
+ * 
+ * @param {number} tempC - Temperature in Celsius
+ * @param {number} humidity - Relative humidity (0-100)
+ * @returns {number | null} Heat index in Celsius, or null if not applicable
+ * @see https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
+ * @example
+ * calculateHeatIndex(35, 80) // returns approx 48°C (dangerous heat)
+ * calculateHeatIndex(20, 50) // returns null (temp too low)
+ */
 export const calculateHeatIndex = (tempC: number, humidity: number): number | null => {
     if (tempC === undefined || tempC === null || humidity === undefined || humidity === null) return null;
     const T = (tempC * 9 / 5) + 32;
@@ -24,6 +55,17 @@ export const calculateHeatIndex = (tempC: number, humidity: number): number | nu
     return (HI - 32) * 5 / 9;
 };
 
+/**
+ * Calculates apparent temperature using the Australian BOM formula.
+ * Accounts for humidity and wind cooling effect.
+ * 
+ * @param {number} tempC - Temperature in Celsius
+ * @param {number} humidity - Relative humidity (0-100)
+ * @param {number} windKnots - Wind speed in knots
+ * @returns {number | null} Apparent temperature in Celsius
+ * @example
+ * calculateApparentTemp(30, 80, 5) // returns higher than 30 due to humidity
+ */
 export const calculateApparentTemp = (tempC: number, humidity: number, windKnots: number): number | null => {
     if (tempC === undefined || tempC === null || humidity === undefined || humidity === null || windKnots === undefined) return null;
     const ws_ms = windKnots * 0.514444;
@@ -32,6 +74,17 @@ export const calculateApparentTemp = (tempC: number, humidity: number, windKnots
     return at;
 }
 
+/**
+ * Calculates "feels like" temperature using a simplified BOM apparent temperature.
+ * Adjusted for marine conditions where radiation baseline is less relevant.
+ * 
+ * @param {number} tempC - Temperature in Celsius
+ * @param {number} humidity - Relative humidity (0-100)
+ * @param {number} windSpeedKts - Wind speed in knots
+ * @returns {number} Feels like temperature in Celsius (rounded to 1 decimal)
+ * @example
+ * calculateFeelsLike(25, 70, 10) // returns approx 26.5 (humidity adds heat, wind cools)
+ */
 export const calculateFeelsLike = (tempC: number, humidity: number, windSpeedKts: number): number => {
     // AUSTRALIAN APPARENT TEMPERATURE (BOM Formula)
     const e = (humidity / 100) * 6.105 * Math.exp((17.27 * tempC) / (237.7 + tempC));
@@ -42,6 +95,17 @@ export const calculateFeelsLike = (tempC: number, humidity: number, windSpeedKts
     return parseFloat(AT.toFixed(1));
 };
 
+/**
+ * Calculates distance between two coordinates using the Haversine formula.
+ * 
+ * @param {number} lat1 - Latitude of first point
+ * @param {number} lon1 - Longitude of first point
+ * @param {number} lat2 - Latitude of second point
+ * @param {number} lon2 - Longitude of second point
+ * @returns {number} Distance in kilometers
+ * @example
+ * calculateDistance(-27.47, 153.02, -33.87, 151.21) // Sydney to Brisbane ≈ 730km
+ */
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371; // Radius of the earth in km
     const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -54,6 +118,18 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
     return R * c; // Distance in km
 };
 
+/**
+ * Calculates sunrise and sunset times for a given date and location.
+ * Uses the NOAA solar position algorithm.
+ * Returns null for polar regions where the sun doesn't rise or set.
+ * 
+ * @param {Date} date - The date to calculate for
+ * @param {number} lat - Latitude in decimal degrees
+ * @param {number} lon - Longitude in decimal degrees
+ * @returns {{ sunrise: Date, sunset: Date } | null} Sunrise and sunset times, or null for polar regions
+ * @example
+ * getSunTimes(new Date('2024-06-21'), -27.47, 153.02) // Brisbane summer solstice
+ */
 export const getSunTimes = (date: Date, lat: number, lon: number): { sunrise: Date, sunset: Date } | null => {
     const times = {
         sunrise: new Date(date),
