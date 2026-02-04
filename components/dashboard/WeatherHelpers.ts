@@ -125,53 +125,55 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
 
     // UV INDEX (if significant)
     if (uv >= 8) {
-        narrative += `☀️ Very high UV${uv}, sun protection essential.`;
+        narrative += `☀️ Very high UV${uv}, sun protection essential. `;
     } else if (uv >= 6) {
-        narrative += `UV moderate, sun protection recommended.`;
+        narrative += `UV moderate, sun protection recommended. `;
+    }
+
+    // HUMIDITY
+    if (humidity >= 90) {
+        narrative += `💧 Very humid ${Math.round(humidity)}%. `;
+    } else if (humidity >= 75) {
+        narrative += `Humid ${Math.round(humidity)}%. `;
+    } else if (humidity <= 30) {
+        narrative += `Dry ${Math.round(humidity)}%. `;
+    } else if (humidity > 0) {
+        narrative += `Humidity ${Math.round(humidity)}%. `;
+    }
+
+    // DEW POINT (important for fog/condensation risk)
+    const dewPoint = (data as any).dewPoint;
+    if (dewPoint !== undefined && dewPoint !== null) {
+        const fogRisk = temp - dewPoint;
+        if (fogRisk <= 2) {
+            narrative += `🌫️ Fog/mist likely, dew point ${Math.round(dewPoint)}°C. `;
+        } else if (fogRisk <= 5) {
+            narrative += `Dew point ${Math.round(dewPoint)}°C. `;
+        }
     }
 
     return narrative.trim() || 'Pleasant conditions expected.';
 }
 
-// Moon phase calculation
+// Moon phase calculation using accurate synodic month
 function getMoonPhase(date: Date): { phase: string; emoji: string } {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
+    // Known new moon reference: January 6, 2000 at 18:14 UTC
+    const knownNewMoon = new Date(Date.UTC(2000, 0, 6, 18, 14, 0));
 
-    let c = 0;
-    let e = 0;
-    let jd = 0;
-    let b = 0;
+    // Synodic month length (average time between new moons)
+    const synodicMonth = 29.53058770576;
 
-    if (month < 3) {
-        const year_adj = year - 1;
-        const month_adj = month + 12;
-        c = year_adj;
-        e = month_adj;
-    } else {
-        c = year;
-        e = month;
-    }
+    // Calculate days since the known new moon
+    const daysSinceNewMoon = (date.getTime() - knownNewMoon.getTime()) / (1000 * 60 * 60 * 24);
 
-    c = Math.floor(365.25 * c);
-    e = Math.floor(30.6 * e);
-    jd = c + e + day - 694039.09; // jd is total days elapsed
-    jd /= 29.5305882; // divide by the moon cycle
-    b = Math.floor(jd); // int(jd) -> b, take integer part of jd
-    jd -= b; // subtract integer part to leave fractional part of original jd
-    b = Math.round(jd * 8); // scale fraction from 0-8 and round
+    // Get the current position in the lunar cycle (0 to 1)
+    let lunarAge = daysSinceNewMoon / synodicMonth;
+    lunarAge = lunarAge - Math.floor(lunarAge); // Get fractional part (0 to 1)
 
-    if (b >= 8) b = 0; // 0 and 8 are the same so turn 8 into 0
-
-    // &#x1F311 = 🌑 New Moon
-    // &#x1F312 = 🌒 Waxing Crescent
-    // &#x1F313 = 🌓 First Quarter
-    // &#x1F314 = 🌔 Waxing Gibbous
-    // &#x1F315 = 🌕 Full Moon
-    // &#x1F316 = 🌖 Waning Gibbous
-    // &#x1F317 = 🌗 Last Quarter
-    // &#x1F318 = 🌘 Waning Crescent
+    // Convert to 8 phases (0-7)
+    // 0 = New Moon, 1 = Waxing Crescent, 2 = First Quarter, 3 = Waxing Gibbous
+    // 4 = Full Moon, 5 = Waning Gibbous, 6 = Last Quarter, 7 = Waning Crescent
+    const phaseIndex = Math.round(lunarAge * 8) % 8;
 
     const phases = [
         { phase: 'New', emoji: '🌑' },
@@ -184,7 +186,7 @@ function getMoonPhase(date: Date): { phase: string; emoji: string } {
         { phase: 'Waning Crescent', emoji: '🌘' }
     ];
 
-    return phases[b];
+    return phases[phaseIndex];
 }
 
 export { generateWeatherNarrative, getMoonPhase };
