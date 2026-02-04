@@ -58,30 +58,9 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         }
     }
 
-    // 4. WIND CONDITIONS (Most important for mariners)
-    if (windSpeed >= 40) {
-        narrative += `🌪️ GALE FORCE winds ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
-        narrative += `. Hazardous conditions. `;
-    } else if (windSpeed >= 30) {
-        narrative += `💨 Strong winds ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
-        narrative += ` from ${windDir || 'variable'}. Rough conditions. `;
-    } else if (windSpeed >= 20) {
-        narrative += `🌬️ Fresh winds ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
-        narrative += ` from ${windDir || 'variable'}. `;
-    } else if (windSpeed >= 12) {
-        narrative += `Moderate winds ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
-        narrative += ` from ${windDir || 'variable'}. `;
-    } else if (windSpeed >= 6) {
-        narrative += `Light winds ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
-        narrative += `. `;
-    } else {
-        narrative += `Calm conditions, winds under 6kts. `;
-    }
+    // 4. WIND CONDITIONS - REMOVED to avoid discrepancy with card widgets
+    // Wind data is displayed in the card widgets which have more accurate source-aware data
+    // Keeping this in narrative caused confusion when buoy wind != forecast wind
 
     // 5. SEA STATE
     const waveHeightMeters = waveHeight / 3.28084;
