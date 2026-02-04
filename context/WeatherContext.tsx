@@ -4,7 +4,7 @@ import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 import { enrichMarineWeather } from '../services/geminiService';
 import { fetchFastWeather, fetchPrecisionWeather, parseLocation, reverseGeocode } from '../services/weatherService';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
-import { isStormglassKeyPresent } from '../services/stormglassService';
+import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
 import { calculateDistance } from '../utils';
 import { enhanceWithBeaconData } from '../services/beaconIntegration';

@@ -273,12 +273,22 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         const windDirDeg = parseFloat(obs.wind_dir_deg);
         const windDirCardinal = obs.wind_dir; // e.g., "E", "NE", "SSW"
 
-
+        // CRITICAL FIX: Fall back to cardinal-to-degrees conversion if degrees unavailable
+        // Import cardinalToDegrees inline to avoid circular dependencies
+        const cardinalMap: Record<string, number> = {
+            "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
+            "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
+            "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5,
+            "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5
+        };
+        const windDirection = windDirDeg !== undefined
+            ? windDirDeg
+            : (windDirCardinal ? cardinalMap[windDirCardinal.toUpperCase()] : undefined);
 
         return {
             windSpeed,
             windGust,
-            windDirection: windDirDeg, // Use degrees if available
+            windDirection, // Now uses degrees OR cardinal fallback
             airTemp: parseFloat(obs.air_temp),
             pressure: parseFloat(obs.press),
             timestamp: obs.local_date_time_full || obs.aifstime_utc || new Date().toISOString(),

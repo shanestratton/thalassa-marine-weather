@@ -11,7 +11,6 @@ interface StatusBadgesProps {
     stationId?: string;
     locationType?: 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
-    airportName?: string;
     buoyName?: string;
 }
 
@@ -24,22 +23,31 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     stationId,
     locationType,
     beaconName,
-    airportName,
     buoyName
 }) => {
-    // Helper to shorten source names for compact badge display
     const shortenSourceName = (name: string): string => {
-        // Remove common suffixes
-        name = name.replace(/ Airport$/i, '').replace(/ Intl$/i, '').replace(/ International$/i, '');
+        // Abbreviate common words
 
-        // Abbreviate "Brisbane" -> "Bris", "Moreton Bay" -> "MB", etc.
+        // Abbreviate common words
         name = name.replace(/Brisbane/i, 'Bris');
         name = name.replace(/Moreton Bay/i, 'MB');
         name = name.replace(/Central/i, 'Ctr');
+        name = name.replace(/Inner/i, 'In');
+        name = name.replace(/Outer/i, 'Out');
+        name = name.replace(/Beacon/i, 'Bcn');
+        name = name.replace(/Point/i, 'Pt');
+        name = name.replace(/ Bay/i, 'B');
+        name = name.replace(/North/i, 'N');
+        name = name.replace(/South/i, 'S');
+        name = name.replace(/East/i, 'E');
+        name = name.replace(/West/i, 'W');
 
-        // If still too long (>15 chars), truncate
-        if (name.length > 15) {
-            name = name.substring(0, 15) + '..';
+        // Replace full 'BUOY' with abbreviation
+        name = name.replace(/BUOY/i, 'BY');
+
+        // If still too long (>12 chars), truncate more aggressively
+        if (name.length > 12) {
+            name = name.substring(0, 10) + '..';
         }
 
         return name;
@@ -81,23 +89,17 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         {beaconName && (
                             <>
                                 <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
-                                {(buoyName || airportName || hasStormGlass) && <span className="text-white/30">•</span>}
+                                {(buoyName || hasStormGlass) && <span className="text-white/30">•</span>}
                             </>
                         )}
                         {buoyName && (
                             <>
                                 <span className="text-emerald-400 font-bold">{shortenSourceName(buoyName)}</span>
-                                {(airportName || hasStormGlass) && <span className="text-white/30">•</span>}
-                            </>
-                        )}
-                        {airportName && (
-                            <>
-                                <span className="text-amber-400 font-bold">{shortenSourceName(airportName)}</span>
                                 {hasStormGlass && <span className="text-white/30">•</span>}
                             </>
                         )}
                         {hasStormGlass && (
-                            <span className="text-red-400 font-bold">SG</span>
+                            <span className="text-amber-400 font-bold">SG</span>
                         )}
                     </div>
                 </div>

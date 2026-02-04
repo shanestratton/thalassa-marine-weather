@@ -58,28 +58,20 @@ export const renderHeroWidget = (
     switch (id) {
         case 'wind':
             return (
-                <div className={`flex flex-col h-full justify-center ${alignClass}`}>
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
+                        <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
+                        {renderTrend(trend, true)}
                     </div>
-                    {/* Main value and direction on same line for mobile */}
-                    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
-                        <div className="flex items-baseline gap-0.5">
-                            <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windSpeed')}`}>{values.windSpeed}</span>
-                            <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
-                            {renderTrend(trend, true)}
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                            <div className="flex items-center gap-0.5 bg-white/5 px-0.5 py-0.5 rounded text-[7px] font-bold text-sky-300 border border-white/5">
-                                <CompassIcon rotation={data.windDegree || 0} className="w-2 h-2" />
-                                <span>{data.windDirection || 'VAR'}</span>
-                            </div>
-                            {data.windDegree !== null && data.windDegree !== undefined && (
-                                <div className="flex items-center bg-white/5 px-0.5 py-0.5 rounded text-[7px] font-bold text-sky-300 border border-white/5">
-                                    {Math.round(data.windDegree)}°
-                                </div>
-                            )}
+                    {/* Main value + direction badge on same line */}
+                    <div className="flex flex-wrap items-end gap-1">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windSpeed')}`}>{values.windSpeed}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400 pb-1">{units.speed}</span>
+                        <div className="flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded text-[8px] font-bold text-sky-300 border border-white/5 ml-1">
+                            <CompassIcon rotation={data.windDegree || 0} className="w-2.5 h-2.5" />
+                            <span>{data.windDirection || 'VAR'}</span>
                         </div>
                     </div>
                 </div>
@@ -87,37 +79,38 @@ export const renderHeroWidget = (
         case 'gust':
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windGust')}`}>{values.gusts}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
+                        <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
-                        <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
+                    {/* Main value + Max badge on same line */}
+                    <div className="flex flex-wrap items-end gap-1">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windGust')}`}>{values.gusts}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400 pb-1">{units.speed}</span>
+                        <div className="flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded text-[8px] font-bold text-orange-300 border border-white/5 ml-1">
+                            <span>Max</span>
+                        </div>
                     </div>
                 </div>
             );
         case 'wave':
             return (
-                <div className={`flex flex-col h-full justify-center ${alignClass}`}>
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Waves</span>
+                        <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Waves</span>
+                        {renderTrend(trend, true)}
                     </div>
-                    {/* Main value and period on same line for mobile */}
-                    <div className="flex flex-wrap items-center gap-1">
-                        <div className="flex items-baseline gap-0.5">
-                            <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waveHeight')}`}>{values.waveHeight}</span>
-                            <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
-                            {renderTrend(trend, true)}
-                        </div>
-                        <div className="flex items-center gap-0.5 bg-white/5 px-0.5 py-0.5 rounded text-[7px] font-mono text-blue-300 border border-white/5">
-                            <ClockIcon className="w-2 h-2" />
-                            {data.swellPeriod ? `${Math.round(data.swellPeriod)}s` : '--'}
+                    {/* Main value + period badge on same line */}
+                    <div className="flex flex-wrap items-end gap-1">
+                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waveHeight')}`}>{values.waveHeight}</span>
+                        <span className="text-[10px] md:text-sm font-medium text-gray-400 pb-1">{units.length}</span>
+                        <div className="flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded text-[8px] font-bold text-blue-300 border border-white/5 ml-1">
+                            <ClockIcon className="w-2.5 h-2.5" />
+                            <span>{data.swellPeriod ? `${Math.round(data.swellPeriod)}s` : '--'}</span>
                         </div>
                     </div>
                 </div>
