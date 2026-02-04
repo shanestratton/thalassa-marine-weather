@@ -58,8 +58,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     if (!data || !current) return null;
 
     // Settings for dynamic header metrics
-    const { settings: userSettings } = useSettings();
+    const { settings: userSettings, updateSettings } = useSettings();
     const dynamicHeaderEnabled = userSettings.dynamicHeaderMetrics === true;
+    const isEssentialMode = userSettings.dashboardMode === 'essential';
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -181,6 +182,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         sunrise={current?.sunrise}
                                         sunset={current?.sunset}
                                         moonPhase={current?.moonPhase ? getMoonPhase(new Date()).emoji : undefined}
+                                        dashboardMode={userSettings.dashboardMode || 'full'}
+                                        onToggleDashboardMode={() => updateSettings({
+                                            dashboardMode: userSettings.dashboardMode === 'essential' ? 'full' : 'essential'
+                                        })}
                                     />
                                 </div>
                             </div>
@@ -203,63 +208,65 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
 
-                            {/* FIXED WIDGETS - Absolutely positioned below header */}
-                            <div className="absolute top-[200px] left-0 right-0 z-[110] px-4">
-                                <HeroWidgets
-                                    data={activeDayData}  // Bottom row - updates with scroll
-                                    currentData={current}  // Top row - always shows current/live data
-                                    units={units}
-                                    cardTime={(() => {
-                                        // Calculate the actual time for this card based on activeDay and activeHour
-                                        if (activeDay === 0 && activeHour === 0) return Date.now();
-                                        const now = new Date();
-                                        if (activeDay === 0) {
-                                            // Today - add hours from current hour
-                                            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + activeHour).getTime();
-                                        } else {
-                                            // Future day - use midnight + activeHour
-                                            const forecast = data.forecast[activeDay];
-                                            if (forecast?.isoDate) {
-                                                const [y, m, d] = forecast.isoDate.split('-').map(Number);
-                                                return new Date(y, m - 1, d, activeHour).getTime();
+                            {/* FIXED WIDGETS - Absolutely positioned below header (hidden in Essential mode) */}
+                            {!isEssentialMode && (
+                                <div className="absolute top-[200px] left-0 right-0 z-[110] px-4">
+                                    <HeroWidgets
+                                        data={activeDayData}  // Bottom row - updates with scroll
+                                        currentData={current}  // Top row - always shows current/live data
+                                        units={units}
+                                        cardTime={(() => {
+                                            // Calculate the actual time for this card based on activeDay and activeHour
+                                            if (activeDay === 0 && activeHour === 0) return Date.now();
+                                            const now = new Date();
+                                            if (activeDay === 0) {
+                                                // Today - add hours from current hour
+                                                return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + activeHour).getTime();
+                                            } else {
+                                                // Future day - use midnight + activeHour
+                                                const forecast = data.forecast[activeDay];
+                                                if (forecast?.isoDate) {
+                                                    const [y, m, d] = forecast.isoDate.split('-').map(Number);
+                                                    return new Date(y, m - 1, d, activeHour).getTime();
+                                                }
                                             }
-                                        }
-                                        return Date.now();
-                                    })()}  // Calculate card time for UV nighttime check
-                                    // CRITICAL FIX: Bottom row sources should use currentSources when showing current hour
-                                    // activeDayData.sources doesn't exist, only current.sources does
-                                    sources={(activeDay === 0 && activeHour === 0) ? (current as any).sources : (activeDayData as any).sources}
-                                    currentSources={(current as any).sources}  // Sources for top row
-                                    trends={(() => {
-                                        // Calculate trends by comparing current with next hour
-                                        if (!hourly || hourly.length < 2) return undefined;
-                                        const nextHour = hourly[1];
-                                        const trends: Record<string, 'up' | 'down' | 'stable'> = {};
+                                            return Date.now();
+                                        })()}  // Calculate card time for UV nighttime check
+                                        // CRITICAL FIX: Bottom row sources should use currentSources when showing current hour
+                                        // activeDayData.sources doesn't exist, only current.sources does
+                                        sources={(activeDay === 0 && activeHour === 0) ? (current as any).sources : (activeDayData as any).sources}
+                                        currentSources={(current as any).sources}  // Sources for top row
+                                        trends={(() => {
+                                            // Calculate trends by comparing current with next hour
+                                            if (!hourly || hourly.length < 2) return undefined;
+                                            const nextHour = hourly[1];
+                                            const trends: Record<string, 'up' | 'down' | 'stable'> = {};
 
-                                        const compare = (current: number | null | undefined, next: number | null | undefined, threshold = 0.5): 'up' | 'down' | 'stable' => {
-                                            if (current == null || next == null) return 'stable';
-                                            const diff = next - current;
-                                            if (Math.abs(diff) < threshold) return 'stable';
-                                            return diff > 0 ? 'up' : 'down';
-                                        };
+                                            const compare = (current: number | null | undefined, next: number | null | undefined, threshold = 0.5): 'up' | 'down' | 'stable' => {
+                                                if (current == null || next == null) return 'stable';
+                                                const diff = next - current;
+                                                if (Math.abs(diff) < threshold) return 'stable';
+                                                return diff > 0 ? 'up' : 'down';
+                                            };
 
-                                        trends['windSpeed'] = compare(activeDayData.windSpeed, nextHour.windSpeed, 2);
-                                        trends['windGust'] = compare(activeDayData.windGust, nextHour.windGust, 2);
-                                        trends['waveHeight'] = compare(activeDayData.waveHeight, nextHour.waveHeight, 0.3);
-                                        trends['waterTemperature'] = compare(activeDayData.waterTemperature, nextHour.waterTemperature, 0.5);
-                                        trends['pressure'] = compare(activeDayData.pressure, nextHour.pressure, 1);
-                                        trends['visibility'] = compare(activeDayData.visibility, nextHour.visibility, 1);
+                                            trends['windSpeed'] = compare(activeDayData.windSpeed, nextHour.windSpeed, 2);
+                                            trends['windGust'] = compare(activeDayData.windGust, nextHour.windGust, 2);
+                                            trends['waveHeight'] = compare(activeDayData.waveHeight, nextHour.waveHeight, 0.3);
+                                            trends['waterTemperature'] = compare(activeDayData.waterTemperature, nextHour.waterTemperature, 0.5);
+                                            trends['pressure'] = compare(activeDayData.pressure, nextHour.pressure, 1);
+                                            trends['visibility'] = compare(activeDayData.visibility, nextHour.visibility, 1);
 
-                                        return trends;
-                                    })()}
-                                    isLive={activeDay === 0 && activeHour === 0}
-                                    topRowIsLive={true}
-                                />
-                            </div>
+                                            return trends;
+                                        })()}
+                                        isLive={activeDay === 0 && activeHour === 0}
+                                        topRowIsLive={true}
+                                    />
+                                </div>
+                            )}
 
 
-                            {/* HERO CONTAINER - Positioned below fixed headers */}
-                            <div className="absolute top-[360px] left-0 right-0 bottom-0 overflow-hidden bg-black">
+                            {/* HERO CONTAINER - Positioned below fixed headers (moves up in Essential mode) */}
+                            <div className={`absolute left-0 right-0 bottom-0 overflow-hidden bg-black ${isEssentialMode ? 'top-[200px]' : 'top-[360px]'}`}>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}

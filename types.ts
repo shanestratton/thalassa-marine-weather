@@ -1,6 +1,7 @@
 
 export type WeatherModel = 'best_match' | 'ecmwf_ifs04' | 'gfs_seamless' | 'icon_seamless' | 'bom_access_global' | 'gfs_global';
 export type DisplayMode = 'high-contrast' | 'night' | 'auto' | 'standard';
+export type DashboardMode = 'essential' | 'full';
 export type WeatherConditionKey = 'rain' | 'storm' | 'fog' | 'cloudy' | 'night' | 'sunny' | 'default';
 
 export type LengthUnit = 'ft' | 'm';
@@ -144,6 +145,7 @@ export interface UserSettings {
     detailsWidgets?: string[];
     rowOrder?: string[];
     dynamicHeaderMetrics?: boolean; // If true, header updates with scroll; if false, stays static
+    dashboardMode?: DashboardMode; // 'essential' = simplified view, 'full' = all widgets (default)
 }
 
 export interface WeatherMetrics {
