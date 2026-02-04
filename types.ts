@@ -25,7 +25,8 @@ export interface BuoyStation {
     name: string;
     lat: number;
     lon: number;
-    type: 'noaa' | 'bom' | 'imos' | 'ukmo' | 'eurogoos' | 'jma' | 'other';
+    type: 'noaa' | 'bom' | 'bom-aws' | 'imos' | 'ukmo' | 'eurogoos' | 'jma' | 'other';
+    bomStationId?: string; // BOM station ID for AWS (e.g., "94590" for Inner Beacon)
 }
 
 // --- MULTI-SOURCE DATA TRACKING ---
@@ -50,8 +51,8 @@ export interface BeaconObservation {
     currentDegree?: number | null;
 }
 
-export type DataSource = 'beacon' | 'airport' | 'stormglass';
-export type SourceColor = 'green' | 'amber' | 'red';
+export type DataSource = 'buoy' | 'stormglass';
+export type SourceColor = 'emerald' | 'amber' | 'white';
 
 export interface MetricSource {
     value: any;
@@ -142,6 +143,7 @@ export interface UserSettings {
     topHeroWidget?: string; // New separate slot for widget opposite temperature
     detailsWidgets?: string[];
     rowOrder?: string[];
+    dynamicHeaderMetrics?: boolean; // If true, header updates with scroll; if false, stays static
 }
 
 export interface WeatherMetrics {
@@ -151,6 +153,7 @@ export interface WeatherMetrics {
     windDegree?: number;
     waveHeight: number | null;
     swellPeriod: number | null;
+    wavePeriod?: number | null; // Alias for component compatibility
     swellDirection?: string;
     airTemperature: number | null;
     waterTemperature?: number | null;

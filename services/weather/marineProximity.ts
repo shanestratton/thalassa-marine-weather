@@ -16,7 +16,6 @@ export interface MarineProximityResult {
  * @param lon Center Longitude
  */
 export const checkMarineProximity = async (lat: number, lon: number): Promise<MarineProximityResult> => {
-    console.log(`[MarineProximity] Checking ${lat}, ${lon}`);
     const apiKey = getOpenMeteoKey();
     const isCommercial = !!apiKey && apiKey.length > 5;
 
@@ -79,7 +78,6 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
             const hasWaves = r.daily?.wave_height_max?.some((h: any) => h !== null && h > 0);
             if (hasWaves) {
                 // Found valid water!
-                console.log(`[MarineProximity] HIT! Found water at ${r.daily.wave_height_max}`);
 
                 // Return this valid data set
                 return {

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { HeroSlide } from './HeroSlide';
+import { HeroSlideSkeleton } from './Skeletons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -26,7 +27,8 @@ export const HeroSection = ({
     customTime,
     utcOffset,
     onDayChange,
-    onHourChange
+    onHourChange,
+    onActiveDataChange
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -50,7 +52,8 @@ export const HeroSection = ({
     customTime?: number, // Received from Dashboard state
     utcOffset?: number,
     onDayChange?: (day: number) => void,
-    onHourChange?: (hour: number) => void
+    onHourChange?: (hour: number) => void,
+    onActiveDataChange?: (data: WeatherMetrics) => void
 }) => {
 
     const { settings, updateSettings } = useSettings();
@@ -107,7 +110,7 @@ export const HeroSection = ({
         return rows;
     }, [current, forecasts, hourly]);
 
-    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const y = e.currentTarget.scrollTop;
         const h = e.currentTarget.clientHeight;
         if (h > 0) {
@@ -118,7 +121,7 @@ export const HeroSection = ({
                 if (onHourChange) onHourChange(0); // Reset to first hour of new day
             }
         }
-    };
+    }, [activeIndex, onDayChange, onHourChange]);
 
     // FIX: Listen for global reset specifically for Vertical Scroll (Back to Today)
     useEffect(() => {
@@ -132,6 +135,32 @@ export const HeroSection = ({
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
     }, []);
 
+    // Memoized time select handler for HeroSlide - avoids creating new function each render
+    const createTimeSelectHandler = useCallback((rIdx: number) => (time: number | undefined) => {
+        // Forward to Dashboard
+        if (onTimeSelect) onTimeSelect(time);
+
+        // Calculate hour index for Dashboard's activeHour state
+        if (onHourChange && time) {
+            const selectedDate = new Date(time);
+            const hour = selectedDate.getHours();
+
+            if (rIdx === 0) {
+                // TODAY - calculate offset from current hour
+                const now = new Date();
+                const currentHour = now.getHours();
+                const hourOffset = hour - currentHour;
+                onHourChange(hourOffset);
+            } else {
+                // FORECAST - hour is just the hour of day (0-23)
+                onHourChange(hour);
+            }
+        } else if (onHourChange && !time) {
+            // NOW card selected
+            onHourChange(0);
+        }
+    }, [onTimeSelect, onHourChange]);
+
     return (
         <div className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}>
 
@@ -141,63 +170,48 @@ export const HeroSection = ({
                 onScroll={handleScroll}
                 className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar flex flex-col gap-0"
             >
-                {dayRows.map((row, rIdx) => (
-                    // Each day: relative positioning creates context for HeroSlide's absolute headers
-                    // overflow-hidden prevents headers from escaping during vertical scroll
-                    <div key={rIdx} className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
-                        <HeroSlide
-                            index={rIdx}
-                            data={row.data}
-                            units={units}
-                            tides={tides}
-                            settings={settings}
-                            updateSettings={updateSettings}
-                            addDebugLog={undefined} // Stable undefined instead of new function
-                            timeZone={timeZone}
-                            locationName={locationName}
-                            isLandlocked={isLandlocked}
-                            locationType={locationType}
-                            displaySource={groundingSource || modelUsed || ''}
-                            vessel={vessel}
-                            // CRITICAL FIX: If this slide is active, allow the Dashboard's selected time (from horiz scroll) to override.
-                            // Otherwise, fall back to row defaults (Live for Today, Noon for Future).
-                            customTime={(activeIndex === rIdx && customTime) ? customTime : row.customTime}
-                            hourly={row.hourly}
-                            fullHourly={hourly}
-                            lat={lat}
-                            guiDetails={guiDetails}
-                            coordinates={coordinates}
-                            generatedAt={generatedAt}
-                            onTimeSelect={(time) => {
-                                // Forward to Dashboard
-                                if (onTimeSelect) onTimeSelect(time);
-
-                                // Calculate hour index for Dashboard's activeHour state
-                                if (onHourChange && time) {
-                                    const selectedDate = new Date(time);
-                                    const hour = selectedDate.getHours();
-
-                                    if (rIdx === 0) {
-                                        // TODAY - calculate offset from current hour
-                                        const now = new Date();
-                                        const currentHour = now.getHours();
-                                        const hourOffset = hour - currentHour;
-                                        // activeHour for TODAY: 0 = NOW, 1 = current+1, etc.
-                                        onHourChange(hourOffset);
-                                    } else {
-                                        // FORECAST - hour is just the hour of day (0-23)
-                                        onHourChange(hour);
-                                    }
-                                } else if (onHourChange && !time) {
-                                    // NOW card selected
-                                    onHourChange(0);
-                                }
-                            }}
-                            isVisible={activeIndex === rIdx}
-                            utcOffset={utcOffset}
-                        />
+                {/* Show skeleton while data is loading */}
+                {dayRows.length === 0 ? (
+                    <div className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
+                        <HeroSlideSkeleton />
                     </div>
-                ))}
+                ) : (
+                    dayRows.map((row, rIdx) => (
+                        // Each day: relative positioning creates context for HeroSlide's absolute headers
+                        // overflow-hidden prevents headers from escaping during vertical scroll
+                        <div key={rIdx} className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
+                            <HeroSlide
+                                index={rIdx}
+                                data={row.data}
+                                units={units}
+                                tides={tides}
+                                settings={settings}
+                                updateSettings={updateSettings}
+                                addDebugLog={undefined} // Stable undefined instead of new function
+                                timeZone={timeZone}
+                                locationName={locationName}
+                                isLandlocked={isLandlocked}
+                                locationType={locationType}
+                                displaySource={groundingSource || modelUsed || ''}
+                                vessel={vessel}
+                                // CRITICAL FIX: If this slide is active, allow the Dashboard's selected time (from horiz scroll) to override.
+                                // Otherwise, fall back to row defaults (Live for Today, Noon for Future).
+                                customTime={(activeIndex === rIdx && customTime) ? customTime : row.customTime}
+                                hourly={row.hourly}
+                                fullHourly={hourly}
+                                lat={lat}
+                                guiDetails={guiDetails}
+                                coordinates={coordinates}
+                                generatedAt={generatedAt}
+                                onTimeSelect={createTimeSelectHandler(rIdx)}
+                                isVisible={activeIndex === rIdx}
+                                utcOffset={utcOffset}
+                                tideHourly={tideHourly}
+                                onActiveDataChange={onActiveDataChange}
+                            />
+                        </div>
+                    ))
+                )}
             </div>
 
             {/* Pagination Dots (Vertical) */}

@@ -1,6 +1,6 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
-export const DATA_CACHE_KEY = 'thalassa_weather_cache_v8';
+export const DATA_CACHE_KEY = 'thalassa_weather_cache_v9';
 export const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
 export const HISTORY_CACHE_KEY = 'thalassa_history_cache_v3';
 

@@ -57,7 +57,7 @@ interface SettingsViewProps {
     onLocationSelect: (location: string) => void;
 }
 
-const NavButton = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
+const NavButton = React.memo(({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
     <button
         onClick={onClick}
         className={`group relative flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 text-left overflow-hidden ${active ? 'bg-gradient-to-r from-sky-500/20 to-blue-600/20 text-white shadow-[0_0_20px_rgba(14,165,233,0.15)] border border-sky-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
@@ -69,9 +69,9 @@ const NavButton = ({ active, onClick, icon, label }: { active: boolean, onClick:
         <span className={`font-bold text-sm tracking-wide transition-all ${active ? 'text-white translate-x-1' : ''}`}>{label}</span>
         {active && <ArrowRightIcon className="w-4 h-4 ml-auto text-sky-400 animate-pulse" />}
     </button>
-);
+));
 
-const MobileNavTab = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
+const MobileNavTab = React.memo(({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
     <button
         onClick={onClick}
         className={`flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -79,9 +79,9 @@ const MobileNavTab = ({ active, onClick, icon, label }: { active: boolean, onCli
         {icon}
         <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
     </button>
-);
+));
 
-const Toggle = ({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
+const Toggle = React.memo(({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
     <div
         className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
         onClick={(e) => {
@@ -93,9 +93,9 @@ const Toggle = ({ checked, onChange }: { checked: boolean, onChange: (v: boolean
         <div className={`w-11 h-6 rounded-full border transition-all duration-300 ease-out pointer-events-none ${checked ? 'bg-gradient-to-r from-sky-500 to-blue-600 border-sky-400/50 shadow-[0_0_15px_rgba(14,165,233,0.4)]' : 'bg-slate-800/80 border-white/10 group-hover:border-white/20'}`}></div>
         <div className={`absolute top-[10px] left-[10px] bg-white rounded-full h-5 w-5 transition-all duration-300 cubic-bezier(0.175, 0.885, 0.32, 1.275) pointer-events-none shadow-md ${checked ? 'translate-x-full shadow-sky-900/20' : 'translate-x-0'}`}></div>
     </div>
-);
+));
 
-const Section = ({ title, children }: { title: string, children?: React.ReactNode }) => (
+const Section = React.memo(({ title, children }: { title: string, children?: React.ReactNode }) => (
     <div className="space-y-4 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <h3 className="text-[10px] font-black text-sky-200/50 uppercase tracking-[0.2em] px-2 shadow-black drop-shadow-sm flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
@@ -106,16 +106,16 @@ const Section = ({ title, children }: { title: string, children?: React.ReactNod
             {children}
         </div>
     </div>
-);
+));
 
-const Row = ({ children, className = "", onClick }: { children?: React.ReactNode, className?: string, onClick?: () => void }) => (
+const Row = React.memo(({ children, className = "", onClick }: { children?: React.ReactNode, className?: string, onClick?: () => void }) => (
     <div
         className={`p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className} ${onClick ? 'cursor-pointer hover:bg-white/5 transition-colors' : ''}`}
         onClick={onClick}
     >
         {children}
     </div>
-);
+));
 
 const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: any) => {
     const isWeight = unitOptions.includes('lbs');
@@ -731,6 +731,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                         <p className="text-xs text-gray-500">Prevent screen from sleeping</p>
                                     </div>
                                     <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
+                                </Row>
+
+                                <Row>
+                                    <div className="flex-1">
+                                        <label className="text-sm text-white font-medium block">Dynamic Header Metrics</label>
+                                        <p className="text-xs text-gray-500">Update header values as you scroll hourly forecasts</p>
+                                    </div>
+                                    <Toggle checked={settings.dynamicHeaderMetrics || false} onChange={(v) => onSave({ dynamicHeaderMetrics: v })} />
                                 </Row>
                             </Section>
 

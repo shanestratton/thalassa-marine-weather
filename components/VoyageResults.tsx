@@ -24,7 +24,7 @@ const getStatusClasses = (status?: string) => {
     }
 };
 
-const HazardAlert: React.FC<{ hazard: VoyageHazard }> = ({ hazard }) => (
+const HazardAlert = React.memo<{ hazard: VoyageHazard }>(({ hazard }) => (
     <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/5 border border-red-500/20 hover:bg-red-500/10 transition-colors group">
         <div className="mt-1 p-1.5 bg-red-500/20 rounded-lg text-red-400 group-hover:text-red-200 transition-colors"><BugIcon className="w-4 h-4" /></div>
         <div>
@@ -35,9 +35,9 @@ const HazardAlert: React.FC<{ hazard: VoyageHazard }> = ({ hazard }) => (
             <p className="text-[11px] text-gray-400 leading-relaxed font-light">{hazard.description}</p>
         </div>
     </div>
-);
+));
 
-const SystemSwitch: React.FC<{ label: string, checked: boolean, onChange: () => void }> = ({ label, checked, onChange }) => (
+const SystemSwitch = React.memo<{ label: string, checked: boolean, onChange: () => void }>(({ label, checked, onChange }) => (
     <button
         onClick={onChange}
         aria-label={`Toggle ${label}`}
@@ -48,9 +48,9 @@ const SystemSwitch: React.FC<{ label: string, checked: boolean, onChange: () => 
             <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow-sm ${checked ? 'translate-x-4' : 'translate-x-0'}`}></div>
         </div>
     </button>
-);
+));
 
-const WaypointNode: React.FC<{ wp: Waypoint, index: number, total: number, isLast: boolean, onClick: () => void }> = ({ wp, index, total, isLast, onClick }) => {
+const WaypointNode = React.memo<{ wp: Waypoint, index: number, total: number, isLast: boolean, onClick: () => void }>(({ wp, index, total, isLast, onClick }) => {
     return (
         <div className="flex gap-4 relative group cursor-pointer select-none" onClick={onClick}>
             {/* Continuous Timeline Line */}
@@ -84,7 +84,7 @@ const WaypointNode: React.FC<{ wp: Waypoint, index: number, total: number, isLas
             </div>
         </div>
     );
-};
+});
 
 export const CHECKLIST_DATA = [
     {

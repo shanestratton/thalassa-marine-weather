@@ -37,7 +37,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     heroWidgets: ['wind', 'wave', 'pressure'],
     detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
     rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'forecastChart', 'hourly', 'daily', 'map'],
-    mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+    mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
+    dynamicHeaderMetrics: false // Default to static header (current behavior)
 };
 
 interface SettingsContextType {

@@ -53,25 +53,31 @@ export const CompassPage: React.FC<CompassPageProps> = ({ onBack }) => {
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex flex-col items-center justify-center p-6 min-h-[calc(100vh-6rem)] relative">
+            {/* Main Content - Flex container that fills available space */}
+            <div className="flex-1 flex flex-col items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] relative overflow-hidden">
 
                 {/* Large Heading Display */}
                 {windDirection !== undefined && (
-                    <div className="mb-8 text-center">
+                    <div className="mb-4 text-center flex-shrink-0">
                         <div className="text-xs text-gray-400 uppercase tracking-wider mb-2">Wind Direction</div>
-                        <div className="text-7xl md:text-8xl font-black text-white tracking-tight">
+                        <div className="text-5xl sm:text-6xl md:text-7xl font-black text-white tracking-tight">
                             {windDirection.toFixed(0)}°
-                            <span className="text-4xl md:text-5xl ml-3 text-amber-400">
+                            <span className="text-2xl sm:text-3xl md:text-4xl ml-2 md:ml-3 text-amber-400">
                                 {windDirectionText || getCardinalDirection(windDirection)}
                             </span>
                         </div>
                     </div>
                 )}
 
-                {/* 3D Compass */}
-                <div className="relative" style={{ width: '380px', height: '380px' }}>
-                    <svg width="380" height="380" viewBox="0 0 380 380" className="drop-shadow-2xl">
+                {/* 3D Compass - Responsive container */}
+                <div className="relative flex-shrink-0 w-full max-w-[min(90vw,calc(100vh-20rem))] aspect-square flex items-center justify-center">
+                    <svg
+                        width="100%"
+                        height="100%"
+                        viewBox="0 0 380 380"
+                        className="drop-shadow-2xl"
+                        style={{ maxWidth: '100%', maxHeight: '100%' }}
+                    >
                         <defs>
                             {/* Gold metallic gradient for rim */}
                             <radialGradient id="goldRim" cx="50%" cy="30%">
@@ -312,25 +318,25 @@ export const CompassPage: React.FC<CompassPageProps> = ({ onBack }) => {
 
                 {/* Wind Info Cards */}
                 {windSpeed !== undefined && (
-                    <div className="mt-12 flex gap-4">
-                        <div className="bg-black/60 backdrop-blur-md border border-amber-500/30 rounded-2xl px-6 py-4 min-w-[140px]">
+                    <div className="mt-4 flex gap-3 flex-shrink-0">
+                        <div className="bg-black/60 backdrop-blur-md border border-amber-500/30 rounded-2xl px-4 py-3 min-w-[120px]">
                             <div className="flex items-center gap-2 mb-1">
                                 <WindIcon className="w-4 h-4 text-amber-400" />
                                 <div className="text-xs text-gray-400 uppercase tracking-wide">Speed</div>
                             </div>
-                            <div className="text-3xl font-black text-white">
+                            <div className="text-2xl font-black text-white">
                                 {windSpeed.toFixed(1)}
                                 <span className="text-sm text-gray-400 ml-1">kts</span>
                             </div>
                         </div>
 
                         {weatherData?.current?.windGust && (
-                            <div className="bg-black/60 backdrop-blur-md border border-red-500/30 rounded-2xl px-6 py-4 min-w-[140px]">
+                            <div className="bg-black/60 backdrop-blur-md border border-red-500/30 rounded-2xl px-4 py-3 min-w-[120px]">
                                 <div className="flex items-center gap-2 mb-1">
                                     <WindIcon className="w-4 h-4 text-red-400" />
                                     <div className="text-xs text-gray-400 uppercase tracking-wide">Gust</div>
                                 </div>
-                                <div className="text-3xl font-black text-white">
+                                <div className="text-2xl font-black text-white">
                                     {weatherData.current.windGust.toFixed(1)}
                                     <span className="text-sm text-gray-400 ml-1">kts</span>
                                 </div>

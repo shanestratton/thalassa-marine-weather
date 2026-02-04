@@ -1,6 +1,6 @@
 
 import { MarineWeatherReport, HourlyForecast, ForecastDay, WeatherMetrics, Tide, TidePoint, StormGlassHour, StormGlassResponse } from "../types";
-import { generateSafetyAlerts, getBeaufort, expandCompassDirection, generateTacticalAdvice } from "../utils";
+import { generateSafetyAlerts, getBeaufort, expandCompassDirection, generateTacticalAdvice, degreesToCardinal } from "../utils";
 
 const BASE_URL = 'https://api.stormglass.io/v2';
 
@@ -62,11 +62,7 @@ if (sgKey && sgKey.length > 20) {
 
 }
 
-export const getApiKeySuffix = () => {
-    const key = getApiKey();
-    if (!key || key.length < 5) return "NONE";
-    return "..." + key.slice(-4);
-}
+// NOTE: getApiKeySuffix was removed (duplicate of weather/keys.ts)
 
 export const isStormglassKeyPresent = () => {
     const key = getApiKey();
@@ -122,12 +118,7 @@ export const checkStormglassStatus = async (): Promise<{ status: 'OK' | 'ERROR' 
 const msToKnots = (ms: number | null) => (ms !== null && ms !== undefined) ? ms * 1.94384 : null;
 const mToFt = (m: number | null) => (m !== null && m !== undefined) ? m * 3.28084 : null;
 
-const degreesToCardinal = (deg: number): string => {
-    if (deg === undefined || deg === null) return 'N';
-    const val = Math.floor((deg / 22.5) + 0.5);
-    const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-    return arr[val % 16] || "N";
-};
+
 
 const getCondition = (cloudCover: number, precip: number, isDay: boolean): string => {
     if (precip > 0.5) return 'Rain';
@@ -274,177 +265,8 @@ const interpolateTideHeight = (timestamp: number, extremes: Tide[]): number | un
     return (h1 + h2) / 2 + (h1 - h2) / 2 * Math.cos(phase);
 };
 
-export const fetchOpenMeteo = async (
-    lat: number,
-    lon: number,
-    locationName: string,
-    isFast: boolean
-): Promise<MarineWeatherReport> => {
-    const now = new Date();
-    const apiKey = getOpenMeteoKey();
-    const isCommercial = !!apiKey && apiKey.length > 5;
+// NOTE: fetchOpenMeteo was removed (~170 lines) - duplicate of weather/api/openmeteo.ts
 
-    const baseUrl = isCommercial
-        ? "https://customer-api.open-meteo.com/v1/forecast"
-        : "https://api.open-meteo.com/v1/forecast";
-
-    const params = new URLSearchParams({
-        latitude: lat.toFixed(4),
-        longitude: lon.toFixed(4),
-        current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-        hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index",
-        daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
-        timezone: "auto",
-        forecast_days: "12",
-        models: "best_match"
-    });
-
-    if (isCommercial) {
-        params.append("apikey", apiKey!);
-    }
-
-    try {
-        const res = await fetch(`${baseUrl}?${params.toString()}`);
-        if (!res.ok) throw new Error(`OpenMeteo ${res.status}`);
-        const wData = await res.json();
-
-        // Marine Data Fetch (Waves)
-        let waveData: any = null;
-        try {
-            const marineUrl = isCommercial
-                ? "https://customer-api.open-meteo.com/v1/marine"
-                : "https://marine-api.open-meteo.com/v1/marine";
-
-            const marineParams = new URLSearchParams({
-                latitude: lat.toFixed(4),
-                longitude: lon.toFixed(4),
-                current: "wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_period,swell_wave_direction",
-                hourly: "wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction",
-                daily: "wave_height_max,wave_direction_dominant,wave_period_max",
-                timezone: "auto",
-                forecast_days: "12"
-            });
-            if (isCommercial) marineParams.append("apikey", apiKey!);
-
-            const mRes = await fetch(`${marineUrl}?${marineParams.toString()}`);
-            if (mRes.ok) waveData = await mRes.json();
-        } catch (e) {
-
-        }
-
-        // Helper for condition text
-        const getWmoCondition = (code: number) => {
-            const map: Record<number, string> = {
-                0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
-                45: 'Fog', 48: 'Depositing Rime Fog',
-                51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
-                61: 'Slight Rain', 63: 'Moderate Rain', 65: 'Heavy Rain',
-                80: 'Slight Showers', 81: 'Moderate Showers', 82: 'Violent Showers',
-                95: 'Thunderstorm', 96: 'Thunderstorm with Hail', 99: 'Heavy Thunderstorm'
-            };
-            return map[code] || 'Unknown';
-        };
-
-        const current = wData.current;
-        const currentMarine = waveData?.current;
-
-        const windSpeed = current.wind_speed_10m ? current.wind_speed_10m * 0.539957 : 0; // kmh to knots
-        const windGust = current.wind_gusts_10m ? current.wind_gusts_10m * 0.539957 : 0;
-
-        const waveHeight = currentMarine ? currentMarine.wave_height * 3.28084 : 0; // m to ft
-        const isLandlocked = !currentMarine || currentMarine.wave_height === null;
-
-        const currentMetrics: WeatherMetrics = {
-            windSpeed: parseFloat(windSpeed.toFixed(1)),
-            windGust: parseFloat(windGust.toFixed(1)),
-            windDirection: degreesToCardinal(current.wind_direction_10m),
-            windDegree: current.wind_direction_10m,
-            waveHeight: waveHeight ? parseFloat(waveHeight.toFixed(1)) : 0,
-            swellPeriod: currentMarine?.swell_wave_period || null,
-            swellDirection: currentMarine ? degreesToCardinal(currentMarine.swell_wave_direction) : undefined,
-            airTemperature: current.temperature_2m,
-            waterTemperature: null,
-            pressure: current.pressure_msl,
-            cloudCover: current.cloud_cover,
-            visibility: null,
-            precipitation: current.precipitation,
-            humidity: current.relative_humidity_2m,
-            uvIndex: wData.daily?.uv_index_max?.[0] || 0,
-            condition: getWmoCondition(current.weather_code),
-            description: `${getWmoCondition(current.weather_code)}. Wind ${windSpeed.toFixed(0)}kts.`,
-            day: "Today",
-            date: now.toLocaleDateString(),
-            feelsLike: current.apparent_temperature,
-            isEstimated: false
-        };
-
-        const hourly: HourlyForecast[] = wData.hourly.time.slice(0, 24).map((t: string, i: number) => {
-            const hMarine = waveData?.hourly;
-            return {
-                time: new Date(t).toLocaleTimeString([], { hour: 'numeric', hour12: true }),
-                windSpeed: wData.hourly.wind_speed_10m[i] * 0.539957,
-                windGust: wData.hourly.wind_gusts_10m[i] * 0.539957,
-                waveHeight: hMarine ? hMarine.wave_height[i] * 3.28084 : 0,
-                temperature: wData.hourly.temperature_2m[i],
-                precipitation: wData.hourly.precipitation[i],
-                cloudCover: wData.hourly.cloud_cover[i],
-                condition: getWmoCondition(wData.hourly.weather_code[i]),
-                swellPeriod: hMarine ? hMarine.swell_wave_period[i] : null,
-                isEstimated: false,
-                humidity: wData.hourly.relative_humidity_2m[i],
-                visibility: wData.hourly.visibility[i] ? wData.hourly.visibility[i] * 0.000539957 : null // Convert Meters to NM
-            };
-        });
-
-        const forecast: ForecastDay[] = wData.daily.time.map((t: string, i: number) => {
-            const dMarine = waveData?.daily;
-            return {
-                day: new Date(t).toLocaleDateString('en-US', { weekday: 'long' }),
-                date: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                highTemp: wData.daily.temperature_2m_max[i],
-                lowTemp: wData.daily.temperature_2m_min[i],
-                windSpeed: wData.daily.wind_speed_10m_max[i] * 0.539957,
-                windGust: wData.daily.wind_gusts_10m_max[i] * 0.539957,
-                waveHeight: dMarine ? dMarine.wave_height_max[i] * 3.28084 : 0,
-                condition: getWmoCondition(wData.daily.weather_code[i]),
-                precipitation: wData.daily.precipitation_sum[i],
-                uvIndex: wData.daily.uv_index_max[i],
-                sunrise: new Date(wData.daily.sunrise[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                sunset: new Date(wData.daily.sunset[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                isEstimated: false,
-                // Aggregate Daily Humidity/Visibility from Hourly (Pick Noon = Index 12)
-                // Note: Hourly is flat 240 hours. Accessing by Day Index * 24 + 12
-                humidity: wData.hourly.relative_humidity_2m[i * 24 + 12],
-                visibility: wData.hourly.visibility[i * 24 + 12] ? wData.hourly.visibility[i * 24 + 12] * 0.000539957 : null
-            };
-        });
-
-
-
-        // Use Robust Tactical Advice generator instead of generic "Conditions valid"
-        const robustAdvice = generateTacticalAdvice(currentMetrics, isLandlocked);
-
-        return {
-            locationName,
-            coordinates: { lat, lon },
-            current: currentMetrics,
-            forecast,
-            hourly,
-            tides: [], // No tides in OM basic
-            boatingAdvice: robustAdvice,
-            alerts: generateSafetyAlerts(currentMetrics, forecast[0]?.highTemp, forecast),
-            generatedAt: now.toISOString(),
-            modelUsed: isCommercial ? "Open-Meteo Commercial" : "Open-Meteo (Free)",
-            groundingSource: "Open-Meteo",
-            isLandlocked,
-            timeZone: wData.timezone,
-            utcOffset: wData.utc_offset_seconds ? wData.utc_offset_seconds / 3600 : 0
-        };
-
-    } catch (e: any) {
-        throw new Error(`OpenMeteo Failed: ${e.message}`);
-    }
-};
 
 export const fetchStormglassData = async (
     lat: number,

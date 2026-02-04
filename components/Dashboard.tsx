@@ -4,7 +4,8 @@ import { useDashboardController } from '../hooks/useDashboardController';
 import { ClockIcon } from './Icons';
 import { HeroSection } from './dashboard/Hero';
 import { TideWidget, SunMoonWidget } from './dashboard/TideAndVessel';
-import { AlertsBanner } from './dashboard/WeatherGrid';
+import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
+import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { AdviceWidget } from './dashboard/Advice';
 import { LogPage } from '../pages/LogPage';
 import { HeroHeader } from './dashboard/HeroHeader';
@@ -169,10 +170,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* MAIN CAROUSEL / GRID */}
                     {!isDetailMode && (
                         <div className="absolute inset-0">
-                            {/* Alerts only on Hero View */}
+                            {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
                             <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pt-2 pb-2 space-y-4 fixed top-0 left-0 right-0 pointer-events-none">
                                 <div className="pointer-events-auto">
-                                    <AlertsBanner alerts={data.alerts} />
+                                    <CompactHeaderRow
+                                        alerts={data.alerts}
+                                        sunrise={current?.sunrise}
+                                        sunset={current?.sunset}
+                                        moonPhase={current?.moonPhase ? getMoonPhase(new Date()).emoji : undefined}
+                                    />
                                 </div>
                             </div>
 
@@ -182,25 +188,45 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             {/* FIXED HEADER - Absolutely positioned at top */}
                             <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
                                 <HeroHeader
-                                    data={activeDayData}
+                                    data={current}  // FIXED: Always use current data, not activeDayData
                                     units={units}
-                                    isLive={activeDay === 0 && activeHour === 0}
+                                    isLive={activeDay === 0 && activeHour === 0}  // Live only when viewing current hour
                                     isDay={true}
                                     dateLabel={getDateLabel(activeDay)}
                                     timeLabel={getTimeLabel()}
                                     timeZone={data.timeZone}
-                                    sources={(activeDayData as any).sources}
+                                    sources={(current as any).sources}  // FIXED: Use current sources
                                 />
                             </div>
 
 
                             {/* FIXED WIDGETS - Absolutely positioned below header */}
-                            <div className="absolute top-[186px] left-0 right-0 z-[110] px-4">
+                            <div className="absolute top-[200px] left-0 right-0 z-[110] px-4">
                                 <HeroWidgets
-                                    data={activeDayData}
+                                    data={activeDayData}  // Bottom row - updates with scroll
+                                    currentData={current}  // Top row - always shows current/live data
                                     units={units}
-                                    cardTime={Date.now()}
-                                    sources={(activeDayData as any).sources}
+                                    cardTime={(() => {
+                                        // Calculate the actual time for this card based on activeDay and activeHour
+                                        if (activeDay === 0 && activeHour === 0) return Date.now();
+                                        const now = new Date();
+                                        if (activeDay === 0) {
+                                            // Today - add hours from current hour
+                                            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + activeHour).getTime();
+                                        } else {
+                                            // Future day - use midnight + activeHour
+                                            const forecast = data.forecast[activeDay];
+                                            if (forecast?.isoDate) {
+                                                const [y, m, d] = forecast.isoDate.split('-').map(Number);
+                                                return new Date(y, m - 1, d, activeHour).getTime();
+                                            }
+                                        }
+                                        return Date.now();
+                                    })()}  // Calculate card time for UV nighttime check
+                                    // CRITICAL FIX: Bottom row sources should use currentSources when showing current hour
+                                    // activeDayData.sources doesn't exist, only current.sources does
+                                    sources={(activeDay === 0 && activeHour === 0) ? (current as any).sources : (activeDayData as any).sources}
+                                    currentSources={(current as any).sources}  // Sources for top row
                                     trends={(() => {
                                         // Calculate trends by comparing current with next hour
                                         if (!hourly || hourly.length < 2) return undefined;
@@ -223,12 +249,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                                         return trends;
                                     })()}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                    topRowIsLive={true}
                                 />
                             </div>
 
 
                             {/* HERO CONTAINER - Positioned below fixed headers */}
-                            <div className="absolute top-[350px] left-0 right-0 bottom-0 overflow-hidden bg-black">
+                            <div className="absolute top-[360px] left-0 right-0 bottom-0 overflow-hidden bg-black">
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
@@ -249,6 +277,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     customTime={selectedTime}
                                     onDayChange={setActiveDay}
                                     onHourChange={setActiveHour}
+                                    onActiveDataChange={setActiveDayData}
                                 />
                             </div>
 
