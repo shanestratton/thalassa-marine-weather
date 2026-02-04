@@ -89,12 +89,24 @@ export const MAJOR_BUOYS: BuoyStation[] = [
     { id: '61001', name: 'Nice (France)', lat: 43.4, lon: 7.8, type: 'other' },
     { id: '61002', name: 'Lion (France)', lat: 42.1, lon: 4.7, type: 'other' },
 
+    // --- IRELAND (Marine Institute ERDDAP) ---
+    { id: 'M2', name: 'M2 Buoy (Galway)', lat: 53.48, lon: -5.43, type: 'marine-ie' },
+    { id: 'M3', name: 'M3 Buoy (SW Ireland)', lat: 51.22, lon: -10.55, type: 'marine-ie' },
+    { id: 'M4', name: 'M4 Buoy (Donegal)', lat: 55.00, lon: -10.00, type: 'marine-ie' },
+    { id: 'M5', name: 'M5 Buoy (Belmullet)', lat: 54.23, lon: -10.15, type: 'marine-ie' },
+    { id: 'M6', name: 'M6 Buoy (Porcupine)', lat: 53.07, lon: -15.93, type: 'marine-ie' },
+
     // --- ASIA / PACIFIC ---
     { id: '21001', name: 'Kuroshio (Japan)', lat: 28.1, lon: 134.3, type: 'other' },
     { id: '21004', name: 'East China Sea', lat: 29.5, lon: 126.5, type: 'other' },
     { id: '22101', name: 'Donghae (Korea)', lat: 37.5, lon: 130.0, type: 'other' },
-    { id: 'HK1', name: 'Hong Kong (Waglan)', lat: 22.18, lon: 114.30, type: 'other' },
-    { id: 'HK2', name: 'Lamma Channel', lat: 22.10, lon: 114.10, type: 'other' },
+
+    // --- HONG KONG OBSERVATORY ---
+    { id: 'Waglan Island', name: 'Waglan Island (HKO)', lat: 22.18, lon: 114.30, type: 'hko' },
+    { id: 'Cheung Chau', name: 'Cheung Chau (HKO)', lat: 22.20, lon: 114.03, type: 'hko' },
+    { id: 'Kai Tak', name: 'Kai Tak (HKO)', lat: 22.31, lon: 114.21, type: 'hko' },
+    { id: 'Tsing Yi', name: 'Tsing Yi (HKO)', lat: 22.34, lon: 114.11, type: 'hko' },
+
     { id: '23001', name: 'Phuket (Thailand)', lat: 7.8, lon: 98.3, type: 'other' },
 
     // --- SOUTH AMERICA ---
