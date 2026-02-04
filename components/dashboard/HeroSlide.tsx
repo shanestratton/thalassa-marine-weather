@@ -77,6 +77,10 @@ const HeroSlideComponent = ({
     // We define the scroll state AT THE TOP so it drives the entire component synchronously.
     const [activeHIdx, setActiveHIdx] = useState(0);
 
+    // PERF: Refs for scroll optimization - prevent layout thrashing
+    const scrollRafRef = useRef<number | null>(null);
+    const lastScrollIdxRef = useRef(0);
+
     // 2. HOISTED DATA PREPARATION
     // Filter out the first hourly item (current hour) to avoid duplication with 'Now' card
     const hourlyToRender = React.useMemo(() => {
@@ -346,9 +350,17 @@ const HeroSlideComponent = ({
             if (horizontalScrollRef.current) {
                 horizontalScrollRef.current.scrollTo({ left: 0 });
             }
+            // Sync ref with reset state
+            lastScrollIdxRef.current = 0;
         };
         window.addEventListener('hero-reset-scroll', handleReset);
-        return () => window.removeEventListener('hero-reset-scroll', handleReset);
+        return () => {
+            window.removeEventListener('hero-reset-scroll', handleReset);
+            // Clean up any pending rAF on unmount
+            if (scrollRafRef.current) {
+                cancelAnimationFrame(scrollRafRef.current);
+            }
+        };
     }, []);
 
     const fullWidgetList = settings.heroWidgets && settings.heroWidgets.length > 0 ? settings.heroWidgets : ['wind', 'wave', 'pressure'];
@@ -795,19 +807,34 @@ const HeroSlideComponent = ({
         }
     }, [activeCardData, onActiveDataChange, isVisible]);
 
-    // Scroll handler to update active index - memoized for performance
+    // Scroll handler to update active index - rAF-throttled for instant scrolling
+    // Performance optimization: Uses requestAnimationFrame to batch scroll calculations
+    // and only triggers state updates when the active card actually changes
     const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        // Cancel any pending frame to prevent stacking
+        if (scrollRafRef.current) {
+            cancelAnimationFrame(scrollRafRef.current);
+        }
+
+        // Get values synchronously (before rAF) for accuracy
         const container = e.currentTarget;
         const scrollLeft = container.scrollLeft;
         const cardWidth = container.clientWidth;
-        const newIdx = Math.round(scrollLeft / cardWidth);
-        if (newIdx !== activeHIdx && newIdx >= 0 && newIdx < slides.length) {
-            setActiveHIdx(newIdx);
-            if (onTimeSelect) {
-                onTimeSelect(slides[newIdx].time);
+
+        // Schedule position calculation in animation frame for smooth 60fps
+        scrollRafRef.current = requestAnimationFrame(() => {
+            const newIdx = Math.round(scrollLeft / cardWidth);
+
+            // Only update state if the index actually changed
+            if (newIdx !== lastScrollIdxRef.current && newIdx >= 0 && newIdx < slides.length) {
+                lastScrollIdxRef.current = newIdx;
+                setActiveHIdx(newIdx);
+                if (onTimeSelect) {
+                    onTimeSelect(slides[newIdx].time);
+                }
             }
-        }
-    }, [activeHIdx, slides, onTimeSelect]);
+        });
+    }, [slides, onTimeSelect]);
 
     return (
         <div className="relative w-full h-full overflow-hidden">
@@ -822,6 +849,11 @@ const HeroSlideComponent = ({
                     ref={horizontalScrollRef}
                     onScroll={handleHorizontalScroll}
                     className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row px-[1px]"
+                    style={{
+                        willChange: 'transform',
+                        transform: 'translateZ(0)', // Force GPU compositing for smooth scroll
+                        WebkitOverflowScrolling: 'touch' // iOS momentum scrolling
+                    }}
                 >
                     {slides.map((slide, slideIdx) => {
                         // Use pre-computed display data from memoized array
