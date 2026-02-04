@@ -57,17 +57,27 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
         return null;
     }
 
+    // Cards will fill available width with scroll-snap
     return (
-        <div className="w-full">
+        <div className="w-full overflow-hidden">
             <div
-                className="flex overflow-x-auto gap-1 px-2 py-2 scrollbar-hide"
-                style={{ WebkitOverflowScrolling: 'touch' }}
+                className="flex overflow-x-auto gap-0 scrollbar-hide snap-x snap-mandatory"
+                style={{
+                    WebkitOverflowScrolling: 'touch',
+                    scrollBehavior: 'smooth'
+                }}
             >
                 {hoursToShow.map((hour, idx) => (
                     <button
                         key={hour.time || idx}
                         onClick={() => onHourSelect?.(hour)}
-                        className="flex-shrink-0 flex flex-col items-center justify-center bg-white/5 rounded-lg px-2.5 py-2 min-w-[52px] hover:bg-white/10 transition-colors border border-white/5"
+                        className="flex-shrink-0 flex flex-col items-center justify-center bg-white/5 rounded-lg py-2 hover:bg-white/10 transition-colors border border-white/5 snap-start"
+                        style={{
+                            // Width calculated to show ~7 cards (adjusts to screen)
+                            width: 'calc((100vw - 16px) / 7)',
+                            minWidth: '48px',
+                            maxWidth: '60px'
+                        }}
                     >
                         {/* Hour */}
                         <span className="text-[10px] text-white/60 font-medium mb-1">
