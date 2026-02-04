@@ -5,6 +5,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
     const temp = data.airTemperature || 0;
     const waterTemp = data.waterTemperature;
     const condition = data.condition?.toLowerCase() || '';
+    const description = data.description || '';
     const precip = data.precipitation || 0;
     const cloudCover = data.cloudCover || 0;
     const uv = data.uvIndex || 0;
@@ -17,6 +18,16 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
     const humidity = data.humidity || 0;
 
     let narrative = '';
+
+    // START WITH WEATHER DESCRIPTION (e.g., "Fine and Sunny", "Rain and Thunder")
+    // This gives users an immediate weather headline
+    if (description && description.length > 0 && description !== 'Unknown') {
+        narrative += `${description}. `;
+    } else if (condition && condition.length > 0 && condition !== 'unknown') {
+        // Capitalize first letter of condition
+        const capitalizedCondition = condition.charAt(0).toUpperCase() + condition.slice(1);
+        narrative += `${capitalizedCondition}. `;
+    }
 
     // WIND CONDITIONS (Most important for mariners)
     if (windSpeed >= 40) {
