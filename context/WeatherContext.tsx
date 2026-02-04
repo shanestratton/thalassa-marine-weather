@@ -124,6 +124,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const settingsRef = useRef(settings);
     const isFirstRender = useRef(true);
     const isTrackingCurrentLocation = useRef(settings.defaultLocation === "Current Location");
+    const isFetchingRef = useRef(false); // Prevent concurrent fetches
 
     // Sync Refs
     useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
@@ -298,6 +299,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // --- FETCH WEATHER ---
     const fetchWeather = useCallback(async (location: string, force = false, coords?: { lat: number, lon: number }, showOverlay = false, silent = false) => {
         if (!location) return;
+
+        // Prevent concurrent fetches
+        if (isFetchingRef.current && !force) {
+            console.log('[WeatherContext] Fetch already in progress, skipping');
+            return;
+        }
+        isFetchingRef.current = true;
 
         // OFFLINE CHECK
         if (!navigator.onLine) {
@@ -511,6 +519,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
             setLoading(false);
         } finally {
+            isFetchingRef.current = false; // Release fetch lock
             setBackgroundUpdating(false);
             setLoading(false);
         }
@@ -617,31 +626,39 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const now = Date.now();
 
             if (target > now) {
+                console.log('[Watchdog] Setting nextUpdate to:', new Date(target).toLocaleTimeString());
                 setNextUpdate(target);
             } else {
-                // Expired: trigger immediate update
-                setNextUpdate(now + 1000);
+                // Expired: set next update to be soon, but not immediate (give 30s buffer)
+                const nextTarget = now + 30000;
+                console.log('[Watchdog] Data expired, setting nextUpdate to 30s from now');
+                setNextUpdate(nextTarget);
             }
         }
     }, [weatherData, nextUpdate]);
 
     // --- SMART REFRESH TIMER ---
     useEffect(() => {
+        const nextUpdateRef = { current: nextUpdate }; // Capture for closure
+
         const checkInterval = setInterval(() => {
             if (!navigator.onLine) return;
-            // Safety 2hr check
+            if (isFetchingRef.current) return; // Don't stack fetches
+
+            // Safety 2hr check - but don't bypass countdown, just set it if missing
             const data = weatherDataRef.current;
             if (data) {
                 const age = Date.now() - (data.generatedAt ? new Date(data.generatedAt).getTime() : 0);
-                if (age > 7200000) {
-                    const loc = data.locationName || settingsRef.current.defaultLocation;
-                    if (loc) fetchWeather(loc, false);
+                if (age > 7200000 && !nextUpdateRef.current) {
+                    console.log('[AutoRefresh] Data >2hrs old, setting immediate update');
+                    setNextUpdate(Date.now() + 5000); // Set update for 5s from now
                     return;
                 }
             }
 
-            if (!nextUpdate) return;
-            if (Date.now() >= nextUpdate) {
+            if (!nextUpdateRef.current) return;
+            if (Date.now() >= nextUpdateRef.current) {
+                console.log('[AutoRefresh] Countdown reached, triggering refresh');
 
                 // INTELLIGENT GPS vs SELECTED MODE
                 if (locationMode === 'gps' && navigator.geolocation) {
@@ -667,8 +684,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
         }, 10000);
+
+        // Update ref when nextUpdate changes
+        nextUpdateRef.current = nextUpdate;
+
         return () => clearInterval(checkInterval);
-    }, [nextUpdate, fetchWeather, locationMode]);
+    }, [fetchWeather, locationMode]); // Removed nextUpdate to prevent interval recreation
 
     // Model Change Effect
     const prevModelRef = useRef(settings.preferredModel);
