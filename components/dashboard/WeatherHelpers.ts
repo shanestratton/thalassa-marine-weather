@@ -20,6 +20,15 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
 
     let narrative = '';
 
+    // DEBUG: Log wind data to help diagnose discrepancy
+    console.log('[WeatherNarrative] Wind data:', {
+        windSpeed,
+        windDir,
+        windGust,
+        condition,
+        description
+    });
+
     // 1. WEATHER DESCRIPTION/CONDITION (First - headline)
     if (description && description.length > 0 && description !== 'Unknown') {
         narrative += `${description}. `;
