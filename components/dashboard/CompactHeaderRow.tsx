@@ -86,13 +86,13 @@ export const CompactHeaderRow = ({
                 {onToggleDashboardMode && (
                     <button
                         onClick={onToggleDashboardMode}
-                        className={`ml-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-wide transition-all ${dashboardMode === 'essential'
-                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                                : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20'
+                        className={`ml-1 px-1.5 py-1 rounded-md text-base transition-all ${dashboardMode === 'essential'
+                            ? 'bg-cyan-500/20 border border-cyan-500/30'
+                            : 'bg-white/10 border border-white/20 hover:bg-white/20'
                             }`}
                         title={dashboardMode === 'essential' ? 'Switch to Full Marine Mode' : 'Switch to Essential Mode'}
                     >
-                        {dashboardMode === 'essential' ? '⚓ Ess' : '🔬 Full'}
+                        {dashboardMode === 'essential' ? '⚓' : '🔬'}
                     </button>
                 )}
             </div>
