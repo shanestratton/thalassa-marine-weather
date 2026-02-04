@@ -10,6 +10,7 @@ import { AdviceWidget } from './dashboard/Advice';
 import { LogPage } from '../pages/LogPage';
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
+import { HourlyStrip } from './dashboard/HourlyStrip';
 import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext } from './WidgetRenderer';
@@ -191,7 +192,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap (shorter in Essential mode) */}
-                            <div className={`absolute top-[0px] left-0 right-0 bg-black z-[100] ${isEssentialMode ? 'h-[200px]' : 'h-[350px]'}`}></div>
+                            <div className={`absolute top-[0px] left-0 right-0 bg-black z-[100] ${isEssentialMode ? 'h-[260px]' : 'h-[350px]'}`}></div>
 
                             {/* FIXED HEADER - Absolutely positioned at top */}
                             <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
@@ -207,6 +208,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
+
+                            {/* HOURLY STRIP - Essential mode only, shows horizontal hourly forecast */}
+                            {isEssentialMode && hourly && hourly.length > 0 && (
+                                <div className="absolute top-[175px] left-0 right-0 z-[110]">
+                                    <HourlyStrip
+                                        hourly={hourly}
+                                        units={units}
+                                        timeZone={data.timeZone}
+                                    />
+                                </div>
+                            )}
 
                             {/* FIXED WIDGETS - Absolutely positioned below header (hidden in Essential mode) */}
                             {!isEssentialMode && (
@@ -266,7 +278,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
                             {/* HERO CONTAINER - Positioned below fixed headers (moves up in Essential mode) */}
-                            <div className={`absolute left-0 right-0 bottom-0 overflow-hidden bg-black ${isEssentialMode ? 'top-[200px]' : 'top-[360px]'}`}>
+                            <div className={`absolute left-0 right-0 bottom-0 overflow-hidden bg-black ${isEssentialMode ? 'top-[260px]' : 'top-[360px]'}`}>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
