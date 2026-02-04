@@ -105,35 +105,35 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                             <span className="text-[10px] text-white/60 font-bold">{windDir}</span>
                         </div>
                         <span className="text-xl font-black text-white">{windSpeed}</span>
-                        <span className="text-[9px] text-white/50 uppercase tracking-wide">{units.speed}</span>
+                        <span className="text-[10px] text-white/70 uppercase tracking-wide">{units.speed}</span>
                     </div>
 
                     {/* Rain */}
                     <div className="flex flex-col items-center flex-1">
                         <RainIcon className="w-4 h-4 text-blue-400 mb-1" />
                         <span className="text-xl font-black text-white">{rainChance}</span>
-                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Rain</span>
+                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Rain</span>
                     </div>
 
                     {/* UV */}
                     <div className="flex flex-col items-center flex-1">
                         <SunIcon className="w-4 h-4 text-orange-400 mb-1" />
                         <span className="text-xl font-black text-white">{uvIndex}</span>
-                        <span className="text-[9px] text-white/50 uppercase tracking-wide">UV</span>
+                        <span className="text-[10px] text-white/70 uppercase tracking-wide">UV</span>
                     </div>
 
                     {/* Humidity */}
                     <div className="flex flex-col items-center flex-1">
                         <DropletIcon className="w-4 h-4 text-sky-400 mb-1" />
                         <span className="text-xl font-black text-white">{humidity}</span>
-                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Humid</span>
+                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Humid</span>
                     </div>
 
                     {/* Dew Point */}
                     <div className="flex flex-col items-center flex-1">
                         <ThermometerIcon className="w-4 h-4 text-teal-400 mb-1" />
                         <span className="text-xl font-black text-white">{dewPoint}</span>
-                        <span className="text-[9px] text-white/50 uppercase tracking-wide">Dew</span>
+                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Dew</span>
                     </div>
                 </div>
             </div>
