@@ -1,6 +1,7 @@
 
 import { MarineWeatherReport, HourlyForecast, ForecastDay, WeatherMetrics, Tide, TidePoint, StormGlassHour, StormGlassResponse } from "../types";
 import { generateSafetyAlerts, getBeaufort, expandCompassDirection, generateTacticalAdvice, degreesToCardinal } from "../utils";
+import { fetchRealTides, fetchSeaLevels } from './weather/api/tides';
 
 const BASE_URL = 'https://api.stormglass.io/v2';
 
@@ -166,71 +167,8 @@ const fetchSG = async <T>(endpoint: string, params: Record<string, any>, apiKey:
     }
 };
 
-const fetchSeaLevels = async (lat: number, lon: number, apiKey: string): Promise<StormGlassTideData[]> => {
-    // USER REQUEST: FORCE MOCK DATA (Bypass SG API)
-    return [];
-
-    /* API DISABLED
-    try {
-        const now = new Date();
-        const start = new Date(now);
-        start.setHours(0, 0, 0, 0);
-    
-        const end = new Date(start.getTime() + 25 * 60 * 60 * 1000);
-    
-        const data = await fetchSG<{ data: StormGlassTideData[] }>('/tide/sea_level/point', { lat, lng: lon, start: start.toISOString(), end: end.toISOString(), datum: 'MLLW' }, apiKey);
-        return data.data || [];
-    } catch (e) {
-        return [];
-    }
-        /* */
-};
-
-const generateMockTides = (): Tide[] => {
-    const now = Date.now();
-    const start = now - 24 * 60 * 60 * 1000;
-    const end = now + 48 * 60 * 60 * 1000;
-    const tides: Tide[] = [];
-    let t = start;
-    let isHigh = true;
-    while (t < end) {
-        tides.push({
-            time: new Date(t).toISOString(),
-            type: isHigh ? 'High' : 'Low',
-            height: isHigh ? 2.5 : 0.5
-        });
-        t += (6 * 60 * 60 * 1000) + (12 * 60 * 1000);
-        isHigh = !isHigh;
-    }
-    return tides;
-};
-
-const fetchRealTides = async (lat: number, lon: number, apiKey: string): Promise<Tide[]> => {
-    // USER REQUEST: FORCE MOCK DATA
-
-    return generateMockTides();
-
-    /* API DISABLED
-    try {
-        const now = new Date();
-        const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const end = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    
-        const data = await fetchSG<{ data: StormGlassTideData[] }>('/tide/extremes/point', { lat, lng: lon, start: start.toISOString(), end: end.toISOString(), datum: 'MLLW' }, apiKey);
-    
-        if (data && data.data && data.data.length > 0) {
-            return data.data.map((t) => ({
-                time: t.time,
-                type: t.type === 'high' ? 'High' : 'Low',
-                height: parseFloat((t.height * 3.28084).toFixed(2))
-            }));
-        }
-        return [];
-    } catch (e) {
-        return [];
-    }
-        */
-};
+// NOTE: fetchSeaLevels, generateMockTides, fetchRealTides moved to services/weather/api/tides.ts
+// Now imported from canonical location above.
 
 const interpolateTideHeight = (timestamp: number, extremes: Tide[]): number | undefined => {
     if (!extremes || extremes.length < 2) return undefined;
@@ -337,10 +275,13 @@ export const fetchStormglassData = async (
     let tideData: Tide[] = [];
     let seaLevelData: StormGlassTideData[] = [];
 
-    const extremesPromise = fetchRealTides(lat, lon, apiKey).catch(() => []);
-    const seaLevelPromise = fetchSeaLevels(lat, lon, apiKey).catch(() => []);
+    // Use canonical tide functions from weather/api/tides.ts
+    const extremesPromise = fetchRealTides(lat, lon).catch(() => ({ tides: [], guiDetails: undefined }));
+    const seaLevelPromise = fetchSeaLevels(lat, lon).catch(() => []);
 
-    [tideData, seaLevelData] = await Promise.all([extremesPromise, seaLevelPromise]);
+    const [tideResult, seaLevelResult] = await Promise.all([extremesPromise, seaLevelPromise]);
+    tideData = tideResult.tides;
+    seaLevelData = seaLevelResult as any;
 
     if (!weatherData || !weatherData.hours) throw new Error("Invalid Response Structure");
 

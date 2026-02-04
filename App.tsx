@@ -13,6 +13,7 @@ import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 
 
@@ -183,54 +184,56 @@ const App: React.FC = () => {
                 {currentView !== 'map' ? (
                     <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage'}>
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['voyage', 'settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-                            <Suspense fallback={<SkeletonDashboard />}>
-                                {(currentView === 'dashboard' || currentView === 'details') && (
-                                    <>
-                                        {error ? (
-                                            <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
-                                                <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
-                                                <p className="text-white/80">{error}</p>
-                                                <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
-                                            </div>
-                                        ) : (!weatherData && loading) ? (
-                                            // USER REQUEST: "Just have the message" (Clean Overlay vs Skeleton)
-                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
-                                                <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
-                                            </div>
-                                        ) : (
-                                            <Dashboard
-                                                onOpenMap={() => setPage('map')}
-                                                onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                displayTitle={displayTitle}
-                                                timeZone={weatherData?.timeZone}
-                                                // @ts-ignore
-                                                utcOffset={weatherData?.utcOffset}
-                                                timeDisplaySetting={settings.timeDisplay}
-                                                onToggleFavorite={toggleFavorite}
-                                                favorites={settings.savedLocations}
-                                                isRefreshing={loading}
-                                                isNightMode={effectiveMode === 'night'}
-                                                isMobileLandscape={isMobileLandscape}
-                                                viewMode={currentView === 'dashboard' ? 'overview' : 'details'}
-                                            />
-                                        )}
-                                    </>
-                                )}
+                            <ErrorBoundary boundaryName="MainContent">
+                                <Suspense fallback={<SkeletonDashboard />}>
+                                    {(currentView === 'dashboard' || currentView === 'details') && (
+                                        <>
+                                            {error ? (
+                                                <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
+                                                    <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
+                                                    <p className="text-white/80">{error}</p>
+                                                    <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
+                                                </div>
+                                            ) : (!weatherData && loading) ? (
+                                                // USER REQUEST: "Just have the message" (Clean Overlay vs Skeleton)
+                                                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
+                                                    <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
+                                                </div>
+                                            ) : (
+                                                <Dashboard
+                                                    onOpenMap={() => setPage('map')}
+                                                    onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                                                    displayTitle={displayTitle}
+                                                    timeZone={weatherData?.timeZone}
+                                                    // @ts-ignore
+                                                    utcOffset={weatherData?.utcOffset}
+                                                    timeDisplaySetting={settings.timeDisplay}
+                                                    onToggleFavorite={toggleFavorite}
+                                                    favorites={settings.savedLocations}
+                                                    isRefreshing={loading}
+                                                    isNightMode={effectiveMode === 'night'}
+                                                    isMobileLandscape={isMobileLandscape}
+                                                    viewMode={currentView === 'dashboard' ? 'overview' : 'details'}
+                                                />
+                                            )}
+                                        </>
+                                    )}
 
-                                {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
+                                    {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
 
-                                {currentView === 'settings' && (
-                                    <SettingsView
-                                        settings={settings}
-                                        onSave={updateSettings}
-                                        onLocationSelect={handleFavoriteSelect}
-                                    />
-                                )}
+                                    {currentView === 'settings' && (
+                                        <SettingsView
+                                            settings={settings}
+                                            onSave={updateSettings}
+                                            onLocationSelect={handleFavoriteSelect}
+                                        />
+                                    )}
 
-                                {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
+                                    {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
-                                {currentView === 'compass' && <CompassPage onBack={() => setPage('dashboard')} />}
-                            </Suspense>
+                                    {currentView === 'compass' && <CompassPage onBack={() => setPage('dashboard')} />}
+                                </Suspense>
+                            </ErrorBoundary>
                         </main>
                     </PullToRefresh>
                 ) : (
