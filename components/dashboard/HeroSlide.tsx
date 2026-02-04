@@ -42,7 +42,8 @@ const HeroSlideComponent = ({
     onActiveDataChange,
     isVisible = false,
     utcOffset,
-    tideHourly
+    tideHourly,
+    isEssentialMode = false
 }: {
     data: WeatherMetrics,
     index: number,
@@ -68,7 +69,8 @@ const HeroSlideComponent = ({
     onActiveDataChange?: (data: WeatherMetrics) => void,
     isVisible?: boolean,
     utcOffset?: number,
-    tideHourly?: TidePoint[]
+    tideHourly?: TidePoint[],
+    isEssentialMode?: boolean
 }) => {
     const { nextUpdate, weatherData } = useWeather();
     const forecast = weatherData?.forecast || [];
@@ -900,28 +902,30 @@ const HeroSlideComponent = ({
                                     <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col justify-start">
                                         {showTideGraph ? (
                                             <div className="flex flex-col w-full h-full">
-                                                {/* Row 1: Small Widgets */}
-                                                <div className="px-0 shrink-0 mt-0.5 sm:flex sm:flex-col sm:justify-center">
-                                                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative z-10 w-full pb-0">
-                                                        {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
-                                                            const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
-                                                            const getTheme = (wid: string) => {
-                                                                switch (wid) {
-                                                                    case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
-                                                                    case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
-                                                                    case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
-                                                                    default: return 'bg-black/10 border-white/5';
-                                                                }
-                                                            };
-                                                            const themeClass = getTheme(id);
-                                                            return (
-                                                                <div key={id} className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass.replace('md:', 'sm:')} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined)}
-                                                                </div>
-                                                            )
-                                                        })}
+                                                {/* Row 1: Small Widgets (hidden in Essential mode) */}
+                                                {!isEssentialMode && (
+                                                    <div className="px-0 shrink-0 mt-0.5 sm:flex sm:flex-col sm:justify-center">
+                                                        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative z-10 w-full pb-0">
+                                                            {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
+                                                                const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
+                                                                const getTheme = (wid: string) => {
+                                                                    switch (wid) {
+                                                                        case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+                                                                        case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
+                                                                        case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+                                                                        default: return 'bg-black/10 border-white/5';
+                                                                    }
+                                                                };
+                                                                const themeClass = getTheme(id);
+                                                                return (
+                                                                    <div key={id} className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass.replace('md:', 'sm:')} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
+                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined)}
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
 
                                                 {/* Tide Graph: Fills ALL Remaining Space */}
                                                 {/* Only show Tide Graph on Main Card (idx 0) or if we want it everywhere? Usually just Main. 

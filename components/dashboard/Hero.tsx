@@ -28,7 +28,8 @@ export const HeroSection = ({
     utcOffset,
     onDayChange,
     onHourChange,
-    onActiveDataChange
+    onActiveDataChange,
+    isEssentialMode
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -53,7 +54,8 @@ export const HeroSection = ({
     utcOffset?: number,
     onDayChange?: (day: number) => void,
     onHourChange?: (hour: number) => void,
-    onActiveDataChange?: (data: WeatherMetrics) => void
+    onActiveDataChange?: (data: WeatherMetrics) => void,
+    isEssentialMode?: boolean
 }) => {
 
     const { settings, updateSettings } = useSettings();
@@ -208,6 +210,7 @@ export const HeroSection = ({
                                 utcOffset={utcOffset}
                                 tideHourly={tideHourly}
                                 onActiveDataChange={onActiveDataChange}
+                                isEssentialMode={isEssentialMode}
                             />
                         </div>
                     ))

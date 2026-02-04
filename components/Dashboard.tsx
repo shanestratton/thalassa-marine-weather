@@ -300,6 +300,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     onDayChange={setActiveDay}
                                     onHourChange={setActiveHour}
                                     onActiveDataChange={setActiveDayData}
+                                    isEssentialMode={isEssentialMode}
                                 />
                             </div>
 
