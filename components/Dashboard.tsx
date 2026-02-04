@@ -191,8 +191,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             </div>
 
-                            {/* MAXIMUM BLOCKER - Covers entire gap (shorter in Essential mode) */}
-                            <div className={`absolute top-[0px] left-0 right-0 bg-black z-[100] ${isEssentialMode ? 'h-[260px]' : 'h-[350px]'}`}></div>
+                            {/* MAXIMUM BLOCKER - Covers entire gap */}
+                            <div className="absolute top-[0px] left-0 right-0 bg-black z-[100] h-[350px]"></div>
 
                             {/* FIXED HEADER - Absolutely positioned at top */}
                             <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
@@ -210,9 +210,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
 
-                            {/* CURRENT CONDITIONS CARD - Essential mode only, shows current weather summary */}
+                            {/* CURRENT CONDITIONS CARD - Essential mode only, same position as 5x2 HeroWidgets */}
                             {isEssentialMode && (
-                                <div className="absolute top-[170px] left-0 right-0 z-[110]">
+                                <div className="absolute top-[200px] left-0 right-0 z-[110] px-4">
                                     <CurrentConditionsCard
                                         data={activeDayData || current}
                                         units={units}
@@ -278,8 +278,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             )}
 
 
-                            {/* HERO CONTAINER - Positioned below fixed headers (moves up in Essential mode) */}
-                            <div className={`absolute left-0 right-0 bottom-0 overflow-hidden bg-black ${isEssentialMode ? 'top-[260px]' : 'top-[360px]'}`}>
+                            {/* HERO CONTAINER - Positioned below fixed headers (same position in both modes) */}
+                            <div className="absolute left-0 right-0 bottom-0 overflow-hidden bg-black top-[360px]">
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
