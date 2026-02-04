@@ -38,7 +38,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
     rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'forecastChart', 'hourly', 'daily', 'map'],
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
-    dynamicHeaderMetrics: false // Default to static header (current behavior)
+    dynamicHeaderMetrics: false, // Default to static header (current behavior)
+    dashboardMode: 'full' // 'essential' = simplified, 'full' = all widgets (default)
 };
 
 interface SettingsContextType {
