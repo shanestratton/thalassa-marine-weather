@@ -336,6 +336,40 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // If we don't have coords (e.g. from Favorites string), resolve them NOW 
             // so we can fire the Fast Airport Fetch immediately.
             if (!resolvedCoords) {
+                // SPECIAL CASE: "Current Location" requires GPS coordinates
+                // If coords weren't provided, we can't proceed - need to trigger GPS
+                if (location === "Current Location") {
+                    console.log('[WeatherContext] Current Location requested without coords - triggering GPS');
+                    setLoadingMessage("Getting GPS Location...");
+
+                    // Try to get GPS coordinates
+                    if (navigator.geolocation) {
+                        return new Promise<void>((resolve) => {
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    // Success - retry fetch with coords
+                                    fetchWeather(location, force, {
+                                        lat: pos.coords.latitude,
+                                        lon: pos.coords.longitude
+                                    }, showOverlay, silent);
+                                    resolve();
+                                },
+                                (error) => {
+                                    console.error('[WeatherContext] GPS error:', error);
+                                    setError("Unable to get GPS location. Please select a location or enable location services.");
+                                    setLoading(false);
+                                    resolve();
+                                },
+                                { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+                            );
+                        });
+                    } else {
+                        setError("Location services not available. Please select a location.");
+                        setLoading(false);
+                        return;
+                    }
+                }
+
                 try {
                     const parsed = await parseLocation(location);
                     // 0,0 check if invalid
