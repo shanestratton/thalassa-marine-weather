@@ -190,8 +190,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             </div>
 
-                            {/* MAXIMUM BLOCKER - Covers entire gap */}
-                            <div className="absolute top-[0px] left-0 right-0 h-[350px] bg-black z-[100]"></div>
+                            {/* MAXIMUM BLOCKER - Covers entire gap (shorter in Essential mode) */}
+                            <div className={`absolute top-[0px] left-0 right-0 bg-black z-[100] ${isEssentialMode ? 'h-[200px]' : 'h-[350px]'}`}></div>
 
                             {/* FIXED HEADER - Absolutely positioned at top */}
                             <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
