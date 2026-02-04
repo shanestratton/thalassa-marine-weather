@@ -12,6 +12,8 @@ import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { useSettings } from '../context/SettingsContext';
+import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
+import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 
 import { DashboardWidgetContext } from './WidgetRenderer';
 import { UnitPreferences } from '../types';
@@ -62,6 +64,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const { settings: userSettings, updateSettings } = useSettings();
     const dynamicHeaderEnabled = userSettings.dynamicHeaderMetrics === true;
     const isEssentialMode = userSettings.dashboardMode === 'essential';
+
+    // Onboarding tutorial for first-time users
+    const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -340,6 +345,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
             </div>
+
+            {/* Gesture Tutorial Overlay - First-time users */}
+            {showTutorial && (
+                <GestureTutorial
+                    onDismiss={dismissTutorial}
+                    onNeverShow={neverShowAgain}
+                />
+            )}
         </DashboardWidgetContext.Provider >
     );
 });
