@@ -25,7 +25,7 @@ export interface BuoyStation {
     name: string;
     lat: number;
     lon: number;
-    type: 'noaa' | 'bom' | 'bom-aws' | 'imos' | 'ukmo' | 'eurogoos' | 'jma' | 'other';
+    type: 'noaa' | 'bom' | 'bom-aws' | 'imos' | 'hko' | 'marine-ie' | 'ukmo' | 'eurogoos' | 'jma' | 'other';
     bomStationId?: string; // BOM station ID for AWS (e.g., "94590" for Inner Beacon)
 }
 

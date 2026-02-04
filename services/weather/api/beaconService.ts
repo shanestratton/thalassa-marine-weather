@@ -303,6 +303,149 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
     }
 }
 
+// --- HONG KONG OBSERVATORY (HKO) FETCHING ---
+
+/**
+ * Fetch real-time wind observations from Hong Kong Observatory
+ * Uses DATA.GOV.HK API for regional weather stations
+ * 
+ * HKO provides 10-minute mean wind data from stations including:
+ * - Waglan Island (marine)
+ * - Cheung Chau (island)
+ * - Kai Tak (harbour)
+ * - Various automatic weather stations
+ */
+async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
+    try {
+        // HKO Regional Weather API
+        const url = 'https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en';
+
+        const response = await CapacitorHttp.get({
+            url,
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (response.status !== 200 || !response.data) {
+            console.warn(`[BeaconService] HKO API returned status ${response.status}`);
+            return null;
+        }
+
+        const data = response.data;
+
+        // Find the specific station in the wind array
+        const windData = data.wind?.data?.find((s: any) =>
+            s.place?.toLowerCase().includes(stationId.toLowerCase())
+        );
+
+        if (!windData) {
+            console.warn(`[BeaconService] HKO station ${stationId} not found in response`);
+            return null;
+        }
+
+        // Parse wind data
+        // HKO provides: mean (km/h), max (km/h), direction
+        const windSpeedKmh = parseFloat(windData.mean);
+        const gustKmh = parseFloat(windData.max);
+
+        // Convert cardinal direction to degrees
+        const cardinalMap: Record<string, number> = {
+            "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
+            "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
+            "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5,
+            "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5
+        };
+        const windDirection = windData.direction ? cardinalMap[windData.direction.toUpperCase()] : undefined;
+
+        // Convert km/h to m/s (divide by 3.6)
+        const windSpeed = !isNaN(windSpeedKmh) ? windSpeedKmh / 3.6 : undefined;
+        const windGust = !isNaN(gustKmh) ? gustKmh / 3.6 : undefined;
+
+        // Try to get temperature/humidity from other sections
+        const tempData = data.temperature?.data?.find((s: any) =>
+            s.place?.toLowerCase().includes(stationId.toLowerCase())
+        );
+        const humidityData = data.humidity?.data?.find((s: any) =>
+            s.place?.toLowerCase().includes(stationId.toLowerCase())
+        );
+
+        return {
+            windSpeed,
+            windGust,
+            windDirection,
+            airTemp: tempData?.value ? parseFloat(tempData.value) : undefined,
+            pressure: undefined, // Not available in this API
+            timestamp: data.updateTime || new Date().toISOString(),
+            waveHeight: undefined,
+            dominantWavePeriod: undefined,
+            waterTemp: undefined
+        };
+    } catch (error) {
+        console.error(`[BeaconService] Error fetching HKO ${stationId}:`, error);
+        return null;
+    }
+}
+
+// --- IRISH MARINE INSTITUTE (ERDDAP) FETCHING ---
+
+/**
+ * Fetch real-time wave and wind data from Irish Marine Institute
+ * Uses ERDDAP API for M-series weather buoys
+ * 
+ * Buoys: M2 (Galway), M3 (SW Ireland), M4 (Donegal), M5 (Belmullet), M6 (Porcupine)
+ * Data: Wave height, period, water temp, wind (some stations)
+ */
+async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
+    try {
+        // Irish Marine ERDDAP endpoint - get latest observation
+        // Dataset: IMI-TidyOceans_latestData
+        const url = `https://erddap.marine.ie/erddap/tabledap/IMI-EATL-WAVE.json?time,latitude,longitude,VHM0,VTPK,VTM02,VPED,VTZA&time>now-3hours&orderByMax("time")`;
+
+        const response = await CapacitorHttp.get({
+            url,
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (response.status !== 200 || !response.data) {
+            console.warn(`[BeaconService] Irish Marine API returned status ${response.status}`);
+            return null;
+        }
+
+        const data = response.data;
+
+        // ERDDAP returns { table: { columnNames: [...], rows: [[...], ...] } }
+        if (!data.table?.rows?.length) {
+            console.warn(`[BeaconService] Irish buoy ${buoyId} has no data`);
+            return null;
+        }
+
+        // Get the latest row
+        const row = data.table.rows[0];
+        const cols = data.table.columnNames;
+
+        const getValue = (colName: string): number | undefined => {
+            const idx = cols.indexOf(colName);
+            if (idx === -1) return undefined;
+            const val = row[idx];
+            return val !== null && !isNaN(parseFloat(val)) ? parseFloat(val) : undefined;
+        };
+
+        return {
+            waveHeight: getValue('VHM0'),           // Significant wave height (m)
+            dominantWavePeriod: getValue('VTPK'),   // Peak wave period (s)
+            waterTemp: undefined,                    // Not in this dataset
+            windSpeed: undefined,                    // Wave buoys don't have wind
+            windGust: undefined,
+            windDirection: undefined,
+            airTemp: undefined,
+            pressure: undefined,
+            timestamp: row[cols.indexOf('time')] || new Date().toISOString()
+        };
+    } catch (error) {
+        console.error(`[BeaconService] Error fetching Irish buoy ${buoyId}:`, error);
+        return null;
+    }
+}
+
 // --- GENERIC BUOY FETCHER ---
 
 /**
@@ -323,6 +466,12 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
                 return null;
             }
             return fetchBOMAWS(buoy.bomStationId);
+        case 'hko':
+            // Hong Kong Observatory regional weather stations
+            return fetchHKOStation(buoy.id);
+        case 'marine-ie':
+            // Irish Marine Institute ERDDAP buoys
+            return fetchIrishBuoy(buoy.id);
         case 'ukmo':
         case 'eurogoos':
         case 'jma':
