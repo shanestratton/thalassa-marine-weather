@@ -10,7 +10,7 @@ import { AdviceWidget } from './dashboard/Advice';
 import { LogPage } from '../pages/LogPage';
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
-import { HourlyStrip } from './dashboard/HourlyStrip';
+import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext } from './WidgetRenderer';
@@ -209,11 +209,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
 
-                            {/* HOURLY STRIP - Essential mode only, shows horizontal hourly forecast */}
-                            {isEssentialMode && hourly && hourly.length > 0 && (
-                                <div className="absolute top-[175px] left-0 right-0 z-[110]">
-                                    <HourlyStrip
-                                        hourly={hourly}
+
+                            {/* CURRENT CONDITIONS CARD - Essential mode only, shows current weather summary */}
+                            {isEssentialMode && (
+                                <div className="absolute top-[170px] left-0 right-0 z-[110]">
+                                    <CurrentConditionsCard
+                                        data={activeDayData || current}
                                         units={units}
                                         timeZone={data.timeZone}
                                     />
