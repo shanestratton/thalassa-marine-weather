@@ -26,7 +26,7 @@ export type TrendMap = Record<string, TrendDirection>;
  * - amber: Airport (observed)
  * - red: StormGlass (modeled)
  */
-export type SourceColor = 'green' | 'amber' | 'red';
+export type SourceColor = 'emerald' | 'amber' | 'white';
 
 /**
  * Source metadata for a metric

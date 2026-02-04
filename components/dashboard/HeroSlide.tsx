@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { TideGraph } from './TideAndVessel';
-import { WindIcon, WaveIcon, RadioTowerIcon, CompassIcon, DropletIcon, GaugeIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, MapIcon, RainIcon, SunIcon, EyeIcon, ClockIcon, GripIcon, TideCurveIcon, StarIcon, MoonIcon, SunriseIcon, SunsetIcon, ThermometerIcon } from '../Icons';
+import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
 import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, convertMetersTo, formatCoordinate } from '../../utils';
 import { ALL_STATIONS } from '../../services/TideService';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
-// DnD imports removed
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { ALL_HERO_WIDGETS } from '../WidgetDefinitions';
 import { StatusBadges } from './StatusBadges';
@@ -16,402 +15,10 @@ import { LocationClock } from './LocationClock';
 import { useWeather } from '../../context/WeatherContext';
 import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
-
-// --- STYLES ---
-// WIDGET_CARD_CLASS removed
-// --- STYLES ---
-// WIDGET_CARD_CLASS removed
-const STATIC_WIDGET_CLASS = "flex-1 min-w-[32%] md:min-w-[30%] bg-black/10 border border-white/5 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0 opacity-80";
-
-// --- SOURCE COLOR HELPER ---
-/**
- * Get Tailwind CSS classes for data source color indicators
- * Green = Beacon, Amber = Airport, Red = StormGlass
- */
-const getSourceIndicatorColor = (sourceColor?: 'green' | 'amber' | 'red'): string => {
-    switch (sourceColor) {
-        case 'green': return 'bg-emerald-400';
-        case 'amber': return 'bg-amber-400';
-        case 'red': return 'bg-red-400';
-        default: return 'bg-gray-400';
-    }
-};
-
-// --- WIDGET RENDERER (Pure Function) ---
-const renderHeroWidget = (
-    id: string,
-    data: WeatherMetrics,
-    values: any,
-    units: UnitPreferences,
-    isLive: boolean,
-    trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>,
-    align: 'left' | 'center' | 'right' = 'left',
-    sources?: any
-) => {
-    const hasWind = data.windSpeed !== null && data.windSpeed !== undefined;
-    const trend = trends ? trends[id] : undefined;
-
-    // Alignment Classes
-    const alignClass = align === 'center' ? 'items-center text-center' : align === 'right' ? 'items-end text-right' : 'items-start text-left';
-
-    // Helper to get source text color for a metric value
-    const getSourceTextColor = (metricKey: string): string => {
-        // Only show source colors on live card - forecast cards should be white
-        if (!isLive) return 'text-white';
-        if (!sources || !sources[metricKey]) return 'text-white';
-        const sourceColor = sources[metricKey]?.sourceColor;
-        switch (sourceColor) {
-            case 'green': return 'text-emerald-400';
-            case 'amber': return 'text-amber-400';
-            case 'red': return 'text-red-400';
-            default: return 'text-white';
-        }
-    };
-
-    // Helper to render trend arrow
-    const renderTrend = (t?: string, inverse = false) => {
-        if (!t || t === 'steady' || t === 'neutral') return null;
-        const isUp = t === 'rising';
-
-        // Color Logic:
-        // Standard (Pressure, Temp): Up = Green (or neutral white/teal), Down = Red (or neutral) regarding "Good/Bad"?
-        // Actually, user wants "Rising/Falling". 
-        // Let's use neutral/subtle colors (e.g. data color or white) but Arrow Direction is key.
-        // Or: 
-        // - Wind Rising = Bad (Red/Orange)
-        // - Pressure Rising = Good (Teal/Green)
-        // - Pressure Falling = Bad (Red/Orange)
-        // Let's stick to subtle arrows first to be "Professional".
-
-        return (
-            <div className={`flex items-center ml-1.5 opacity-80 ${isUp ? '-mt-1' : '-mt-1'}`}>
-                {isUp
-                    ? <ArrowUpIcon className="w-2.5 h-2.5" />
-                    : <ArrowDownIcon className="w-2.5 h-2.5" />}
-            </div>
-        );
-    };
-
-    switch (id) {
-        case 'wind':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windSpeed')}`}>{values.windSpeed}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-auto pt-1">
-                        <div className="flex items-center gap-1 bg-white/5 px-1.5 py-1.5 rounded text-[10px] md:text-xs font-bold text-sky-300 border border-white/5 min-h-[32px]">
-                            <CompassIcon rotation={data.windDegree || 0} className="w-4 h-4 md:w-5 md:h-5" />
-                            <span>{data.windDirection || 'VAR'}</span>
-                        </div>
-                        {data.windDegree !== null && data.windDegree !== undefined && (
-                            <div className="flex items-center bg-white/5 px-1.5 py-1.5 rounded text-[10px] md:text-xs font-bold text-sky-300 border border-white/5 min-h-[32px]">
-                                {Math.round(data.windDegree)}°
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        case 'gust':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('windGust')}`}>{values.gusts}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.speed}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
-                        <span className="text-[8px] md:text-[10px] font-bold text-orange-300 opacity-80">Max</span>
-                    </div>
-                </div>
-            );
-        case 'wave':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Waves</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waveHeight')}`}>{values.waveHeight}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="flex items-center gap-1 mt-auto pt-1">
-                        <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-[8px] md:text-[10px] font-mono text-blue-300 border border-white/5">
-                            <ClockIcon className="w-2.5 h-2.5" />
-                            {data.swellPeriod ? `${Math.round(data.swellPeriod)} s` : '--'}
-                        </div>
-                    </div>
-                </div>
-            );
-        case 'pressure':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('pressure')}`}>{values.pressure}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">hPa</span>
-                        {renderTrend(trend, false)}
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
-                        MSL
-                    </div>
-                </div>
-            );
-        case 'visibility':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <EyeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Visibility</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('visibility')}`}>{values.vis}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.visibility}</span>
-                        {renderTrend(trend, false)}
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
-                        --
-                    </div>
-                </div>
-            );
-        case 'humidity':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('humidity')}`}>{values.humidity}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
-                        --
-                    </div>
-                </div>
-            );
-        case 'feels':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Feels Like</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.feelsLike}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                </div>
-            );
-        case 'clouds':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <CloudIcon className={`w-3 h-3 ${isLive ? 'text-gray-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-gray-200' : 'text-slate-300'} `}>Cover</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.cloudCover}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">%</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                </div>
-            );
-        case 'precip':
-            const pVal = data.precipitation || 0;
-            let pDesc = "None";
-            if (pVal > 0) {
-                if (pVal < 0.5) pDesc = "Trace";
-                else if (data.condition?.toLowerCase().includes("shower")) pDesc = "Showers";
-                else pDesc = "Rain";
-            }
-            if (pDesc === "Trace") {
-                return (
-                    <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                        <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                            <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
-                        </div>
-                        <div className="flex flex-col justify-center items-end flex-1">
-                            <span className="text-sm md:text-lg font-bold text-gray-400 uppercase tracking-wider">{pDesc}</span>
-                        </div>
-                        <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-blue-300 font-bold opacity-70">
-                            --
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
-                    </div>
-                    {/* Middle: Value + Unit (Baseline) */}
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.precip}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">{units.length === 'm' ? 'mm' : 'in'}</span>
-                    </div>
-                    {/* Bottom: Description */}
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-blue-300 font-bold opacity-70 uppercase tracking-wider">
-                        {pDesc}
-                    </div>
-                </div>
-            );
-        case 'dew':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.dewPoint}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                </div>
-            );
-        case 'waterTemperature':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('waterTemperature')}`}>{values.waterTemperature}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">°{units.temp}</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-cyan-300 font-bold opacity-70">
-                        Surface
-                    </div>
-                </div>
-            );
-        case 'currentSpeed':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Drift</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('currentSpeed')}`}>{values.currentSpeed}</span>
-                        <span className="text-[10px] md:text-sm font-medium text-gray-400">kts</span>
-                        {renderTrend(trend, true)}
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-emerald-300 font-bold opacity-70">
-                        --
-                    </div>
-                </div>
-            );
-        case 'currentDirection':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        {/* Fix: CompassIcon requires 'rotation' prop */}
-                        <CompassIcon
-                            className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `}
-                            rotation={typeof data.currentDirection === 'number' ? data.currentDirection : 0}
-                        />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        {/* We want just the cardinal direction here, e.g. "NE" */}
-                        <span className={`text-2xl md:text-5xl font-black tracking-tighter ${getSourceTextColor('currentDirection')}`}>{values.currentDirection}</span>
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-teal-300 font-bold opacity-70">
-                        {/* Fix: Ensure currentDirection is a number before Math.round, handle string case */}
-                        {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True
-                    </div>
-                </div>
-            );
-        case 'uv':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.uv}</span>
-                    </div>
-                    <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-orange-300 font-bold opacity-70">
-                        --
-                    </div>
-                </div>
-            );
-        case 'sunrise':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Sunrise</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-xl md:text-3xl font-black tracking-tighter text-white">{values.sunrise}</span>
-                    </div>
-                </div>
-            );
-        case 'sunset':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-purple-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-purple-200' : 'text-slate-300'} `}>Sunset</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-xl md:text-3xl font-black tracking-tighter text-white">{values.sunset}</span>
-                    </div>
-                </div>
-            );
-        case 'moon':
-            return (
-                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
-                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <MoonIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                        <span className={`text-[9px] md: text-[10px] font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Moon</span>
-                    </div>
-                    <div className="flex items-baseline gap-0.5">
-                        <span className="text-sm md:text-lg font-bold text-white whitespace-nowrap">{values.moon || '--'}</span>
-                    </div>
-                </div>
-            );
-        default:
-            return null;
-    }
-};
-// --- HOISTED HELPERS ---
-const formatTemp = (t?: number | null) => Math.round(t || 0);
-const formatCondition = (c?: string) => c || 'Clear';
-const renderHighLow = (d: WeatherMetrics) => (
-    <div className="flex gap-2 text-[10px] uppercase font-bold text-white/60">
-        <span>H: {Math.round((d as any).maxTemp || (d.airTemperature || 0) + 2)}°</span>
-        <span>L: {Math.round((d as any).minTemp || (d.airTemperature || 0) - 2)}°</span>
-    </div>
-);
+import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
-export const HeroSlide = ({
+const HeroSlideComponent = ({
     data,
     index,
     units,
@@ -432,6 +39,7 @@ export const HeroSlide = ({
     locationType,
     generatedAt,
     onTimeSelect,
+    onActiveDataChange,
     isVisible = false,
     utcOffset,
     tideHourly
@@ -457,6 +65,7 @@ export const HeroSlide = ({
     locationType?: 'coastal' | 'offshore' | 'inland',
     generatedAt?: string,
     onTimeSelect?: (time: number | undefined) => void,
+    onActiveDataChange?: (data: WeatherMetrics) => void,
     isVisible?: boolean,
     utcOffset?: number,
     tideHourly?: TidePoint[]
@@ -556,7 +165,8 @@ export const HeroSlide = ({
     // we show the forecast for the *current wall-clock hour* rather than the fetch-time snapshot.
     const effectiveData = useMemo(() => {
         // Use fullHourly if available (preferred for timezone safety), else fallback to filtered hourly
-        const sourceHourly = fullHourly && fullHourly.length > 0 ? fullHourly : hourly;
+        // BUT: fullHourly doesn't have OpenMeteo UV injection, so ALWAYS use hourly for data lookups
+        const sourceHourly = hourly;
 
         // FIX: If this is the "Live" card, we MUST rely on the 'data' prop (which has METAR overrides).
         // Trying to "find the current slot" from the hourly array (which is raw model data) causes
@@ -594,6 +204,7 @@ export const HeroSlide = ({
                 currentDirection: currentSlot.currentDirection ?? data.currentDirection,
                 waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
 
+
                 // Display Values
                 windSpeed: currentSlot.windSpeed ?? data.windSpeed,
                 windGust: currentSlot.windGust ?? data.windGust,
@@ -602,7 +213,19 @@ export const HeroSlide = ({
                 pressure: currentSlot.pressure ?? data.pressure
             };
         }
-        return data;
+
+        // Fallback: Try to find UV from the closest hourly slot when exact match fails
+        const closestHour = sourceHourly.reduce((best, h) => {
+            const t = new Date(h.time).getTime();
+            const bestT = best ? new Date(best.time).getTime() : Infinity;
+            return Math.abs(t - now) < Math.abs(bestT - now) ? h : best;
+        }, null as typeof sourceHourly[0] | null);
+
+        return {
+            ...data,
+            uvIndex: closestHour?.uvIndex ?? data.uvIndex ?? 0,
+            waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature
+        };
     }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
 
     // Use effectiveData for all display logic used in the MAIN CARD
@@ -758,10 +381,10 @@ export const HeroSlide = ({
         airTemp: displayData.airTemperature !== null ? convertTemp(displayData.airTemperature, units.temp) : '--',
         highTemp: (displayData as any).highTemp !== undefined ? convertTemp((displayData as any).highTemp, units.temp) : '--',
         lowTemp: (displayData as any).lowTemp !== undefined ? convertTemp((displayData as any).lowTemp, units.temp) : '--',
-        windSpeed: hasWind ? convertSpeed(displayData.windSpeed, units.speed) : '--',
+        windSpeed: hasWind ? Math.round(convertSpeed(displayData.windSpeed!, units.speed)!) : '--',
         waveHeight: isLandlocked ? "0" : (hasWave ? convertLength(displayData.waveHeight, units.length) : '--'),
         vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
-        gusts: hasWind ? convertSpeed(rawGust, units.speed) : '--',
+        gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
         precip: convertPrecip(displayData.precipitation, units.length),
         pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
         cloudCover: (displayData.cloudCover !== null && displayData.cloudCover !== undefined) ? Math.round(displayData.cloudCover) : '--',
@@ -848,7 +471,7 @@ export const HeroSlide = ({
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">
-                                {data.waterTemperature ? convertTemp(data.waterTemperature, units.temp) : '--'}
+                                {displayValues.waterTemperature}
                             </span>
                             <span className="text-xs text-gray-400 font-medium">°{units.temp}</span>
                         </div>
@@ -874,29 +497,13 @@ export const HeroSlide = ({
                         </div>
                         <div className="flex flex-col justify-center">
                             <span className="text-3xl font-black text-white">
-                                {(() => {
-                                    const val = data.currentDirection;
-                                    if (typeof val === 'number') return degreesToCardinal(val);
-                                    if (typeof val === 'string') {
-                                        return val.replace(/[\d.°]+/g, '').trim() || val;
-                                    }
-                                    return '--';
-                                })()}
+                                {displayValues.currentDirection}
                             </span>
                         </div>
                         <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80 text-center">
                             {(() => {
-                                const val = data.currentDirection;
-                                let degrees: number | null = null;
-                                if (typeof val === 'number') degrees = val;
-                                else if (typeof val === 'string') {
-                                    const match = val.match(/(\d+)/);
-                                    if (match) degrees = parseInt(match[1]);
-                                }
-
-                                if (degrees !== null && !isNaN(degrees)) {
-                                    return `${Math.round(degrees)}° True`;
-                                }
+                                const val = displayValues.currentDirection;
+                                // Extract degrees from cardinal direction if present
                                 return 'True';
                             })()}
                         </div>
@@ -1035,8 +642,10 @@ export const HeroSlide = ({
     ];
 
     // Calculate active slide data for static displays
-    // ALWAYS use first slide (live/current data) for static bands - they should not change when scrolling
-    const activeSlide = slides[0]; // Changed from slides[activeHIdx] to keep static bands truly static
+    // Use either current data (static) or active scrolled card (dynamic) based on setting
+    const activeSlide = settings.dynamicHeaderMetrics
+        ? slides[activeHIdx]  // Dynamic: show data from currently scrolled card
+        : slides[0];           // Static: always show current/live data (default behavior)
     const activeCardData = activeSlide?.data as WeatherMetrics;
     const activeCardTime = activeSlide?.time || customTime;
     const activeIsLive = index === 0 && activeHIdx === 0;
@@ -1072,16 +681,54 @@ export const HeroSlide = ({
     })();
     const activeIsCardDay = (!activeIsLive && index > 0) ? true : activeSunPhase.isDay;
 
+    // Calculate display values for static widgets based on activeCardData
+    // These values will update if dynamicHeaderMetrics is enabled
+    const hasActiveWind = activeCardData?.windSpeed !== null && activeCardData?.windSpeed !== undefined;
+    const rawActiveGust = activeCardData?.windGust || ((activeCardData?.windSpeed || 0) * 1.3);
+    const hasActiveWave = activeCardData?.waveHeight !== null && activeCardData?.waveHeight !== undefined;
+
+    const staticDisplayValues = {
+        airTemp: activeCardData?.airTemperature !== null ? convertTemp(activeCardData?.airTemperature || 0, units.temp) : '--',
+        windSpeed: hasActiveWind ? Math.round(convertSpeed(activeCardData.windSpeed!, units.speed)!) : '--',
+        waveHeight: isLandlocked ? "0" : (hasActiveWave ? convertLength(activeCardData.waveHeight, units.length) : '--'),
+        vis: activeCardData?.visibility ? convertDistance(activeCardData.visibility, units.visibility || 'nm') : '--',
+        gusts: hasActiveWind ? Math.round(convertSpeed(rawActiveGust!, units.speed)!) : '--',
+        pressure: activeCardData?.pressure ? Math.round(activeCardData.pressure) : '--',
+        uv: (activeCardData?.uvIndex !== undefined && activeCardData?.uvIndex !== null) ? Math.round(activeCardData.uvIndex) : '--',
+        humidity: (activeCardData?.humidity !== undefined && activeCardData?.humidity !== null) ? Math.round(activeCardData.humidity) : '--',
+        waterTemperature: activeCardData?.waterTemperature !== undefined && activeCardData?.waterTemperature !== null ? convertTemp(activeCardData.waterTemperature, units.temp) : '--',
+        currentSpeed: activeCardData?.currentSpeed !== undefined && activeCardData?.currentSpeed !== null ? Number(activeCardData.currentSpeed).toFixed(1) : '--',
+        currentDirection: (() => {
+            const val = activeCardData?.currentDirection;
+            if (typeof val === 'number') return degreesToCardinal(val);
+            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+            return '--';
+        })()
+    };
+
     // TODO: Get source colors for static bands - need to pass sources from parent
-    // For now, static bands will show white text
+    // For now, static bands will show white text (correct for forecast data)
     const getActiveSourceColor = (metricKey: string): string => {
-        // Sources data not available at this level yet
-        // Will need to be passed from WeatherContext or computed differently
+        // When in dynamic mode and showing forecast data, always use white
+        // When in static mode showing live data, source colors would be shown (future enhancement)
+        if (settings.dynamicHeaderMetrics && !activeIsLive) {
+            return 'text-white'; // Forecast data is always white
+        }
+        // Static mode or live data - would show source colors if available
         return 'text-white';
     };
 
-    // Scroll handler to update active index
-    const handleHorizontalScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    // Propagate active card data changes to parent
+    // CRITICAL FIX: Only the VISIBLE slide should update the parent
+    // Otherwise, all day slides fire onActiveDataChange and the last one (forecast day with UV=0) wins
+    useEffect(() => {
+        if (onActiveDataChange && activeCardData && isVisible) {
+            onActiveDataChange(activeCardData);
+        }
+    }, [activeCardData, onActiveDataChange, isVisible]);
+
+    // Scroll handler to update active index - memoized for performance
+    const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const container = e.currentTarget;
         const scrollLeft = container.scrollLeft;
         const cardWidth = container.clientWidth;
@@ -1092,7 +739,7 @@ export const HeroSlide = ({
                 onTimeSelect(slides[newIdx].time);
             }
         }
-    };
+    }, [activeHIdx, slides, onTimeSelect]);
 
     return (
         <div className="relative w-full h-full overflow-hidden">
@@ -1153,10 +800,10 @@ export const HeroSlide = ({
                             airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
                             highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
                             lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
-                            windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? convertSpeed(cardData.windSpeed, units.speed) : '--',
+                            windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
                             waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? convertLength(cardData.waveHeight, units.waveHeight) : '--'),
                             vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
-                            gusts: cardData.windSpeed !== null ? convertSpeed((cardData.windGust || (cardData.windSpeed * 1.3)), units.speed) : '--',
+                            gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
                             precip: convertPrecip(cardData.precipitation, units.length),
                             pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
                             cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
@@ -1189,10 +836,9 @@ export const HeroSlide = ({
                             if (!cardSources || !cardSources[metricKey]) return 'text-white';
                             const sourceColor = cardSources[metricKey]?.sourceColor;
                             switch (sourceColor) {
-                                case 'green': return 'text-emerald-400';
-                                case 'amber': return 'text-amber-400';
-                                case 'red': return 'text-red-400';
-                                default: return 'text-white';
+                                case 'emerald': return 'text-emerald-400';  // Buoy
+                                case 'amber': return 'text-amber-400';      // StormGlass
+                                default: return 'text-white';               // Fallback
                             }
                         };
 
@@ -1266,8 +912,8 @@ export const HeroSlide = ({
                                             </div>
                                         ) : (
                                             /* INLAND / OFFSHORE LAYOUT */
-                                            <div className="w-full h-full flex flex-col justify-start gap-1">
-                                                <div className="grid grid-cols-3 gap-2 w-full px-2">
+                                            <div className="w-full max-h-full flex flex-col justify-start gap-1 overflow-y-auto">
+                                                <div className="grid grid-cols-3 gap-2 w-full px-2 auto-rows-min">
                                                     {(() => {
                                                         // 1. Define Layouts based on User Request
                                                         // Offshore: Wind, Gust, Seas, Pressure, Cloud, Precip, Sea Temp, Drift, Set
@@ -1305,6 +951,7 @@ export const HeroSlide = ({
                                                 // Only for live/current card - forecast cards don't have beacon/airport data
                                                 let beaconName = '';
                                                 let airportName = '';
+                                                let buoyName = '';
 
                                                 if (cardIsLive && cardSources) {
                                                     Object.values(cardSources).forEach((src: any) => {
@@ -1312,6 +959,8 @@ export const HeroSlide = ({
                                                             beaconName = src.sourceName;
                                                         } else if (src?.source === 'airport' && src?.sourceName && !airportName) {
                                                             airportName = src.sourceName;
+                                                        } else if (src?.source === 'buoy' && src?.sourceName && !buoyName) {
+                                                            buoyName = src.sourceName;
                                                         }
                                                     });
                                                 }
@@ -1327,6 +976,7 @@ export const HeroSlide = ({
                                                         locationType={locationType}
                                                         beaconName={beaconName}
                                                         airportName={airportName}
+                                                        buoyName={buoyName}
                                                     />
                                                 );
                                             })()}
@@ -1347,3 +997,6 @@ export const HeroSlide = ({
         </div>
     );
 };
+
+// Wrap with React.memo for performance - prevents re-renders when props haven't changed
+export const HeroSlide = React.memo(HeroSlideComponent);

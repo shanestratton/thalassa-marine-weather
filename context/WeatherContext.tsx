@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 import { enrichMarineWeather } from '../services/geminiService';
-import { fetchFastWeather, fetchPrecisionWeather, fetchFastAirportWeather, parseLocation, reverseGeocode } from '../services/weatherService';
+import { fetchFastWeather, fetchPrecisionWeather, parseLocation, reverseGeocode } from '../services/weatherService';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/stormglassService';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
@@ -162,50 +162,26 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, []);
 
     // --- INITIALIZATION (ASYNC LOAD) ---
-    // --- INITIALIZATION (ASYNC LOAD) ---
+    // DISABLED CACHE LOADING - Always fetch fresh data for dynamic weather app
     useEffect(() => {
         const loadCache = async () => {
             try {
-                // 1. CRITICAL PATH: Current Weather Data
-                // Load this first and unblock UI immediately
-                const d = await loadLargeData(DATA_CACHE_KEY);
+                // CACHE DISABLED: Do not load cached weather data
+                // Weather is dynamic and should always be fetched fresh
+                console.log('[WeatherContext] Cache loading disabled - will fetch fresh data');
 
-                if (d) {
-                    setWeatherData(d);
-                    // Enhance with beacon/source tracking
-                    if (d.coordinates) {
-                        enhanceWithBeaconData(d, d.coordinates).then(enhanced => {
-                            setWeatherData(enhanced);
-                        });
-                    }
-                    // Unblock UI immediately if we have data
-                    setLoading(false);
-
-                    // SET LOCATION MODE on startup
-                    const isCurrent = d.locationName === "Current Location";
-                    setLocationMode(isCurrent ? 'gps' : 'selected');
-
-                    // SMART REFRESH CHECK (If cache > 60m old, refresh in background)
-                    const age = Date.now() - (d.generatedAt ? new Date(d.generatedAt).getTime() : 0);
-                    if (age > 60 * 60 * 1000 && navigator.onLine) {
-                        // Trigger immediate background refresh
-                        const loc = d.locationName || settingsRef.current.defaultLocation || '';
-                        if (loc) {
-                            // Use setTimeout 0 to push to next tick, keeping this execution frame light
-                            setTimeout(() => {
-                                // If GPS mode, get fresh coordinates
-                                if (isCurrent && navigator.geolocation) {
-                                    navigator.geolocation.getCurrentPosition(
-                                        (pos) => fetchWeather(loc, true, { lat: pos.coords.latitude, lon: pos.coords.longitude }, false, true),
-                                        () => fetchWeather(loc, true, d.coordinates, false, true)  // Fallback to cached coords
-                                    );
-                                } else {
-                                    fetchWeather(loc, true, d.coordinates, false, true);
-                                }
-                            }, 0);
-                        }
+                // CLEAR LEGACY LOCALSTORAGE CACHE to force fresh fetch
+                const keysToDelete: string[] = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('marine_weather_cache_')) {
+                        keysToDelete.push(key);
                     }
                 }
+                keysToDelete.forEach(key => {
+                    console.log('[WeatherContext] Clearing old cache:', key);
+                    localStorage.removeItem(key);
+                });
 
                 // 2. SECONDARY PATH: History (Background)
                 const h = await loadLargeData(HISTORY_CACHE_KEY);
@@ -219,8 +195,38 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e) {
                 console.error("[Context] Failed to load cache", e);
             } finally {
-                // Ensure loading is false essentially
+                // Mark loading as complete
                 setLoading(false);
+
+                // Trigger initial fetch if we have a default location
+                // This ensures fresh data loads immediately
+                if (settingsRef.current.defaultLocation) {
+                    const loc = settingsRef.current.defaultLocation;
+                    console.log('[WeatherContext] Triggering initial fetch for:', loc);
+
+                    // Handle GPS-based "Current Location" specially
+                    if (loc === "Current Location" && navigator.geolocation) {
+                        setTimeout(() => {
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    fetchWeather(loc, true, {  // force=true to bypass cache
+                                        lat: pos.coords.latitude,
+                                        lon: pos.coords.longitude
+                                    });
+                                },
+                                (error) => {
+                                    console.error('[WeatherContext] GPS error on startup:', error);
+                                    // Fall back to a named location or skip
+                                }
+                            );
+                        }, 100);
+                    } else {
+                        // Named location - fetch directly
+                        setTimeout(() => {
+                            fetchWeather(loc, true);
+                        }, 100);
+                    }
+                }
             }
         };
         loadCache();
@@ -364,106 +370,30 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
 
-            // 0a. IMMEDIATE: AIRPORT DATA (The Epiphany)
-            // Paint the "Now" card instantly with real data while models crunch numbers
-            const isWaypoint = /^(Location|WP|waypoint)|^-?[0-9]|\b\d+°/i.test(resolvedLocation);
+            // Marine-only data: StormGlass + Buoy/AWS
 
+            // Fetch StormGlass marine data
             let currentReport: MarineWeatherReport | null = null;
 
-            if (!isBackground && resolvedCoords && !isWaypoint) {
-                const tStart = Date.now();
-                console.log("[FastLoad] 1. Triggering Airport Fetch for", resolvedLocation);
-                currentReport = await fetchFastAirportWeather(resolvedLocation, resolvedCoords);
-
-                const tEnd = Date.now();
-                console.log(`[FastLoad] 2. Airport Fetch DONE in ${tEnd - tStart}ms.`);
-
-                if (currentReport) {
-                    if (!weatherDataRef.current || weatherDataRef.current.locationName !== resolvedLocation) {
-                        console.log("[FastLoad] 3. APPLYING Fast Data (Unblocking UI)");
-                        setWeatherData(currentReport);
-                        setLoading(false); // <--- UNBLOCK UI IMMEDIATELY
-                    }
-                } else {
-                    if (!isBackground) setLoadingMessage("No nearby airport. Fetching StormGlass...");
-                }
-            }
-
-            // 1. SKIP "FAST BASE" (OpenMeteo) PER USER REQUEST ("No OpenMeteo")
-            // We rely strictly on Airport Data (if available) + StormGlass (Precision).
-
-            // 2. PRECISION (STORMGLASS)
-            // Fetch if:
-            // a) We have NO data yet (currentReport is null)
-            // b) We have data logic demanding it (always fetch SG to fill blanks)
-            // c) Or explicit force refresh
-            // const useStormglass = isStormglassKeyPresent(); // Already declared at top
-
             if (useStormglass) {
-                // If we have currentReport (Airport), use its coords/name
-                // If not, use resolved vars
-                const targetName = currentReport?.locationName || resolvedLocation;
-                // If currentReport has a locationType, pass it? Airport returns 'isLandlocked' but not 'locationType'.
-                // 'offshore' type is usually derived from SG.
-
                 try {
-                    const finalCoords = currentReport?.coordinates || resolvedCoords;
-
-                    if (!finalCoords) {
-                        throw new Error(`Cannot fetch precision weather for ${targetName}: Missing Coordinates`);
+                    if (!resolvedCoords) {
+                        throw new Error(`Cannot fetch weather for ${resolvedLocation}: Missing Coordinates`);
                     }
 
                     const precisionReport = await fetchPrecisionWeather(
-                        targetName,
-                        finalCoords,
+                        resolvedLocation,
+                        resolvedCoords,
                         false,
-                        undefined // Let SG determine type or use existing?
+                        undefined
                     );
                     incrementQuota();
-
-                    // STABILIZATION / MERGE
-                    if (currentReport && currentReport.current) {
-                        const airport = currentReport.current; // THE TRUTH
-                        const sg = precisionReport.current;
-
-                        // Force Airport Values over SG Values
-                        // We trust Airport for: Temp, Wind, Pressure, Vis, Cloud, Precip, Condition.
-                        if (airport.airTemperature !== null) sg.airTemperature = airport.airTemperature;
-                        if (airport.humidity !== null) sg.humidity = airport.humidity;
-                        if (airport.pressure) sg.pressure = airport.pressure;
-                        if (airport.windSpeed !== null) {
-                            sg.windSpeed = airport.windSpeed;
-                            sg.windGust = airport.windGust;
-                            sg.windDirection = airport.windDirection;
-                            sg.windDegree = airport.windDegree;
-                        }
-                        if (airport.visibility !== null) sg.visibility = airport.visibility;
-                        if (airport.cloudCover !== null) sg.cloudCover = airport.cloudCover;
-                        if (airport.precipitation !== null) sg.precipitation = airport.precipitation;
-                        if (airport.condition) sg.condition = airport.condition;
-
-                        // Keep station ID
-                        if (airport.stationId) sg.stationId = airport.stationId;
-
-                        precisionReport.current = sg;
-                        precisionReport.groundingSource = `METAR (${airport.stationId}) + StormGlass`;
-                    } else {
-                        // No Airport data. Precision Report is valid on its own.
-                    }
-
-                    if (currentReport?.timeZone && !precisionReport.timeZone) {
-                        precisionReport.timeZone = currentReport.timeZone;
-                    }
 
                     currentReport = precisionReport;
 
                 } catch (e: any) {
-                    console.warn("Precision Upgrade Failed", e);
-                    if (!currentReport) throw e; // If we have nothing, throw.
-                    // If we have Airport data, keep it? 
-                    // But Airport data lacks Forecast/Hourly.
-                    // So effectively useless for charts.
-                    // But good for "Now".
+                    console.warn("StormGlass fetch failed:", e);
+                    throw e; // No fallback data available
                 }
             } else {
                 // No Stormglass Key? User said "No OpenMeteo".

@@ -28,7 +28,7 @@ const getBeaufortConfig = (force: number) => {
     return configs[Math.min(force, 12)];
 };
 
-const SeaStateVisual = ({ force }: { force: number }) => {
+const SeaStateVisual = React.memo(({ force }: { force: number }) => {
     const width = 200;
     const height = 60;
     const points: string[] = [];
@@ -62,7 +62,7 @@ const SeaStateVisual = ({ force }: { force: number }) => {
             </svg>
         </div>
     );
-};
+});
 
 interface DetailTileProps {
     label: string;
@@ -73,7 +73,7 @@ interface DetailTileProps {
     subContent?: React.ReactNode;
 }
 
-const DetailTile: React.FC<DetailTileProps> = ({ label, value, unit, icon, colorClass, subContent }) => (
+const DetailTile: React.FC<DetailTileProps> = React.memo(({ label, value, unit, icon, colorClass, subContent }) => (
     <div className="bg-slate-900/40 hover:bg-slate-800/60 border border-white/5 rounded-2xl p-3 flex flex-col justify-between transition-all group relative overflow-hidden h-24">
         <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
         <div className="flex justify-between items-start z-10">
@@ -90,7 +90,7 @@ const DetailTile: React.FC<DetailTileProps> = ({ label, value, unit, icon, color
             {subContent}
         </div>
     </div>
-);
+));
 
 const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -120,7 +120,7 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
 
 export { AlertsBanner, MetricsWidget } from './WeatherGrid_exports';
 
-export const BeaufortWidget = ({ windSpeed }: { windSpeed: number | null }) => {
+export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | null }) => {
     const beaufort = getBeaufort(windSpeed);
     const config = getBeaufortConfig(beaufort.force);
 
@@ -159,7 +159,7 @@ export const BeaufortWidget = ({ windSpeed }: { windSpeed: number | null }) => {
             </div>
         </Card>
     );
-};
+});
 
 export const DetailedMetricsWidget = ({ current, units, hourly }: { current: WeatherMetrics, units: UnitPreferences, hourly?: HourlyForecast[] }) => {
     const { settings, updateSettings } = useThalassa();

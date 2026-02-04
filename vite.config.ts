@@ -83,7 +83,8 @@ export default defineConfig(({ mode }) => {
       'process.env.SUPABASE_KEY': JSON.stringify(getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || ''),
     },
     build: {
-      chunkSizeWarningLimit: 1000,
+      outDir: 'dist',
+      chunkSizeWarningLimit: 2000, // Silence chunk size warnings
       rollupOptions: {
         output: {
           manualChunks: {

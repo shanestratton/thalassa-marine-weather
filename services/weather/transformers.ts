@@ -1,6 +1,6 @@
 
 import { StormGlassHour, MarineWeatherReport, HourlyForecast, ForecastDay, WeatherMetrics, Tide, StormGlassTideData } from '../../types';
-import { LocalObservation } from '../../services/MetarService';
+
 import { getPrecipitationLabelV2 } from '../../services/WeatherFormatter';
 import { calculateFeelsLike, getSunTimes } from '../../utils/math';
 import { degreesToCardinal } from '../../utils/format';
@@ -51,7 +51,7 @@ export const mapStormGlassToReport = (
     seaLevels: Partial<StormGlassTideData>[] = [],
     model: string = 'sg',
     astro?: any[], // Pass astronomy data
-    metarData?: LocalObservation | null,
+    metarData?: any, // METAR removed - kept param for backward compat
     existingLocationType?: 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
     utcOffset?: number
@@ -137,13 +137,13 @@ export const mapStormGlassToReport = (
         return typeof firstVal === 'number' ? firstVal : 0;
     };
 
-    const getVal = (field: MultiSourceField): number => {
-        if (field === undefined || field === null) return 0;
+    const getVal = (field: MultiSourceField): number | null => {
+        if (field === undefined || field === null) return null;
         if (typeof field === 'number') return field;
         const rec = field as Record<string, number | undefined>;
 
         const val = rec.icon ?? rec.dwd ?? rec.metno ?? rec.meto ?? rec.sg ?? rec.noaa ?? Object.values(rec)[0];
-        return typeof val === 'number' ? val : 0;
+        return typeof val === 'number' ? val : null;
     };
 
     // Cast properties to compatible types for helpers
@@ -151,16 +151,16 @@ export const mapStormGlassToReport = (
     let wSpeed = getBest(currentHour.windSpeed as MultiSourceField) * 1.94384;
     let wGust = getBest(currentHour.gust as MultiSourceField) * 1.94384;
     let wDir = getBest(currentHour.windDirection as MultiSourceField);
-    let temp = getVal(currentHour.airTemperature as MultiSourceField);
-    let pressure = getVal(currentHour.pressure as MultiSourceField);
+    let temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
+    let pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
 
-    let vis = getVal(currentHour.visibility as MultiSourceField) * 0.539957;
+    let vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
     let dew: number | null = null;
     let fogRisk = false;
     let metarCondition = "";
-    let cloudCover = getVal(currentHour.cloudCover as MultiSourceField);
+    let cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;
 
-    const waveM = getVal(currentHour.waveHeight as MultiSourceField);
+    const waveM = getVal(currentHour.waveHeight as MultiSourceField) ?? 0;
     // Relaxed check: waveM could be 0, but isLandlocked usually implies < 0.2m
     const isLandlocked = waveM < 0.2;
 
@@ -198,10 +198,10 @@ export const mapStormGlassToReport = (
     const sSet = sunTimes ? fmtTime(sunTimes.sunset) : "18:00";
 
     const rawUV = currentHour.uvIndex as MultiSourceField;
-    const curUV = getVal(rawUV);
+    const curUV = getVal(rawUV) ?? 0;
 
     const cIsDay = checkIsDay(now, lat, lon);
-    let finalCondition = getCondition(getVal(currentHour.cloudCover as MultiSourceField), getVal(currentHour.precipitation as MultiSourceField), cIsDay);
+    let finalCondition = getCondition(getVal(currentHour.cloudCover as MultiSourceField) ?? 0, getVal(currentHour.precipitation as MultiSourceField) ?? 0, cIsDay);
 
     if (metarCondition && metarCondition.length > 2) {
         finalCondition = metarCondition;
@@ -212,7 +212,7 @@ export const mapStormGlassToReport = (
         else finalCondition = cIsDay ? "Clear Sky" : "Clear";
     }
 
-    const hum = overriddenHumidity !== null ? overriddenHumidity : getVal(currentHour.humidity as MultiSourceField);
+    const hum = overriddenHumidity !== null ? overriddenHumidity : (getVal(currentHour.humidity as MultiSourceField) ?? 0);
     const calculatedFeels = calculateFeelsLike(temp, hum, wSpeed * 0.8);
 
     const current: WeatherMetrics = {
@@ -220,9 +220,9 @@ export const mapStormGlassToReport = (
         windGust: parseFloat(wGust.toFixed(1)),
         windDirection: degreesToCardinal(wDir),
         windDegree: wDir,
-        waveHeight: parseFloat((getVal(currentHour.waveHeight as MultiSourceField) * 3.28084).toFixed(1)),
-        swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField),
-        swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField)),
+        waveHeight: parseFloat(((getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084).toFixed(1)),
+        swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField) ?? 0,
+        swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField) ?? 0),
         airTemperature: temp,
         waterTemperature: getVal(currentHour.waterTemperature as MultiSourceField),
         pressure: pressure,
@@ -230,11 +230,11 @@ export const mapStormGlassToReport = (
         visibility: vis,
         dewPoint: dew,
         fogRisk: fogRisk,
-        precipitation: getVal(currentHour.precipitation as MultiSourceField),
+        precipitation: getVal(currentHour.precipitation as MultiSourceField) ?? 0,
         humidity: hum,
         uvIndex: curUV,
         condition: finalCondition,
-        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField)), getVal(currentHour.waveHeight as MultiSourceField) * 3.28084)}`,
+        description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField) ?? 0), (getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084)}  `,
         day: "Today",
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
@@ -245,10 +245,10 @@ export const mapStormGlassToReport = (
         moonPhase: astro?.[0]?.moonPhase?.current?.text,
         moonPhaseValue: astro?.[0]?.moonPhase?.current?.value,
         moonIllumination: astro?.[0]?.moonFraction,
-        currentSpeed: parseFloat((getVal(currentHour.currentSpeed as MultiSourceField) * 1.94384).toFixed(1)),
+        currentSpeed: parseFloat(((getVal(currentHour.currentSpeed as MultiSourceField) ?? 0) * 1.94384).toFixed(1)),
         currentDirection: (() => {
             const val = getVal(currentHour.currentDirection as MultiSourceField);
-            if (val === 0) return undefined;
+            if (val === null || val === 0) return undefined;
             // FIX: StormGlass often reports "Direction From" (Oceanographic naming collision).
             // "Set" must be "Direction To". If data is "From North", Set is "South".
             // We invert by +180 degrees.
@@ -267,34 +267,42 @@ export const mapStormGlassToReport = (
     };
 
     // 2. Map Hourly
-    const hourlyStr: HourlyForecast[] = hours.map((h) => {
-        const windKts = getVal(h.windSpeed as MultiSourceField) * 1.94384;
+    const hourlyStr: HourlyForecast[] = hours.map((h, i) => {
+        const windKts = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
+        const windDeg = getVal(h.windDirection as MultiSourceField) ?? 0;
         return {
             time: h.time,
             windSpeed: windKts,
-            currentSpeed: parseFloat((getVal(h.currentSpeed as MultiSourceField) * 1.94384).toFixed(1)),
+            windDirection: degreesToCardinal(windDeg),
+            windDegree: windDeg,
+            currentSpeed: parseFloat(((getVal(h.currentSpeed as MultiSourceField) ?? 0) * 1.94384).toFixed(1)),
             currentDirection: (() => {
                 const val = getVal(h.currentDirection as MultiSourceField);
-                if (val === 0) return undefined;
+                if (val === null || val === 0) return undefined;
                 return (val + 180) % 360;
             })(),
-            waterTemperature: getVal(h.waterTemperature as MultiSourceField),
-            visibility: getVal(h.visibility as MultiSourceField) * 0.539957,
-            humidity: getVal(h.humidity as MultiSourceField),
-            windGust: getVal(h.gust as MultiSourceField) * 1.94384,
-            waveHeight: getVal(h.waveHeight as MultiSourceField) * 3.28084,
-            temperature: getVal(h.airTemperature as MultiSourceField),
-            pressure: getVal(h.pressure as MultiSourceField),
-            precipitation: getVal(h.precipitation as MultiSourceField),
-            cloudCover: getVal(h.cloudCover as MultiSourceField),
-            condition: getCondition(getVal(h.cloudCover as MultiSourceField), getVal(h.precipitation as MultiSourceField), checkIsDay(new Date(h.time), lat, lon)),
+            waterTemperature: getVal(h.waterTemperature as MultiSourceField) ?? undefined,
+            visibility: (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957,
+            humidity: getVal(h.humidity as MultiSourceField) ?? 0,
+            windGust: (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384,
+            waveHeight: (getVal(h.waveHeight as MultiSourceField) ?? 0) * 3.28084,
+            temperature: getVal(h.airTemperature as MultiSourceField) ?? 0,
+            pressure: getVal(h.pressure as MultiSourceField) ?? 0,
+            precipitation: getVal(h.precipitation as MultiSourceField) ?? 0,
+            cloudCover: getVal(h.cloudCover as MultiSourceField) ?? 0,
+            condition: getCondition(getVal(h.cloudCover as MultiSourceField) ?? 0, getVal(h.precipitation as MultiSourceField) ?? 0, checkIsDay(new Date(h.time), lat, lon)),
             isEstimated: false,
-            swellPeriod: getVal(h.wavePeriod as MultiSourceField),
+            swellPeriod: getVal(h.wavePeriod as MultiSourceField) ?? 0,
             tideHeight: 0,
-            uvIndex: getVal(h.uvIndex as MultiSourceField),
-            feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField), getVal(h.humidity as MultiSourceField), windKts * 0.8)
+            uvIndex: (() => {
+                const uvField = h.uvIndex as MultiSourceField;
+                return getVal(uvField) ?? 0;
+            })(),
+            feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField) ?? 0, getVal(h.humidity as MultiSourceField) ?? 0, windKts * 0.8)
         };
     });
+
+
 
     // 3. Map Daily (Aggregate)
     const seenDays = new Set<string>();
@@ -312,32 +320,41 @@ export const mapStormGlassToReport = (
             let totalWaterTemp = 0, waterTempCount = 0;
             let maxCurrentSpeed = 0;
             let currentDirVectorX = 0, currentDirVectorY = 0, currentDirCount = 0;
+            let windDirVectorX = 0, windDirVectorY = 0, windDirCount = 0;
             let maxUV = 0;
 
             dayHours.forEach(h => {
-                const t = getVal(h.airTemperature as MultiSourceField);
+                const t = getVal(h.airTemperature as MultiSourceField) ?? 0;
                 if (t < minT) minT = t;
                 if (t > maxT) maxT = t;
 
-                const w = getVal(h.windSpeed as MultiSourceField) * 1.94384;
+                const w = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
                 if (w > maxWind) maxWind = w;
 
-                const g = getVal(h.gust as MultiSourceField) * 1.94384;
+                const g = (getVal(h.gust as MultiSourceField) ?? 0) * 1.94384;
                 if (g > maxGust) maxGust = g;
 
-                const wh = getVal(h.waveHeight as MultiSourceField) * 3.28084;
+                const wd = getVal(h.windDirection as MultiSourceField);
+                if (wd !== null && wd !== undefined) {
+                    const rad = wd * (Math.PI / 180);
+                    windDirVectorX += Math.cos(rad);
+                    windDirVectorY += Math.sin(rad);
+                    windDirCount++;
+                }
+
+                const wh = (getVal(h.waveHeight as MultiSourceField) ?? 0) * 3.28084;
                 if (wh > maxWave) maxWave = wh;
 
-                totalPrecip += getVal(h.precipitation as MultiSourceField);
-                totalCloud += getVal(h.cloudCover as MultiSourceField);
-                totalPress += getVal(h.pressure as MultiSourceField);
-                totalHum += getVal(h.humidity as MultiSourceField);
-                totalVis += getVal(h.visibility as MultiSourceField) * 0.539957;
+                totalPrecip += getVal(h.precipitation as MultiSourceField) ?? 0;
+                totalCloud += getVal(h.cloudCover as MultiSourceField) ?? 0;
+                totalPress += getVal(h.pressure as MultiSourceField) ?? 0;
+                totalHum += getVal(h.humidity as MultiSourceField) ?? 0;
+                totalVis += (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957;
 
                 const wt = getVal(h.waterTemperature as MultiSourceField);
                 if (wt) { totalWaterTemp += wt; waterTempCount++; }
 
-                const cs = getVal(h.currentSpeed as MultiSourceField) * 1.94384;
+                const cs = (getVal(h.currentSpeed as MultiSourceField) ?? 0) * 1.94384;
                 if (cs > maxCurrentSpeed) maxCurrentSpeed = cs;
 
                 const cd = getVal(h.currentDirection as MultiSourceField);
@@ -348,7 +365,7 @@ export const mapStormGlassToReport = (
                     currentDirCount++;
                 }
 
-                const hUV = getVal(h.uvIndex as MultiSourceField);
+                const hUV = getVal(h.uvIndex as MultiSourceField) ?? 0;
                 if (hUV > maxUV) maxUV = hUV;
             });
 
@@ -371,7 +388,7 @@ export const mapStormGlassToReport = (
                 avgCurrentDir = (Math.atan2(currentDirVectorY / currentDirCount, currentDirVectorX / currentDirCount) * 180) / Math.PI;
                 if (avgCurrentDir < 0) avgCurrentDir += 360;
             } else {
-                avgCurrentDir = getVal(dayHours[0].currentDirection as MultiSourceField);
+                avgCurrentDir = getVal(dayHours[0].currentDirection as MultiSourceField) ?? 0;
             }
 
             dailies.push({

@@ -1,11 +1,13 @@
-import { MarineWeatherReport, StormGlassHour, StormGlassTideData } from '../../../types';
+import { MarineWeatherReport, StormGlassHour, StormGlassTideData, BeaconObservation } from '../../../types';
 import { getApiKey, checkStormglassStatus, getOpenMeteoKey } from '../keys';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
-import { fetchNearestMetar } from '../../MetarService';
+
 import { mapStormGlassToReport } from '../transformers';
 import { calculateDistance } from '../../../utils/math'; // Added
 import { determineLocationType } from '../locationType'; // Added
+import { mergeWeatherData } from './dataSourceMerger'; // Added for source tracking
+import { findAndFetchNearestBeacon } from './beaconService'; // Added for buoy data
 
 const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: string) => {
     const end = new Date();
@@ -129,24 +131,16 @@ export const fetchStormGlassWeather = async (
 
     // 2. SECONDARY: Fetch supplements safely
     // If these fail, we log warning but continue with defaults
-    // DEBUG: Trace Source of 2030 Dates
-    if (weatherRes && weatherRes.hours && weatherRes.hours.length > 0) {
-        console.log(`[StormGlass API] Raw First Hour: ${weatherRes.hours[0].time} | Count: ${weatherRes.hours.length}`);
-    }
 
-    const [tidesRes, astronomy, metar, hybridData] = await Promise.all([
+
+    const [tidesRes, astronomy, hybridData] = await Promise.all([
         fetchRealTides(lat, lon).catch(e => {
             console.warn("[SG] Tides (WT) Fetch Failed", e);
             return { tides: [], guiDetails: undefined };
         }),
-        // fetchSeaLevels(lat, lon), // REMOVED SG TIDES
         fetchAstronomy(lat, lon, 10, apiKey).catch(e => {
             console.warn("[SG] Astro Fetch Failed", e);
             return [];
-        }),
-        fetchNearestMetar(lat, lon).catch(e => {
-            console.warn("[SG] METAR Fetch Failed", e);
-            return null;
         }),
         fetchHybridContext().catch(e => {
             console.warn("[SG] Hybrid Context Fetch Failed", e);
@@ -181,7 +175,8 @@ export const fetchStormGlassWeather = async (
             });
 
             if (matchIdx !== -1) {
-                h.uvIndex = omValues[matchIdx];
+                // Inject as MultiSourceField so getVal can extract it
+                h.uvIndex = { openmeteo: omValues[matchIdx] } as any;
             }
         });
     }
@@ -209,13 +204,25 @@ export const fetchStormGlassWeather = async (
         tides.length > 0 ? interpolateTides(tides) : [],
         'sg',
         astronomy,
-        metar,
+        null, // METAR removed - was skewing wind/temps
         existingLocationType,
         hybridData?.weather?.timezone, // NEW: Timezone String
         hybridData?.weather?.utc_offset_seconds ? (hybridData.weather.utc_offset_seconds / 3600) : undefined // NEW: UTC Offset (Hours)
     );
 
-    // 4. Calculate Location Type (if not forced)
+    // 4. Fetch Buoy Data and Merge with StormGlass
+    // This adds source tracking metadata (emerald for Buoy, amber for StormGlass)
+    let nearestBuoy: BeaconObservation | null = null;
+    try {
+        nearestBuoy = await findAndFetchNearestBeacon(lat, lon, 10); // 10nm radius
+    } catch (e) {
+        console.warn("[StormGlass] Buoy fetch failed, will use StormGlass only:", e);
+    }
+
+    // Merge buoy data with StormGlass report to add source tracking
+    const mergedReport = mergeWeatherData(nearestBuoy, report, { lat, lon, name });
+
+    // 5. Calculate Location Type (if not forced)
     if (!existingLocationType) {
         try {
             // Calculate Distances
@@ -250,19 +257,19 @@ export const fetchStormGlassWeather = async (
                 // Effective Context for Determiner
                 const effectiveCtx = isGeneric ? null : landCtx;
 
-                report.locationType = determineLocationType(
+                mergedReport.locationType = determineLocationType(
                     effectiveCtx ? distToLand : null,
                     distToWaterIdx,
                     effectiveCtx?.name,
-                    report.tides && report.tides.length > 0,
+                    mergedReport.tides && mergedReport.tides.length > 0,
                     hybridData?.elevation
                 );
             } else {
                 // No land context at all
-                report.locationType = determineLocationType(null, distToWaterIdx, undefined, report.tides && report.tides.length > 0, hybridData?.elevation);
+                mergedReport.locationType = determineLocationType(null, distToWaterIdx, undefined, mergedReport.tides && mergedReport.tides.length > 0, hybridData?.elevation);
             }
 
-            report.isLandlocked = report.locationType === 'inland';
+            mergedReport.isLandlocked = mergedReport.locationType === 'inland';
 
 
         } catch (e) {
@@ -275,11 +282,11 @@ export const fetchStormGlassWeather = async (
 
     // Attach Tide GUI Details (Source Provenance)
     if (tidesRes?.guiDetails) {
-        report.tideGUIDetails = tidesRes.guiDetails;
+        mergedReport.tideGUIDetails = tidesRes.guiDetails;
 
     } else {
         console.warn("[StormGlass] No tideGUIDetails found in tidesRes");
     }
 
-    return report;
+    return mergedReport;
 };

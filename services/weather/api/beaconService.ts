@@ -2,6 +2,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { BeaconObservation, BuoyStation } from '../../../types';
 import { MAJOR_BUOYS } from '../config';
+import { degreesToCardinal } from '../../../utils/format';
 
 // --- CONSTANTS ---
 const NDBC_BASE_URL = 'https://www.ndbc.noaa.gov/data/realtime2';
@@ -40,14 +41,7 @@ function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: num
     return R * c;
 }
 
-/**
- * Convert degrees to cardinal direction
- */
-function degreesToCardinal(deg: number): string {
-    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    const index = Math.round(((deg % 360) / 22.5));
-    return directions[index % 16];
-}
+
 
 // --- NDBC (NOAA) BUOY FETCHING ---
 
@@ -180,7 +174,7 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         const filters = encodeURIComponent(JSON.stringify({ "Site": siteName }));
         const url = `${QLD_WAVE_API_BASE}?resource_id=${QLD_WAVE_MASTER_RESOURCE}&filters=${filters}&limit=1&sort=DateTime%20desc`;
 
-        console.log(`[BeaconService] Fetching QLD data for site: ${siteName}`);
+
 
         const response = await CapacitorHttp.get({
             url,
@@ -220,10 +214,89 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
     }
 }
 
+// --- BOM AUTOMATIC WEATHER STATION (AWS) FETCHING ---
+
+/**
+ * Fetch real-time wind observations from BOM Automatic Weather Station
+ * Uses BOM JSON API for individual coastal stations with full wind sensors
+ * 
+ * These stations provide ACTUAL OBSERVED wind data (not forecasts)
+ * Unlike wave buoys, AWS have anemometers and provide wind speed, direction, gusts
+ */
+async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
+    try {
+        // BOM JSON endpoint pattern for individual stations
+        const url = `http://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
+
+
+
+        const response = await CapacitorHttp.get({
+            url,
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (response.status !== 200 || !response.data) {
+            console.warn(`[BeaconService] BOM AWS API returned status ${response.status}`);
+            return null;
+        }
+
+        const data = response.data;
+
+        // BOM JSON structure: { observations: { data: [...] } }
+        if (!data.observations || !data.observations.data || data.observations.data.length === 0) {
+            console.warn(`[BeaconService] BOM AWS ${stationId} has no observation data`);
+            return null;
+        }
+
+        // Get most recent observation (first in array)
+        const obs = data.observations.data[0];
+
+        // Parse BOM AWS data
+        // Fields: wind_dir, wind_spd_kmh, gust_kmh, air_temp, press, etc.
+        // Convert km/h to m/s for consistency with NDBC (m/s * 1.944 = knots)
+        const parseFloat = (val: any): number | undefined => {
+            if (val === null || val === undefined || val === '-') return undefined;
+            const parsed = Number(val);
+            return isNaN(parsed) ? undefined : parsed;
+        };
+
+        const windSpeedKmh = parseFloat(obs.wind_spd_kmh);
+        const gustKmh = parseFloat(obs.gust_kmh);
+
+
+        // Convert km/h to m/s (divide by 3.6)
+        const windSpeed = windSpeedKmh !== undefined ? windSpeedKmh / 3.6 : undefined;
+        const windGust = gustKmh !== undefined ? gustKmh / 3.6 : undefined;
+
+        // BOM AWS provides wind_dir (cardinal) and sometimes wind_dir_deg (degrees)
+        // Priority: degrees > cardinal conversion
+        const windDirDeg = parseFloat(obs.wind_dir_deg);
+        const windDirCardinal = obs.wind_dir; // e.g., "E", "NE", "SSW"
+
+
+
+        return {
+            windSpeed,
+            windGust,
+            windDirection: windDirDeg, // Use degrees if available
+            airTemp: parseFloat(obs.air_temp),
+            pressure: parseFloat(obs.press),
+            timestamp: obs.local_date_time_full || obs.aifstime_utc || new Date().toISOString(),
+            // AWS typically don't have wave/water sensors
+            waveHeight: undefined,
+            dominantWavePeriod: undefined,
+            waterTemp: undefined
+        };
+    } catch (error) {
+        console.error(`[BeaconService] Error fetching BOM AWS ${stationId}:`, error);
+        return null;
+    }
+}
+
 // --- GENERIC BUOY FETCHER ---
 
 /**
- * Fetch buoy data based on type (NOAA, BOM, or other)
+ * Fetch buoy/station data based on type (NOAA, BOM, BOM AWS, or other)
  */
 async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
     switch (buoy.type) {
@@ -231,8 +304,15 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
             return fetchNDBCBuoy(buoy.id);
         case 'bom':
         case 'imos':
-            // Use Queensland/BOM integration for both
+            // Use Queensland/BOM integration for wave buoys
             return fetchBOMBuoy(buoy.id);
+        case 'bom-aws':
+            // BOM Automatic Weather Stations with wind sensors
+            if (!buoy.bomStationId) {
+                console.warn(`[BeaconService] BOM AWS ${buoy.id} missing bomStationId`);
+                return null;
+            }
+            return fetchBOMAWS(buoy.bomStationId);
         case 'ukmo':
         case 'eurogoos':
         case 'jma':
@@ -289,7 +369,7 @@ export async function findAndFetchNearestBeacon(
     maxDistanceNM: number = MAX_BEACON_DISTANCE_NM
 ): Promise<BeaconObservation | null> {
     try {
-        console.log(`[BeaconService] Searching for beacons within ${maxDistanceNM}nm of ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+
 
         // Calculate distances and sort
         const buoysWithDistance = MAJOR_BUOYS.map(buoy => ({
@@ -301,19 +381,18 @@ export async function findAndFetchNearestBeacon(
         const nearbyBuoys = buoysWithDistance.filter(b => b.distance <= maxDistanceNM);
 
         if (nearbyBuoys.length === 0) {
-            console.log(`[BeaconService] No beacons found within ${maxDistanceNM}nm`);
             return null;
         }
 
-        console.log(`[BeaconService] Found ${nearbyBuoys.length} beacon(s) within range`);
+
 
         // Try each beacon until we get valid data
         for (const { buoy, distance } of nearbyBuoys) {
-            console.log(`[BeaconService] Attempting to fetch ${buoy.name} (${buoy.id}) at ${distance.toFixed(1)}nm`);
+
 
             const data = await fetchBuoyData(buoy);
             if (data) {
-                console.log(`[BeaconService] ✓ Successfully fetched data from ${buoy.name}`);
+
 
                 // Convert to BeaconObservation
                 const observation: BeaconObservation = {

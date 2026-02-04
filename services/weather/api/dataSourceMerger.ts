@@ -8,37 +8,26 @@ import {
     WeatherMetrics,
     MarineWeatherReport
 } from '../../../types';
-
-// Import existing METAR observation type
-type LocalObservation = any; // TODO: Import from MetarService when refactored
+import { degreesToCardinal } from '../../../utils/format';
 
 // --- CONSTANTS ---
-const BEACON_THRESHOLD_NM = 10;
-const AIRPORT_THRESHOLD_NM = 30;
+const BUOY_THRESHOLD_NM = 10;  // Maximum distance to use buoy data
 
 // --- HELPER FUNCTIONS ---
 
 /**
- * Get color indicator for a data source type
+ * Maps data source to UI color indicator
  * 
- * Maps data source types to visual color indicators for UI display:
- * - Beacon: Green (real-time measured data from marine buoys)
- * - Airport: Amber (observed atmospheric data from nearby weather stations)
- * - StormGlass: Red (modeled/computed predictions)
- * 
- * @param source - The data source type
- * @returns Color code for UI styling ('green' | 'amber' | 'red')
- * 
- * @example
- * ```typescript
- * const color = getSourceColor('beacon'); // Returns 'green'
- * ```
+ * Marine-focused color scheme:
+ * - Emerald: Buoy data (real ocean measurements)
+ * - Amber: StormGlass (marine forecast models)
+ * - White: Fallback/unknown
  */
 function getSourceColor(source: DataSource): SourceColor {
     switch (source) {
-        case 'beacon': return 'green';
-        case 'airport': return 'amber';
-        case 'stormglass': return 'red';
+        case 'buoy': return 'emerald';
+        case 'stormglass': return 'amber';
+        default: return 'white';
     }
 }
 
@@ -61,34 +50,22 @@ function formatDistance(distanceNM: number): string {
 }
 
 /**
- * Create a MetricSource object with complete metadata
+ * Create a MetricSource object with value and origin metadata
  * 
- * Constructs a standardized metric source object that includes:
- * - Raw metric value
- * - Source type identifier
- * - Human-readable source name
- * - Color indicator for UI
- * - Optional distance from location
+ * Core building block for source transparency - every metric includes
+ * origin metadata for UI display.
  * 
- * This is the core building block for source transparency - every metric
- * tracked in the system includes its origin metadata.
- * 
- * @param value - The actual metric value (number, string, etc.)
- * @param source - Data source type ('beacon' | 'airport' | 'stormglass')
- * @param sourceName - Display name (e.g., "Moreton Bay Central", "Brisbane Airport")
- * @param distance - Optional distance in nautical miles from user location
- * @returns Complete MetricSource object with value and metadata
+ * @param value - Metric value (number, string, etc.)
+ * @param source - Data source: 'buoy' | 'stormglass'
+ * @param sourceName - Display name (e.g., "Moreton Bay Central", "StormGlass Pro")
+ * @param distance - Optional distance in nm from user location
+ * @returns Complete MetricSource with value and metadata
  * 
  * @example
  * ```typescript
- * const windSource = createMetricSource(
- *   15.5,
- *   'beacon',
- *   'Moreton Bay Central',
- *   5.2
- * );
- * // Returns: { value: 15.5, source: 'beacon', sourceName: 'Moreton Bay Central',
- * //            sourceColor: 'green', sourceDistance: '5.2nm' }
+ * const windSource = createMetricSource(15.5, 'buoy', 'Moreton Bay Central', 5.2);
+ * // Returns: { value: 15.5, source: 'buoy', sourceName: 'Moreton Bay Central',
+ * //            sourceColor: 'emerald', sourceDistance: '5.2nm' }
  * ```
  */
 function createMetricSource(
@@ -106,20 +83,11 @@ function createMetricSource(
     };
 }
 
-/**
- * Convert wind direction from degrees to cardinal with degrees
- */
 function formatWindDirection(degrees?: number | null, cardinal?: string): string {
     if (degrees !== null && degrees !== undefined) {
         return cardinal || degreesToCardinal(degrees);
     }
     return cardinal || 'N/A';
-}
-
-function degreesToCardinal(deg: number): string {
-    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    const index = Math.round(((deg % 360) / 22.5));
-    return directions[index % 16];
 }
 
 /**
@@ -139,84 +107,55 @@ function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: num
 // --- MAIN MERGING LOGIC ---
 
 /**
- * Merge weather data from multiple sources with intelligent prioritization
+ * Merge weather data from BOM AWS, buoy, and StormGlass sources
  * 
- * This is the core function for Thalassa's multi-source transparency strategy.
- * It combines real-time beacon data, observed airport data, and modeled StormGlass
- * predictions, selecting the best source for each metric based on proximity and data quality.
+ * Marine-focused data merging with intelligent prioritization:
+ * BOM AWS (observed wind) > Buoy (marine observations) > StormGlass (forecast models)
  * 
- * ## Source Priority Logic:
- * 1. **Beacon (Green)** - Real-time measured data from marine buoys
- *    - Used if within 10nm of location
- *    - Prioritized for marine metrics: wind, waves, water temp, currents
- *    - Limited atmospheric sensors (no pressure, visibility, etc.)
+ * ## Source Priority (3-Tier System):
+ * 1. **BOM AWS (Emerald)** - OBSERVED wind from coastal weather stations
+ *    - Real anemometer readings from stations like Inner Beacon, Hope Banks
+ *    - Wind speed, direction, gusts are ACTUAL measurements (not forecasts!)
+ *    - Used if station within 10nm
  * 
- * 2. **Airport (Amber)** - Observed atmospheric data from METAR stations
- *    - Used if within 30nm of location  
- *    - Prioritized for atmospheric metrics: pressure, visibility, fog risk
- *    - No wave or current data
+ * 2. **Buoy (Emerald)** - Real-time marine measurements
+ *    - Wave buoys: wave height, period, water temp (NO wind sensors)
+ *    - NDBC buoys: full suite including wind (if available)
+ *    - Used if within 10nm and metric available
  * 
- * 3. **StormGlass (Red)** - Modeled/computed predictions (always available)
- *    - Provides complete global coverage
- *    - All metrics available, but computed not measured
- *    - UV Index exclusively from StormGlass
+ * 3. **StormGlass (Amber)** - Marine forecast models
+ *    - Global coverage fallback
+ *    - Complete weather metrics when no observations available
  * 
  * ## Metric Tagging:
- * Every selected metric includes a `MetricSource` object with:
- * - `value`: The actual metric value
- * - `source`: Data source type ('beacon' | 'airport' | 'stormglass')
- * - `sourceColor`: UI color indicator ('green' | 'amber' | 'red')
- * - `sourceName`: Human-readable source name
- * - `distance`: Distance from user location (if applicable)
+ * Every metric includes MetricSource metadata:
+ * - `value`: Metric value
+ * - `source`: 'buoy' | 'stormglass' (BOM AWS uses 'buoy' source designation)
+ * - `sourceColor`: 'emerald' | 'amber' | 'white'
+ * - `sourceName`: Human-readable name (e.g., "Inner Beacon (AWS)")
+ * - `distance`: Distance in nm (for buoy/AWS only)
  * 
- * This enables the UI to visually indicate data origin with color-coded metrics.
- * 
- * @param beacon - Real-time marine buoy observation (null if none within range)
- * @param airport - Nearest airport METAR observation (filtered by 30nm threshold)
- * @param stormglassReport - Complete StormGlass API response (global fallback)
- * @param location - User location with coordinates and name
- * @returns Complete MarineWeatherReport with source-tagged current metrics
+ * @param buoy - Real-time buoy/AWS observation (null if none within range)
+ * @param stormglassReport - StormGlass API response (always available)
+ * @param location - User location coordinates and name
+ * @returns Complete MarineWeatherReport with source-tagged metrics
  * 
  * @example
  * ```typescript
- * const mergedReport = mergeWeatherData(
- *   moretonBayBeacon,  // Within 10nm
- *   brisbaneAirport,   // Within 30nm
+ * const report = mergeWeatherData(
+ *   innerBeaconAWS,  // BOM AWS with wind sensors
  *   stormglassData,
- *   { lat: -27.3, lon: 153.3, name: "Brisbane" }
+ *   { lat: -27.3, lon: 153.3, name: "Newport" }
  * );
- * 
- * // Result: Wind from beacon (green), pressure from airport (amber),
- * // UV from StormGlass (red), each tagged with source metadata
+ * // Wind from Inner Beacon AWS (emerald, OBSERVED)
+ * // Waves from StormGlass (amber, forecast)
  * ```
  */
 export function mergeWeatherData(
-    beacon: BeaconObservation | null,
-    airport: LocalObservation | null,
+    buoy: BeaconObservation | null,
     stormglassReport: MarineWeatherReport,
     location: { lat: number, lon: number, name: string }
 ): MarineWeatherReport {
-
-    console.log('[DataSourceMerger] === MERGING DATA FROM MULTIPLE SOURCES ===');
-    console.log(`[DataSourceMerger] Location: ${location.name} (${location.lat.toFixed(4)}, ${location.lon.toFixed(4)})`);
-    console.log(`[DataSourceMerger] Beacon: ${beacon ? `✓ ${beacon.name} (${beacon.distance.toFixed(1)}nm)` : '✗ None'}`);
-
-    // Calculate airport distance and filter if too far
-    let airportDistance: number | undefined;
-    if (airport && airport.lat && airport.lon) {
-        airportDistance = calculateDistanceNM(location.lat, location.lon, airport.lat, airport.lon);
-        console.log(`[DataSourceMerger] Airport: ${airport.name || airport.stationId || 'Unknown'} (${airportDistance.toFixed(1)}nm)`);
-
-        if (airportDistance > AIRPORT_THRESHOLD_NM) {
-            console.log(`[DataSourceMerger] ⚠️ Airport beyond ${AIRPORT_THRESHOLD_NM}nm limit - ignoring`);
-            airport = null; // Too far for marine relevance
-        }
-    } else if (airport) {
-        console.log(`[DataSourceMerger] Airport: ${airport.name || airport.stationId || 'Unknown'} (no coords)`);
-        airport = null; // No coords means we can't determine distance, so ignore it
-        console.log(`[DataSourceMerger] Airport: ✗ None`);
-    }
-    console.log(`[DataSourceMerger] StormGlass: ✓ Available`);
 
     const stormglass = stormglassReport.current;
     const sources: SourcedWeatherMetrics['sources'] = {};
@@ -224,53 +163,42 @@ export function mergeWeatherData(
     // Helper to set metric with source tracking
     function setMetric<K extends keyof WeatherMetrics>(
         key: K,
-        beaconVal: any,
-        airportVal: any,
+        buoyVal: any,
         stormglassVal: any
     ): WeatherMetrics[K] {
-        // Priority: Beacon > Airport > StormGlass
-        if (beaconVal !== undefined && beaconVal !== null && beacon && sources) {
-            sources[key] = createMetricSource(beaconVal, 'beacon', beacon.name, beacon.distance);
-            return beaconVal;
-        } else if (airportVal !== undefined && airportVal !== null && airport && sources) {
-            const airportName = `${airport.name || airport.stationId} Airport`;
-            sources[key] = createMetricSource(airportVal, 'airport', airportName, airportDistance);
-            return airportVal;
+        // Priority: Buoy/AWS > StormGlass
+        // Note: BOM AWS data comes through the 'buoy' param (BeaconObservation)
+        if (buoyVal !== undefined && buoyVal !== null && buoy && sources) {
+            sources[key] = createMetricSource(buoyVal, 'buoy', buoy.name, buoy.distance);
+            return buoyVal;
         } else if (sources) {
             sources[key] = createMetricSource(stormglassVal, 'stormglass', 'StormGlass Pro');
         }
         return stormglassVal;
     }
 
-    // WIND SPEED: Beacon > Airport > StormGlass
+    // WIND SPEED: BOM AWS/Buoy > StormGlass (rounded to whole number)
+    // BOM AWS has actual anemometer, wave buoys typically don't
     const windSpeed = setMetric('windSpeed',
-        beacon?.windSpeed,
-        airport?.windSpeed,
-        stormglass.windSpeed
+        buoy?.windSpeed !== null && buoy?.windSpeed !== undefined ? Math.round(buoy.windSpeed) : null,
+        stormglass.windSpeed !== null && stormglass.windSpeed !== undefined ? Math.round(stormglass.windSpeed) : null
     );
 
-    // WIND GUST: Beacon > Airport > StormGlass
+    // WIND GUST: BOM AWS/Buoy > StormGlass (rounded to whole number)
     const windGust = setMetric('windGust',
-        beacon?.windGust,
-        airport?.windGust,
-        stormglass.windGust
+        buoy?.windGust !== null && buoy?.windGust !== undefined ? Math.round(buoy.windGust) : null,
+        stormglass.windGust !== null && stormglass.windGust !== undefined ? Math.round(stormglass.windGust) : null
     );
 
-    // WIND DIRECTION: Beacon > Airport > StormGlass (special handling for degree vs cardinal)
+    // WIND DIRECTION: Buoy > StormGlass (special handling for degree vs cardinal)
     let windDirection: string;
     let windDegree: number | undefined;
 
-    if (beacon?.windDirection !== undefined && beacon?.windDirection !== null) {
-        windDegree = beacon.windDirection;
+    if (buoy?.windDirection !== undefined && buoy?.windDirection !== null) {
+        windDegree = buoy.windDirection;
         windDirection = degreesToCardinal(windDegree);
-        sources['windDirection'] = createMetricSource(windDirection, 'beacon', beacon.name, beacon.distance);
-        sources['windDegree'] = createMetricSource(windDegree, 'beacon', beacon.name, beacon.distance);
-    } else if (airport?.windDirection !== undefined) {
-        windDegree = airport.windDirection as number;
-        windDirection = degreesToCardinal(windDegree);
-        const airportName = `${airport.name || airport.stationId} Airport`;
-        sources['windDirection'] = createMetricSource(windDirection, 'airport', airportName);
-        sources['windDegree'] = createMetricSource(windDegree, 'airport', airportName);
+        sources['windDirection'] = createMetricSource(windDirection, 'buoy', buoy.name, buoy.distance);
+        sources['windDegree'] = createMetricSource(windDegree, 'buoy', buoy.name, buoy.distance);
     } else {
         windDirection = stormglass.windDirection;
         windDegree = stormglass.windDegree;
@@ -278,22 +206,14 @@ export function mergeWeatherData(
         if (windDegree) sources['windDegree'] = createMetricSource(windDegree, 'stormglass', 'StormGlass Pro');
     }
 
-    // AIR TEMPERATURE: Beacon > StormGlass > Airport
-    // For marine/coastal locations, StormGlass models are more accurate than inland airports
-    // Beacon is still #1 priority if available (onsite measurement)
+    // AIR TEMPERATURE: Buoy > StormGlass
     let airTemperature: number | null;
-    if (beacon?.airTemperature !== undefined && beacon?.airTemperature !== null) {
-        airTemperature = beacon.airTemperature;
-        sources['airTemperature'] = createMetricSource(airTemperature, 'beacon', beacon.name, beacon.distance);
+    if (buoy?.airTemperature !== undefined && buoy?.airTemperature !== null) {
+        airTemperature = buoy.airTemperature;
+        sources['airTemperature'] = createMetricSource(airTemperature, 'buoy', buoy.name, buoy.distance);
     } else if (stormglass.airTemperature !== undefined && stormglass.airTemperature !== null) {
-        // Prioritize StormGlass for coastal accuracy
         airTemperature = stormglass.airTemperature;
         sources['airTemperature'] = createMetricSource(airTemperature, 'stormglass', 'StormGlass Pro');
-    } else if (airport?.temperature !== undefined && airport?.temperature !== null) {
-        // Airport as fallback (often inland, may be less accurate for coastal)
-        airTemperature = airport.temperature;
-        const airportName = `${airport.name || airport.stationId} Airport`;
-        sources['airTemperature'] = createMetricSource(airTemperature, 'airport', airportName);
     } else {
         airTemperature = null;
         sources['airTemperature'] = createMetricSource(null, 'stormglass', 'StormGlass Pro');
@@ -301,80 +221,71 @@ export function mergeWeatherData(
 
     // WATER TEMPERATURE: Beacon > StormGlass (airports don't have this)
     const waterTemperature = setMetric('waterTemperature',
-        beacon?.waterTemperature,
-        undefined,
+        buoy?.waterTemperature,
         stormglass.waterTemperature
     );
 
     // WAVE HEIGHT: Beacon > StormGlass (airports don't have this)
     const waveHeight = setMetric('waveHeight',
-        beacon?.waveHeight,
-        undefined,
+        buoy?.waveHeight,
         stormglass.waveHeight
     );
 
     // SWELL PERIOD: Beacon > StormGlass
     const swellPeriod = setMetric('swellPeriod',
-        beacon?.swellPeriod,
-        undefined,
+        buoy?.swellPeriod,
         stormglass.swellPeriod
     );
 
-    // PRESSURE: Beacon > Airport > StormGlass
+    // PRESSURE: Buoy > StormGlass
     const pressure = setMetric('pressure',
-        beacon?.pressure,
-        airport?.pressure,
+        buoy?.pressure,
         stormglass.pressure
     );
 
-    // VISIBILITY: Airport > StormGlass (airports have precision instruments)
+    // VISIBILITY: StormGlass only
     const visibility = setMetric('visibility',
-        undefined,
-        airport?.visibility,
+        null,
         stormglass.visibility
     );
 
-    // HUMIDITY: Airport > StormGlass
+    // HUMIDITY: StormGlass only
     const humidity = setMetric('humidity',
-        undefined,
-        airport?.dewpoint ? calculateRelativeHumidity(airport.temperature, airport.dewpoint) : undefined,
+        null,
         stormglass.humidity
     );
 
-    // DEW POINT: Airport > StormGlass
+    // DEW POINT: StormGlass only
     const dewPoint = setMetric('dewPoint',
-        undefined,
-        airport?.dewpoint,
+        null,
         stormglass.dewPoint
     );
 
-    // CLOUD COVER: Airport > StormGlass
+    // CLOUD COVER: StormGlass only
     const cloudCover = setMetric('cloudCover',
-        undefined,
-        airport?.cloudCover,
+        null,
         stormglass.cloudCover
     );
 
-    // PRECIPITATION: Airport > StormGlass
+    // PRECIPITATION: StormGlass only
     const precipitation = setMetric('precipitation',
-        undefined,
-        airport?.precip,
+        null,
         stormglass.precipitation
     );
 
     // CURRENTS: Beacon only (no other sources provide this)
-    const currentSpeed = beacon?.currentSpeed || stormglass.currentSpeed;
-    const currentDirection = beacon?.currentDegree ? degreesToCardinal(beacon.currentDegree) : stormglass.currentDirection;
+    const currentSpeed = buoy?.currentSpeed || stormglass.currentSpeed;
+    const currentDirection = buoy?.currentDegree ? degreesToCardinal(buoy.currentDegree) : stormglass.currentDirection;
     if (currentSpeed) {
-        if (beacon?.currentSpeed) {
-            sources['currentSpeed'] = createMetricSource(currentSpeed, 'beacon', beacon.name, beacon.distance);
+        if (buoy?.currentSpeed) {
+            sources['currentSpeed'] = createMetricSource(currentSpeed, 'buoy', buoy.name, buoy.distance);
         } else {
             sources['currentSpeed'] = createMetricSource(currentSpeed, 'stormglass', 'StormGlass Pro');
         }
     }
     if (currentDirection) {
-        if (beacon?.currentDegree) {
-            sources['currentDirection'] = createMetricSource(currentDirection, 'beacon', beacon.name, beacon.distance);
+        if (buoy?.currentDegree) {
+            sources['currentDirection'] = createMetricSource(currentDirection, 'buoy', buoy.name, buoy.distance);
         } else {
             sources['currentDirection'] = createMetricSource(currentDirection, 'stormglass', 'StormGlass Pro');
         }
@@ -384,9 +295,6 @@ export function mergeWeatherData(
     if (stormglass.uvIndex !== undefined && stormglass.uvIndex !== null) {
         sources['uvIndex'] = createMetricSource(stormglass.uvIndex, 'stormglass', 'StormGlass Pro');
     }
-
-    // FOG RISK: Airport > StormGlass
-    const fogRisk = airport?.fogRisk !== undefined ? airport.fogRisk : stormglass.fogRisk;
 
     // Build merged current metrics
     const mergedCurrent: SourcedWeatherMetrics = {
@@ -401,6 +309,7 @@ export function mergeWeatherData(
         waterTemperature,
         waveHeight,
         swellPeriod,
+        wavePeriod: swellPeriod,  // Alias for component compatibility
         pressure,
         visibility,
         humidity,
@@ -409,7 +318,7 @@ export function mergeWeatherData(
         precipitation,
         currentSpeed,
         currentDirection: currentDirection as any,
-        fogRisk,
+        uvIndex: stormglass.uvIndex,  // FIXED: UV index was missing!
 
         // Add source tracking
         sources
@@ -419,26 +328,10 @@ export function mergeWeatherData(
     const mergedReport: MarineWeatherReport = {
         ...stormglassReport,
         current: mergedCurrent,
-        beaconObservation: beacon || undefined,
-        // Keep airport obs in observations array if exists
-        observations: airport ? [
-            {
-                name: airport.name || airport.stationId,
-                distance: '< 30nm',
-                time: airport.timestamp || 'now',
-                windSpeed: airport.windSpeed,
-                windDirection: degreesToCardinal(airport.windDirection || 0),
-                windGust: airport.windGust,
-                swellHeight: undefined,
-                pressure: airport.pressure,
-                airTemperature: airport.temperature,
-                condition: airport.weather,
-                coordinates: airport.lat && airport.lon ? { lat: airport.lat, lon: airport.lon } : undefined
-            }
-        ] : []
+        beaconObservation: buoy || undefined,
+        observations: [] // Removed airport observations (v20.0 marine-only)
     };
 
-    console.log('[DataSourceMerger] === MERGE COMPLETE ===');
     return mergedReport;
 }
 
@@ -475,11 +368,8 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
         const line = `  ✓ ${displayName}: ${valueStr}`;
 
         switch (metricSource.source) {
-            case 'beacon':
+            case 'buoy':
                 beaconMetrics.push(line);
-                break;
-            case 'airport':
-                airportMetrics.push(line);
                 break;
             case 'stormglass':
                 stormglassMetrics.push(line);
@@ -492,15 +382,12 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
     lines.push('\n=== DATA SOURCES ===\n');
 
     if (beaconMetrics.length > 0) {
-        const beaconSource = Object.values(current.sources).find(s => s?.source === 'beacon');
+        const beaconSource = Object.values(current.sources).find(s => s?.source === 'buoy');
         const beaconDist = beaconSource?.distance || 'N/A';
         lines.push('');
     }
 
-    if (airportMetrics.length > 0) {
-        const airportSource = Object.values(current.sources).find(s => s?.source === 'airport');
-        lines.push('');
-    }
+
 
     if (stormglassMetrics.length > 0) {
         lines.push(`🔴 STORMGLASS PRO: Forecast Model`);
@@ -532,7 +419,7 @@ function formatMetricValue(key: string, value: any): string {
             return `${value} nm`;
         case 'humidity':
         case 'cloudCover':
-            return `${value}%`;
+            return `${value} % `;
         case 'precipitation':
             return `${value} mm`;
         case 'currentSpeed':

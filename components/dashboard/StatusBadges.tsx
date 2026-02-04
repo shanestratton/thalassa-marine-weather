@@ -12,6 +12,7 @@ interface StatusBadgesProps {
     locationType?: 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
     airportName?: string;
+    buoyName?: string;
 }
 
 export const StatusBadges: React.FC<StatusBadgesProps> = ({
@@ -23,7 +24,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     stationId,
     locationType,
     beaconName,
-    airportName
+    airportName,
+    buoyName
 }) => {
     // Helper to shorten source names for compact badge display
     const shortenSourceName = (name: string): string => {
@@ -79,6 +81,12 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         {beaconName && (
                             <>
                                 <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
+                                {(buoyName || airportName || hasStormGlass) && <span className="text-white/30">•</span>}
+                            </>
+                        )}
+                        {buoyName && (
+                            <>
+                                <span className="text-emerald-400 font-bold">{shortenSourceName(buoyName)}</span>
                                 {(airportName || hasStormGlass) && <span className="text-white/30">•</span>}
                             </>
                         )}

@@ -1,5 +1,6 @@
 import React from 'react';
-import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
+import { motion } from 'framer-motion';
+import { ArrowUpIcon, ArrowDownIcon, SunriseIcon, SunsetIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
 import { generateWeatherNarrative } from './WeatherHelpers';
@@ -12,7 +13,7 @@ interface HeroHeaderProps {
     dateLabel: string;
     timeLabel: string;
     timeZone?: string;
-    sources?: Record<string, { source: string; sourceColor?: 'green' | 'amber' | 'red'; sourceName?: string }>;
+    sources?: Record<string, { source: string; sourceColor?: 'emerald' | 'amber' | 'white'; sourceName?: string }>;
 }
 
 export const HeroHeader: React.FC<HeroHeaderProps> = ({
@@ -27,13 +28,16 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
 }) => {
     // Helper to get source text color for temperature
     const getTempColor = (): string => {
+        // Forecast data should always be white
+        if (!isLive) return 'text-white';
+
+        // Live data shows source colors
         if (!sources || !sources['airTemperature']) return 'text-white';
         const sourceColor = sources['airTemperature']?.sourceColor;
         switch (sourceColor) {
-            case 'green': return 'text-emerald-400';
-            case 'amber': return 'text-amber-400';
-            case 'red': return 'text-red-400';
-            default: return 'text-white';
+            case 'emerald': return 'text-emerald-400';  // Buoy data
+            case 'amber': return 'text-amber-400';      // StormGlass data
+            default: return 'text-white';               // Default
         }
     };
 
@@ -47,15 +51,26 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                 <div className="flex flex-row w-full min-h-[90px]">
                     {/* Temperature */}
                     <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-center items-start min-w-0 bg-white/0">
-                        <div className="flex items-start leading-none relative">
+                        <div className="flex items-start leading-none">
                             {(() => {
                                 const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
                                 const len = tempStr.length;
                                 const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
-                                return <span className={`${sizeClass} font-black tracking-tighter ${getTempColor()} drop-shadow-2xl leading-none transition-all duration-300`}>{tempStr}°</span>;
+                                return (
+                                    <motion.span
+                                        key={tempStr}
+                                        initial={{ scale: 1.1, opacity: 0.7 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ duration: 0.3, ease: "easeOut" }}
+                                        className={`${sizeClass} font-black tracking-tighter ${getTempColor()} drop-shadow-2xl leading-none`}
+                                        aria-label={`Temperature ${tempStr} degrees`}
+                                    >
+                                        {tempStr}°
+                                    </motion.span>
+                                );
                             })()}
                         </div>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-2">
                             <div className="flex items-center gap-0.5">
                                 <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
                                 <span className="text-[10px] font-bold text-white opacity-80">
@@ -72,26 +87,34 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                         </div>
                     </div>
 
-                    {/* Weather Narrative */}
-                    <div className="flex-1 border-r border-white/5 p-3 flex flex-col justify-center items-center min-w-0 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-sm overflow-hidden">
-                        <div className="text-xs md:text-sm font-medium text-left leading-relaxed text-white/90 overflow-y-auto max-h-[75px] w-full pr-1 scrollbar-hide">
-                            {generateWeatherNarrative(data)}
-                        </div>
-                    </div>
-
-                    {/* Date/Time */}
-                    <div className="flex-1 p-2 flex flex-col justify-between items-end min-w-0 bg-white/0">
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-right`}>
+                    {/* Date/Time - NOW IN CENTER */}
+                    <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-between items-center min-w-0 bg-white/0">
+                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-center`}>
                             {isLive ? "TODAY" : "FORECAST"}
                         </span>
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-right whitespace-nowrap -translate-y-1`}>
+                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-center whitespace-nowrap -translate-y-1`}>
                             {isLive ? "NOW" : dateLabel}
                         </span>
                         {timeLabel && (
-                            <span className={`text-xs md:text-sm font-bold ${isLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-right whitespace-nowrap`}>
+                            <span className={`text-xs md:text-sm font-bold ${isLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-center whitespace-nowrap`}>
                                 {timeLabel}
                             </span>
                         )}
+                    </div>
+
+                    {/* Weather Narrative - NOW ON RIGHT */}
+                    <div className="flex-1 p-3 flex flex-col justify-center items-center min-w-0 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-sm overflow-hidden">
+                        <motion.div
+                            key={data.description}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.4 }}
+                            className="text-xs md:text-sm font-medium text-left leading-relaxed text-white/90 overflow-y-scroll h-[75px] w-full pr-1 scrollbar-hide"
+                            aria-live="polite"
+                            aria-label="Weather description"
+                        >
+                            {generateWeatherNarrative(data)}
+                        </motion.div>
                     </div>
                 </div>
             </div>

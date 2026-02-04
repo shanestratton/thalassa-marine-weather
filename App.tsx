@@ -13,7 +13,7 @@ import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
-import { DebugPanel } from './components/DebugPanel';
+
 
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
@@ -308,7 +308,7 @@ const App: React.FC = () => {
                 <div className="fixed inset-0 z-[9999] pointer-events-none touch-none" style={{ backdropFilter: 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(600%) contrast(0.8) brightness(0.8)' }}></div>
             )}
 
-            <DebugPanel />
+
         </div>
     );
 };

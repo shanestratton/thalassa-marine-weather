@@ -4,7 +4,6 @@ import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
 import { saveToCache, getFromCache } from './cache';
-import { fetchNearestMetar, getShortCondition, LocalObservation } from '../MetarService';
 import { degreesToCardinal } from '../../utils';
 
 // --- RE-EXPORTS (Maintain API Compatibility) ---
@@ -14,87 +13,12 @@ export { reverseGeocode, parseLocation } from './api/geocoding';
 export { fetchOpenMeteo } from './api/openmeteo';
 export { fetchActiveBuoys } from './api/buoys';
 
-// Legacy Stubs (Unused but exported in old service)
-export const fetchBaseWeather = async (
-    lat: number, lon: number, name: string
-): Promise<MarineWeatherReport | null> => { return null; };
-
-export const fetchAccurateMarineGrid = async (lat: number, lon: number): Promise<any[]> => { return []; };
 
 // Alias for compatibility
 export const fetchStormglassData = fetchStormGlassWeather;
 
-// --- HELPER: METAR OVERRIDE ---
-const applyMetarOverride = async (data: MarineWeatherReport): Promise<MarineWeatherReport> => {
-    try {
-        if (!data.coordinates) return data;
-        const { lat, lon } = data.coordinates;
-        // Fetch nearest METAR
-        const obs = await fetchNearestMetar(lat, lon);
-
-        if (obs) {
-            // Calculate Approximation for Humidity if missing (100 - 5 * (T - Td))
-            let humidity = 0;
-            if (obs.temperature !== undefined && obs.dewpoint !== undefined) {
-                humidity = Math.max(0, Math.min(100, 100 - 5 * (obs.temperature - obs.dewpoint)));
-            }
-
-            // Prepare log values
-            const logValues = {
-                Station: obs.stationId,
-                Temp: obs.temperature,
-                Dewpoint: obs.dewpoint,
-                Humidity: humidity,
-                Pressure: obs.pressure,
-                Wind: `${obs.windSpeed}kts @ ${obs.windDirection}°`,
-                Gust: obs.windGust || 0,
-                Rain: obs.precip || 0,
-                Vis: obs.visibility,
-                Clouds: obs.cloudCover
-            };
 
 
-
-            // OVERRIDE CURRENT METRICS
-            // Note: We deliberately overwrite the 'current' object with valid METAR data
-            // We keep fields that METAR doesn't have (like Wave Height) from the original model data
-
-            data.current = {
-                ...data.current, // Keep waves/tides/astro
-
-                // Air
-                airTemperature: obs.temperature,
-                feelsLike: obs.temperature, // METAR doesn't give Feels Like, use Temp or calc later? User said "Temp"
-                humidity: humidity,
-                pressure: obs.pressure,
-                visibility: obs.visibility > 0 ? obs.visibility : data.current.visibility, // Only override if valid
-
-                // Wind
-                windSpeed: obs.windSpeed,
-                windDirection: degreesToCardinal(obs.windDirection),
-                windDegree: obs.windDirection,
-                windGust: obs.windGust || 0, // Metar service returns undefined if no gusts
-
-                // Sky
-                cloudCover: obs.cloudCover || 0,
-                precipitation: obs.precip || 0,
-                condition: getShortCondition(obs),
-                description: `(METAR ${obs.stationId}) ${getShortCondition(obs)}. Wind ${obs.windSpeed}kts.`,
-
-                // Meta
-                isEstimated: false // It's real obs
-            };
-
-            // Tag source
-            data.groundingSource = `METAR (${obs.stationId})`;
-        } else {
-
-        }
-    } catch (e) {
-
-    }
-    return data;
-};
 
 
 // --- MAIN ORCHESTRATORS ---
@@ -211,10 +135,7 @@ export const fetchPrecisionWeather = async (
 
         const data = await fetchStormGlassWeather(lat, lon, name, existingLocationType);
 
-        // APPLY METAR OVERRIDE
-        const startMetar = Date.now();
-        await applyMetarOverride(data);
-
+        // METAR removed - was skewing wind/temps too much
 
         saveToCache(name, data);
         return data;

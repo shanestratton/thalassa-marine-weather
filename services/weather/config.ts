@@ -32,10 +32,16 @@ export const MAJOR_BUOYS: BuoyStation[] = [
     { id: 'Lord', name: 'Lord Howe Island', lat: -31.55, lon: 159.08, type: 'bom' },
 
     // --- MORETON BAY LOCALS (Startup Options) ---
+    // Wave Buoys (wave data only, no wind sensors)
     { id: 'MB_Cent', name: 'Moreton Bay Central', lat: -27.25, lon: 153.20, type: 'bom' },
     { id: 'Spitfire', name: 'Spitfire Channel', lat: -27.05, lon: 153.25, type: 'bom' },
     { id: 'Rous', name: 'Rous Channel', lat: -27.38, lon: 153.40, type: 'bom' },
     { id: 'Banana', name: 'Banana Bank', lat: -27.50, lon: 153.30, type: 'bom' },
+
+    // BOM Automatic Weather Stations (AWS) - Full wind sensors + marine data
+    { id: 'InnerBeacon', name: 'Inner Beacon (AWS)', lat: -27.28, lon: 153.17, type: 'bom-aws', bomStationId: '94590' },
+    { id: 'HopeBanks', name: 'Hope Banks (AWS)', lat: -27.32, lon: 153.37, type: 'bom-aws', bomStationId: '99497' },
+    { id: 'BananaAWS', name: 'Banana Bank (AWS)', lat: -27.50, lon: 153.30, type: 'bom-aws', bomStationId: '94591' },
 
     // --- USA (West Coast) ---
     { id: '46237', name: 'San Francisco Bar (CA)', lat: 37.787, lon: -122.628, type: 'noaa' },
