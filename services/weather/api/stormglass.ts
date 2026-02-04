@@ -204,10 +204,9 @@ export const fetchStormGlassWeather = async (
         tides.length > 0 ? interpolateTides(tides) : [],
         'sg',
         astronomy,
-        null, // METAR removed - was skewing wind/temps
         existingLocationType,
-        hybridData?.weather?.timezone, // NEW: Timezone String
-        hybridData?.weather?.utc_offset_seconds ? (hybridData.weather.utc_offset_seconds / 3600) : undefined // NEW: UTC Offset (Hours)
+        hybridData?.weather?.timezone, // Timezone String
+        hybridData?.weather?.utc_offset_seconds ? (hybridData.weather.utc_offset_seconds / 3600) : undefined // UTC Offset (Hours)
     );
 
     // 4. Fetch Buoy Data and Merge with StormGlass

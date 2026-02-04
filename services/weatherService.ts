@@ -7,6 +7,3 @@ export const REFRESH_RATES = {
     NORMAL: 5 * 60 * 1000,
     SLOW: 15 * 60 * 1000
 };
-
-// METAR removed - fetchFastAirportWeather deleted
-// Airport METAR data was skewing wind/temps too much

@@ -194,7 +194,7 @@ const App: React.FC = () => {
                                                     <p className="text-white/80">{error}</p>
                                                     <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
                                                 </div>
-                                            ) : (!weatherData && loading) ? (
+                                            ) : (!weatherData) ? (
                                                 // USER REQUEST: "Just have the message" (Clean Overlay vs Skeleton)
                                                 <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
                                                     <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />

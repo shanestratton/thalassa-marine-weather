@@ -2,7 +2,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MarineWeatherReport, VoyagePlan, VesselProfile, DeepAnalysisReport, StopDetails, WeatherMetrics, UnitPreferences, VesselDimensionUnits } from "../types";
 import { convertLength, convertSpeed, convertWeight } from "../utils";
-import { fetchStormglassData } from "./stormglassService";
+import { fetchStormGlassWeather } from "./weather/api/stormglass";
 
 let aiInstance: GoogleGenerativeAI | null = null;
 const logConfig = (msg: string) => { }; // Logs disabled
@@ -364,8 +364,8 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
             try {
                 // Fetch basic weather for Origin and Destination to ground the AI
                 // We use parallel fetches for speed
-                const pOrigin = plan.originCoordinates ? fetchStormglassData(plan.originCoordinates.lat, plan.originCoordinates.lon, "Origin", false) : Promise.resolve(null);
-                const pDest = plan.destinationCoordinates ? fetchStormglassData(plan.destinationCoordinates.lat, plan.destinationCoordinates.lon, "Destination", false) : Promise.resolve(null);
+                const pOrigin = plan.originCoordinates ? fetchStormGlassWeather(plan.originCoordinates.lat, plan.originCoordinates.lon, "Origin") : Promise.resolve(null);
+                const pDest = plan.destinationCoordinates ? fetchStormGlassWeather(plan.destinationCoordinates.lat, plan.destinationCoordinates.lon, "Destination") : Promise.resolve(null);
 
                 const [wOrigin, wDest] = await Promise.all([pOrigin, pDest]);
 

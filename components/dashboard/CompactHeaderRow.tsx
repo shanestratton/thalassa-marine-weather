@@ -20,13 +20,13 @@ export const CompactHeaderRow = ({
 
     return (
         <div className="w-full flex items-center gap-2">
-            {/* COMPACT WARNINGS BUTTON - Left Side */}
+            {/* WARNINGS BUTTON - Expands to fill available space */}
             <button
                 onClick={() => setPage('warnings')}
                 className={`${hasWarnings
                     ? 'bg-red-500 hover:bg-red-600 border-red-400/50'
                     : 'bg-emerald-500/10 border-emerald-500/20'
-                    } transition-colors border rounded-xl px-3 py-2.5 flex items-center gap-2 backdrop-blur-md shadow-lg cursor-pointer group flex-shrink-0`}
+                    } transition-colors border rounded-xl px-3 py-2.5 flex items-center gap-2 backdrop-blur-md shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>
@@ -34,7 +34,7 @@ export const CompactHeaderRow = ({
                         <span className="text-white font-bold uppercase tracking-wider text-[10px]">
                             Warnings
                         </span>
-                        <div className="bg-white text-red-600 font-black text-[10px] w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
+                        <div className="bg-white text-red-600 font-black text-[10px] w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
                             {alerts.length}
                         </div>
                     </>
@@ -48,20 +48,11 @@ export const CompactHeaderRow = ({
                 )}
             </button>
 
-            {/* COMPACT INFO WIDGETS - Right Side */}
-            <div className="flex-1 flex items-center justify-end gap-2">
-                {/* Moon Phase - Just emoji, compact */}
-                {moonPhase && (
-                    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-1.5 py-2 flex items-center justify-center backdrop-blur-sm">
-                        <span className="text-base leading-none">
-                            {moonPhase}
-                        </span>
-                    </div>
-                )}
-
+            {/* CONSOLIDATED CELESTIAL CARD - Sunrise, Sunset, Moon in one card */}
+            <div className="bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3 backdrop-blur-md flex-shrink-0">
                 {/* Sunrise */}
                 {sunrise && (
-                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg px-2.5 py-2.5 flex items-center gap-1.5 backdrop-blur-sm">
+                    <div className="flex items-center gap-1.5">
                         <SunriseIcon className="w-3.5 h-3.5 text-orange-400" />
                         <span className="text-white font-bold text-[11px] tracking-tight">
                             {sunrise}
@@ -71,12 +62,19 @@ export const CompactHeaderRow = ({
 
                 {/* Sunset */}
                 {sunset && (
-                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg px-2.5 py-2.5 flex items-center gap-1.5 backdrop-blur-sm">
+                    <div className="flex items-center gap-1.5">
                         <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
                         <span className="text-white font-bold text-[11px] tracking-tight">
                             {sunset}
                         </span>
                     </div>
+                )}
+
+                {/* Moon Phase - Just emoji */}
+                {moonPhase && (
+                    <span className="text-base leading-none">
+                        {moonPhase}
+                    </span>
                 )}
             </div>
         </div>

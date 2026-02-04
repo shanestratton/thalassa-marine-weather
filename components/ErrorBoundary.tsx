@@ -106,7 +106,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
         // Log to console with boundary name for easier debugging
         const boundaryName = this.props.boundaryName || 'Unknown';
+
+        // Enhanced error logging for debugging non-Error objects
         console.error(`[ErrorBoundary:${boundaryName}] Caught error:`, error);
+        console.error(`[ErrorBoundary:${boundaryName}] Error type:`, typeof error);
+        console.error(`[ErrorBoundary:${boundaryName}] Error constructor:`, error?.constructor?.name);
+        console.error(`[ErrorBoundary:${boundaryName}] Error message:`, error?.message);
+        console.error(`[ErrorBoundary:${boundaryName}] Error stack:`, error?.stack);
+        try {
+            console.error(`[ErrorBoundary:${boundaryName}] Error JSON:`, JSON.stringify(error, null, 2));
+        } catch (e) {
+            console.error(`[ErrorBoundary:${boundaryName}] Could not stringify error`);
+        }
         console.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
 
         // Call optional error callback

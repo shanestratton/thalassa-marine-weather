@@ -9,7 +9,7 @@ import {
     CloudIcon, AlertTriangleIcon, QuoteIcon
 } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
-import { checkStormglassStatus, debugStormglassConnection, isStormglassKeyPresent } from '../services/stormglassService';
+import { checkStormglassStatus, debugStormglassConnection, isStormglassKeyPresent } from '../services/weather/keys';
 import { AuthModal } from './AuthModal';
 import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';

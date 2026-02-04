@@ -614,7 +614,7 @@ const HeroSlideComponent = ({
         );
     }
 
-    const slides = [
+    const slides = useMemo(() => [
         // Only include "current" slide for TODAY (index 0)
         ...(index === 0 ? [{ type: 'current', data: data, time: undefined as number | undefined }] : []),
         ...(hourlyToRender || []).map(h => {
@@ -639,9 +639,77 @@ const HeroSlideComponent = ({
                 time: hDate.getTime()
             };
         })
-    ];
+    ], [index, data, hourlyToRender, forecast]);
 
-    // Calculate active slide data for static displays
+    // Phase 2 Optimization: Pre-compute display values for all slides
+    // This avoids recalculating on every scroll/render
+    const slideDisplayData = useMemo(() => slides.map((slide, slideIdx) => {
+        const cardData = slide.data as WeatherMetrics;
+        const cardTime = slide.type === 'current' ? undefined : (slide.time || customTime);
+        const isHourly = slide.type === 'hourly';
+
+        // Pre-compute sunPhase
+        const sunPhase = (() => {
+            if (!cardData) return { isDay: true, label: 'Sunset', time: '--:--' };
+            const currentTs = cardTime || Date.now();
+            const sRise = cardData.sunrise;
+            const sSet = cardData.sunset;
+            const fallbackCheck = () => {
+                const h = new Date(currentTs).getHours();
+                return { isDay: h >= 6 && h < 18, label: h >= 6 && h < 18 ? 'Sunset' : 'Sunrise', time: '--:--' };
+            };
+            if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck();
+            try {
+                const [rH, rM] = sRise.replace(/[^0-9:]/g, '').split(':').map(Number);
+                const [sH, sM] = sSet.replace(/[^0-9:]/g, '').split(':').map(Number);
+                if (isNaN(rH) || isNaN(sH)) return fallbackCheck();
+                const d = new Date(currentTs);
+                const riseDt = new Date(d); riseDt.setHours(rH, rM, 0);
+                const setDt = new Date(d); setDt.setHours(sH, sM, 0);
+                if (d < riseDt) return { isDay: false, label: 'Sunrise', time: sRise };
+                if (d >= riseDt && d < setDt) return { isDay: true, label: 'Sunset', time: sSet };
+                return { isDay: false, label: 'Sunrise', time: sRise };
+            } catch (e) {
+                return fallbackCheck();
+            }
+        })();
+
+        // Pre-compute display values
+        const cardDisplayValues = {
+            airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
+            highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
+            lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
+            windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
+            waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? convertLength(cardData.waveHeight, units.waveHeight) : '--'),
+            vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
+            gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
+            precip: convertPrecip(cardData.precipitation, units.length),
+            pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
+            cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
+            uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
+            sunrise: cardData.sunrise,
+            sunset: cardData.sunset,
+            humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
+            dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null) ? convertTemp(cardData.dewPoint, units.temp) : '--',
+            waterTemperature: (() => {
+                const val = cardData.waterTemperature ?? (cardData as any).seaSurfaceTemperature ?? (cardData as any).seaTemp;
+                return (val !== undefined && val !== null) ? convertTemp(val, units.temp) : '--';
+            })(),
+            currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
+            currentDirection: (() => {
+                const val = cardData.currentDirection;
+                if (typeof val === 'number') return degreesToCardinal(val);
+                if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
+                return '--';
+            })(),
+            moon: (cardData as any).moonPhase || 'Waxing'
+        };
+
+        const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
+        const cardIsLive = !isHourly && index === 0;
+
+        return { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime };
+    }), [slides, customTime, units, isLandlocked, index]);    // Calculate active slide data for static displays
     // Use either current data (static) or active scrolled card (dynamic) based on setting
     const activeSlide = settings.dynamicHeaderMetrics
         ? slides[activeHIdx]  // Dynamic: show data from currently scrolled card
@@ -756,78 +824,14 @@ const HeroSlideComponent = ({
                     className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row px-[1px]"
                 >
                     {slides.map((slide, slideIdx) => {
-                        const isHourly = slide.type === 'hourly';
-                        // Type cast/safety: Assume hourly data is compatible enough or pick specific fields
-                        const cardData = slide.data as WeatherMetrics;
-                        const cardTime = slide.time || customTime;
-
-                        // DYNAMIC SUN PHASE LOGIC (Per Card)
-                        const sunPhase = (() => {
-                            if (!cardData) return { isDay: true, label: 'Sunset', time: '--:--' };
-
-                            const currentTs = cardTime || Date.now();
-                            const sRise = cardData.sunrise;
-                            const sSet = cardData.sunset;
-                            const fallbackCheck = () => {
-                                const h = new Date(currentTs).getHours();
-                                return { isDay: h >= 6 && h < 18, label: h >= 6 && h < 18 ? 'Sunset' : 'Sunrise', time: '--:--' };
-                            };
-                            if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck();
-
-                            try {
-                                const [rH, rM] = sRise.replace(/[^0-9:]/g, '').split(':').map(Number);
-                                const [sH, sM] = sSet.replace(/[^0-9:]/g, '').split(':').map(Number);
-                                if (isNaN(rH) || isNaN(sH)) return fallbackCheck();
-
-                                const d = new Date(currentTs);
-                                const riseDt = new Date(d); riseDt.setHours(rH, rM, 0);
-                                const setDt = new Date(d); setDt.setHours(sH, sM, 0);
-
-                                if (d < riseDt) return { isDay: false, label: 'Sunrise', time: sRise };
-                                if (d >= riseDt && d < setDt) return { isDay: true, label: 'Sunset', time: sSet };
-                                return { isDay: false, label: 'Sunrise', time: sRise };
-                            } catch (e) {
-                                return fallbackCheck();
-                            }
-                        })();
-
-                        const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
-                        const cardIsLive = !isHourly && index === 0;
+                        // Use pre-computed display data from memoized array
+                        const precomputed = slideDisplayData[slideIdx];
+                        // Guard against undefined precomputed data (race condition safety)
+                        if (!precomputed) return null;
+                        const { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime } = precomputed;
                         const forceLabel = rowDateLabel;
 
-                        // DISPLAY VALUES (Per Card)
-                        const cardDisplayValues = {
-                            airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
-                            highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
-                            lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
-                            windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
-                            waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? convertLength(cardData.waveHeight, units.waveHeight) : '--'),
-                            vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
-                            gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
-                            precip: convertPrecip(cardData.precipitation, units.length),
-                            pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
-                            cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
-                            uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
-                            sunrise: cardData.sunrise,
-                            sunset: cardData.sunset,
-                            humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
-                            dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null) ? convertTemp(cardData.dewPoint, units.temp) : '--',
-                            waterTemperature: (() => {
-                                const val = cardData.waterTemperature ?? (cardData as any).seaSurfaceTemperature ?? (cardData as any).seaTemp;
-                                return (val !== undefined && val !== null) ? convertTemp(val, units.temp) : '--';
-                            })(),
-                            currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
-                            currentDirection: (() => {
-                                const val = cardData.currentDirection;
-                                if (typeof val === 'number') return degreesToCardinal(val);
-                                if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
-                                return '--';
-                            })(),
-                            moon: (cardData as any).moonPhase || 'Waxing' // Placeholder or Data
-
-                        };
-
-                        // Helper to get source color for card metrics
+                        // Helper to get source color for card metrics (kept inline as it's lightweight)
                         const cardSources = (cardData as any).sources;
                         const getCardSourceColor = (metricKey: string): string => {
                             // Only show source colors on the live/current card (index 0)
@@ -948,17 +952,14 @@ const HeroSlideComponent = ({
                                         <div className="mb-3">
                                             {(() => {
                                                 // Extract source names from cardSources
-                                                // Only for live/current card - forecast cards don't have beacon/airport data
+                                                // Only for live/current card - forecast cards use model data
                                                 let beaconName = '';
-                                                let airportName = '';
                                                 let buoyName = '';
 
                                                 if (cardIsLive && cardSources) {
                                                     Object.values(cardSources).forEach((src: any) => {
                                                         if (src?.source === 'beacon' && src?.sourceName && !beaconName) {
                                                             beaconName = src.sourceName;
-                                                        } else if (src?.source === 'airport' && src?.sourceName && !airportName) {
-                                                            airportName = src.sourceName;
                                                         } else if (src?.source === 'buoy' && src?.sourceName && !buoyName) {
                                                             buoyName = src.sourceName;
                                                         }
@@ -975,7 +976,6 @@ const HeroSlideComponent = ({
                                                         stationId={effectiveData?.stationId}
                                                         locationType={locationType}
                                                         beaconName={beaconName}
-                                                        airportName={airportName}
                                                         buoyName={buoyName}
                                                     />
                                                 );

@@ -10,8 +10,7 @@ import { AdviceWidget } from './dashboard/Advice';
 import { LogPage } from '../pages/LogPage';
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
-
-
+import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext } from './WidgetRenderer';
 import { UnitPreferences } from '../types';
@@ -57,6 +56,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     } = useDashboardController(props.viewMode);
 
     if (!data || !current) return null;
+
+    // Settings for dynamic header metrics
+    const { settings: userSettings } = useSettings();
+    const dynamicHeaderEnabled = userSettings.dynamicHeaderMetrics === true;
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -188,14 +191,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             {/* FIXED HEADER - Absolutely positioned at top */}
                             <div className="absolute top-[80px] left-0 right-0 z-[110] px-4">
                                 <HeroHeader
-                                    data={current}  // FIXED: Always use current data, not activeDayData
+                                    data={dynamicHeaderEnabled ? activeDayData : current}
                                     units={units}
-                                    isLive={activeDay === 0 && activeHour === 0}  // Live only when viewing current hour
+                                    isLive={dynamicHeaderEnabled ? (activeDay === 0 && activeHour === 0) : true}
                                     isDay={true}
                                     dateLabel={getDateLabel(activeDay)}
                                     timeLabel={getTimeLabel()}
                                     timeZone={data.timeZone}
-                                    sources={(current as any).sources}  // FIXED: Use current sources
+                                    sources={(dynamicHeaderEnabled ? activeDayData : current as any).sources}
                                 />
                             </div>
 

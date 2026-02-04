@@ -51,7 +51,6 @@ export const mapStormGlassToReport = (
     seaLevels: Partial<StormGlassTideData>[] = [],
     model: string = 'sg',
     astro?: any[], // Pass astronomy data
-    metarData?: any, // METAR removed - kept param for backward compat
     existingLocationType?: 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
     utcOffset?: number
@@ -155,42 +154,16 @@ export const mapStormGlassToReport = (
     let pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
 
     let vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
-    let dew: number | null = null;
-    let fogRisk = false;
-    let metarCondition = "";
-    let cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;
+    const dew: number | null = null; // Dewpoint from model if available
+    const fogRisk = false;
+    const cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;
 
     const waveM = getVal(currentHour.waveHeight as MultiSourceField) ?? 0;
     // Relaxed check: waveM could be 0, but isLandlocked usually implies < 0.2m
     const isLandlocked = waveM < 0.2;
 
-    let overriddenHumidity: number | null = null;
-
-    if (metarData) {
-        const obsTime = new Date(metarData.timestamp).getTime();
-        const diffMs = Date.now() - obsTime;
-        const isRecent = diffMs < 3600000;
-
-        if (isRecent) {
-            wSpeed = metarData.windSpeed;
-            wDir = metarData.windDirection;
-            if (metarData.windGust) wGust = metarData.windGust;
-            else wGust = 0;
-
-            if (metarData.temperature !== undefined && metarData.temperature !== null) temp = metarData.temperature;
-            if (metarData.pressure !== undefined && metarData.pressure !== null) pressure = metarData.pressure;
-            if (metarData.visibility && metarData.visibility > 0) vis = metarData.visibility;
-            if (metarData.dewpoint !== undefined && metarData.dewpoint !== null) dew = metarData.dewpoint;
-            if (metarData.fogRisk !== undefined) fogRisk = metarData.fogRisk;
-
-            if (metarData.cloudCover !== null) cloudCover = metarData.cloudCover;
-            if (metarData.weather) metarCondition = metarData.weather;
-
-            if (metarData.temperature !== undefined && metarData.dewpoint !== undefined && metarData.temperature !== null && metarData.dewpoint !== null) {
-                overriddenHumidity = Math.round(100 - 5 * (metarData.temperature - metarData.dewpoint));
-            }
-        }
-    }
+    // Weather data sourced from marine models (StormGlass, BOM beacons)
+    // METAR/airport data removed in v20.0 - was skewing marine conditions
 
     const sunTimes = getSunTimes(now, lat, lon);
     const fmtTime = (d: Date | null) => d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
@@ -201,18 +174,9 @@ export const mapStormGlassToReport = (
     const curUV = getVal(rawUV) ?? 0;
 
     const cIsDay = checkIsDay(now, lat, lon);
-    let finalCondition = getCondition(getVal(currentHour.cloudCover as MultiSourceField) ?? 0, getVal(currentHour.precipitation as MultiSourceField) ?? 0, cIsDay);
+    const finalCondition = getCondition(getVal(currentHour.cloudCover as MultiSourceField) ?? 0, getVal(currentHour.precipitation as MultiSourceField) ?? 0, cIsDay);
 
-    if (metarCondition && metarCondition.length > 2) {
-        finalCondition = metarCondition;
-    } else if (metarData?.cloudCover !== null && metarData?.cloudCover !== undefined) {
-        if (metarData.cloudCover > 90) finalCondition = "Overcast";
-        else if (metarData.cloudCover > 50) finalCondition = "Clouds";
-        else if (metarData.cloudCover > 20) finalCondition = "Clouds";
-        else finalCondition = cIsDay ? "Clear Sky" : "Clear";
-    }
-
-    const hum = overriddenHumidity !== null ? overriddenHumidity : (getVal(currentHour.humidity as MultiSourceField) ?? 0);
+    const hum = getVal(currentHour.humidity as MultiSourceField) ?? 0;
     const calculatedFeels = calculateFeelsLike(temp, hum, wSpeed * 0.8);
 
     const current: WeatherMetrics = {
@@ -254,16 +218,8 @@ export const mapStormGlassToReport = (
             // We invert by +180 degrees.
             return (val + 180) % 360;
         })(),
-        precipDetail: metarData && metarData.weather ? `(${metarData.weather}${metarData.precipType ? ' ' + metarData.precipType : ''})` : undefined,
-        precipLabel: getPrecipitationLabelV2(metarData || null, getVal(currentHour.precipitation as MultiSourceField) || 0).label,
-        precipValue: getPrecipitationLabelV2(metarData || null, getVal(currentHour.precipitation as MultiSourceField) || 0).value,
-        stationId: metarData?.stationId?.toUpperCase(),
-        debugNote: (() => {
-            if (!metarData) return "METAR_NULL (Fetch Failed)";
-            const obsTime = new Date(metarData.timestamp).getTime();
-            const age = Math.round((Date.now() - obsTime) / 60000);
-            return age < 60 ? `active(${metarData.stationId})` : `METAR_STALE (Age: ${age}m)`;
-        })()
+        precipLabel: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).label,
+        precipValue: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).value
     };
 
     // 2. Map Hourly
@@ -472,7 +428,6 @@ export const mapStormGlassToReport = (
         tides: tides || [],
         tideHourly: seaLevels?.map(sl => ({ time: sl.time!, height: (((sl.sg || sl.noaa) || 0) * 3.28084) })) || [],
         modelUsed: 'stormglass_sg',
-        stationId: metarData?.stationId?.toUpperCase(),
         boatingAdvice: advice,
         isLandlocked: locType === 'inland',
         locationType: locType,

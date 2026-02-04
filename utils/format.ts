@@ -50,6 +50,29 @@ export const degreesToCardinal = (degrees: number | null | undefined): string =>
 };
 
 /**
+ * Converts 16-point cardinal direction to degrees.
+ * Inverse of degreesToCardinal - used when API provides cardinal instead of degrees.
+ * 
+ * @param {string | null | undefined} cardinal - Cardinal direction abbreviation (N, NNE, NE, etc.)
+ * @returns {number | undefined} Direction in degrees (0-360) or undefined if invalid
+ * @example
+ * cardinalToDegrees("N")   // returns 0
+ * cardinalToDegrees("SE")  // returns 135
+ * cardinalToDegrees("W")   // returns 270
+ * cardinalToDegrees(null)  // returns undefined
+ */
+export const cardinalToDegrees = (cardinal: string | null | undefined): number | undefined => {
+    if (!cardinal) return undefined;
+    const cardinalMap: Record<string, number> = {
+        "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
+        "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
+        "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5,
+        "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5
+    };
+    return cardinalMap[cardinal.toUpperCase()];
+};
+
+/**
  * Expands a compass direction abbreviation to its full name.
  * 
  * @param {string} dir - Cardinal direction abbreviation (e.g., "NNE")

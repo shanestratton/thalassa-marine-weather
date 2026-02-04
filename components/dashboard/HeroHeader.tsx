@@ -88,15 +88,15 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     </div>
 
                     {/* Date/Time - NOW IN CENTER */}
-                    <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-between items-center min-w-0 bg-white/0">
+                    <div className="flex-1 border-r border-white/5 p-2 flex flex-col justify-center items-center min-w-0 bg-white/0">
                         <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-[10px] md:text-xs tracking-[0.2em] leading-none w-full text-center`}>
                             {isLive ? "TODAY" : "FORECAST"}
                         </span>
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-center whitespace-nowrap -translate-y-1`}>
+                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-center whitespace-nowrap mt-1`}>
                             {isLive ? "NOW" : dateLabel}
                         </span>
                         {timeLabel && (
-                            <span className={`text-xs md:text-sm font-bold ${isLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-center whitespace-nowrap`}>
+                            <span className={`text-[10px] font-bold ${isLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-center whitespace-nowrap mt-2`}>
                                 {timeLabel}
                             </span>
                         )}

@@ -51,7 +51,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
 
                                     return (
-                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none -translate-y-2 transition-all duration-300`}>
+                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
                                             {cardDisplayValues.airTemp}°
                                         </span>
                                     )
@@ -67,18 +67,19 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             </span>
                         </div>
 
-                        {/* Detail Stack (Right Aligned-Squashed 4 Lines) */}
-                        <div className="flex flex-col justify-between items-end h-full py-0.5">
-                            {/* 1. Hi/Lo */}
-                            <div className="flex items-center gap-2 text-xs font-bold leading-none -translate-y-1.5">
+                        {/* Detail Stack (Right Aligned) */}
+                        <div className="flex flex-col justify-between items-end h-full py-0">
+                            {/* 1. Hi/Lo - Larger, bottom aligned with hours */}
+                            <div className="flex-1" />
+                            <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
-                                    <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400" />
-                                    {cardDisplayValues.highTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
+                                    <ArrowUpIcon className="w-3 h-3 text-orange-400" />
+                                    <span className="text-base font-black">{cardDisplayValues.highTemp}°</span>
                                 </div>
-                                <div className="w-px h-2.5 bg-white/20" />
+                                <div className="w-px h-3 bg-white/20" />
                                 <div className="flex items-center gap-0.5 text-gray-300">
-                                    <ArrowDownIcon className="w-2.5 h-2.5 text-emerald-400" />
-                                    {cardDisplayValues.lowTemp}°<span className="text-[9px] text-white/50">{units.temp}</span>
+                                    <ArrowDownIcon className="w-3 h-3 text-emerald-400" />
+                                    <span className="text-base font-black">{cardDisplayValues.lowTemp}°</span>
                                 </div>
                             </div>
 
@@ -106,23 +107,22 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     </div>
 
                     {/* RIGHT PARTITION (Clock/Label)-~42% */}
-                    <div className="flex flex-col justify-between items-start p-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
-                        <div className="w-full flex justify-start items-start flex-col -translate-y-1.5">
-                            {/* TOP LINE */}
-                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-xs md: text-sm tracking-[0.2em] leading-none mb-1 w-full text-left`}>
+                    {/* EXACT MATCH to left partition's Main Temp + Condition structure */}
+                    <div className="flex flex-col justify-between gap-0.5 p-4 pt-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
+                        {/* TOP: Today - matches temp position */}
+                        <div className="flex items-start">
+                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-xs md:text-sm tracking-[0.2em] leading-none`}>
                                 {cardIsLive ? "TODAY" : "FORECAST"}
                             </span>
-                            {/* MIDDLE LINE */}
-                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-black tracking-tighter leading-none w-full text-left whitespace-nowrap mb-0.5`}>
-                                {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
-                            </span>
                         </div>
-
-                        {/* BOTTOM LINE: Hour Range */}
-                        {/* Unified Logic: Show if Live OR (Hourly + hTime) */}
-                        {(cardIsLive || (isHourly && hTime)) ? (
-                            <span className={`text-sm md: text-base font-bold ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-mono translate-y-1`}>
-                                {cardIsLive ? (() => {
+                        {/* MIDDLE: Now - large text like temp */}
+                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-black tracking-tighter leading-none whitespace-nowrap`}>
+                            {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
+                        </span>
+                        {/* BOTTOM: Hours - matches condition position */}
+                        <span className={`text-[10px] md:text-xs font-bold uppercase tracking-widest ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'}`}>
+                            {(cardIsLive || (isHourly && hTime)) ? (
+                                cardIsLive ? (() => {
                                     const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
                                     const nextDate = new Date();
                                     nextDate.setHours(nextDate.getHours() + 1);
@@ -138,9 +138,9 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                         return `${h.toString().padStart(2, '0')}:${m}`;
                                     };
                                     return `${strictFmt(start)} - ${strictFmt(end)}`;
-                                })()}
-                            </span>
-                        ) : <div className="mt-auto" />}
+                                })()
+                            ) : '--:-- - --:--'}
+                        </span>
                     </div>
                 </div>
 

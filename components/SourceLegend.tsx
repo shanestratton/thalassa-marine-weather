@@ -5,8 +5,7 @@ import React, { useState } from 'react';
  * 
  * Displays a collapsible legend teaching users what the metric colors mean:
  * - Green: Real-time measured data from marine beacons
- * - Amber: Observed data from nearby airports  
- * - Red: Modeled/computed predictions from StormGlass
+ * - Amber: Modeled/computed predictions from StormGlass
  * 
  * Solves the UX "learning curve" problem by making source transparency obvious.
  */
@@ -30,7 +29,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
             {/* Expandable Legend */}
             {isOpen && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-black border border-white/30 rounded-xl shadow-2xl p-4 z-[130] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-black border border-white/30 rounded-xl shadow-2xl p-4 z-[200] animate-in fade-in slide-in-from-bottom-2 duration-200">
                     {/* Header */}
                     <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
                         <h3 className="text-sm font-bold text-white">Data Source Colors</h3>
@@ -51,27 +50,16 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                             <div className="flex-1">
                                 <div className="text-xs font-bold text-emerald-400 mb-0.5">Beacon (Measured)</div>
                                 <div className="text-[10px] text-white/70 leading-relaxed">
-                                    Real-time data from marine buoys within 10nm. Direct measurements from ocean sensors.
+                                    Real-time data from marine buoys and BOM weather stations. Direct measurements.
                                 </div>
                             </div>
                         </div>
 
-                        {/* Amber: Airport */}
+                        {/* Amber: StormGlass Model */}
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-amber-400 mt-0.5 shadow-lg shadow-amber-400/50" />
                             <div className="flex-1">
-                                <div className="text-xs font-bold text-amber-400 mb-0.5">Airport (Observed)</div>
-                                <div className="text-[10px] text-white/70 leading-relaxed">
-                                    Atmospheric data from nearby weather stations within 30nm. Official observations.
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Red: StormGlass */}
-                        <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 w-3 h-3 rounded-full bg-red-400 mt-0.5 shadow-lg shadow-red-400/50" />
-                            <div className="flex-1">
-                                <div className="text-xs font-bold text-red-400 mb-0.5">Model (Computed)</div>
+                                <div className="text-xs font-bold text-amber-400 mb-0.5">Model (SG)</div>
                                 <div className="text-[10px] text-white/70 leading-relaxed">
                                     Predictions from StormGlass weather models. Computed from satellite and forecast data.
                                 </div>
