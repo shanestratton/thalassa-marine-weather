@@ -16,20 +16,40 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
     const visibility = data.visibility || 10;
     const pressure = data.pressure || 1013;
     const humidity = data.humidity || 0;
+    const dewPoint = (data as any).dewPoint;
 
     let narrative = '';
 
-    // START WITH WEATHER DESCRIPTION (e.g., "Fine and Sunny", "Rain and Thunder")
-    // This gives users an immediate weather headline
+    // 1. WEATHER DESCRIPTION/CONDITION (First - headline)
     if (description && description.length > 0 && description !== 'Unknown') {
         narrative += `${description}. `;
     } else if (condition && condition.length > 0 && condition !== 'unknown') {
-        // Capitalize first letter of condition
         const capitalizedCondition = condition.charAt(0).toUpperCase() + condition.slice(1);
         narrative += `${capitalizedCondition}. `;
     }
 
-    // WIND CONDITIONS (Most important for mariners)
+    // 2. HUMIDITY (Second - atmospheric condition)
+    if (humidity >= 90) {
+        narrative += `💧 Very humid ${Math.round(humidity)}%. `;
+    } else if (humidity >= 75) {
+        narrative += `Humid ${Math.round(humidity)}%. `;
+    } else if (humidity <= 30) {
+        narrative += `Dry ${Math.round(humidity)}%. `;
+    } else if (humidity > 0) {
+        narrative += `Humidity ${Math.round(humidity)}%. `;
+    }
+
+    // 3. DEW POINT (Third - fog/condensation risk)
+    if (dewPoint !== undefined && dewPoint !== null) {
+        const fogRisk = temp - dewPoint;
+        if (fogRisk <= 2) {
+            narrative += `🌫️ Fog/mist likely, dew point ${Math.round(dewPoint)}°C. `;
+        } else if (fogRisk <= 5) {
+            narrative += `Dew point ${Math.round(dewPoint)}°C. `;
+        }
+    }
+
+    // 4. WIND CONDITIONS (Most important for mariners)
     if (windSpeed >= 40) {
         narrative += `🌪️ GALE FORCE winds ${Math.round(windSpeed)}kts`;
         if (windGust > windSpeed + 5) narrative += ` gusting ${Math.round(windGust)}kts`;
@@ -54,7 +74,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Calm conditions, winds under 6kts. `;
     }
 
-    // SEA STATE (convert from feet to meters)
+    // 5. SEA STATE
     const waveHeightMeters = waveHeight / 3.28084;
     if (waveHeightMeters >= 4) {
         narrative += `Very rough seas ${waveHeightMeters.toFixed(1)}m. `;
@@ -68,7 +88,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Calm seas. `;
     }
 
-    // VISIBILITY
+    // 6. VISIBILITY
     if (visibility < 2) {
         narrative += `⚠️ Poor visibility ${visibility.toFixed(1)}nm. `;
     } else if (visibility < 5) {
@@ -77,7 +97,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Excellent visibility. `;
     }
 
-    // PRECIPITATION
+    // 7. PRECIPITATION
     if (precip > 10) {
         narrative += `Heavy rain ${precip.toFixed(1)}mm/hr. `;
     } else if (precip > 5) {
@@ -86,7 +106,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Light showers possible. `;
     }
 
-    // CLOUD COVER & SKY
+    // 8. CLOUD COVER & SKY
     if (cloudCover > 80) {
         narrative += `Overcast skies. `;
     } else if (cloudCover > 50) {
@@ -95,7 +115,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Clear skies. `;
     }
 
-    // TEMPERATURE CONTEXT
+    // 9. TEMPERATURE CONTEXT
     if (temp > 30) {
         narrative += `🔥 Hot ${Math.round(temp)}°C. `;
     } else if (temp > 25) {
@@ -108,7 +128,7 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         narrative += `Cold ${Math.round(temp)}°C. `;
     }
 
-    // WATER TEMPERATURE (if available)
+    // 10. WATER TEMPERATURE (if available)
     if (waterTemp !== null && waterTemp !== undefined) {
         const diff = temp - waterTemp;
         if (Math.abs(diff) > 3) {
@@ -116,40 +136,18 @@ function generateWeatherNarrative(data: WeatherMetrics): string {
         }
     }
 
-    // PRESSURE TREND
+    // 11. PRESSURE TREND
     if (pressure < 1000) {
         narrative += `Low pressure ${Math.round(pressure)}hPa - weather may deteriorate. `;
     } else if (pressure > 1025) {
         narrative += `High pressure ${Math.round(pressure)}hPa - stable conditions. `;
     }
 
-    // UV INDEX (if significant)
+    // 12. UV INDEX (if significant)
     if (uv >= 8) {
         narrative += `☀️ Very high UV${uv}, sun protection essential. `;
     } else if (uv >= 6) {
         narrative += `UV moderate, sun protection recommended. `;
-    }
-
-    // HUMIDITY
-    if (humidity >= 90) {
-        narrative += `💧 Very humid ${Math.round(humidity)}%. `;
-    } else if (humidity >= 75) {
-        narrative += `Humid ${Math.round(humidity)}%. `;
-    } else if (humidity <= 30) {
-        narrative += `Dry ${Math.round(humidity)}%. `;
-    } else if (humidity > 0) {
-        narrative += `Humidity ${Math.round(humidity)}%. `;
-    }
-
-    // DEW POINT (important for fog/condensation risk)
-    const dewPoint = (data as any).dewPoint;
-    if (dewPoint !== undefined && dewPoint !== null) {
-        const fogRisk = temp - dewPoint;
-        if (fogRisk <= 2) {
-            narrative += `🌫️ Fog/mist likely, dew point ${Math.round(dewPoint)}°C. `;
-        } else if (fogRisk <= 5) {
-            narrative += `Dew point ${Math.round(dewPoint)}°C. `;
-        }
     }
 
     return narrative.trim() || 'Pleasant conditions expected.';
