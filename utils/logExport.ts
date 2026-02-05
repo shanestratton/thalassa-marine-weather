@@ -577,6 +577,21 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         console.log('[PDF] End location:', endLocationName);
     }
 
+    // Reverse geocode waypoints (up to 5)
+    const waypointEntriesPreload = chronoEntriesForRoute.filter(e => e.entryType === 'waypoint' && e.latitude && e.longitude);
+    const waypointNames: Map<number, string> = new Map();
+
+    for (let i = 0; i < Math.min(5, waypointEntriesPreload.length); i++) {
+        const wp = waypointEntriesPreload[i];
+        try {
+            const wpName = await reverseGeocode(wp.latitude!, wp.longitude!);
+            waypointNames.set(i, wpName);
+            console.log(`[PDF] Waypoint ${i + 1}:`, wpName);
+        } catch {
+            // Use coords as fallback
+        }
+    }
+
     // Group entries by date
     const entriesByDate = new Map<string, ShipLogEntry[]>();
     const chronoEntries = [...sortedEntries].reverse();
@@ -1126,11 +1141,41 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.text('Waypoint', margin + 94, y + 7);
 
     // Track line sample
-    pdf.setDrawColor(56, 189, 248);
+    pdf.setDrawColor(30, 58, 95); // Match track color
     pdf.setLineWidth(1.5);
     pdf.line(margin + 130, y + 6, margin + 145, y + 6);
     pdf.setTextColor(51, 65, 85);
     pdf.text('Track', margin + 148, y + 7);
+
+    // Voyage Stats (right side of legend bar)
+    pdf.setFontSize(7);
+    pdf.setTextColor(71, 85, 105);
+
+    // Calculate stats from entries
+    const statsEntries = [...validEntries].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const statsStart = statsEntries.length > 0 ? new Date(statsEntries[0].timestamp) : null;
+    const statsEnd = statsEntries.length > 0 ? new Date(statsEntries[statsEntries.length - 1].timestamp) : null;
+    const totalDist = validEntries.length > 0 ? Math.max(...validEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
+    const statsSpeeds = validEntries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
+    const avgSpd = statsSpeeds.length > 0 ? (statsSpeeds.reduce((a, b) => a + b, 0) / statsSpeeds.length) : 0;
+
+    let durationStr = '';
+    if (statsStart && statsEnd) {
+        const durMs = statsEnd.getTime() - statsStart.getTime();
+        const durHrs = Math.floor(durMs / (1000 * 60 * 60));
+        const durDays = Math.floor(durHrs / 24);
+        const remHrs = durHrs % 24;
+        durationStr = durDays > 0 ? `${durDays}d ${remHrs}h` : `${durHrs}h`;
+    }
+
+    // Right-aligned stats
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(`${totalDist.toFixed(1)} NM`, pageWidth - margin - 50, y + 5);
+    pdf.text(durationStr, pageWidth - margin - 25, y + 5);
+    pdf.text(`${avgSpd.toFixed(1)} kts avg`, pageWidth - margin - 50, y + 10);
+    pdf.setFont('helvetica', 'normal');
 
     // ===== VOYAGE DETAILS SECTION =====
     y += 18;
@@ -1194,9 +1239,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         waypointEntriesForInfo.slice(0, 5).forEach((wp, i) => {
             const wpCoords = `${Math.abs(wp.latitude!).toFixed(4)}°${wp.latitude! < 0 ? 'S' : 'N'}, ${Math.abs(wp.longitude!).toFixed(4)}°${wp.longitude! < 0 ? 'W' : 'E'}`;
+            const wpName = waypointNames.get(i);
+            const wpText = wpName ? `WP${i + 1}: ${wpCoords} (${wpName})` : `WP${i + 1}: ${wpCoords}`;
             pdf.setFillColor(245, 158, 11); // Orange - set inside loop
             pdf.circle(margin + 8, wpY + (i * 6) - 1, 1.5, 'F');
-            pdf.text(`WP${i + 1}: ${wpCoords}`, margin + 38, wpY + (i * 6));
+            pdf.text(wpText, margin + 38, wpY + (i * 6));
         });
 
         if (waypointEntriesForInfo.length > 5) {
