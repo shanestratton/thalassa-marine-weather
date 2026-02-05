@@ -60,6 +60,8 @@ export const LogPage: React.FC = () => {
     const [currentVoyageId, setCurrentVoyageId] = useState<string | undefined>();
     const [showVoyageChoiceDialog, setShowVoyageChoiceDialog] = useState(false);
     const [lastVoyageId, setLastVoyageId] = useState<string | null>(null);
+    const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
+    const [showStopVoyageDialog, setShowStopVoyageDialog] = useState(false);
 
     const toast = useToast();
     const { settings } = useSettings();
@@ -111,20 +113,20 @@ export const LogPage: React.FC = () => {
 
     const handleStartTracking = async () => {
         try {
-            // Check if there are existing voyages to potentially continue
-            if (entries.length > 0) {
-                // Get the most recent voyage ID
-                const sortedEntries = [...entries].sort((a, b) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                );
-                const recentVoyageId = sortedEntries[0]?.voyageId;
+            // Calculate voyage groups to check if any voyages exist
+            const voyages = groupEntriesByVoyage(entries);
+
+            // Only ask about continuing if there are existing voyages
+            if (voyages.length > 0) {
+                // Get the most recent voyage ID (voyages are sorted newest first)
+                const recentVoyageId = voyages[0]?.voyageId;
                 if (recentVoyageId) {
                     setLastVoyageId(recentVoyageId);
                     setShowVoyageChoiceDialog(true);
                     return;
                 }
             }
-            // No existing voyages, start new
+            // No existing voyages, start new directly
             await startTrackingWithNewVoyage();
         } catch (error: any) {
             console.error('[LogPage] Error starting tracking:', error);
@@ -156,13 +158,16 @@ export const LogPage: React.FC = () => {
         setIsPaused(true);
     };
 
-    const handleStopTracking = async () => {
-        if (confirm('End voyage and stop tracking? This will finalize your log.')) {
-            await ShipLogService.stopTracking();
-            setIsTracking(false);
-            setIsPaused(false);
-            await loadData();
-        }
+    const handleStopTracking = () => {
+        setShowStopVoyageDialog(true);
+    };
+
+    const confirmStopVoyage = async () => {
+        setShowStopVoyageDialog(false);
+        await ShipLogService.stopTracking();
+        setIsTracking(false);
+        setIsPaused(false);
+        await loadData();
     };
 
 
@@ -174,7 +179,7 @@ export const LogPage: React.FC = () => {
             if (success) {
                 // Remove from local state
                 setEntries(prev => prev.filter(e => e.id !== entryId));
-                toast.success('Entry deleted permanently');
+                // Silent deletion - no toast
             } else {
                 toast.error('Failed to delete entry');
             }
@@ -261,7 +266,7 @@ export const LogPage: React.FC = () => {
         exportToCSV(entries, 'ships_log.csv', {
             onProgress: (msg) => console.log(msg),
             onSuccess: () => {
-                toast.success('CSV exported successfully!');
+                // Silent success
             },
             onError: (err) => {
                 toast.error(err);
@@ -273,7 +278,7 @@ export const LogPage: React.FC = () => {
         await sharePDF(entries, {
             onProgress: (msg) => console.log(msg),
             onSuccess: () => {
-                toast.success('Share sheet opened!');
+                // Silent success
             },
             onError: (err) => {
                 toast.error(err);
@@ -329,8 +334,21 @@ export const LogPage: React.FC = () => {
             {/* Fullscreen Statistics View */}
             {showStats ? (
                 <div className="flex flex-col h-full">
-                    {/* Stats Content - fills available space */}
-                    <div className="flex-1 overflow-auto p-4">
+                    {/* Stats Header with Close Button */}
+                    <div className="flex items-center justify-between p-4 border-b border-white/10">
+                        <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
+                        <button
+                            onClick={() => setShowStats(false)}
+                            className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    {/* Stats Content - centered with flex */}
+                    <div className="flex-1 overflow-auto p-4 flex flex-col justify-center">
                         {/* Key Stats Row */}
                         <div className="grid grid-cols-3 gap-3 mb-4">
                             <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 border border-emerald-500/30 rounded-lg p-3 text-center">
@@ -349,19 +367,6 @@ export const LogPage: React.FC = () => {
 
                         {/* Full Voyage Stats */}
                         <VoyageStatsPanel entries={filteredEntries} />
-                    </div>
-
-                    {/* Hide Statistics Button - Fixed at bottom */}
-                    <div className="p-4 border-t border-white/10 bg-slate-900">
-                        <button
-                            onClick={() => setShowStats(false)}
-                            className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-lg text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                        >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                            Hide Statistics
-                        </button>
                     </div>
                 </div>
             ) : (
@@ -507,7 +512,9 @@ export const LogPage: React.FC = () => {
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('auto')
                                         ? 'bg-green-500/30 border-green-500/60 text-green-400'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        : (filters.types.includes('manual') || filters.types.includes('waypoint'))
+                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
                                         }`}
                                 >
                                     A
@@ -521,7 +528,9 @@ export const LogPage: React.FC = () => {
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
                                         ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        : filters.types.includes('auto')
+                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
                                         }`}
                                 >
                                     M
@@ -535,7 +544,9 @@ export const LogPage: React.FC = () => {
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
                                         ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        : filters.types.includes('auto')
+                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
                                         }`}
                                 >
                                     W
@@ -558,7 +569,7 @@ export const LogPage: React.FC = () => {
                                 </div>
                             ) : (
                                 <>
-                                    {voyageGroups.map((voyage) => {
+                                    {voyageGroups.map((voyage, index) => {
                                         const isExpanded = expandedVoyages.has(voyage.voyageId);
                                         const isActive = voyage.voyageId === currentVoyageId;
                                         const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
@@ -571,8 +582,10 @@ export const LogPage: React.FC = () => {
                                                     voyageId={voyage.voyageId}
                                                     entries={voyageFilteredEntries}
                                                     isActive={isActive}
+                                                    isSelected={selectedVoyageId === voyage.voyageId || (!selectedVoyageId && index === 0)}
                                                     isExpanded={isExpanded}
                                                     onToggle={() => toggleVoyage(voyage.voyageId)}
+                                                    onSelect={() => setSelectedVoyageId(voyage.voyageId)}
                                                     onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)}
                                                 />
 
@@ -604,11 +617,15 @@ export const LogPage: React.FC = () => {
             {/* Add Manual Entry Button - FIXED at bottom using absolute positioning */}
             <div className="absolute bottom-0 left-0 right-0 z-20 p-4 pt-2 border-t border-white/10 bg-slate-900">
                 <button
-                    onClick={() => setShowAddModal(true)}
-                    className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
+                    onClick={() => isTracking && setShowAddModal(true)}
+                    disabled={!isTracking}
+                    className={`w-full px-4 py-3 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 ${isTracking
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                        }`}
                 >
                     <PlusIcon className="w-5 h-5" />
-                    Add Entry
+                    {isTracking ? 'Add Manual Entry' : 'Start Tracking to Add Entry'}
                 </button>
             </div>
 
@@ -617,6 +634,7 @@ export const LogPage: React.FC = () => {
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
                 onSuccess={loadData}
+                selectedVoyageId={selectedVoyageId}
             />
 
             {/* Edit Entry Modal */}
@@ -673,6 +691,32 @@ export const LogPage: React.FC = () => {
                                 className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
                             >
                                 Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Stop Voyage Confirmation Dialog */}
+            {showStopVoyageDialog && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-2">End Voyage?</h3>
+                        <p className="text-slate-400 text-sm mb-6">
+                            This will finalize your voyage log. You won't be able to add more entries to this voyage.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowStopVoyageDialog(false)}
+                                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmStopVoyage}
+                                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
+                            >
+                                End Voyage
                             </button>
                         </div>
                     </div>

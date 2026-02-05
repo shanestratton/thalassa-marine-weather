@@ -12,9 +12,9 @@ type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival'
 
 // Event categories with icons and descriptions
 const EVENT_CATEGORIES: { value: EventCategory; label: string; icon: string }[] = [
-    { value: 'observation', label: 'General Observation', icon: '👁️' },
+    { value: 'observation', label: 'General', icon: '👁️' },
     { value: 'navigation', label: 'Navigation', icon: '🧭' },
-    { value: 'weather', label: 'Weather Change', icon: '🌤️' },
+    { value: 'weather', label: 'Weather', icon: '🌤️' },
     { value: 'arrival', label: 'Arrival', icon: '⚓' },
     { value: 'departure', label: 'Departure', icon: '🚢' },
     { value: 'equipment', label: 'Equipment', icon: '🔧' },
@@ -26,9 +26,10 @@ interface AddEntryModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    selectedVoyageId?: string | null;
 }
 
-export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, onSuccess, selectedVoyageId }) => {
     const [notes, setNotes] = useState('');
     const [waypointName, setWaypointName] = useState('');
     const [isWaypoint, setIsWaypoint] = useState(false);
@@ -63,7 +64,9 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             await ShipLogService.addManualEntry(
                 trimmedNotes || undefined,
                 trimmedWaypoint,
-                eventCategory
+                eventCategory,
+                undefined, // engineStatus
+                selectedVoyageId || undefined // Add to selected voyage if available
             );
 
             setNotes('');
@@ -81,8 +84,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 {/* Header with Watch Info */}
                 <div className="flex justify-between items-start mb-4">
                     <div>
@@ -140,19 +143,18 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         </label>
                     </div>
 
-                    {/* Waypoint Name (conditional) */}
-                    {isWaypoint && (
-                        <div>
-                            <label className="block text-sm text-slate-300 mb-2">Waypoint Name *</label>
-                            <input
-                                type="text"
-                                value={waypointName}
-                                onChange={(e) => setWaypointName(e.target.value)}
-                                placeholder="e.g., Cape Moreton, Fuel Stop"
-                                className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                            />
-                        </div>
-                    )}
+                    {/* Waypoint Name - Always visible, disabled when not waypoint */}
+                    <div className={isWaypoint ? '' : 'opacity-40'}>
+                        <label className="block text-sm text-slate-300 mb-2">Waypoint Name {isWaypoint && '*'}</label>
+                        <input
+                            type="text"
+                            value={waypointName}
+                            onChange={(e) => setWaypointName(e.target.value)}
+                            placeholder="e.g., Cape Moreton, Fuel Stop"
+                            disabled={!isWaypoint}
+                            className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
+                        />
+                    </div>
 
                     {/* Notes */}
                     <div>
@@ -165,11 +167,6 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             placeholder="e.g., Course change, Crew rotation, Equipment issue"
                             className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 min-h-[80px] resize-none"
                         />
-                    </div>
-
-                    {/* Info Box */}
-                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
-                        📍 Position, course, speed, weather, and watch period captured automatically
                     </div>
 
                     {/* Buttons */}

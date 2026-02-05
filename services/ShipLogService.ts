@@ -15,6 +15,7 @@ import { Geolocation, Position } from '@capacitor/geolocation';
 import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../utils/marineFormatters';
+import { loadLargeData, DATA_CACHE_KEY } from './nativeStorage';
 
 // --- CONSTANTS ---
 const TRACKING_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
@@ -88,15 +89,16 @@ async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
     const watchPeriod = getWatchPeriod(now.getHours());
 
     try {
-        // Try to get weather from local storage cache
-        const { value } = await Preferences.get({ key: 'weather_cache' });
-        if (!value) {
+        // Get weather from the correct cache using nativeStorage
+        const cache = await loadLargeData(DATA_CACHE_KEY);
+        if (!cache) {
+            console.log('[ShipLogService] No weather cache found');
             return { watchPeriod };
         }
 
-        const cache = JSON.parse(value);
         const current = cache?.current;
         if (!current) {
+            console.log('[ShipLogService] No current weather in cache');
             return { watchPeriod };
         }
 
@@ -265,7 +267,8 @@ class ShipLogServiceClass {
         notes?: string,
         waypointName?: string,
         eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
-        engineStatus?: 'running' | 'stopped' | 'maneuvering'
+        engineStatus?: 'running' | 'stopped' | 'maneuvering',
+        voyageId?: string
     ): Promise<ShipLogEntry | null> {
         try {
             console.log('[ShipLogService] Capturing log entry...');
@@ -323,7 +326,7 @@ class ShipLogServiceClass {
 
             // Create log entry with voyage ID
             const entry: Partial<ShipLogEntry> = {
-                voyageId: this.trackingState.currentVoyageId || `voyage_${Date.now()}`,
+                voyageId: voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`,
                 timestamp,
                 latitude,
                 longitude,
@@ -405,10 +408,11 @@ class ShipLogServiceClass {
         notes?: string,
         waypointName?: string,
         eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
-        engineStatus?: 'running' | 'stopped' | 'maneuvering'
+        engineStatus?: 'running' | 'stopped' | 'maneuvering',
+        voyageId?: string
     ): Promise<ShipLogEntry | null> {
         const entryType = waypointName ? 'waypoint' : 'manual';
-        return this.captureLogEntry(entryType, notes, waypointName, eventCategory, engineStatus);
+        return this.captureLogEntry(entryType, notes, waypointName, eventCategory, engineStatus, voyageId);
     }
 
     /**

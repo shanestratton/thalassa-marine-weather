@@ -11,8 +11,10 @@ interface VoyageHeaderProps {
     voyageId: string;
     entries: ShipLogEntry[];
     isActive: boolean; // Is this the current tracking voyage?
+    isSelected: boolean; // Is this the selected voyage for export?
     isExpanded: boolean;
     onToggle: () => void;
+    onSelect: () => void;
     onDelete: () => void;
 }
 
@@ -29,8 +31,10 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
     voyageId,
     entries,
     isActive,
+    isSelected,
     isExpanded,
     onToggle,
+    onSelect,
     onDelete
 }) => {
     const [swipeOffset, setSwipeOffset] = useState(0);
@@ -122,18 +126,20 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
 
     return (
         <div className="relative overflow-hidden rounded-xl mb-2">
-            {/* Delete button (revealed on swipe) - only visible when swiping */}
-            <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={handleDeleteClick}
-            >
-                <div className="text-center text-white">
-                    <svg className="w-6 h-6 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    <span className="text-xs font-bold">Delete</span>
+            {/* Delete button (revealed on swipe) - only visible when swiping and NOT active */}
+            {!isActive && (
+                <div
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    onClick={handleDeleteClick}
+                >
+                    <div className="text-center text-white">
+                        <svg className="w-6 h-6 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span className="text-xs font-bold">Delete</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Main content (slides on swipe) */}
             <div
@@ -143,26 +149,42 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
             >
-                <button
-                    onClick={() => swipeOffset === 0 && onToggle()}
-                    className={`w-full text-left rounded-xl border transition-colors ${isActive
+                <div
+                    onClick={() => {
+                        if (swipeOffset === 0) {
+                            onSelect(); // Select this voyage for export on any click
+                        }
+                    }}
+                    className={`w-full text-left rounded-xl border transition-colors cursor-pointer ${isActive
                         ? 'bg-gradient-to-r from-emerald-900/40 to-sky-900/40 border-emerald-500/30'
-                        : 'bg-slate-800/60 border-white/10 hover:bg-slate-800/80'
+                        : isSelected
+                            ? 'bg-gradient-to-r from-amber-900/40 to-orange-900/40 border-amber-500/50 ring-1 ring-amber-500/30'
+                            : 'bg-slate-800/60 border-white/10 hover:bg-slate-800/80'
                         }`}
                 >
                     <div className="p-4">
                         {/* Top row: Route and status */}
                         <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
+                            {/* Clickable area for toggle - left section */}
+                            <div
+                                className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity flex-1 min-w-0"
+                                onClick={(e) => {
+                                    e.stopPropagation(); // Don't trigger card selection twice
+                                    if (swipeOffset === 0) {
+                                        onSelect();
+                                        onToggle();
+                                    }
+                                }}
+                            >
                                 <svg
-                                    className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                                    className={`w-4 h-4 text-slate-400 transition-transform duration-150 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
                                 >
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                 </svg>
-                                <div className="text-lg font-bold text-white">
+                                <div className="text-lg font-bold text-white truncate">
                                     {firstEntry ? (
                                         <>
                                             {getLocationDisplay(firstEntry, startLocationName)}
@@ -180,7 +202,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                                 </div>
                             </div>
                             {isActive && (
-                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full flex items-center gap-1">
+                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
                                     <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                                     ACTIVE
                                 </span>
@@ -213,7 +235,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                             </div>
                         )}
                     </div>
-                </button>
+                </div>
             </div>
         </div>
     );
