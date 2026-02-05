@@ -16,13 +16,19 @@ interface LogFilterToolbarProps {
     onFiltersChange: (filters: LogFilters) => void;
     totalEntries: number;
     filteredCount: number;
+    entryCounts?: {
+        auto: number;
+        manual: number;
+        waypoint: number;
+    };
 }
 
 export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
     filters,
     onFiltersChange,
     totalEntries,
-    filteredCount
+    filteredCount,
+    entryCounts
 }) => {
     const toggleType = (type: 'auto' | 'manual' | 'waypoint') => {
         const newTypes = filters.types.includes(type)
@@ -36,95 +42,101 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
     };
 
     return (
-        <div className="bg-slate-900/50 border border-white/10 rounded-xl p-3 mb-3">
-            {/* Search Bar */}
-            <div className="relative mb-3">
-                <input
-                    type="text"
-                    placeholder="Search notes or waypoints..."
-                    value={filters.searchQuery}
-                    onChange={(e) => onFiltersChange({ ...filters, searchQuery: e.target.value })}
-                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2 pl-10 text-white placeholder-slate-400 focus:border-sky-500 focus:outline-none"
-                />
-                <svg
-                    className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-            </div>
-
-            {/* Type Filters */}
-            <div className="flex gap-2 mb-3">
-                <FilterButton
-                    label="Auto"
-                    count={totalEntries}
-                    active={isTypeActive('auto')}
-                    onClick={() => toggleType('auto')}
-                    color="green"
-                />
-                <FilterButton
-                    label="Manual"
-                    count={totalEntries}
-                    active={isTypeActive('manual')}
-                    onClick={() => toggleType('manual')}
-                    color="purple"
-                />
-                <FilterButton
-                    label="Waypoints"
-                    count={totalEntries}
-                    active={isTypeActive('waypoint')}
-                    onClick={() => toggleType('waypoint')}
-                    color="blue"
-                />
-            </div>
-
-            {/* Results Count */}
-            <div className="text-xs text-slate-400 text-center">
-                Showing <span className="text-white font-bold">{filteredCount}</span> of {totalEntries} entries
-                {filters.searchQuery && (
-                    <button
-                        onClick={() => onFiltersChange({ ...filters, searchQuery: '' })}
-                        className="ml-2 text-sky-400 hover:text-sky-300 underline"
+        <div className="bg-slate-900/30 border border-white/5 rounded-xl p-2 mb-2">
+            {/* Compact Row: Search + Filters */}
+            <div className="flex gap-2 items-center">
+                {/* Search */}
+                <div className="relative flex-1">
+                    <input
+                        type="text"
+                        placeholder="Search..."
+                        value={filters.searchQuery}
+                        onChange={(e) => onFiltersChange({ ...filters, searchQuery: e.target.value })}
+                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                    />
+                    <svg
+                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
                     >
-                        Clear search
-                    </button>
-                )}
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    {filters.searchQuery && (
+                        <button
+                            onClick={() => onFiltersChange({ ...filters, searchQuery: '' })}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                        >
+                            ×
+                        </button>
+                    )}
+                </div>
+
+                {/* Type Pill Filters with Counts */}
+                <div className="flex gap-1">
+                    <FilterPill
+                        label="A"
+                        count={entryCounts?.auto}
+                        active={isTypeActive('auto')}
+                        onClick={() => toggleType('auto')}
+                        color="green"
+                    />
+                    <FilterPill
+                        label="M"
+                        count={entryCounts?.manual}
+                        active={isTypeActive('manual')}
+                        onClick={() => toggleType('manual')}
+                        color="purple"
+                    />
+                    <FilterPill
+                        label="W"
+                        count={entryCounts?.waypoint}
+                        active={isTypeActive('waypoint')}
+                        onClick={() => toggleType('waypoint')}
+                        color="blue"
+                    />
+                </div>
+            </div>
+
+            {/* Results - Very Compact */}
+            <div className="text-[10px] text-slate-500 text-center mt-1.5">
+                {filteredCount}/{totalEntries} entries
             </div>
         </div>
     );
 };
 
-// Filter Button Component
-interface FilterButtonProps {
+// Filter Pill Component with Count
+interface FilterPillProps {
     label: string;
-    count: number;
+    count?: number;
     active: boolean;
     onClick: () => void;
     color: 'green' | 'purple' | 'blue';
 }
 
-const FilterButton: React.FC<FilterButtonProps> = ({ label, active, onClick, color }) => {
+const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, color }) => {
     const colorClasses = {
         green: active
-            ? 'bg-green-500/20 border-green-500/50 text-green-400'
-            : 'bg-slate-800 border-white/10 text-slate-400 hover:border-green-500/30',
+            ? 'bg-green-500/30 border-green-500/60 text-green-400'
+            : 'bg-slate-800/60 border-white/5 text-slate-500',
         purple: active
-            ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
-            : 'bg-slate-800 border-white/10 text-slate-400 hover:border-purple-500/30',
+            ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
+            : 'bg-slate-800/60 border-white/5 text-slate-500',
         blue: active
-            ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
-            : 'bg-slate-800 border-white/10 text-slate-400 hover:border-blue-500/30'
+            ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
+            : 'bg-slate-800/60 border-white/5 text-slate-500'
     };
 
     return (
         <button
             onClick={onClick}
-            className={`flex-1 px-3 py-2 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors ${colorClasses[color]}`}
+            className={`min-w-[40px] min-h-[36px] px-2 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}
+            {count !== undefined && count > 0 && (
+                <span className="ml-0.5 opacity-70">{count}</span>
+            )}
         </button>
     );
 };

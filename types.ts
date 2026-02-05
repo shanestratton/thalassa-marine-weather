@@ -375,18 +375,26 @@ export interface ShipLogEntry {
     distanceNM?: number; // Distance traveled since last entry
     cumulativeDistanceNM?: number; // Total voyage distance
     speedKts?: number; // Speed over ground
-    courseDeg?: number; // 0-360 degrees
+    courseDeg?: number; // 0-360 degrees True
 
     // Weather snapshot (at time of entry)
-    windSpeed?: number;
-    windDirection?: string;
-    waveHeight?: number;
-    pressure?: number;
+    windSpeed?: number; // Knots
+    windDirection?: string; // Cardinal or degrees
+    waveHeight?: number; // Meters
+    pressure?: number; // hPa (barometric)
     airTemp?: number;
     waterTemp?: number;
 
+    // IMO-compliant fields
+    visibility?: number; // Nautical miles
+    seaState?: number; // Douglas scale 0-9
+    beaufortScale?: number; // 0-12
+    watchPeriod?: 'middle' | 'morning' | 'forenoon' | 'afternoon' | 'firstDog' | 'secondDog' | 'first';
+
     // Entry metadata
     entryType: 'auto' | 'manual' | 'waypoint'; // Auto = GPS tracking, Manual = user added, Waypoint = navigation mark
+    eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
+    engineStatus?: 'running' | 'stopped' | 'maneuvering';
     notes?: string; // User notes
     waypointName?: string; // For waypoint entries
 
