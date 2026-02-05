@@ -364,6 +364,7 @@ export interface VoyagePlan {
 export interface ShipLogEntry {
     id: string;
     userId: string;
+    voyageId: string; // Groups entries into voyages
     timestamp: string; // ISO 8601
 
     // Position

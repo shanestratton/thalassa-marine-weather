@@ -33,6 +33,7 @@ const OFFLINE_QUEUE_KEY = 'ship_log_offline_queue'; // Queue for offline entries
 interface TrackingState {
     isTracking: boolean;
     isPaused: boolean;
+    currentVoyageId?: string; // Unique ID for current voyage
     voyageStartTime?: string;
     lastMovementTime?: string;
 }
@@ -162,8 +163,9 @@ class ShipLogServiceClass {
     /**
      * Start automatic GPS tracking
      * @param resume - If true, resume existing voyage. If false, start new voyage.
+     * @param continueVoyageId - Optional: specify a voyage ID to continue
      */
-    async startTracking(resume: boolean = false): Promise<void> {
+    async startTracking(resume: boolean = false, continueVoyageId?: string): Promise<void> {
         if (this.trackingState.isTracking) {
             console.log('[ShipLogService] Tracking already active');
             return;
@@ -180,12 +182,28 @@ class ShipLogServiceClass {
             }
         }
 
+        // Determine voyage ID:
+        // 1. If continueVoyageId is provided, use that
+        // 2. If resume and currentVoyageId exists, use that
+        // 3. Otherwise, generate new
+        let voyageId: string;
+        if (continueVoyageId) {
+            voyageId = continueVoyageId;
+        } else if (resume && this.trackingState.currentVoyageId) {
+            voyageId = this.trackingState.currentVoyageId;
+        } else {
+            voyageId = `voyage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        }
+
         this.trackingState = {
             isTracking: true,
             isPaused: false,
-            voyageStartTime: resume ? this.trackingState.voyageStartTime : new Date().toISOString(),
+            currentVoyageId: voyageId,
+            voyageStartTime: (resume || continueVoyageId) ? this.trackingState.voyageStartTime : new Date().toISOString(),
             lastMovementTime: new Date().toISOString()
         };
+
+        console.log(`[ShipLogService] ${resume || continueVoyageId ? 'Continuing' : 'Starting new'} voyage: ${voyageId}`);
 
         await this.saveTrackingState();
 
@@ -303,8 +321,9 @@ class ShipLogServiceClass {
             // Get weather snapshot
             const weatherSnapshot = await getWeatherSnapshot();
 
-            // Create log entry (without userId if not authenticated - will be added during sync)
+            // Create log entry with voyage ID
             const entry: Partial<ShipLogEntry> = {
+                voyageId: this.trackingState.currentVoyageId || `voyage_${Date.now()}`,
                 timestamp,
                 latitude,
                 longitude,
@@ -397,6 +416,153 @@ class ShipLogServiceClass {
      */
     getTrackingStatus(): TrackingState {
         return { ...this.trackingState };
+    }
+
+    /**
+     * Get current voyage ID
+     */
+    getCurrentVoyageId(): string | undefined {
+        return this.trackingState.currentVoyageId;
+    }
+
+    /**
+     * Delete a voyage and all its entries
+     */
+    async deleteVoyage(voyageId: string): Promise<boolean> {
+        console.log(`[ShipLogService] Attempting to delete voyage: ${voyageId}`);
+
+        // First, try to delete from offline queue (local storage)
+        const offlineDeleted = await this.deleteVoyageFromOfflineQueue(voyageId);
+
+        // If Supabase is available, also delete from there
+        if (supabase) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    let query = supabase
+                        .from('ship_log')
+                        .delete()
+                        .eq('userId', user.id);
+
+                    // Handle 'default_voyage' - these are entries with null/empty voyageId
+                    if (voyageId === 'default_voyage') {
+                        query = query.or('voyageId.is.null,voyageId.eq.');
+                    } else {
+                        query = query.eq('voyageId', voyageId);
+                    }
+
+                    const { error } = await query;
+                    if (error) {
+                        console.error('[ShipLogService] Error deleting voyage from Supabase:', error);
+                    } else {
+                        console.log(`[ShipLogService] Deleted voyage from Supabase: ${voyageId}`);
+                    }
+                }
+            } catch (error) {
+                console.warn('[ShipLogService] Supabase delete failed (offline?):', error);
+            }
+        }
+
+        // Return true if we deleted from offline queue (or if nothing was there)
+        console.log(`[ShipLogService] Successfully deleted voyage ${voyageId}`);
+        return true;
+    }
+
+    /**
+     * Delete entries from offline queue by voyage ID
+     */
+    private async deleteVoyageFromOfflineQueue(voyageId: string): Promise<boolean> {
+        try {
+            const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+            if (!value) return false;
+
+            const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+            const originalLength = queue.length;
+
+            // Filter out entries matching voyageId (or null/empty for default_voyage)
+            const filteredQueue = queue.filter(entry => {
+                if (voyageId === 'default_voyage') {
+                    return entry.voyageId && entry.voyageId !== '';
+                }
+                return entry.voyageId !== voyageId;
+            });
+
+            if (filteredQueue.length === originalLength) return false;
+
+            await Preferences.set({
+                key: OFFLINE_QUEUE_KEY,
+                value: JSON.stringify(filteredQueue)
+            });
+
+            console.log(`[ShipLogService] Deleted ${originalLength - filteredQueue.length} entries from offline queue`);
+            return true;
+        } catch (error) {
+            console.error('[ShipLogService] Error deleting voyage from offline queue:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Delete a single entry by ID
+     */
+    async deleteEntry(entryId: string): Promise<boolean> {
+        console.log(`[ShipLogService] Attempting to delete entry: ${entryId}`);
+
+        // First, try to delete from offline queue (local storage)
+        const offlineDeleted = await this.deleteEntryFromOfflineQueue(entryId);
+
+        // If Supabase is available, also delete from there
+        if (supabase) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    const { error } = await supabase
+                        .from('ship_log')
+                        .delete()
+                        .eq('id', entryId)
+                        .eq('userId', user.id);
+
+                    if (error) {
+                        console.error('[ShipLogService] Error deleting entry from Supabase:', error);
+                    } else {
+                        console.log(`[ShipLogService] Deleted entry from Supabase: ${entryId}`);
+                    }
+                }
+            } catch (error) {
+                console.warn('[ShipLogService] Supabase delete failed (offline?):', error);
+            }
+        }
+
+        console.log(`[ShipLogService] Successfully deleted entry ${entryId}`);
+        return true;
+    }
+
+    /**
+     * Delete entry from offline queue by ID
+     */
+    private async deleteEntryFromOfflineQueue(entryId: string): Promise<boolean> {
+        try {
+            const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+            if (!value) return false;
+
+            const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+            const originalLength = queue.length;
+
+            const filteredQueue = queue.filter(entry => entry.id !== entryId);
+
+            if (filteredQueue.length === originalLength) return false;
+
+            await Preferences.set({
+                key: OFFLINE_QUEUE_KEY,
+                value: JSON.stringify(filteredQueue)
+            });
+
+            console.log(`[ShipLogService] Deleted entry ${entryId} from offline queue`);
+            return true;
+        } catch (error) {
+            console.error('[ShipLogService] Error deleting entry from offline queue:', error);
+            return false;
+        }
     }
 
     /**

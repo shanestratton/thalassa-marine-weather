@@ -21,6 +21,8 @@ interface DateGroupedTimelineProps {
     expandToday?: boolean;
     onDeleteEntry?: (entryId: string) => void;
     onEditEntry?: (entry: ShipLogEntry) => void;
+    voyageFirstEntryId?: string;
+    voyageLastEntryId?: string;
 }
 
 // Get today's date as YYYY-MM-DD in local timezone
@@ -36,7 +38,9 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
     groupedEntries,
     expandToday = false,
     onDeleteEntry,
-    onEditEntry
+    onEditEntry,
+    voyageFirstEntryId,
+    voyageLastEntryId
 }) => {
     const todayStr = useMemo(() => getTodayDateString(), []);
 
@@ -142,6 +146,8 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                         onToggle={() => toggleEntry(entry.id)}
                                         onDelete={onDeleteEntry ? () => onDeleteEntry(entry.id) : undefined}
                                         onEdit={onEditEntry ? () => onEditEntry(entry) : undefined}
+                                        isVoyageStart={entry.id === voyageFirstEntryId}
+                                        isVoyageEnd={entry.id === voyageLastEntryId}
                                     />
                                 ))}
                             </div>
@@ -160,9 +166,11 @@ interface CompactLogEntryProps {
     onToggle: () => void;
     onDelete?: () => void;
     onEdit?: () => void;
+    isVoyageStart?: boolean;
+    isVoyageEnd?: boolean;
 }
 
-const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, onToggle, onDelete, onEdit }) => {
+const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
     const timestamp = new Date(entry.timestamp);
     const timeStr = formatTime24Colon(timestamp);
 
@@ -195,6 +203,18 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
 
                 {/* Time */}
                 <div className="w-12 font-mono font-bold text-white text-sm">{timeStr}</div>
+
+                {/* Voyage Start/End Labels */}
+                {isVoyageStart && (
+                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-bold rounded-full">
+                        Start
+                    </span>
+                )}
+                {isVoyageEnd && !isVoyageStart && (
+                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-bold rounded-full">
+                        End
+                    </span>
+                )}
 
                 {/* Core Info - Responsive */}
                 <div className="flex-1 flex items-center gap-3 overflow-hidden">

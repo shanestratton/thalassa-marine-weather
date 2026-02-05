@@ -16,6 +16,7 @@ import { ShipLogEntry } from '../types';
 const createMockEntry = (overrides: Partial<ShipLogEntry> = {}): ShipLogEntry => ({
     id: 'test-' + Math.random(),
     userId: 'test-user',
+    voyageId: 'test-voyage',
     timestamp: new Date('2026-02-01T12:00:00Z').toISOString(),
     latitude: -27.2086,
     longitude: 153.0874,

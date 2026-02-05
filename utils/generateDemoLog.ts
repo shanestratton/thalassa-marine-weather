@@ -168,6 +168,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
         entries.push({
             id: `demo_${i}`,
             userId: 'demo_user',
+            voyageId: 'demo_voyage_brisbane_noumea',
             timestamp: timestamp.toISOString(),
             latitude: parseFloat(lat.toFixed(6)),
             longitude: parseFloat(lon.toFixed(6)),

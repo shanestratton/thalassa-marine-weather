@@ -325,9 +325,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         </div>
                     )}
 
-                    {/* DETAILED GRIDS / LOG PAGE */}
+                    {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
                     {isDetailMode && (
-                        <LogPage />
+                        <div className="absolute inset-0 overflow-hidden">
+                            <LogPage />
+                        </div>
                     )}
                 </div>
 
