@@ -14,15 +14,15 @@ import {
     WindIcon
 } from '../components/Icons';
 import { AddEntryModal } from '../components/AddEntryModal';
-import { exportToCSV, exportToPDF, sharePDF } from '../utils/logExport';
-import { generateDemoVoyage } from '../utils/generateDemoLog';
+import { exportToCSV, sharePDF } from '../utils/logExport';
 import { useToast } from '../components/Toast';
 import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
 import { LogFilterToolbar, LogFilters } from '../components/LogFilterToolbar';
 import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
-import { MiniTrackMap } from '../components/MiniTrackMap';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
+import { VoyageHeader } from '../components/VoyageHeader';
+import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { useSettings } from '../context/SettingsContext';
 
@@ -53,6 +53,14 @@ export const LogPage: React.FC = () => {
         types: ['auto', 'manual', 'waypoint'],
         searchQuery: ''
     });
+
+    // Voyage management state
+    const [expandedVoyages, setExpandedVoyages] = useState<Set<string>>(new Set());
+    const [deleteVoyageId, setDeleteVoyageId] = useState<string | null>(null);
+    const [currentVoyageId, setCurrentVoyageId] = useState<string | undefined>();
+    const [showVoyageChoiceDialog, setShowVoyageChoiceDialog] = useState(false);
+    const [lastVoyageId, setLastVoyageId] = useState<string | null>(null);
+
     const toast = useToast();
     const { settings } = useSettings();
 
@@ -76,6 +84,15 @@ export const LogPage: React.FC = () => {
         setIsTracking(status.isTracking);
         setIsPaused(status.isPaused);
 
+        // Get current voyage ID if tracking
+        const voyageId = ShipLogService.getCurrentVoyageId();
+        setCurrentVoyageId(voyageId);
+
+        // Expand current voyage by default
+        if (voyageId) {
+            setExpandedVoyages(new Set([voyageId]));
+        }
+
         // Try to get entries from database first
         let logs = await ShipLogService.getLogEntries(100);
 
@@ -94,16 +111,43 @@ export const LogPage: React.FC = () => {
 
     const handleStartTracking = async () => {
         try {
-            console.log('[LogPage] Starting tracking...');
-            await ShipLogService.startTracking();
-            console.log('[LogPage] Tracking started successfully');
-            setIsTracking(true);
-            setIsPaused(false);
-            await loadData();
+            // Check if there are existing voyages to potentially continue
+            if (entries.length > 0) {
+                // Get the most recent voyage ID
+                const sortedEntries = [...entries].sort((a, b) =>
+                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                );
+                const recentVoyageId = sortedEntries[0]?.voyageId;
+                if (recentVoyageId) {
+                    setLastVoyageId(recentVoyageId);
+                    setShowVoyageChoiceDialog(true);
+                    return;
+                }
+            }
+            // No existing voyages, start new
+            await startTrackingWithNewVoyage();
         } catch (error: any) {
             console.error('[LogPage] Error starting tracking:', error);
             alert(error.message || 'Failed to start tracking');
         }
+    };
+
+    const startTrackingWithNewVoyage = async () => {
+        console.log('[LogPage] Starting tracking with new voyage...');
+        await ShipLogService.startTracking();
+        console.log('[LogPage] Tracking started successfully');
+        setIsTracking(true);
+        setIsPaused(false);
+        await loadData();
+    };
+
+    const continueLastVoyage = async () => {
+        console.log('[LogPage] Continuing last voyage:', lastVoyageId);
+        await ShipLogService.startTracking(false, lastVoyageId || undefined);
+        setIsTracking(true);
+        setIsPaused(false);
+        setShowVoyageChoiceDialog(false);
+        await loadData();
     };
 
     const handlePauseTracking = async () => {
@@ -121,25 +165,19 @@ export const LogPage: React.FC = () => {
         }
     };
 
-    const handleLoadDemoVoyage = () => {
-        if (confirm('Load epic demo voyage (Brisbane → Nouméa ~770nm)? This will replace your current log entries.')) {
-            const demoEntries = generateDemoVoyage();
-            setEntries(demoEntries);
-            toast.success(`Loaded ${demoEntries.length} demo entries! 🚢`);
-        }
-    };
 
-    const handleClearLog = () => {
-        if (confirm('Clear all log entries? This cannot be undone.')) {
-            setEntries([]);
-            toast.success('Log cleared');
-        }
-    };
 
-    const handleDeleteEntry = (entryId: string) => {
+    const handleDeleteEntry = async (entryId: string) => {
         if (confirm('Delete this entry?')) {
-            setEntries(prev => prev.filter(e => e.id !== entryId));
-            toast.success('Entry deleted');
+            // Delete from database permanently
+            const success = await ShipLogService.deleteEntry(entryId);
+            if (success) {
+                // Remove from local state
+                setEntries(prev => prev.filter(e => e.id !== entryId));
+                toast.success('Entry deleted permanently');
+            } else {
+                toast.error('Failed to delete entry');
+            }
         }
     };
 
@@ -154,49 +192,90 @@ export const LogPage: React.FC = () => {
         toast.success('Entry updated');
     };
 
-    const handleExportCSV = () => {
-        const loadingId = toast.loading('Preparing CSV export...');
+    // Voyage management handlers
+    const toggleVoyage = (voyageId: string) => {
+        setExpandedVoyages(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(voyageId)) {
+                newSet.delete(voyageId);
+            } else {
+                newSet.add(voyageId);
+            }
+            return newSet;
+        });
+    };
 
+    const handleDeleteVoyageRequest = (voyageId: string) => {
+        setDeleteVoyageId(voyageId);
+    };
+
+    const handleConfirmDeleteVoyage = async () => {
+        if (!deleteVoyageId) return;
+
+        const success = await ShipLogService.deleteVoyage(deleteVoyageId);
+        if (success) {
+            setEntries(prev => prev.filter(e => e.voyageId !== deleteVoyageId));
+            // Silent delete - no toast needed
+        } else {
+            toast.error('Failed to delete voyage');
+        }
+        setDeleteVoyageId(null);
+    };
+
+    const handleExportThenDelete = async () => {
+        // Export first, then show delete confirmation again
+        await handleShare();
+        // Keep modal open - user can click delete afterward
+    };
+
+    // Group entries by voyage
+    const groupEntriesByVoyage = (entries: ShipLogEntry[]) => {
+        const voyageMap = new Map<string, ShipLogEntry[]>();
+
+        entries.forEach(entry => {
+            const voyageId = entry.voyageId || 'default_voyage';
+            if (!voyageMap.has(voyageId)) {
+                voyageMap.set(voyageId, []);
+            }
+            voyageMap.get(voyageId)!.push(entry);
+        });
+
+        // Sort voyages by most recent first
+        return Array.from(voyageMap.entries())
+            .map(([voyageId, entries]) => ({
+                voyageId,
+                entries: entries.sort((a, b) =>
+                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                )
+            }))
+            .sort((a, b) => {
+                const aTime = new Date(a.entries[0]?.timestamp || 0).getTime();
+                const bTime = new Date(b.entries[0]?.timestamp || 0).getTime();
+                return bTime - aTime;
+            });
+    };
+
+    const voyageGroups = groupEntriesByVoyage(entries);
+
+    const handleExportCSV = () => {
         exportToCSV(entries, 'ships_log.csv', {
             onProgress: (msg) => console.log(msg),
             onSuccess: () => {
-                toast.hideToast(loadingId);
                 toast.success('CSV exported successfully!');
             },
             onError: (err) => {
-                toast.hideToast(loadingId);
                 toast.error(err);
             }
         });
     };
 
-    const handleExportPDF = () => {
-        const loadingId = toast.loading('Preparing PDF export...');
-
-        exportToPDF(entries, 'ships_log.pdf', {
-            onProgress: (msg) => console.log(msg),
-            onSuccess: () => {
-                toast.hideToast(loadingId);
-                toast.success('PDF opened for printing!');
-            },
-            onError: (err) => {
-                toast.hideToast(loadingId);
-                toast.error(err);
-            }
-        }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
-    };
-
     const handleShare = async () => {
-        const loadingId = toast.loading('Preparing to share...');
-
         await sharePDF(entries, {
             onProgress: (msg) => console.log(msg),
             onSuccess: () => {
-                toast.hideToast(loadingId);
                 toast.success('Share sheet opened!');
             },
             onError: (err) => {
-                toast.hideToast(loadingId);
                 toast.error(err);
             }
         }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
@@ -246,7 +325,7 @@ export const LogPage: React.FC = () => {
     }
 
     return (
-        <div className="flex flex-col h-full bg-slate-950">
+        <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Fullscreen Statistics View */}
             {showStats ? (
                 <div className="flex flex-col h-full">
@@ -286,9 +365,9 @@ export const LogPage: React.FC = () => {
                     </div>
                 </div>
             ) : (
-                <>
-                    {/* Header with Controls */}
-                    <div className="p-4 bg-slate-900 border-b border-white/10 shrink-0">
+                <div className="flex flex-col h-full">
+                    {/* Header with Controls - FIXED at top */}
+                    <div className="shrink-0 p-4 bg-slate-900 border-b border-white/10 z-20">
                         <div className="flex justify-between items-center mb-2">
                             <h1 className="text-xl font-bold text-white flex items-center gap-2">
                                 <AnchorIcon className="w-6 h-6 text-sky-400" />
@@ -332,129 +411,198 @@ export const LogPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Export Buttons */}
-                        {entries.length > 0 && (
-                            <div className="flex gap-2 mb-2">
-                                <button
-                                    onClick={handleShare}
-                                    className="flex-1 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                    </svg>
-                                    Share
-                                </button>
-                                <button
-                                    onClick={handleExportCSV}
-                                    className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    CSV
-                                </button>
-                                <button
-                                    onClick={handleExportPDF}
-                                    className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                                    </svg>
-                                    Print
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Demo & Clear & Stats Buttons */}
-                        <div className="flex gap-2">
+                        {/* Export Buttons Row - Grey out when no entries */}
+                        <div className="flex gap-2 mb-2">
                             <button
-                                onClick={handleLoadDemoVoyage}
-                                className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                                onClick={handleShare}
+                                disabled={entries.length === 0}
+                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
+                                    ? 'bg-sky-600 hover:bg-sky-700 text-white'
+                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                    }`}
                             >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                 </svg>
-                                Demo
+                                Share
                             </button>
-                            {entries.length > 0 && (
+                            <button
+                                onClick={handleExportCSV}
+                                disabled={entries.length === 0}
+                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
+                                    ? 'bg-slate-800 hover:bg-slate-700 text-white'
+                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                    }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                CSV
+                            </button>
+                            <button
+                                onClick={() => setShowStats(true)}
+                                disabled={entries.length === 0}
+                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
+                                    ? 'bg-slate-800 hover:bg-slate-700 text-white'
+                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                    }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                                Stats
+                            </button>
+                            <button
+                                onClick={() => setShowTrackMap(true)}
+                                disabled={entries.length === 0}
+                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                    }`}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                </svg>
+                                Map
+                            </button>
+                        </div>
+
+                        {/* Search and Filter Row */}
+                        <div className="flex gap-2 items-center">
+                            {/* Search */}
+                            <div className="relative flex-1 max-w-[160px]">
+                                <input
+                                    type="text"
+                                    placeholder="Search..."
+                                    value={filters.searchQuery}
+                                    onChange={(e) => setFilters({ ...filters, searchQuery: e.target.value })}
+                                    className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                                />
+                                <svg
+                                    className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                {filters.searchQuery && (
+                                    <button
+                                        onClick={() => setFilters({ ...filters, searchQuery: '' })}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                                    >
+                                        ×
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* A/M/W Type Filters */}
+                            <div className="flex gap-1">
+                                <button
+                                    onClick={() => {
+                                        const newTypes = filters.types.includes('auto')
+                                            ? filters.types.filter(t => t !== 'auto')
+                                            : [...filters.types, 'auto'] as ('auto' | 'manual' | 'waypoint')[];
+                                        setFilters({ ...filters, types: newTypes });
+                                    }}
+                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('auto')
+                                        ? 'bg-green-500/30 border-green-500/60 text-green-400'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        }`}
+                                >
+                                    A
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const newTypes = filters.types.includes('manual')
+                                            ? filters.types.filter(t => t !== 'manual')
+                                            : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
+                                        setFilters({ ...filters, types: newTypes });
+                                    }}
+                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
+                                        ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        }`}
+                                >
+                                    M
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const newTypes = filters.types.includes('waypoint')
+                                            ? filters.types.filter(t => t !== 'waypoint')
+                                            : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
+                                        setFilters({ ...filters, types: newTypes });
+                                    }}
+                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
+                                        ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        }`}
+                                >
+                                    W
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Log Entries Timeline - Scrollable area */}
+                    <div className="flex-1 overflow-y-auto">
+                        <div className="p-4 min-h-full flex flex-col">
+                            {entries.length === 0 ? (
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                                    <div className="text-6xl mb-4">⚓</div>
+                                    <p className="text-lg font-bold text-white mb-2">Your Voyage Awaits</p>
+                                    <p className="text-sm mb-6 max-w-xs mx-auto text-center">
+                                        "Twenty years from now you will be more disappointed by the things you didn't do than by the ones you did do."
+                                    </p>
+                                    <p className="text-xs text-slate-500">— Mark Twain</p>
+                                </div>
+                            ) : (
                                 <>
-                                    <button
-                                        onClick={() => setShowStats(true)}
-                                        className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                        </svg>
-                                        Stats
-                                    </button>
-                                    <button
-                                        onClick={handleClearLog}
-                                        className="px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                        Clear
-                                    </button>
+                                    {voyageGroups.map((voyage) => {
+                                        const isExpanded = expandedVoyages.has(voyage.voyageId);
+                                        const isActive = voyage.voyageId === currentVoyageId;
+                                        const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
+
+                                        if (voyageFilteredEntries.length === 0) return null;
+
+                                        return (
+                                            <div key={voyage.voyageId}>
+                                                <VoyageHeader
+                                                    voyageId={voyage.voyageId}
+                                                    entries={voyageFilteredEntries}
+                                                    isActive={isActive}
+                                                    isExpanded={isExpanded}
+                                                    onToggle={() => toggleVoyage(voyage.voyageId)}
+                                                    onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)}
+                                                />
+
+                                                {/* Collapsible date groups within voyage */}
+                                                {isExpanded && (
+                                                    <div className="ml-2 border-l-2 border-slate-700/50 pl-3 mb-4">
+                                                        <DateGroupedTimeline
+                                                            groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                                                            onDeleteEntry={handleDeleteEntry}
+                                                            onEditEntry={handleEditEntry}
+                                                            voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
+                                                            voyageLastEntryId={voyage.entries[0]?.id}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </>
                             )}
                         </div>
                     </div>
-
-                    {/* Log Entries Timeline */}
-                    <div className="flex-1 overflow-auto p-4">
-                        {entries.length === 0 ? (
-                            <div className="text-center py-16 text-slate-400">
-                                <div className="text-4xl mb-4">⚓</div>
-                                <p className="text-lg font-bold text-white mb-2">Your Voyage Awaits</p>
-                                <p className="text-sm mb-6 max-w-xs mx-auto">
-                                    "Twenty years from now you will be more disappointed by the things you didn't do than by the ones you did do."
-                                </p>
-                                <p className="text-xs text-slate-500">— Mark Twain</p>
-                            </div>
-                        ) : (
-                            <>
-                                {/* Mini Track Map Preview - Clickable */}
-                                <button
-                                    onClick={() => setShowTrackMap(true)}
-                                    className="w-full mb-3 group"
-                                >
-                                    <div className="relative">
-                                        <MiniTrackMap entries={entries} height={80} />
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors rounded-lg flex items-center justify-center">
-                                            <span className="text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 px-3 py-1 rounded-full">
-                                                View Full Map
-                                            </span>
-                                        </div>
-                                    </div>
-                                </button>
-
-                                {/* Filter Toolbar */}
-                                <LogFilterToolbar
-                                    filters={filters}
-                                    onFiltersChange={setFilters}
-                                    totalEntries={entries.length}
-                                    filteredCount={filteredEntries.length}
-                                    entryCounts={entryCounts}
-                                />
-
-                                {/* Date Grouped Timeline */}
-                                <DateGroupedTimeline
-                                    groupedEntries={groupedEntries}
-                                    onDeleteEntry={handleDeleteEntry}
-                                    onEditEntry={handleEditEntry}
-                                />
-                            </>
-                        )}
-                    </div>
-                </>
+                </div>
             )}
 
             {/* Toast Notifications */}
             <toast.ToastContainer />
 
-            {/* Add Manual Entry Button - Always visible, useful for manual-only users */}
-            <div className="p-4 pt-0">
+            {/* Add Manual Entry Button - FIXED at bottom using absolute positioning */}
+            <div className="absolute bottom-0 left-0 right-0 z-20 p-4 pt-2 border-t border-white/10 bg-slate-900">
                 <button
                     onClick={() => setShowAddModal(true)}
                     className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
@@ -485,6 +633,87 @@ export const LogPage: React.FC = () => {
                 onClose={() => setShowTrackMap(false)}
                 entries={entries}
             />
+
+            {/* Voyage Choice Dialog - Continue or New */}
+            {showVoyageChoiceDialog && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-xl font-bold text-white mb-2 text-center">Start Tracking</h3>
+                        <p className="text-slate-400 text-sm text-center mb-6">
+                            You have an existing voyage. Would you like to continue it or start a new one?
+                        </p>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={continueLastVoyage}
+                                className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Continue Last Voyage
+                            </button>
+
+                            <button
+                                onClick={async () => {
+                                    setShowVoyageChoiceDialog(false);
+                                    await startTrackingWithNewVoyage();
+                                }}
+                                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Start New Voyage
+                            </button>
+
+                            <button
+                                onClick={() => setShowVoyageChoiceDialog(false)}
+                                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Voyage Confirmation Modal */}
+            {deleteVoyageId && (() => {
+                const voyageEntries = entries.filter(e => e.voyageId === deleteVoyageId);
+                const sortedEntries = [...voyageEntries].sort((a, b) =>
+                    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                );
+                const first = sortedEntries[0];
+                const last = sortedEntries[sortedEntries.length - 1];
+                const startDate = first ? new Date(first.timestamp) : new Date();
+                const endDate = last ? new Date(last.timestamp) : new Date();
+                const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+                const totalDistance = Math.max(...voyageEntries.map(e => e.cumulativeDistanceNM || 0), 0);
+
+                const formatLoc = (e: ShipLogEntry | undefined) => {
+                    if (!e) return 'Unknown';
+                    if (e.waypointName) return e.waypointName;
+                    return `${Math.abs(e.latitude).toFixed(2)}°${e.latitude >= 0 ? 'N' : 'S'}`;
+                };
+
+                return (
+                    <DeleteVoyageModal
+                        isOpen={true}
+                        onClose={() => setDeleteVoyageId(null)}
+                        onExportFirst={handleExportThenDelete}
+                        onDelete={handleConfirmDeleteVoyage}
+                        voyageInfo={{
+                            startLocation: formatLoc(first),
+                            endLocation: formatLoc(last),
+                            totalDays,
+                            totalEntries: voyageEntries.length,
+                            totalDistance
+                        }}
+                    />
+                );
+            })()}
         </div>
     );
 };
