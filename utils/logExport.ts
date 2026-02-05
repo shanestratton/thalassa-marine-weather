@@ -549,8 +549,16 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     const speeds = entries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
     const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
 
-    // Format dates
-    const formatDate = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+    // Format dates with times: "05 Feb 2026 (15:43)"
+    const formatDate = (d: Date) => {
+        const day = d.getDate().toString().padStart(2, '0');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[d.getMonth()];
+        const year = d.getFullYear();
+        const hours = d.getHours().toString().padStart(2, '0');
+        const mins = d.getMinutes().toString().padStart(2, '0');
+        return `${day} ${month} ${year} (${hours}:${mins})`;
+    };
     const startDateStr = formatDate(startTime);
     const endDateStr = formatDate(endTime);
     const vessel = vesselName || 'Vessel';
@@ -698,11 +706,17 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         if (departureForHeader.windSpeed) {
             wxParts.push(`Wind: ${departureForHeader.windSpeed}kts ${departureForHeader.windDirection || ''}`);
         }
+        if (departureForHeader.beaufortScale !== undefined) {
+            wxParts.push(`Beaufort: F${departureForHeader.beaufortScale}`);
+        }
         if (departureForHeader.waveHeight) {
             wxParts.push(`Waves: ${departureForHeader.waveHeight.toFixed(1)}m`);
         }
+        if (departureForHeader.seaState !== undefined) {
+            wxParts.push(`Sea State: ${departureForHeader.seaState}`);
+        }
         if (departureForHeader.pressure) {
-            wxParts.push(`Baro: ${departureForHeader.pressure}mb`);
+            wxParts.push(`Barometric Pressure: ${Math.round(departureForHeader.pressure)}mb`);
         }
         if (departureForHeader.airTemp !== undefined) {
             wxParts.push(`Air: ${departureForHeader.airTemp}°C`);
@@ -745,15 +759,21 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         if (vesselProfile.length) {
             const lengthUnit = vesselUnits?.length || 'ft';
-            specs.push({ label: 'Length', value: `${vesselProfile.length}${lengthUnit}` });
+            // Length stored in feet, convert if needed
+            const lengthVal = lengthUnit === 'm' ? (vesselProfile.length * 0.3048) : vesselProfile.length;
+            specs.push({ label: 'Length', value: `${lengthVal.toFixed(1)}${lengthUnit}` });
         }
         if (vesselProfile.beam) {
             const beamUnit = vesselUnits?.beam || 'ft';
-            specs.push({ label: 'Beam', value: `${vesselProfile.beam}${beamUnit}` });
+            // Beam stored in feet, convert to meters if needed
+            const beamVal = beamUnit === 'm' ? (vesselProfile.beam * 0.3048) : vesselProfile.beam;
+            specs.push({ label: 'Beam', value: `${beamVal.toFixed(1)}${beamUnit}` });
         }
         if (vesselProfile.draft) {
             const draftUnit = vesselUnits?.draft || 'ft';
-            specs.push({ label: 'Draft', value: `${vesselProfile.draft}${draftUnit}` });
+            // Draft stored in feet, convert to meters if needed
+            const draftVal = draftUnit === 'm' ? (vesselProfile.draft * 0.3048) : vesselProfile.draft;
+            specs.push({ label: 'Draft', value: `${draftVal.toFixed(1)}${draftUnit}` });
         }
         if (vesselProfile.fuelCapacity) {
             const volUnit = vesselUnits?.volume || 'L';
@@ -779,6 +799,39 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         y += 25;
     }
+
+    // Maritime Scales Legend
+    pdf.setDrawColor(200, 200, 200);
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(margin, y, contentWidth, 24, 2, 2, 'S');
+
+    // Legend Header
+    pdf.setFillColor(248, 250, 252);
+    pdf.roundedRect(margin, y, contentWidth, 6, 2, 2, 'F');
+    pdf.setFontSize(7);
+    pdf.setTextColor(100, 110, 120);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('MARITIME SCALES REFERENCE', margin + 4, y + 4);
+
+    // Beaufort Scale (left half)
+    const legendY = y + 10;
+    const halfWidth = contentWidth / 2;
+    pdf.setFontSize(6);
+    pdf.setTextColor(26, 42, 58);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Beaufort Wind Scale:', margin + 4, legendY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('F0-1: Calm  |  F2-3: Light  |  F4-5: Moderate  |  F6-7: Strong  |  F8+: Gale/Storm', margin + 4, legendY + 4);
+    pdf.text('Wind speed in knots: F3=7-10kts, F4=11-16kts, F5=17-21kts, F6=22-27kts, F7=28-33kts', margin + 4, legendY + 8);
+
+    // Sea State (right half)
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Douglas Sea State:', margin + halfWidth + 4, legendY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('0: Calm (glassy)  |  1-2: Smooth  |  3-4: Slight/Moderate  |  5-6: Rough  |  7+: High/Very High', margin + halfWidth + 4, legendY + 4);
+    pdf.text('Wave height: SS3=0.5-1.25m, SS4=1.25-2.5m, SS5=2.5-4m, SS6=4-6m', margin + halfWidth + 4, legendY + 8);
+
+    y += 28;
 
     // Table column widths
     const cols = {
@@ -939,11 +992,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
                 // Barometer
                 pdf.setFont('helvetica', 'bold');
-                pdf.text('Baro:', wxX, wxY);
+                pdf.text('Barometric Pressure:', wxX, wxY);
                 pdf.setFont('helvetica', 'normal');
-                const baroText = entry.pressure ? `${entry.pressure}mb` : 'N/A';
-                pdf.text(baroText, wxX + 10, wxY);
-                wxX += 30;
+                const baroText = entry.pressure ? `${Math.round(entry.pressure)}mb` : 'N/A';
+                pdf.text(baroText, wxX + 30, wxY);
+                wxX += 50;
 
                 // Temps
                 pdf.setFont('helvetica', 'bold');
