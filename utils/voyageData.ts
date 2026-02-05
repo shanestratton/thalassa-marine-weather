@@ -6,7 +6,7 @@
 import { ShipLogEntry } from '../types';
 
 export interface GroupedEntries {
-    date: string; // YYYY-MM-DD
+    date: string; // YYYY-MM-DD (local)
     displayDate: string; // e.g., "February 1, 2026"
     entries: ShipLogEntry[];
     stats: {
@@ -18,14 +18,27 @@ export interface GroupedEntries {
 }
 
 /**
+ * Get local date string (YYYY-MM-DD) from timestamp
+ * Uses local timezone, not UTC
+ */
+function getLocalDateString(timestamp: string): string {
+    const d = new Date(timestamp);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
  * Group log entries by date for timeline display
+ * Uses LOCAL timezone for grouping (not UTC)
  */
 export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
     const grouped = new Map<string, ShipLogEntry[]>();
 
-    // Group by date
+    // Group by LOCAL date (not UTC)
     entries.forEach(entry => {
-        const date = new Date(entry.timestamp).toISOString().split('T')[0];
+        const date = getLocalDateString(entry.timestamp);
         if (!grouped.has(date)) {
             grouped.set(date, []);
         }
@@ -39,14 +52,21 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
                 .filter(e => e.speedKts && e.speedKts > 0)
                 .map(e => e.speedKts!);
 
+            // Parse date parts for display (local)
+            const [year, month, day] = date.split('-').map(Number);
+            const displayDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
             return {
                 date,
-                displayDate: new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                }),
-                entries: dateEntries,
+                displayDate,
+                // Sort entries within date newest first
+                entries: dateEntries.sort((a, b) =>
+                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                ),
                 stats: {
                     totalDistance: dateEntries.reduce((sum, e) => sum + (e.distanceNM || 0), 0),
                     avgSpeed: speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
@@ -55,7 +75,7 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
                 }
             };
         })
-        .sort((a, b) => b.date.localeCompare(a.date)); // Newest first
+        .sort((a, b) => b.date.localeCompare(a.date)); // Newest date first
 }
 
 /**

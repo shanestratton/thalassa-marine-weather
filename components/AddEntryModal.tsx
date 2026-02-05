@@ -1,10 +1,26 @@
 /**
- * Manual Entry Modal - Add custom log entries
- * For waypoints, notes, and manual observations
+ * Manual Entry Modal - Add custom deck log entries
+ * IMO-compliant with event categories and watch period display
  */
 
 import React, { useState } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
+import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
+
+// Event category type for type safety
+type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
+
+// Event categories with icons and descriptions
+const EVENT_CATEGORIES: { value: EventCategory; label: string; icon: string }[] = [
+    { value: 'observation', label: 'General Observation', icon: '👁️' },
+    { value: 'navigation', label: 'Navigation', icon: '🧭' },
+    { value: 'weather', label: 'Weather Change', icon: '🌤️' },
+    { value: 'arrival', label: 'Arrival', icon: '⚓' },
+    { value: 'departure', label: 'Departure', icon: '🚢' },
+    { value: 'equipment', label: 'Equipment', icon: '🔧' },
+    { value: 'crew', label: 'Crew', icon: '👥' },
+    { value: 'safety', label: 'Safety', icon: '🛟' },
+];
 
 interface AddEntryModalProps {
     isOpen: boolean;
@@ -16,7 +32,13 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     const [notes, setNotes] = useState('');
     const [waypointName, setWaypointName] = useState('');
     const [isWaypoint, setIsWaypoint] = useState(false);
+    const [eventCategory, setEventCategory] = useState<EventCategory>('observation');
     const [saving, setSaving] = useState(false);
+
+    // Current watch info
+    const now = new Date();
+    const currentTime = formatTime24Colon(now);
+    const currentWatch = getWatchPeriod(now.getHours());
 
     if (!isOpen) return null;
 
@@ -40,12 +62,14 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
             await ShipLogService.addManualEntry(
                 trimmedNotes || undefined,
-                trimmedWaypoint
+                trimmedWaypoint,
+                eventCategory
             );
 
             setNotes('');
             setWaypointName('');
             setIsWaypoint(false);
+            setEventCategory('observation');
             onSuccess();
             onClose();
         } catch (error) {
@@ -57,14 +81,21 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-slate-900 border border-white/20 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-white">Add Log Entry</h2>
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                {/* Header with Watch Info */}
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white">Add Log Entry</h2>
+                        <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+                            <span className="font-mono">{currentTime}</span>
+                            <span>•</span>
+                            <span>{getWatchPeriodName(currentWatch)}</span>
+                        </div>
+                    </div>
                     <button
                         onClick={onClose}
-                        className="text-slate-400 hover:text-white transition-colors"
+                        className="text-slate-400 hover:text-white transition-colors p-1"
                     >
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -74,6 +105,27 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Event Category Selector */}
+                    <div>
+                        <label className="block text-sm text-slate-300 mb-2">Event Type</label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {EVENT_CATEGORIES.map((cat) => (
+                                <button
+                                    key={cat.value}
+                                    type="button"
+                                    onClick={() => setEventCategory(cat.value)}
+                                    className={`p-2 rounded-lg border text-center transition-colors ${eventCategory === cat.value
+                                        ? 'bg-sky-500/20 border-sky-500/50 text-sky-400'
+                                        : 'bg-slate-800 border-white/10 text-slate-400 hover:border-white/20'
+                                        }`}
+                                >
+                                    <div className="text-lg">{cat.icon}</div>
+                                    <div className="text-[9px] mt-0.5 truncate">{cat.label}</div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Waypoint Toggle */}
                     <div className="flex items-center gap-3">
                         <input
@@ -96,9 +148,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 type="text"
                                 value={waypointName}
                                 onChange={(e) => setWaypointName(e.target.value)}
-                                placeholder="e.g., Cape Moreton, Fuel Stop, Reef Entrance"
+                                placeholder="e.g., Cape Moreton, Fuel Stop"
                                 className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                                autoFocus
                             />
                         </div>
                     )}
@@ -111,15 +162,14 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
-                            placeholder="e.g., Changed course due to weather, Crew rotation, Equipment maintenance"
-                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 min-h-[120px] resize-none"
-                            autoFocus={!isWaypoint}
+                            placeholder="e.g., Course change, Crew rotation, Equipment issue"
+                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 min-h-[80px] resize-none"
                         />
                     </div>
 
                     {/* Info Box */}
                     <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
-                        📍 Current GPS position, speed, course, and weather will be captured automatically
+                        📍 Position, course, speed, weather, and watch period captured automatically
                     </div>
 
                     {/* Buttons */}

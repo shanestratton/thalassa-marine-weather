@@ -103,7 +103,7 @@ interface WeatherContextType {
 const WeatherContext = createContext<WeatherContextType | undefined>(undefined);
 
 export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { settings, updateSettings } = useSettings();
+    const { settings, updateSettings, loading: settingsLoading } = useSettings();
 
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState("Initializing Weather Data...");
@@ -165,6 +165,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // --- INITIALIZATION (ASYNC LOAD) ---
     // DISABLED CACHE LOADING - Always fetch fresh data for dynamic weather app
     useEffect(() => {
+        // RACE CONDITION FIX: Wait for settings to finish loading
+        if (settingsLoading) {
+            console.log('[WeatherContext] Waiting for settings to load...');
+            return;
+        }
+
         const loadCache = async () => {
             try {
                 // CACHE DISABLED: Do not load cached weather data
@@ -240,7 +246,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         };
         loadCache();
-    }, []);
+    }, [settingsLoading]);
 
     // --- PERSISTENCE ---
     useEffect(() => {

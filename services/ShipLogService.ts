@@ -14,6 +14,7 @@ import { Preferences } from '@capacitor/preferences';
 import { Geolocation, Position } from '@capacitor/geolocation';
 import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
+import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../utils/marineFormatters';
 
 // --- CONSTANTS ---
 const TRACKING_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
@@ -78,28 +79,50 @@ function formatPositionDMS(lat: number, lon: number): string {
 
 /**
  * Get current weather data from cache for snapshot
+ * Includes IMO-compliant calculations for Beaufort, sea state, and watch period
  */
 async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
+    // Determine current watch period
+    const now = new Date();
+    const watchPeriod = getWatchPeriod(now.getHours());
+
     try {
         // Try to get weather from local storage cache
         const { value } = await Preferences.get({ key: 'weather_cache' });
-        if (!value) return {};
+        if (!value) {
+            return { watchPeriod };
+        }
 
         const cache = JSON.parse(value);
         const current = cache?.current;
-        if (!current) return {};
+        if (!current) {
+            return { watchPeriod };
+        }
+
+        // Extract base weather values
+        const windSpeed = current.windSpeed ?? undefined;
+        const waveHeight = current.waveHeight ?? undefined;
+        const visibility = current.visibility ?? undefined;
+
+        // Calculate IMO-compliant scales
+        const beaufortScale = windSpeed !== undefined ? windToBeaufort(windSpeed) : undefined;
+        const seaState = waveHeight !== undefined ? waveToSeaState(waveHeight) : undefined;
 
         return {
-            windSpeed: current.windSpeed,
+            windSpeed,
             windDirection: current.windDirectionCardinal || current.windDirection,
-            waveHeight: current.waveHeight,
+            waveHeight,
             pressure: current.pressure,
             airTemp: current.airTemperature,
-            waterTemp: current.waterTemperature
+            waterTemp: current.waterTemperature,
+            visibility,
+            beaufortScale,
+            seaState,
+            watchPeriod
         };
     } catch (error) {
         console.error('[ShipLogService] Error fetching weather snapshot:', error);
-        return {};
+        return { watchPeriod };
     }
 }
 
@@ -219,7 +242,13 @@ class ShipLogServiceClass {
      * Capture a single log entry
      * Auto-pause detection: If vessel hasn't moved >0.05nm in 1 hour, pause tracking
      */
-    async captureLogEntry(entryType: 'auto' | 'manual' | 'waypoint' = 'auto', notes?: string, waypointName?: string): Promise<ShipLogEntry | null> {
+    async captureLogEntry(
+        entryType: 'auto' | 'manual' | 'waypoint' = 'auto',
+        notes?: string,
+        waypointName?: string,
+        eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
+        engineStatus?: 'running' | 'stopped' | 'maneuvering'
+    ): Promise<ShipLogEntry | null> {
         try {
             console.log('[ShipLogService] Capturing log entry...');
 
@@ -286,6 +315,8 @@ class ShipLogServiceClass {
                 courseDeg: heading !== null && heading !== undefined ? Math.round(heading) : undefined,
                 ...weatherSnapshot,
                 entryType,
+                eventCategory,
+                engineStatus,
                 notes,
                 waypointName
             };
@@ -351,9 +382,14 @@ class ShipLogServiceClass {
     /**
      * Add a manual log entry (user-initiated)
      */
-    async addManualEntry(notes?: string, waypointName?: string): Promise<ShipLogEntry | null> {
+    async addManualEntry(
+        notes?: string,
+        waypointName?: string,
+        eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
+        engineStatus?: 'running' | 'stopped' | 'maneuvering'
+    ): Promise<ShipLogEntry | null> {
         const entryType = waypointName ? 'waypoint' : 'manual';
-        return this.captureLogEntry(entryType, notes, waypointName);
+        return this.captureLogEntry(entryType, notes, waypointName, eventCategory, engineStatus);
     }
 
     /**
