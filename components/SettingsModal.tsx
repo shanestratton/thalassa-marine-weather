@@ -21,8 +21,7 @@ import type { EnvironmentMode } from '../services/EnvironmentService';
 
 
 const isMapboxConfigured = () => {
-    // @ts-ignore
-    const envKey = process.env.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+    const envKey = (process as any).env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
     if (envKey && envKey.length > 5) return true;
     if (typeof window !== 'undefined') {
         const local = localStorage.getItem('thalassa_mapbox_key');
@@ -32,22 +31,18 @@ const isMapboxConfigured = () => {
 }
 
 const isOpenMeteoConfigured = () => {
-    // @ts-ignore
-    const envKey = process.env.OPEN_METEO_API_KEY || (import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY);
+    const envKey = (process as any).env?.OPEN_METEO_API_KEY || (import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY);
     return envKey && envKey.length > 5;
 }
 
 const getKeyPreview = (keyName: 'GEMINI' | 'STORMGLASS' | 'MAPBOX') => {
     let val = "";
     if (keyName === 'GEMINI') {
-        // @ts-ignore
-        val = process.env.API_KEY || process.env.GEMINI_API_KEY || (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY);
+        val = (process as any).env?.API_KEY || (process as any).env?.GEMINI_API_KEY || (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY);
     } else if (keyName === 'STORMGLASS') {
-        // @ts-ignore
-        val = process.env.STORMGLASS_API_KEY || (import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY);
+        val = (process as any).env?.STORMGLASS_API_KEY || (import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY);
     } else if (keyName === 'MAPBOX') {
-        // @ts-ignore
-        val = process.env.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+        val = (process as any).env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
     }
     if (!val || val.length < 5 || val.includes("YOUR_")) return "MISSING";
     return `Ends in ...${val.slice(-4)}`;
@@ -883,8 +878,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                                         setEnvMode(mode);
                                                     }}
                                                     className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${isActive
-                                                            ? `bg-gradient-to-br ${cfg.gradient} shadow-lg`
-                                                            : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
+                                                        ? `bg-gradient-to-br ${cfg.gradient} shadow-lg`
+                                                        : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
                                                         }`}
                                                 >
                                                     <span className="text-2xl">{cfg.icon}</span>

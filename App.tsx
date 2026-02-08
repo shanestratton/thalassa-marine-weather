@@ -212,7 +212,6 @@ const App: React.FC = () => {
                                                     onTriggerUpgrade={() => setIsUpgradeOpen(true)}
                                                     displayTitle={displayTitle}
                                                     timeZone={weatherData?.timeZone}
-                                                    // @ts-ignore
                                                     utcOffset={weatherData?.utcOffset}
                                                     timeDisplaySetting={settings.timeDisplay}
                                                     onToggleFavorite={toggleFavorite}
