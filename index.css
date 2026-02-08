@@ -169,13 +169,11 @@
 }
 
 /* ── Theme transition — smooth color changes when switching ── */
+/* Only transition the root containers; children inherit color instantly.
+   The old `*` selector caused massive jank by creating composite layers
+   on every DOM element during theme switches. */
 .theme-onshore,
 .theme-offshore {
-  transition: background-color 500ms ease, color 500ms ease, border-color 500ms ease;
-}
-
-.theme-onshore *,
-.theme-offshore * {
   transition: background-color 500ms ease, color 500ms ease, border-color 500ms ease;
 }
 

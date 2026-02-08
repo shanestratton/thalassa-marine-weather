@@ -22,23 +22,6 @@ export default defineConfig(({ mode }) => {
   };
 
 
-  // Diagnostics: Log key presence (masked) to build logs to verify Vercel injection
-  const keysToCheck = [
-    'VITE_GEMINI_API_KEY', 'GEMINI_API_KEY',
-    'VITE_STORMGLASS_API_KEY', 'STORMGLASS_API_KEY',
-    'VITE_OPEN_METEO_API_KEY', 'OPEN_METEO_API_KEY', // Added for debugging
-    'VITE_WORLDTIDES_API_KEY', // Added for visibility
-    'VITE_MAPBOX_ACCESS_TOKEN', 'MAPBOX_ACCESS_TOKEN',
-    'VITE_SUPABASE_URL', 'SUPABASE_URL',
-    'VITE_SUPABASE_KEY', 'SUPABASE_KEY'
-  ];
-
-  keysToCheck.forEach(k => {
-    const v = getKey(k);
-    if (v) {
-    } else {
-    }
-  });
 
   return {
     server: {
@@ -78,9 +61,15 @@ export default defineConfig(({ mode }) => {
       'process.env.SUPABASE_URL': JSON.stringify(getKey('VITE_SUPABASE_URL') || getKey('SUPABASE_URL') || ''),
       'process.env.SUPABASE_KEY': JSON.stringify(getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || ''),
     },
+    // Strip console.*/debugger from production builds
+    esbuild: mode === 'production' ? {
+      drop: ['console', 'debugger'],
+    } : undefined,
     build: {
       outDir: 'dist',
-      chunkSizeWarningLimit: 2000, // Silence chunk size warnings
+      sourcemap: mode !== 'production',
+      cssMinify: true,
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         output: {
           manualChunks: {

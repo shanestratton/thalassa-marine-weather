@@ -16,10 +16,8 @@ const getGeminiKey = (): string => {
     // 2. Try process.env shim
     if (!key) {
         try {
-            // @ts-ignore
-            if (typeof process !== 'undefined' && process.env) {
-                // @ts-ignore
-                key = process.env.API_KEY || process.env.GEMINI_API_KEY;
+            if (typeof process !== 'undefined' && (process as any).env) {
+                key = (process as any).env.API_KEY || (process as any).env.GEMINI_API_KEY;
             }
         } catch (e) { }
     }

@@ -490,7 +490,6 @@ function drawCompassRoseWatermark(pdf: jsPDF, pageWidth: number, pageHeight: num
     const angle = -15 * (Math.PI / 180);  // 15 degrees rotation
 
     // Set low opacity so watermark appears behind content
-    // @ts-ignore - GState may not be in types but works in jsPDF
     const gState = new (pdf as any).GState({ opacity: 0.15 });
     pdf.setGState(gState);
 
@@ -567,7 +566,6 @@ function drawCompassRoseWatermark(pdf: jsPDF, pageWidth: number, pageHeight: num
     pdf.text('W', wPos.x, wPos.y + 2, { align: 'center' });
 
     // Reset opacity to 100% for subsequent drawing
-    // @ts-ignore
     const resetState = new (pdf as any).GState({ opacity: 1.0 });
     pdf.setGState(resetState);
 }
