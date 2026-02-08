@@ -29,7 +29,7 @@ export const DepthDisplay: React.FC<Props> = ({ lat, lon }) => {
             <div className="p-4 bg-red-600 text-white rounded-lg border-2 border-red-800 shadow-xl">
                 <h3 className="font-bold text-lg uppercase">⚠️ NAVIGATION WARNING</h3>
                 <p className="text-sm">Cannot confirm Safe Chart Datum.</p>
-                <p className="text-xs mt-1 opacity-80">
+                <p className="text-sm mt-1 opacity-80">
                     Error: {tide?.error || "Unknown Failure"} (Datum: {tide?.datum})
                 </p>
             </div>
@@ -39,7 +39,7 @@ export const DepthDisplay: React.FC<Props> = ({ lat, lon }) => {
     // THE GREEN LIGHT: We have verified LAT data
     return (
         <div className="p-4 bg-slate-800 text-white rounded-lg border border-slate-600">
-            <div className="text-gray-400 text-xs uppercase tracking-wider">Tide Height</div>
+            <div className="text-gray-400 text-sm uppercase tracking-wider">Tide Height</div>
             <div className="flex items-baseline">
                 <span className="text-4xl font-mono font-bold text-blue-400">
                     {tide.height.toFixed(2)}m
@@ -48,7 +48,7 @@ export const DepthDisplay: React.FC<Props> = ({ lat, lon }) => {
                     {tide.datum}
                 </span>
             </div>
-            <div className="mt-2 text-xs text-gray-500">
+            <div className="mt-2 text-sm text-gray-500">
                 Station: {tide.stationName} <br />
                 Synced: {new Date(tide.timestamp * 1000).toLocaleTimeString()}
             </div>

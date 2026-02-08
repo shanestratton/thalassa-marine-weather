@@ -26,6 +26,8 @@ export class ParticleEngine {
     private lastFrameTime = 0;
     private fpsInterval = 1000 / 30; // Cap at 30 FPS for battery conservation
     private isVisible = true;
+    private reducedMotion = false;
+    private reducedMotionQuery: MediaQueryList | null = null;
 
     constructor(canvas: HTMLCanvasElement, map: any, sampleVal: any, sampleDir: any) {
         this.canvas = canvas;
@@ -51,6 +53,11 @@ export class ParticleEngine {
         // Stop rendering completely when tab is backgrounded
         document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
+        // --- 3. REDUCED MOTION PREFERENCE ---
+        this.reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        this.reducedMotion = this.reducedMotionQuery.matches;
+        this.reducedMotionQuery.addEventListener('change', this.handleReducedMotionChange);
+
         this.initParticles();
     }
 
@@ -60,6 +67,17 @@ export class ParticleEngine {
             this.isVisible = false;
         } else {
             this.isVisible = true;
+            this.start();
+        }
+    }
+
+    private handleReducedMotionChange = (e: MediaQueryListEvent) => {
+        this.reducedMotion = e.matches;
+        if (this.reducedMotion) {
+            this.stop();
+            // Render one static frame
+            this.renderStaticFrame();
+        } else {
             this.start();
         }
     }
@@ -118,6 +136,11 @@ export class ParticleEngine {
     }
 
     public start() {
+        if (this.reducedMotion) {
+            // Render a single static frame instead of animating
+            this.renderStaticFrame();
+            return;
+        }
         if (!this.requestRef && this.isVisible) {
             this.lastFrameTime = performance.now();
             this.animate(this.lastFrameTime);
@@ -135,6 +158,36 @@ export class ParticleEngine {
     public destroy() {
         this.stop();
         document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+        if (this.reducedMotionQuery) {
+            this.reducedMotionQuery.removeEventListener('change', this.handleReducedMotionChange);
+        }
+    }
+
+    // Render a single static snapshot of particle positions
+    private renderStaticFrame() {
+        try {
+            const width = this.canvas.width / this.dpr;
+            const height = this.canvas.height / this.dpr;
+            this.ctx.save();
+            this.ctx.scale(this.dpr, this.dpr);
+            this.ctx.clearRect(0, 0, width, height);
+
+            this.particles.forEach(p => {
+                const val = this.sampleValue(p.lat, p.lon, this.activeLayer);
+                if (!val || val < 0.1) return;
+                const pt = this.map.latLngToContainerPoint([p.lat, p.lon]);
+                if (pt.x < -10 || pt.x > width + 10 || pt.y < -10 || pt.y > height + 10) return;
+                const color = this.getParticleColor(val);
+                this.ctx.beginPath();
+                this.ctx.arc(pt.x, pt.y, 1.5, 0, Math.PI * 2);
+                this.ctx.fillStyle = color;
+                this.ctx.fill();
+            });
+
+            this.ctx.restore();
+        } catch {
+            this.ctx.restore();
+        }
     }
 
     private getParticleColor(val: number): string {
@@ -314,7 +367,6 @@ export class ParticleEngine {
                 this.ctx.restore();
                 return;
             }
-            console.warn("Particle Engine Frame Error:", e);
             this.ctx.restore();
         }
     }

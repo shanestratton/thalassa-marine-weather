@@ -174,14 +174,20 @@ export const HeroSection = ({
             >
                 {/* Show skeleton while data is loading */}
                 {dayRows.length === 0 ? (
-                    <div className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
+                    <div
+                        className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden"
+                        style={{ backfaceVisibility: 'hidden' }}
+                    >
                         <HeroSlideSkeleton />
                     </div>
                 ) : (
                     dayRows.map((row, rIdx) => (
                         // Each day: relative positioning creates context for HeroSlide's absolute headers
                         // overflow-hidden prevents headers from escaping during vertical scroll
-                        <div key={rIdx} className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden">
+                        <div
+                            key={rIdx}
+                            className="relative w-full h-full snap-start snap-always shrink-0 flex flex-col overflow-hidden"
+                        >
                             <HeroSlide
                                 index={rIdx}
                                 data={row.data}
@@ -206,6 +212,7 @@ export const HeroSection = ({
                                 coordinates={coordinates}
                                 generatedAt={generatedAt}
                                 onTimeSelect={createTimeSelectHandler(rIdx)}
+                                onHourChange={onHourChange}
                                 isVisible={activeIndex === rIdx}
                                 utcOffset={utcOffset}
                                 tideHourly={tideHourly}

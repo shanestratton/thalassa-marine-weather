@@ -76,8 +76,6 @@ export const mapStormGlassToReport = (
     if (validHours.length > 0) {
         hours = validHours;
     } else {
-        console.error(`[Transformers] CRITICAL: 100% of data is corrupt (Dates outside of ${new Date(safeMin).toISOString()} - ${new Date(safeMax).toISOString()}).`);
-        console.error(`[Transformers] Sample Bad Date: ${hours[0]?.time}`);
         // Return empty or throw, do NOT use bad data.
         // Returning a dummy report with error flag/status to force UI to handle it gracefully?
         // For now, let's allow it but log heavily. Actually, let's EMPTY the hours to force blank UI instead of incorrectly labeled cards.
@@ -154,7 +152,7 @@ export const mapStormGlassToReport = (
     let pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
 
     let vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
-    const dew: number | null = null; // Dewpoint from model if available
+    const dew = getVal(currentHour.dewPointTemperature as MultiSourceField); // Dewpoint from StormGlass API
     const fogRisk = false;
     const cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;
 
@@ -254,7 +252,8 @@ export const mapStormGlassToReport = (
                 const uvField = h.uvIndex as MultiSourceField;
                 return getVal(uvField) ?? 0;
             })(),
-            feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField) ?? 0, getVal(h.humidity as MultiSourceField) ?? 0, windKts * 0.8)
+            feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField) ?? 0, getVal(h.humidity as MultiSourceField) ?? 0, windKts * 0.8),
+            dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null
         };
     });
 

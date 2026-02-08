@@ -11,6 +11,7 @@ export type TempUnit = 'C' | 'F';
 export type DistanceUnit = 'nm' | 'mi' | 'km';
 export type VisibilityUnit = 'nm' | 'mi' | 'km';
 export type VolumeUnit = 'gal' | 'l';
+export type ScreenOrientationType = 'auto' | 'portrait' | 'landscape';
 
 export interface GridPoint {
     lat: number;
@@ -120,7 +121,12 @@ export interface VesselProfile {
     cruisingSpeed: number;
     fuelCapacity?: number;
     waterCapacity?: number;
-    fuelBurn?: number;
+    fuelBurn?: number; // Fuel burn per hour at cruising speed (L/hr or gal/hr)
+    hullColor?: string; // For Coast Guard float plan
+    registration?: string; // Vessel registration number
+    mmsi?: string; // Maritime Mobile Service Identity / Call Sign
+    sailNumber?: string; // Racing sail number (e.g. AUS 1234)
+    crewCount?: number; // Total crew including captain (default: 2)
     customIconUrl?: string;
     estimatedFields?: string[]; // Track which fields were auto-calculated
 }
@@ -146,6 +152,13 @@ export interface UserSettings {
     rowOrder?: string[];
     dynamicHeaderMetrics?: boolean; // If true, header updates with scroll; if false, stays static
     dashboardMode?: DashboardMode; // 'essential' = simplified view, 'full' = all widgets (default)
+    screenOrientation?: ScreenOrientationType; // 'auto' | 'portrait' | 'landscape' - in-app orientation lock
+    autoTrackEnabled?: boolean; // Auto-start voyage tracking on app launch (user must opt in)
+    backgroundLocationEnabled?: boolean; // Enable background GPS for 15-minute voyage logging (uses more battery)
+    // Cloud sync preferences
+    cloudSyncSettings?: boolean; // Sync settings (units, vessel, preferences) to Supabase
+    cloudSyncVoyages?: boolean; // Sync voyage tracks, waypoints, GPX data to Supabase
+    cloudSyncCommunity?: boolean; // Enable community track sharing via Supabase
 }
 
 export interface WeatherMetrics {
@@ -311,6 +324,7 @@ export interface MarineWeatherReport {
     utcOffset?: number;
     isLandlocked?: boolean; // Deprecated but kept for compat
     locationType?: 'coastal' | 'offshore' | 'inland';
+    distToLandKm?: number; // Distance to nearest land in km (for adaptive logging zones)
     synopticMap?: GridPoint[];
     tideGUIDetails?: {
         stationName: string;
@@ -394,6 +408,7 @@ export interface ShipLogEntry {
 
     // Entry metadata
     entryType: 'auto' | 'manual' | 'waypoint'; // Auto = GPS tracking, Manual = user added, Waypoint = navigation mark
+    source?: 'device' | 'gpx_import' | 'community_download'; // Track provenance: device = live GPS, gpx_import = imported file, community_download = DL'd from community
     eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
     engineStatus?: 'running' | 'stopped' | 'maneuvering';
     notes?: string; // User notes

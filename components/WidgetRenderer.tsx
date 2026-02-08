@@ -1,7 +1,10 @@
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { AdviceWidget } from './dashboard/Advice';
-import { ForecastChartWidget, HourlyWidget, DailyWidget, MapWidget } from './dashboard/WeatherCharts';
+const ForecastChartWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.ForecastChartWidget })));
+const HourlyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.HourlyWidget })));
+const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.DailyWidget })));
+const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.MapWidget })));
 import { BeaufortWidget, DetailedMetricsWidget } from './dashboard/WeatherGrid';
 import { TideWidget, SunMoonWidget, VesselWidget, VesselStatusWidget } from './dashboard/TideAndVessel';
 import { UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, ForecastDay, Tide, TidePoint, ChartDataPoint, LockerItem } from '../types';
@@ -71,28 +74,7 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
         />
     ),
     'forecastChart': (ctx) => (
-        <ForecastChartWidget
-            data={ctx.chartData}
-            view={ctx.chartView}
-            setView={ctx.setChartView}
-            units={ctx.units}
-            hiddenSeries={ctx.hiddenSeries}
-            toggleSeries={ctx.toggleChartSeries}
-            locationName={ctx.locationName}
-            vessel={ctx.vessel}
-            isLandlocked={ctx.isLandlocked}
-            isNightMode={ctx.isNightMode}
-        />
-    ),
-    'hourly': (ctx) => (
-        <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
-    ),
-    'daily': (ctx) => (
-        <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
-    ),
-    // FALLBACK for old settings that might still have 'charts'
-    'charts': (ctx) => (
-        <div className="space-y-6">
+        <Suspense fallback={<div className="h-64 bg-white/5 rounded-2xl animate-pulse" />}>
             <ForecastChartWidget
                 data={ctx.chartData}
                 view={ctx.chartView}
@@ -105,9 +87,38 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
                 isLandlocked={ctx.isLandlocked}
                 isNightMode={ctx.isNightMode}
             />
+        </Suspense>
+    ),
+    'hourly': (ctx) => (
+        <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
             <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
+        </Suspense>
+    ),
+    'daily': (ctx) => (
+        <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
             <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
-        </div>
+        </Suspense>
+    ),
+    // FALLBACK for old settings that might still have 'charts'
+    'charts': (ctx) => (
+        <Suspense fallback={<div className="h-96 bg-white/5 rounded-2xl animate-pulse" />}>
+            <div className="space-y-6">
+                <ForecastChartWidget
+                    data={ctx.chartData}
+                    view={ctx.chartView}
+                    setView={ctx.setChartView}
+                    units={ctx.units}
+                    hiddenSeries={ctx.hiddenSeries}
+                    toggleSeries={ctx.toggleChartSeries}
+                    locationName={ctx.locationName}
+                    vessel={ctx.vessel}
+                    isLandlocked={ctx.isLandlocked}
+                    isNightMode={ctx.isNightMode}
+                />
+                <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
+                <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
+            </div>
+        </Suspense>
     ),
     'beaufort': (ctx) => (
         <div className="w-full">

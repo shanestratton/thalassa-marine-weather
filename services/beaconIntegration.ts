@@ -54,7 +54,6 @@ export async function enhanceWithBeaconData(
         return mergedReport;
 
     } catch (error) {
-        console.error('[BeaconIntegration] Error:', error);
         debug.error = String(error);
         return report;
     }

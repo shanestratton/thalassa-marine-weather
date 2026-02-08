@@ -95,9 +95,9 @@ export const MoonVisual = ({ cloudCover, apiPhase, apiIllumination, apiPhaseValu
             </div>
 
             <div className="text-left leading-tight">
-                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Lunar Phase</div>
+                <div className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-0.5">Lunar Phase</div>
                 <div className="text-sm text-white font-bold tracking-wide whitespace-nowrap">{phaseName}</div>
-                <div className="text-[10px] text-sky-400 font-mono">{(illumination * 100).toFixed(0)}% Illumination</div>
+                <div className="text-sm text-sky-400 font-mono">{(illumination * 100).toFixed(0)}% Illumination</div>
             </div>
         </div>
     );
@@ -179,8 +179,8 @@ export const SolarArc = ({ sunrise, sunset, showTimes = true, size = 'normal', t
         <div className={`flex items-center gap-4 w-full ${size === 'large' ? 'flex-col justify-center' : ''}`}>
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
-                    <span className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
-                    <span className="text-xs font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-3 h-3 text-orange-400" /> {sunrise}</span>
+                    <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-3 h-3 text-orange-400" /> {sunrise}</span>
                 </div>
             )}
 
@@ -219,19 +219,19 @@ export const SolarArc = ({ sunrise, sunset, showTimes = true, size = 'normal', t
 
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
-                    <span className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
-                    <span className="text-xs font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-3 h-3 text-orange-400" /></span>
+                    <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-3 h-3 text-orange-400" /></span>
                 </div>
             )}
 
             {size === 'large' && (
                 <div className="flex justify-between w-full px-8 -mt-2">
                     <div className="flex flex-col items-start">
-                        <span className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
+                        <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
                         <span className="text-xl font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-4 h-4 text-orange-400" /> {sunrise}</span>
                     </div>
                     <div className="flex flex-col items-end">
-                        <span className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
+                        <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
                         <span className="text-xl font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-4 h-4 text-orange-400" /></span>
                     </div>
                 </div>

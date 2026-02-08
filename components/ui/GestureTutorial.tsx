@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { t } from '../../theme';
 
 interface GestureTutorialProps {
     onDismiss: () => void;
@@ -47,8 +48,20 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
             icon: (
                 <div className="flex gap-3">
                     <div className="px-3 py-1.5 bg-cyan-500/30 border border-cyan-400/50 rounded-lg text-cyan-300 font-bold text-sm">ESS</div>
-                    <div className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-white/60 font-bold text-sm">FULL</div>
+                    <div className={`px-3 py-1.5 bg-white/10 ${t.border.strong} rounded-lg text-white/60 font-bold text-sm`}>FULL</div>
                 </div>
+            ),
+        },
+        {
+            title: "Delete Voyages",
+            description: "In the Ship's Log, swipe left on any voyage to reveal the delete option",
+            icon: (
+                <svg className="w-16 h-16 text-red-400" viewBox="0 0 64 64" fill="none">
+                    <path d="M48 32H16M16 32l8-8M16 32l8 8"
+                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    <rect x="44" y="24" width="12" height="16" rx="2" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="2" />
+                    <path d="M50 28v8M50 28l-2 2M50 28l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
             ),
         },
     ];
@@ -75,7 +88,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
             onClick={handleDismiss}
         >
             <div
-                className="bg-gray-900/95 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+                className="bg-gray-900/95 ${t.border.default} rounded-2xl p-6 max-w-sm w-full shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Step indicator */}
@@ -109,7 +122,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                     <button
                         onClick={handleNext}
                         className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
-                    >
+                     aria-label="Next">
                         {step < steps.length - 1 ? 'Next' : 'Get Started'}
                     </button>
 
@@ -131,7 +144,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                     <button
                         onClick={handleDismiss}
                         className="w-full mt-3 py-2 text-white/50 hover:text-white/70 text-sm transition-colors"
-                    >
+                     aria-label="Dismiss">
                         Skip tutorial
                     </button>
                 )}

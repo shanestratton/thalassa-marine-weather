@@ -100,13 +100,11 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
         });
 
         if (response.status !== 200 || !response.data) {
-            console.warn(`[BeaconService] NDBC buoy ${buoyId} returned status ${response.status}`);
             return null;
         }
 
         const lines = response.data.trim().split('\n');
         if (lines.length < 3) {
-            console.warn(`[BeaconService] NDBC buoy ${buoyId} has insufficient data`);
             return null;
         }
 
@@ -150,7 +148,6 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
             timestamp
         };
     } catch (error) {
-        console.error(`[BeaconService] Error fetching NDBC buoy ${buoyId}:`, error);
         return null;
     }
 }
@@ -166,7 +163,6 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         // Map buoy ID to Queensland site name
         const siteName = QLD_SITE_MAPPING[buoyId];
         if (!siteName) {
-            console.warn(`[BeaconService] BOM/QLD buoy ${buoyId} not mapped to Queensland site`);
             return null;
         }
 
@@ -182,13 +178,11 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         });
 
         if (response.status !== 200 || !response.data) {
-            console.warn(`[BeaconService] QLD API returned status ${response.status}`);
             return null;
         }
 
         const data = response.data;
         if (!data.success || !data.result || !data.result.records || data.result.records.length === 0) {
-            console.warn(`[BeaconService] QLD buoy ${buoyId} has no recent data`);
             return null;
         }
 
@@ -209,7 +203,6 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
             pressure: undefined
         };
     } catch (error) {
-        console.error(`[BeaconService] Error fetching BOM/QLD buoy ${buoyId}:`, error);
         return null;
     }
 }
@@ -236,7 +229,6 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         });
 
         if (response.status !== 200 || !response.data) {
-            console.warn(`[BeaconService] BOM AWS API returned status ${response.status}`);
             return null;
         }
 
@@ -244,7 +236,6 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
 
         // BOM JSON structure: { observations: { data: [...] } }
         if (!data.observations || !data.observations.data || data.observations.data.length === 0) {
-            console.warn(`[BeaconService] BOM AWS ${stationId} has no observation data`);
             return null;
         }
 
@@ -298,7 +289,6 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
             waterTemp: undefined
         };
     } catch (error) {
-        console.error(`[BeaconService] Error fetching BOM AWS ${stationId}:`, error);
         return null;
     }
 }
@@ -326,7 +316,6 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         });
 
         if (response.status !== 200 || !response.data) {
-            console.warn(`[BeaconService] HKO API returned status ${response.status}`);
             return null;
         }
 
@@ -338,7 +327,6 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         );
 
         if (!windData) {
-            console.warn(`[BeaconService] HKO station ${stationId} not found in response`);
             return null;
         }
 
@@ -380,7 +368,6 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
             waterTemp: undefined
         };
     } catch (error) {
-        console.error(`[BeaconService] Error fetching HKO ${stationId}:`, error);
         return null;
     }
 }
@@ -406,7 +393,6 @@ async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
         });
 
         if (response.status !== 200 || !response.data) {
-            console.warn(`[BeaconService] Irish Marine API returned status ${response.status}`);
             return null;
         }
 
@@ -414,7 +400,6 @@ async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
 
         // ERDDAP returns { table: { columnNames: [...], rows: [[...], ...] } }
         if (!data.table?.rows?.length) {
-            console.warn(`[BeaconService] Irish buoy ${buoyId} has no data`);
             return null;
         }
 
@@ -441,7 +426,6 @@ async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
             timestamp: row[cols.indexOf('time')] || new Date().toISOString()
         };
     } catch (error) {
-        console.error(`[BeaconService] Error fetching Irish buoy ${buoyId}:`, error);
         return null;
     }
 }
@@ -462,7 +446,6 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
         case 'bom-aws':
             // BOM Automatic Weather Stations with wind sensors
             if (!buoy.bomStationId) {
-                console.warn(`[BeaconService] BOM AWS ${buoy.id} missing bomStationId`);
                 return null;
             }
             return fetchBOMAWS(buoy.bomStationId);
@@ -477,7 +460,6 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
         case 'jma':
         case 'other':
             // Placeholder - these networks need implementation
-            console.warn(`[BeaconService] Buoy type '${buoy.type}' not yet implemented for ${buoy.id}`);
             return null;
         default:
             return null;
@@ -575,15 +557,12 @@ export async function findAndFetchNearestBeacon(
 
                 return observation;
             } else {
-                console.warn(`[BeaconService] ✗ Failed to fetch data from ${buoy.name}, trying next...`);
             }
         }
 
-        console.warn(`[BeaconService] No beacons returned valid data`);
         return null;
 
     } catch (error) {
-        console.error('[BeaconService] Error in findAndFetchNearestBeacon:', error);
         return null;
     }
 }

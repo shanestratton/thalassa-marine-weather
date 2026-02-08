@@ -1,9 +1,10 @@
 /**
  * Voyage Statistics Panel
- * Shows comprehensive stats and analytics for current voyage
+ * Compact, scrollable stats panel that fits between header and bottom button
  */
 
 import React from 'react';
+import { t } from '../theme';
 import { ShipLogEntry } from '../types';
 import { calculateVoyageStats } from '../utils/voyageData';
 
@@ -19,79 +20,48 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
     }
 
     return (
-        <div className="bg-slate-900/50 border border-white/10 rounded-xl p-4 mb-4">
-            <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-                <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Voyage Statistics
-            </h3>
-
-            {/* Distance & Time */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <StatCard
-                    label="Total Distance"
-                    value={stats.totalDistance.toFixed(1)}
-                    unit="NM"
-                    color="emerald"
-                />
-                <StatCard
-                    label="Duration"
-                    value={stats.totalTime}
-                    unit=""
-                    color="blue"
-                />
-                <StatCard
-                    label="Entries"
-                    value={stats.totalEntries}
-                    unit=""
-                    color="purple"
-                />
-                <StatCard
-                    label="Waypoints"
-                    value={stats.waypointCount}
-                    unit=""
-                    color="sky"
-                />
+        <div className="space-y-3">
+            {/* Too-short voyage warning */}
+            {stats.durationMinutes < 6 && (
+                <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg px-3 py-2.5 flex items-start gap-2">
+                    <span className="text-amber-400 text-base mt-0.5">⚓</span>
+                    <div>
+                        <p className="text-sm font-bold text-amber-300">Barely left the dock!</p>
+                        <p className="text-sm text-amber-400/80 mt-0.5">Tracks under 6 minutes aren't much of a voyage — consider deleting this one, Captain.</p>
+                    </div>
+                </div>
+            )}
+            {/* Primary Stats Row - 4 key metrics */}
+            <div className="grid grid-cols-4 gap-2">
+                <CompactStat label="Distance" value={stats.totalDistance.toFixed(1)} unit="NM" />
+                <CompactStat label="Duration" value={stats.totalTime} />
+                <CompactStat label="Avg Spd" value={stats.avgSpeed.toFixed(1)} unit="kts" />
+                <CompactStat label="Entries" value={stats.totalEntries} />
             </div>
 
-            {/* Speed Stats */}
-            <div className="bg-slate-800/50 rounded-lg p-3 mb-4">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">Speed Analysis</div>
-                <div className="grid grid-cols-3 gap-3">
-                    <MiniStat label="Average" value={stats.avgSpeed.toFixed(1)} unit="kts" />
-                    <MiniStat label="Maximum" value={stats.maxSpeed.toFixed(1)} unit="kts" />
-                    <MiniStat label="Minimum" value={stats.minSpeed.toFixed(1)} unit="kts" />
+            {/* Speed Row */}
+            <div className="bg-slate-800/50 rounded-lg px-3 py-2">
+                <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Speed</div>
+                <div className="flex justify-between">
+                    <MiniStat label="Max" value={stats.maxSpeed.toFixed(1)} unit="kts" />
+                    <MiniStat label="Min" value={stats.minSpeed.toFixed(1)} unit="kts" />
+                    <MiniStat label="Waypts" value={stats.waypointCount} />
                 </div>
             </div>
 
-            {/* Weather Summary */}
+            {/* Weather Row - only show if we have data */}
             {(stats.weather.avgWindSpeed > 0 || stats.weather.avgWaveHeight > 0) && (
-                <div className="bg-slate-800/50 rounded-lg p-3">
-                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">
-                        Weather Summary (Average)
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-800/50 rounded-lg px-3 py-2">
+                    <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Weather Avg</div>
+                    <div className="flex justify-between">
                         {stats.weather.avgWindSpeed > 0 && (
-                            <MiniStat
-                                label="Wind"
-                                value={stats.weather.avgWindSpeed.toFixed(1)}
-                                unit="kts"
-                            />
+                            <MiniStat label="Wind" value={stats.weather.avgWindSpeed.toFixed(0)} unit="kts" />
                         )}
                         {stats.weather.avgWaveHeight > 0 && (
-                            <MiniStat
-                                label="Waves"
-                                value={stats.weather.avgWaveHeight.toFixed(1)}
-                                unit="m"
-                            />
+                            <MiniStat label="Waves" value={(stats.weather.avgWaveHeight * 0.3048).toFixed(1)} unit="m" />
                         )}
                         {stats.weather.avgAirTemp > 0 && (
-                            <MiniStat
-                                label="Air Temp"
-                                value={Math.round(stats.weather.avgAirTemp)}
-                                unit="°C"
-                            />
+                            <MiniStat label="Temp" value={Math.round(stats.weather.avgAirTemp)} unit="°" />
                         )}
                     </div>
                 </div>
@@ -100,46 +70,24 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
     );
 };
 
-// Sub-components
-
-interface StatCardProps {
-    label: string;
-    value: string | number;
-    unit: string;
-    color: 'emerald' | 'blue' | 'purple' | 'sky';
-}
-
-const StatCard: React.FC<StatCardProps> = ({ label, value, unit, color }) => {
-    const colorClasses = {
-        emerald: 'from-emerald-500/20 to-emerald-600/20 border-emerald-500/30 text-emerald-400',
-        blue: 'from-blue-500/20 to-blue-600/20 border-blue-500/30 text-blue-400',
-        purple: 'from-purple-500/20 to-purple-600/20 border-purple-500/30 text-purple-400',
-        sky: 'from-sky-500/20 to-sky-600/20 border-sky-500/30 text-sky-400'
-    };
-
-    return (
-        <div className={`bg-gradient-to-br ${colorClasses[color]} border rounded-lg p-3 text-center`}>
-            <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
-            <div className="text-2xl font-bold text-white">
-                {value}
-                {unit && <span className="text-sm ml-1 opacity-70">{unit}</span>}
-            </div>
-        </div>
-    );
-};
-
-interface MiniStatProps {
-    label: string;
-    value: string | number;
-    unit: string;
-}
-
-const MiniStat: React.FC<MiniStatProps> = ({ label, value, unit }) => (
-    <div className="text-center">
-        <div className="text-[10px] text-slate-400 uppercase">{label}</div>
-        <div className="text-lg font-bold text-white">
+// Compact stat card for main row
+const CompactStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
+    <div className={`bg-slate-800/60 ${t.border.subtle} rounded-lg p-2 text-center`}>
+        <div className="text-sm text-slate-500 uppercase tracking-wider">{label}</div>
+        <div className="text-lg font-bold text-white leading-tight">
             {value}
-            <span className="text-xs ml-1 text-slate-400">{unit}</span>
+            {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}
+        </div>
+    </div>
+);
+
+// Mini stat for secondary rows
+const MiniStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
+    <div className="text-center">
+        <div className="text-sm text-slate-500 uppercase">{label}</div>
+        <div className="text-sm font-bold text-white">
+            {value}
+            {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}
         </div>
     </div>
 );

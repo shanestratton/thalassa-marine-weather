@@ -15,6 +15,8 @@ import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';
 import { isGeminiConfigured } from '../services/geminiService';
 import { ALL_HERO_WIDGETS, ALL_DETAIL_WIDGETS, ALL_ROW_WIDGETS } from './WidgetDefinitions';
+import { EnvironmentService } from '../services/EnvironmentService';
+import type { EnvironmentMode } from '../services/EnvironmentService';
 
 
 
@@ -182,6 +184,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     const [debugLog, setDebugLog] = useState<string | null>(null);
     const [isRunningDebug, setIsRunningDebug] = useState(false);
 
+    // Environment theme state
+    const [envMode, setEnvMode] = useState<EnvironmentMode>(() => EnvironmentService.getState().mode);
+    const [envState, setEnvState] = useState(() => EnvironmentService.getState());
+
+    useEffect(() => {
+        const unsub = EnvironmentService.onStateChange((state) => {
+            setEnvState(state);
+            setEnvMode(state.mode);
+        });
+        return unsub;
+    }, []);
+
 
     useEffect(() => {
         if (activeTab === 'account') {
@@ -337,6 +351,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             <div className="md:hidden w-full border-b border-white/5 bg-slate-900/50 backdrop-blur-xl z-20 sticky top-0">
                 <div className="flex overflow-x-auto p-4 gap-3 snap-x scrollbar-hide">
                     <MobileNavTab active={activeTab === 'general'} onClick={() => setActiveTab('general')} icon={<GearIcon className="w-4 h-4" />} label="Prefs" />
+                    <MobileNavTab active={activeTab === 'account'} onClick={() => setActiveTab('account')} icon={<CloudIcon className="w-4 h-4" />} label="Cloud" />
                     <MobileNavTab active={activeTab === 'vessel'} onClick={() => setActiveTab('vessel')} icon={<BoatIcon className="w-4 h-4" />} label="Vessel" />
                     <MobileNavTab active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapPinIcon className="w-4 h-4" />} label="Locs" />
                     <MobileNavTab active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<BellIcon className="w-4 h-4" />} label="Alerts" />
@@ -367,25 +382,155 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
 
                     {activeTab === 'account' && (
                         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+                            {/* Account Connection Hero */}
                             <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-3xl p-6 mb-8 shadow-2xl relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-32 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
                                 <div className="flex flex-col items-center gap-4 relative z-10 text-center">
-                                    <h3 className="text-lg font-bold text-white">Cloud Connection</h3>
-                                    <p className="text-sm text-gray-400 max-w-md">Connect your account to sync settings and unlock advanced features.</p>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/30' : 'bg-gradient-to-br from-slate-600 to-slate-700'}`}>
+                                        <CloudIcon className={`w-8 h-8 ${user ? 'text-white' : 'text-gray-400'}`} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">{user ? 'Connected to Cloud' : 'Cloud Connection'}</h3>
+                                        <p className="text-sm text-gray-400 max-w-md mt-1">
+                                            {user
+                                                ? 'Your data is synced securely to the cloud.'
+                                                : 'Sign in to sync settings, voyage data, and share community tracks.'}
+                                        </p>
+                                    </div>
                                     {!user ? (
-                                        <button onClick={() => setAuthOpen(true)} className="bg-sky-500 hover:bg-sky-400 text-white font-bold py-2 px-6 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg">
-                                            Connect to Cloud
+                                        <button onClick={() => setAuthOpen(true)} className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95">
+                                            Sign In with Email or Phone
                                         </button>
                                     ) : (
-                                        <div className="flex flex-col gap-2 items-center">
-                                            <span className="text-xs text-sky-400 font-mono">{user.email}</span>
-                                            <button onClick={logout} className="text-xs text-gray-500 hover:text-white underline">Logout</button>
+                                        <div className="flex flex-col gap-3 items-center w-full">
+                                            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
+                                                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse"></div>
+                                                <span className="text-sm text-emerald-300 font-mono font-bold">{user.email || user.phone}</span>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
                             </div>
 
+                            {/* Sync Status */}
+                            {user && (
+                                <Section title="Sync Status">
+                                    <Row>
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-lg">
+                                                <CloudIcon className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm">Cloud Sync</p>
+                                                <p className="text-[10px] text-emerald-400 uppercase tracking-wide font-bold">Connected</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
+                                            <span className="text-xs text-emerald-400 font-bold">ACTIVE</span>
+                                        </div>
+                                    </Row>
+                                    <Row>
+                                        <div className="flex-1">
+                                            <label className="text-sm text-white font-medium block">Supabase</label>
+                                            <p className="text-xs text-gray-500">{isSupabaseConfigured() ? 'Backend configured and ready' : 'Backend not configured'}</p>
+                                        </div>
+                                        <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isSupabaseConfigured() ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+                                            {isSupabaseConfigured() ? 'Ready' : 'Missing'}
+                                        </div>
+                                    </Row>
+                                </Section>
+                            )}
 
+                            {/* Data Sync Options */}
+                            {user && (
+                                <Section title="Data Sync">
+                                    <Row>
+                                        <div className="flex items-center gap-3 flex-1">
+                                            <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg">
+                                                <GearIcon className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm">Sync Settings</p>
+                                                <p className="text-xs text-gray-500">Units, vessel profile, preferences</p>
+                                            </div>
+                                        </div>
+                                        <Toggle checked={settings.cloudSyncSettings !== false} onChange={(v) => onSave({ cloudSyncSettings: v })} />
+                                    </Row>
+                                    <Row>
+                                        <div className="flex items-center gap-3 flex-1">
+                                            <div className="p-2 bg-amber-500/20 text-amber-300 rounded-lg">
+                                                <MapIcon className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm">Sync Voyages</p>
+                                                <p className="text-xs text-gray-500">Track logs, waypoints, GPX data</p>
+                                            </div>
+                                        </div>
+                                        <Toggle checked={settings.cloudSyncVoyages !== false} onChange={(v) => onSave({ cloudSyncVoyages: v })} />
+                                    </Row>
+                                    <Row>
+                                        <div className="flex items-center gap-3 flex-1">
+                                            <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg">
+                                                <CompassIcon rotation={0} className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm">Community Sharing</p>
+                                                <p className="text-xs text-gray-500">Share and discover voyage tracks</p>
+                                            </div>
+                                        </div>
+                                        <Toggle checked={settings.cloudSyncCommunity !== false} onChange={(v) => onSave({ cloudSyncCommunity: v })} />
+                                    </Row>
+                                </Section>
+                            )}
+
+                            {/* API Keys Status */}
+                            <Section title="API Services">
+                                <div className="p-3 space-y-2">
+                                    <StatusRow
+                                        label="StormGlass"
+                                        isConnected={isStormglassKeyPresent()}
+                                        status={sgStatus?.status}
+                                        details={sgStatus ? `${sgStatus.status}: ${sgStatus.message}` : undefined}
+                                        loading={sgStatus?.status === 'LOADING'}
+                                        onTest={() => {
+                                            setSgStatus({ status: 'LOADING', message: 'Testing...' });
+                                            checkStormglassStatus().then(res => setSgStatus({ status: res.status, message: res.message }));
+                                        }}
+                                    />
+                                    <StatusRow label="Gemini AI" isConnected={isGeminiConfigured()} details={getKeyPreview('GEMINI')} />
+                                    <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getKeyPreview('MAPBOX')} />
+                                    <StatusRow label="Supabase" isConnected={isSupabaseConfigured()} details={isSupabaseConfigured() ? 'Connected' : 'Not configured'} />
+                                    <StatusRow label="Open-Meteo" isConnected={isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Configured' : 'FREE MODE'} />
+                                </div>
+                                {isStormglassKeyPresent() && (
+                                    <Row>
+                                        <button
+                                            onClick={runDiagnostics}
+                                            disabled={isRunningDebug}
+                                            className="w-full py-2.5 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-50"
+                                        >
+                                            <BugIcon className="w-4 h-4 text-emerald-400" />
+                                            {isRunningDebug ? 'Running...' : 'Run StormGlass Diagnostic'}
+                                        </button>
+                                    </Row>
+                                )}
+                            </Section>
+
+                            {/* Account Actions */}
+                            {user && (
+                                <Section title="Account">
+                                    <Row>
+                                        <button
+                                            onClick={logout}
+                                            className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors active:scale-95"
+                                        >
+                                            <LockIcon className="w-4 h-4" />
+                                            Sign Out
+                                        </button>
+                                    </Row>
+                                </Section>
+                            )}
                         </div>
                     )}
 
@@ -708,6 +853,50 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     {/* RESTORED AESTHETICS TAB */}
                     {activeTab === 'scenery' && (
                         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+                            {/* Environment Theme */}
+                            <Section title="App Theme">
+                                <div className="p-4">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <label className="text-sm text-white font-bold block">Environment Mode</label>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                {envMode === 'auto'
+                                                    ? `Auto-detected: ${envState.current === 'offshore' ? '⚓ Offshore' : '🏖️ Onshore'} (${Math.round(envState.confidence * 100)}% confidence)`
+                                                    : envMode === 'offshore' ? '⚓ Offshore mode (manual)' : '🏖️ Onshore mode (manual)'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['auto', 'onshore', 'offshore'] as EnvironmentMode[]).map((mode) => {
+                                            const isActive = envMode === mode;
+                                            const labels: Record<EnvironmentMode, { name: string, desc: string, icon: string, gradient: string }> = {
+                                                auto: { name: 'Auto', desc: 'Detects your location', icon: '🌊', gradient: 'from-sky-500/20 to-blue-600/20 border-sky-500/40 shadow-sky-500/20' },
+                                                onshore: { name: 'Onshore', desc: 'Beautiful & polished', icon: '🏖️', gradient: 'from-emerald-500/20 to-teal-600/20 border-emerald-500/40 shadow-emerald-500/20' },
+                                                offshore: { name: 'Offshore', desc: 'Practical & readable', icon: '⚓', gradient: 'from-indigo-500/20 to-purple-600/20 border-indigo-500/40 shadow-indigo-500/20' },
+                                            };
+                                            const cfg = labels[mode];
+                                            return (
+                                                <button
+                                                    key={mode}
+                                                    onClick={() => {
+                                                        EnvironmentService.setMode(mode);
+                                                        setEnvMode(mode);
+                                                    }}
+                                                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${isActive
+                                                            ? `bg-gradient-to-br ${cfg.gradient} shadow-lg`
+                                                            : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
+                                                        }`}
+                                                >
+                                                    <span className="text-2xl">{cfg.icon}</span>
+                                                    <span className={`text-xs font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}>{cfg.name}</span>
+                                                    <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-gray-600'}`}>{cfg.desc}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </Section>
+
                             <Section title="Visual Preferences">
                                 <Row>
                                     <div className="flex-1">
@@ -739,6 +928,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                         <p className="text-xs text-gray-500">Update header values as you scroll hourly forecasts</p>
                                     </div>
                                     <Toggle checked={settings.dynamicHeaderMetrics || false} onChange={(v) => onSave({ dynamicHeaderMetrics: v })} />
+                                </Row>
+                            </Section>
+
+                            <Section title="Voyage Tracking">
+                                <Row>
+                                    <div className="flex-1">
+                                        <label className="text-sm text-white font-medium block">Auto-Track on Launch</label>
+                                        <p className="text-xs text-gray-500">Automatically start recording your track when the app opens. GPS intervals adapt to your distance from shore. Duplicate positions within 5m are discarded.</p>
+                                    </div>
+                                    <Toggle checked={settings.autoTrackEnabled || false} onChange={(v) => onSave({ autoTrackEnabled: v })} />
                                 </Row>
                             </Section>
 

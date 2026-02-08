@@ -44,6 +44,7 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
     const animationFrameRef = useRef<number | null>(null);
     const offsetRef = useRef(0);
+    const frameCountRef = useRef(0);
 
     useEffect(() => {
         if (!map || !visible) {
@@ -120,14 +121,23 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
                 .bindTooltip(`${system.type === 'H' ? 'High' : 'Low'} Pressure: ${system.pressure} hPa`, {
                     permanent: false,
                     direction: 'top',
-                    className: 'bg-black/80 text-white text-xs px-2 py-1 rounded border border-white/20'
+                    className: 'bg-black/80 text-white text-sm px-2 py-1 rounded border border-white/20'
                 });
 
             layerGroup.addLayer(marker);
         });
 
         // Render wind streamlines with animation
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
         const renderStreamlines = () => {
+            // Throttle: only render every 3rd frame (~20fps)
+            frameCountRef.current++;
+            if (frameCountRef.current % 3 !== 0) {
+                animationFrameRef.current = requestAnimationFrame(renderStreamlines);
+                return;
+            }
+
             // Clear existing polylines (keep markers)
             layerGroup.eachLayer((layer) => {
                 if (layer instanceof L.Polyline) {
@@ -201,8 +211,10 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
                 layerGroup.addLayer(arrow);
             });
 
-            // Continue animation
-            animationFrameRef.current = requestAnimationFrame(renderStreamlines);
+            // Continue animation (skip if reduced motion)
+            if (!prefersReducedMotion) {
+                animationFrameRef.current = requestAnimationFrame(renderStreamlines);
+            }
         };
 
         renderStreamlines();

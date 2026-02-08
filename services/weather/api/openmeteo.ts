@@ -31,7 +31,6 @@ export const attemptGridSearch = async (lat: number, lon: number, name: string):
     ];
 
     try {
-        console.log(`[GridSearch] Starting for ${name} (${lat}, ${lon})`);
 
         for (const ring of rings) {
             // Check 8 points around the ring
@@ -112,7 +111,7 @@ export const fetchOpenMeteo = async (
 
     let wData: any = res.data;
     if (typeof wData === 'string') {
-        try { wData = JSON.parse(wData); } catch (e) { console.error("OM Main JSON Parse Error", e); throw e; }
+        try { wData = JSON.parse(wData); } catch (e) { throw e; }
     }
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
@@ -121,7 +120,6 @@ export const fetchOpenMeteo = async (
 
     try {
         // const { checkMarineProximity } = await import('../marineProximity'); // Static import used
-        console.log(`[OpenMeteo] Checking Marine Proximity for ${locationName}`);
         const proxResult = await checkMarineProximity(lat, lon);
 
         if (proxResult.hasMarineData) {
@@ -299,7 +297,6 @@ export const fetchOpenMeteo = async (
             }
         }
     } catch (e) {
-        console.warn("OpenMeteo Tide Fetch Failed", e);
     }
 
     // Infer Location Type
@@ -332,7 +329,6 @@ export const fetchOpenMeteo = async (
             }
         }
     } catch (e) {
-        console.warn("LocType Geocode Failed", e);
     }
 
     // 2.1 Name Improvement logic:
@@ -370,6 +366,14 @@ export const fetchOpenMeteo = async (
 
     report.locationType = locType;
     report.isLandlocked = locType === 'inland'; // Backwards compat
+    // Store distToLand for ShipLogService adaptive logging zones
+    if (distToLand < 9999) {
+        report.distToLandKm = distToLand;
+    }
+    // Store elevation for EnvironmentService theme detection
+    if (wData.elevation !== undefined && wData.elevation !== 'nan') {
+        (report as any)._elevation = typeof wData.elevation === 'number' ? wData.elevation : parseFloat(wData.elevation);
+    }
 
     return report;
 };

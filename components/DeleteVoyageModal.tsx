@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { useFocusTrap } from '../hooks/useAccessibility';
 
 interface DeleteVoyageModalProps {
     isOpen: boolean;
@@ -28,8 +29,10 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
 }) => {
     if (!isOpen) return null;
 
+    const focusTrapRef = useFocusTrap(isOpen);
+
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-voyage-title" ref={focusTrapRef}>
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -41,7 +44,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                 {/* Header */}
                 <div className="bg-red-600/20 border-b border-red-500/30 p-4 text-center">
                     <div className="text-3xl mb-2">🗑️</div>
-                    <h2 className="text-xl font-bold text-white">Delete Voyage?</h2>
+                    <h2 id="delete-voyage-title" className="text-xl font-bold text-white">Delete Voyage?</h2>
                 </div>
 
                 {/* Voyage Info */}

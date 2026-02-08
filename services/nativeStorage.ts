@@ -33,7 +33,6 @@ export const saveLargeData = async (key: string, data: any) => {
 
                 resolve();
             } catch (e) {
-                console.error(`[Filesystem] Error saving ${key}`, e);
                 resolve(); // Resolve anyway to not block
             } finally {
                 delete saveTimers[key];
@@ -80,14 +79,12 @@ export const loadLargeData = async (key: string) => {
                 const hasCorruption = data.hourly.some((h: any) => new Date(h.time).getTime() > poisonThreshold);
 
                 if (hasCorruption) {
-                    console.warn(`[Filesystem] Invalidating corrupt cache (2028+ dates detected).`);
                     return null;
                 }
             }
 
             return data;
         } catch (readErr) {
-            console.warn(`[Filesystem] Error parsing ${fileName}`, readErr);
         }
     }
 
@@ -111,7 +108,6 @@ export const loadLargeData = async (key: string) => {
 
             return parsed;
         } catch (migErr) {
-            console.error(`[Filesystem] Migration Failed for ${key}`, migErr);
             return null;
         }
     }

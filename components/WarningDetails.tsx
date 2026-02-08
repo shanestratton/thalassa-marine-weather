@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../theme';
 import { AlertTriangleIcon, ChevronLeftIcon } from './Icons';
 import { useUI } from '../context/UIContext';
 
@@ -34,7 +35,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                                 <AlertTriangleIcon className="w-24 h-24 text-red-500" />
                             </div>
                             <div className="relative z-10">
-                                <span className="inline-block bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mb-3 uppercase tracking-wider">
+                                <span className="inline-block bg-red-500 text-white text-sm font-bold px-2 py-0.5 rounded-full mb-3 uppercase tracking-wider">
                                     Warning {index + 1}
                                 </span>
                                 <p className="text-lg font-medium text-red-100 leading-relaxed">

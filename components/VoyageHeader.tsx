@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, TouchEvent } from 'react';
+import { t } from '../theme';
 import { ShipLogEntry } from '../types';
 import { reverseGeocode } from '../services/weatherService';
 
@@ -27,7 +28,7 @@ const formatLocationFallback = (entry: ShipLogEntry): string => {
     return `${Math.abs(lat).toFixed(2)}°${latDir}`;
 };
 
-export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
+export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
     voyageId,
     entries,
     isActive,
@@ -89,11 +90,13 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
     const speeds = entries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
     const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
 
-    // Calculate duration in days
+    // Calculate duration — show hours for short voyages, days for multi-day
     const startDate = firstEntry ? new Date(firstEntry.timestamp) : new Date();
     const endDate = lastEntry ? new Date(lastEntry.timestamp) : new Date();
     const durationMs = endDate.getTime() - startDate.getTime();
-    const durationDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
+    const durationHours = Math.max(1, Math.round(durationMs / (1000 * 60 * 60)));
+    const durationDays = Math.ceil(durationMs / (1000 * 60 * 60 * 24));
+    const durationLabel = durationHours < 24 ? `${durationHours}h` : `${Math.max(1, durationDays)}d`;
 
     // Swipe handlers
     const handleTouchStart = (e: TouchEvent) => {
@@ -125,7 +128,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
     };
 
     return (
-        <div className="relative overflow-hidden rounded-xl mb-2">
+        <div className="relative overflow-hidden rounded-xl mb-1.5">
             {/* Delete button (revealed on swipe) - only visible when swiping and NOT active */}
             {!isActive && (
                 <div
@@ -136,7 +139,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                         <svg className="w-6 h-6 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
-                        <span className="text-xs font-bold">Delete</span>
+                        <span className="text-sm font-bold">Delete</span>
                     </div>
                 </div>
             )}
@@ -162,29 +165,34 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                             : 'bg-slate-800/60 border-white/10 hover:bg-slate-800/80'
                         }`}
                 >
-                    <div className="p-4">
+                    <div className="px-2.5 py-2">
                         {/* Top row: Route and status */}
-                        <div className="flex items-center justify-between mb-2">
-                            {/* Clickable area for toggle - left section */}
+                        <div className="flex items-center justify-between mb-1">
+                            {/* Route display + chevron toggle */}
                             <div
-                                className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity flex-1 min-w-0"
-                                onClick={(e) => {
-                                    e.stopPropagation(); // Don't trigger card selection twice
-                                    if (swipeOffset === 0) {
-                                        onSelect();
-                                        onToggle();
-                                    }
-                                }}
+                                className="flex items-center gap-2 flex-1 min-w-0"
                             >
-                                <svg
-                                    className={`w-4 h-4 text-slate-400 transition-transform duration-150 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
+                                {/* Chevron — only this triggers expand/collapse */}
+                                <div
+                                    className="p-2 -m-2 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (swipeOffset === 0) {
+                                            onSelect();
+                                            onToggle();
+                                        }
+                                    }}
                                 >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                                <div className="text-lg font-bold text-white truncate">
+                                    <svg
+                                        className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </div>
+                                <div className="text-sm font-bold text-white truncate">
                                     {firstEntry ? (
                                         <>
                                             {getLocationDisplay(firstEntry, startLocationName)}
@@ -202,15 +210,33 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                                 </div>
                             </div>
                             {isActive && (
-                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
                                     <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                                     ACTIVE
                                 </span>
                             )}
+                            {entries.some(e => e.source === 'community_download') && (
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                    🌐 COMMUNITY
+                                </span>
+                            )}
+                            {entries.some(e => e.source === 'gpx_import') && !entries.some(e => e.source === 'community_download') && (
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-sm font-bold rounded-full flex items-center gap-1 flex-shrink-0 ml-2">
+                                    📥 IMPORTED
+                                </span>
+                            )}
                         </div>
 
+                        {/* Disclaimer for imported tracks */}
+                        {entries.some(e => e.source && e.source !== 'device') && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                                <span className="w-4 text-center text-sm shrink-0">⚠️</span>
+                                <p className="text-sm text-amber-500/70 whitespace-nowrap">Not for navigation — unverified data. Verify independently.</p>
+                            </div>
+                        )}
+
                         {/* Stats bar */}
-                        <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-2.5 text-sm">
                             <span className="text-slate-400">
                                 <span className="text-white font-bold">{totalDistance.toFixed(1)}</span> NM
                             </span>
@@ -221,22 +247,12 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = ({
                                 <span className="text-white font-bold">{totalEntries}</span> entries
                             </span>
                             <span className="text-slate-400">
-                                <span className="text-white font-bold">{durationDays}</span>d
+                                <span className="text-white font-bold">{durationLabel}</span>
                             </span>
                         </div>
-
-                        {/* Swipe hint */}
-                        {!isActive && swipeOffset === 0 && (
-                            <div className="text-[10px] text-slate-500 mt-2 flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
-                                </svg>
-                                Swipe to delete
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
         </div>
     );
-};
+});

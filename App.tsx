@@ -5,7 +5,7 @@ import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, GearIcon, MapIcon, CompassIcon, BoatIcon, ServerIcon, StarIcon } from './components/Icons';
+import { SearchIcon, WindIcon, GearIcon, MapIcon, CompassIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { ForecastSheet } from './components/ForecastSheet';
 import { IOSInstallPrompt } from './components/IOSInstallPrompt';
@@ -24,7 +24,7 @@ const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(m
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
-const CompassPage = React.lazy(() => import('./components/CompassPage').then(module => ({ default: module.CompassPage })));
+const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -84,6 +84,7 @@ const App: React.FC = () => {
 
     const showBackgroundImage = effectiveMode === 'standard' && currentView !== 'settings';
     const showHeader = !['map', 'voyage', 'warnings'].includes(currentView);
+    const isDashboard = currentView === 'dashboard';
 
     return (
         <div className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} flex flex-col`}>
@@ -131,19 +132,25 @@ const App: React.FC = () => {
 
                 {/* HEADER */}
                 {showHeader && (
-                    <header className={`px-2 md:px-6 ${isMobileLandscape ? 'py-1' : 'py-2'} flex flex-col justify-between gap-3 pointer-events-none shrink-0 ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}>
-                        <div className="flex items-center space-x-2 pointer-events-auto">
-                            <div className="bg-sky-500/20 p-2 rounded-lg backdrop-blur-md border border-sky-500/30">
-                                <WindIcon className="w-6 h-6 text-sky-400" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-1">
-                                    <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
-                                    {settings.isPro && <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">PRO</span>}
+                    <header
+                        className={`px-2 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? 'fixed top-0 left-0 right-0 z-[105] bg-black' : `${isMobileLandscape ? 'py-1' : 'py-2'} gap-3`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
+                        style={isDashboard ? { paddingTop: 'max(1rem, env(safe-area-inset-top))', paddingBottom: 0, gap: 0 } : undefined}
+                    >
+                        {/* Logo row — hidden on dashboard (CompactHeaderRow replaces it) */}
+                        {!isDashboard && (
+                            <div className="flex items-center space-x-2 pointer-events-auto">
+                                <div className="bg-sky-500/20 p-2 rounded-lg backdrop-blur-md border border-sky-500/30">
+                                    <WindIcon className="w-6 h-6 text-sky-400" />
                                 </div>
-                                <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">Marine Forecasting</p>
+                                <div>
+                                    <div className="flex items-center gap-1">
+                                        <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
+                                        {settings.isPro && <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">PRO</span>}
+                                    </div>
+                                    <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">Marine Forecasting</p>
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-10'} pointer-events-auto`}>
                             <div className="relative flex-grow md:w-96 group h-full">
@@ -182,7 +189,7 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass'}>
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['voyage', 'settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -231,7 +238,7 @@ const App: React.FC = () => {
 
                                     {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
-                                    {currentView === 'compass' && <CompassPage onBack={() => setPage('dashboard')} />}
+                                    {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('dashboard')} />}
                                 </Suspense>
                             </ErrorBoundary>
                         </main>
@@ -294,12 +301,12 @@ const App: React.FC = () => {
                 {!isMobileLandscape && (
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
                         <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative">
-                            <NavButton icon={<WindIcon className="w-5 h-5 mb-0.5" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<CompassIcon className="w-5 h-5 mb-0.5" rotation={0} />} label="Log" active={currentView === 'details'} onClick={handleTabMetrics} />
-                            <NavButton icon={<BoatIcon className="w-5 h-5 mb-0.5" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
-                            <NavButton icon={<MapIcon className="w-5 h-5 mb-0.5" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
-                            <NavButton icon={<CompassIcon className="w-6 h-6 mb-0.5" rotation={45} />} label="Compass" active={currentView === 'compass'} onClick={() => setPage('compass')} />
-                            <NavButton icon={<GearIcon className="w-5 h-5 mb-0.5" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
+                            <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
+                            <NavButton icon={<CompassIcon className="w-6 h-6" rotation={0} />} label="Log" active={currentView === 'details'} onClick={handleTabMetrics} />
+                            <NavButton icon={<BoatIcon className="w-6 h-6" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
+                            <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
+                            <NavButton icon={<AnchorIcon className="w-6 h-6" />} label="Anchor" active={currentView === 'compass'} onClick={() => setPage('compass')} />
+                            <NavButton icon={<GearIcon className="w-6 h-6" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
                         </div>
                     </div>
                 )}

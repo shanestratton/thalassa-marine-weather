@@ -60,13 +60,12 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
             headers: { 'Accept': 'application/json' }
         });
         if (res.status !== 200) {
-            console.warn(`[MarineProximity] Fetch Failed: ${res.status}`);
             return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
         }
 
         let data = res.data;
         if (typeof data === 'string') {
-            try { data = JSON.parse(data); } catch (e) { console.error("Marine JSON Parse Error", e); }
+            try { data = JSON.parse(data); } catch (e) { /* Parse failed, data remains string */ }
         }
 
         // OpenMeteo returns array if multiple points

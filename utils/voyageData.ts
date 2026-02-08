@@ -84,6 +84,7 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
 export interface VoyageStats {
     totalDistance: number;
     totalTime: string; // formatted duration
+    durationMinutes: number; // raw duration in minutes for sub-6-min check
     avgSpeed: number;
     maxSpeed: number;
     minSpeed: number;
@@ -109,13 +110,26 @@ export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | nul
     const startTime = new Date(entries[entries.length - 1].timestamp);
     const endTime = new Date(entries[0].timestamp);
     const durationMs = endTime.getTime() - startTime.getTime();
+    const durationMinutes = durationMs / (1000 * 60);
     const days = Math.floor(durationMs / (1000 * 60 * 60 * 24));
     const hours = Math.floor((durationMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const totalTime = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+
+    // Format: "2d 5h" for multi-day, "3h" for >1h, "0.3h" for sub-hour (6-min increments)
+    let totalTime: string;
+    if (days > 0) {
+        totalTime = `${days}d ${hours}h`;
+    } else if (hours >= 1) {
+        totalTime = `${hours}h`;
+    } else {
+        // Sub-hour: show as decimal hours in 0.1 increments (6-min blocks)
+        const decimalHours = Math.round(durationMinutes / 6) / 10;
+        totalTime = `${decimalHours.toFixed(1)}h`;
+    }
 
     return {
-        totalDistance: entries[0]?.cumulativeDistanceNM || 0,
+        totalDistance: Math.max(...entries.map(e => e.cumulativeDistanceNM || 0), 0),
         totalTime,
+        durationMinutes,
         avgSpeed: speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
         maxSpeed: speeds.length > 0 ? Math.max(...speeds) : 0,
         minSpeed: speeds.length > 0 ? Math.min(...speeds) : 0,

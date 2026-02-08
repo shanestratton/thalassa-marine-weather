@@ -21,7 +21,6 @@ export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, 
         }
 
         if (res.status !== 200) {
-            console.error(`Stormglass API Error (${res.status}):`, res.data);
             if (res.status === 402 || res.status === 429) {
                 throw new Error(`SG_QUOTA: ${res.status} - ${JSON.stringify(res.data)}`);
             }
@@ -34,7 +33,6 @@ export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, 
 
         return res.data as T;
     } catch (e: any) {
-        console.warn(`[SG FETCH ERROR] CapacitorHttp failed: ${e.message}. Falling back to native fetch.`);
 
         try {
             const res = await fetch(url.toString(), {
@@ -47,7 +45,6 @@ export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, 
             }
             return await res.json() as T;
         } catch (fetchErr: any) {
-            console.error(`[SG FETCH FATAL] Both CapacitorHttp and Fetch failed.`, fetchErr);
             throw fetchErr;
         }
     }

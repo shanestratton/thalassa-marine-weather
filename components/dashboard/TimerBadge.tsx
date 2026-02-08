@@ -43,7 +43,7 @@ export const TimerBadge = () => {
     const isStale = label.includes("ago") && !label.includes("Just");
 
     return (
-        <div className={`px-1.5 py-1.5 rounded-lg border text-[8px] font-bold uppercase tracking-wider ${isStale ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
+        <div className={`px-1.5 py-1.5 rounded-lg border text-sm font-bold uppercase tracking-wider ${isStale ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
             {label}
         </div>
     );

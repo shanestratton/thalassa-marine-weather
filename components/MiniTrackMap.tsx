@@ -1,8 +1,10 @@
 /**
- * Mini Track Map - Shows a compact SVG preview of the voyage track
+ * Mini Track Map - Premium SVG preview of the voyage track
+ * Shows gradient-colored path with glowing start/end markers
  */
 
 import React, { useMemo } from 'react';
+import { t } from '../theme';
 import { ShipLogEntry } from '../types';
 
 interface MiniTrackMapProps {
@@ -25,7 +27,7 @@ export const MiniTrackMap: React.FC<MiniTrackMapProps> = ({ entries, height = 10
         const maxLon = Math.max(...lons);
 
         // Add padding
-        const padding = 10;
+        const padding = 12;
         const width = 100; // Percentage
         const latRange = maxLat - minLat || 1;
         const lonRange = maxLon - minLon || 1;
@@ -50,53 +52,87 @@ export const MiniTrackMap: React.FC<MiniTrackMapProps> = ({ entries, height = 10
 
     if (!pathData) {
         return (
-            <div className="w-full h-16 bg-slate-800/50 rounded-lg flex items-center justify-center text-slate-500 text-xs">
-                Start tracking to see your voyage path
+            <div className="w-full h-20 bg-slate-800/30 ${t.border.subtle} rounded-xl flex flex-col items-center justify-center gap-1.5">
+                <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+                <span className="text-slate-600 text-sm font-medium">Start tracking to see your voyage</span>
             </div>
         );
     }
 
     return (
-        <div className="w-full bg-slate-800/30 border border-white/5 rounded-lg overflow-hidden">
+        <div className={`w-full bg-slate-800/20 ${t.border.subtle} rounded-xl overflow-hidden`}>
             <svg
                 viewBox={`0 0 100 ${height}`}
                 className="w-full"
                 style={{ height }}
                 preserveAspectRatio="none"
             >
-                {/* Grid lines */}
+                {/* Defs for gradients */}
                 <defs>
+                    {/* Background grid */}
                     <pattern id="miniGrid" width="10" height="10" patternUnits="userSpaceOnUse">
-                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" />
+                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
                     </pattern>
+
+                    {/* Track gradient: green → sky → red */}
+                    <linearGradient id="trackGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#22c55e" />
+                        <stop offset="50%" stopColor="#38bdf8" />
+                        <stop offset="100%" stopColor="#ef4444" />
+                    </linearGradient>
+
+                    {/* Glow gradient */}
+                    <linearGradient id="trackGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity="0.25" />
+                        <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity="0.25" />
+                    </linearGradient>
+
+                    {/* Start/end glows */}
+                    <radialGradient id="startGlow">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity="0.6" />
+                        <stop offset="100%" stopColor="#22c55e" stopOpacity="0" />
+                    </radialGradient>
+                    <radialGradient id="endGlow">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+                    </radialGradient>
                 </defs>
+
+                {/* Grid */}
                 <rect width="100" height={height} fill="url(#miniGrid)" />
 
-                {/* Track line with glow */}
+                {/* Track outer glow */}
                 <path
                     d={pathData.pathD}
                     fill="none"
-                    stroke="rgba(56, 189, 248, 0.3)"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-                <path
-                    d={pathData.pathD}
-                    fill="none"
-                    stroke="#38bdf8"
-                    strokeWidth="1.5"
+                    stroke="url(#trackGlow)"
+                    strokeWidth="6"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                 />
 
-                {/* Start point */}
-                <circle cx={pathData.start.x} cy={pathData.start.y} r="3" fill="#22c55e" />
-                <circle cx={pathData.start.x} cy={pathData.start.y} r="5" fill="none" stroke="#22c55e" strokeWidth="1" opacity="0.5" />
+                {/* Track main line with gradient */}
+                <path
+                    d={pathData.pathD}
+                    fill="none"
+                    stroke="url(#trackGradient)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                />
 
-                {/* End point */}
-                <circle cx={pathData.end.x} cy={pathData.end.y} r="3" fill="#ef4444" />
-                <circle cx={pathData.end.x} cy={pathData.end.y} r="5" fill="none" stroke="#ef4444" strokeWidth="1" opacity="0.5" />
+                {/* Start point glow & dot */}
+                <circle cx={pathData.start.x} cy={pathData.start.y} r="8" fill="url(#startGlow)" />
+                <circle cx={pathData.start.x} cy={pathData.start.y} r="3.5" fill="#22c55e" />
+                <circle cx={pathData.start.x} cy={pathData.start.y} r="5" fill="none" stroke="#22c55e" strokeWidth="1" opacity="0.4" />
+
+                {/* End point glow & dot */}
+                <circle cx={pathData.end.x} cy={pathData.end.y} r="8" fill="url(#endGlow)" />
+                <circle cx={pathData.end.x} cy={pathData.end.y} r="3.5" fill="#ef4444" />
+                <circle cx={pathData.end.x} cy={pathData.end.y} r="5" fill="none" stroke="#ef4444" strokeWidth="1" opacity="0.4" />
             </svg>
         </div>
     );

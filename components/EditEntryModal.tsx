@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShipLogEntry } from '../types';
+import { useFocusTrap } from '../hooks/useAccessibility';
 
 interface EditEntryModalProps {
     isOpen: boolean;
@@ -27,6 +28,8 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
 
     if (!isOpen || !entry) return null;
 
+    const focusTrapRef = useFocusTrap(isOpen);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
@@ -45,12 +48,12 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="edit-entry-title" ref={focusTrapRef}>
             <div className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4">
                     <div>
-                        <h2 className="text-xl font-bold text-white">Edit Entry</h2>
+                        <h2 id="edit-entry-title" className="text-xl font-bold text-white">Edit Entry</h2>
                         <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                             <span className="font-mono">{timeStr}</span>
                             <span>•</span>

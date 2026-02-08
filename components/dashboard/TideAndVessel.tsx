@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card } from './shared/Card';
+import { SafeResponsiveContainer } from './shared/SafeResponsiveContainer';
 import { PowerBoatIcon, SailBoatIcon, TideCurveIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, GaugeIcon, ClockIcon, MoonIcon, SunIcon, EyeIcon, StarIcon } from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, CartesianGrid, ReferenceLine, ReferenceDot, LabelList, Tooltip } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ReferenceDot, LabelList, Tooltip } from 'recharts';
 import { calculateMCR, calculateCSF, calculateDLR, calculateHullSpeed, convertDistance, convertLength, convertMetersTo } from '../../utils';
 
 // --- CELESTIAL COMPONENTS (Extracted for modularity) ---
@@ -40,7 +41,7 @@ const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, dom
 
     return (
         <div className="absolute inset-0 z-0">
-            <ResponsiveContainer width="100%" height="100%">
+            <SafeResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                     <defs>
                         <pattern id="waterPattern" patternUnits="userSpaceOnUse" width="100" height="100" viewBox="0 0 100 100">
@@ -60,24 +61,27 @@ const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, dom
                         type="number"
                         domain={[0, 24]}
                         ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
-                        tick={<Tick />}
+                        tick={false}
+                        tickLine={false}
                         axisLine={false}
-                        hide={false}
+                        height={1}
                         interval={0}
                     />
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
 
                     <Area
-                        type="linear" // CHANGED: 'linear' ensures exact point connection. 'monotone' caused spline overshoot.
+                        type="linear"
                         dataKey="height"
                         stroke="#38bdf8"
                         strokeWidth={3}
                         fill="url(#deepWater)"
                         filter="url(#waveShadow)"
                         isAnimationActive={false}
+                        activeDot={false}
+                        dot={false}
                     />
                 </AreaChart>
-            </ResponsiveContainer>
+            </SafeResponsiveContainer>
         </div>
     );
 }, (prev, next) => {
@@ -90,13 +94,13 @@ const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, dom
 const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], currentHour: number, currentHeight: number, minHeight: number, maxHeight: number, domainBuffer: number }) => {
     return (
         <div className="absolute inset-0 z-10 pointer-events-none">
-            <ResponsiveContainer width="100%" height="100%">
+            <SafeResponsiveContainer width="100%" height="100%">
                 {/* 
-                  PERFORMANCE FIX: Pass EMPTY data array. 
-                  The ReferenceDot relies entirely on XAxis/YAxis domains, not the dataset.
-                  Passing `dataPoints` caused Recharts to process the large array on every frame.
+                  FIX: Pass actual dataPoints so Recharts can compute the plot area correctly.
+                  Without data, the ReferenceDot and ReferenceLine have no axis context
+                  and don't render. We add an invisible Area to give the chart data context.
                 */}
-                <AreaChart data={[]} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                     {/* 
                        LAYOUT MATCHING FIX:
                        The Background chart has a visible XAxis which takes up vertical space.
@@ -108,12 +112,22 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                         type="number"
                         domain={[0, 24]}
                         ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
-                        tick={{ fontSize: 9, fill: 'transparent' }} // Invisible text
+                        tick={false}
+                        tickLine={false}
                         axisLine={false}
-                        hide={false} // Must be false to take up space
+                        height={1}
                         interval={0}
                     />
                     <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
+
+                    {/* Invisible Area — gives chart data context without visual output */}
+                    <Area
+                        type="linear"
+                        dataKey="height"
+                        stroke="transparent"
+                        fill="transparent"
+                        isAnimationActive={false}
+                    />
 
                     {/* @ts-ignore - Recharts types missing animation props for Reference components, but they work at runtime */}
                     <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
@@ -124,12 +138,10 @@ const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, 
                         fill="#facc15"
                         stroke="#fff"
                         strokeWidth={2}
-                        isFront={true}
-                        // @ts-ignore
-                        isAnimationActive={false}
+                        className="pointer-events-none"
                     />
                 </AreaChart>
-            </ResponsiveContainer>
+            </SafeResponsiveContainer>
         </div>
     );
 };
@@ -207,6 +219,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
     // --- SMART DATA GENERATION (MEMOIZED) ---
     // Optimization: Only recalculate points when tides/hourly/tideSeries/customTime changes
+    // FIX: All data building + sorting consolidated inside useMemo.
+    // Previously, code outside the memo tried to .push() and .sort() on the frozen
+    // memoized array, causing "Attempted to assign to readonly property" on iOS WebKit.
     const dataPoints = React.useMemo(() => {
         const points: { time: number, height: number }[] = [];
 
@@ -215,40 +230,41 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
             for (let t = 0; t <= 24; t += 0.1) { // 6min resolution
-                // Use the exact helper
                 const h = calculateTideHeightAt(t, sortedTides);
                 points.push({ time: t, height: h });
             }
         }
+
+        // Priority 2: Use hourlyTides from Dashboard if WorldTides missing
+        if (points.length < 12 && hourlyTides && hourlyTides.length > 0 && hourlyTides[0].tideHeight !== undefined) {
+            hourlyTides.slice(0, 24).forEach((h, i) => {
+                const t = currentHour + i;
+                if (t <= 24 && h.tideHeight !== undefined) {
+                    const converted = convertMetersTo(h.tideHeight, unitPref.tideHeight || 'm');
+                    points.push({
+                        time: t,
+                        height: converted || 0
+                    });
+                }
+            });
+        }
+
+        // Priority 3: Use TideSeries (Sea Level API) as last resort
+        if (points.length < 12 && tideSeries && tideSeries.length > 0) {
+            points.length = 0;
+            tideSeries.forEach(p => {
+                const h = getHourFromMidnight(p.time);
+                if (h >= -2 && h <= 26) {
+                    const converted = convertMetersTo(p.height, unitPref.tideHeight || 'm');
+                    points.push({ time: Math.max(0, Math.min(24, h)), height: converted || 0 });
+                }
+            });
+        }
+
+        // Sort once before returning
+        points.sort((a, b) => a.time - b.time);
         return points;
-    }, [tides, currentHour, unitPref.tideHeight]); // Re-run if tides or current hour changes
-
-    // Priority 2: Use hourlyTides from Dashboard if WorldTides missing
-    if (dataPoints.length < 12 && hourlyTides && hourlyTides.length > 0 && hourlyTides[0].tideHeight !== undefined) {
-        // Map next 24 hours
-        hourlyTides.slice(0, 24).forEach((h, i) => {
-            const t = currentHour + i;
-            if (t <= 24 && h.tideHeight !== undefined) {
-                const converted = convertMetersTo(h.tideHeight, unitPref.tideHeight || 'm');
-                dataPoints.push({
-                    time: t,
-                    height: converted || 0
-                });
-            }
-        });
-    }
-
-    // Priority 3: Use TideSeries (Sea Level API) as last resort
-    if (dataPoints.length < 12 && tideSeries && tideSeries.length > 0) {
-        dataPoints.length = 0;
-        tideSeries.forEach(p => {
-            const h = getHourFromMidnight(p.time);
-            if (h >= -2 && h <= 26) {
-                const converted = convertMetersTo(p.height, unitPref.tideHeight || 'm');
-                dataPoints.push({ time: Math.max(0, Math.min(24, h)), height: converted || 0 });
-            }
-        });
-    }
+    }, [tides, currentHour, unitPref.tideHeight, hourlyTides, tideSeries]);
 
     // --- COMPREHENSIVE MARKERS (Next ~48h) ---
     // We need a broader range to find the "Next" high/low even if it's tomorrow (time > 24).
@@ -302,12 +318,6 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             </div>
         );
     }
-
-    // Sort dataPoints
-    dataPoints.sort((a, b) => a.time - b.time);
-
-    // Sort dataPoints
-    dataPoints.sort((a, b) => a.time - b.time);
 
     // FIX: DOT HEIGHT CALCULATION
     // Instead of looking up the "closest point" or linearly interpolating, we calculate the EXACT height
@@ -401,11 +411,11 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     const heroValueClass = "text-xl font-bold text-white tracking-tight leading-none";
 
     return (
-        <div className={`flex flex-col h-full relative group ${className || ''}`} style={style}>
+        <div className={`flex flex-col h-full relative group ${className || ''}`} style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}>
             {/* INTUITIVE HEADER OVERLAYS */}
             {stationPosition === 'bottom' ? (
                 /* HERO MODE (Clean, Single Line) */
-                <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline px-2 pt-2 pointer-events-none">
+                <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline px-2 pt-6 pointer-events-none">
                     {/* LEFT: Height (Only if NOT showing all day events) */}
                     {!showAllDayEvents ? (
                         <div className="flex items-baseline gap-1.5 pointer-events-auto">
@@ -433,7 +443,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                                             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                         })()}
                                     </span>
-                                    <span className="text-[10px] font-medium text-blue-200/80 leading-none mt-1">
+                                    <span className="text-sm font-medium text-blue-200/80 leading-none mt-1">
                                         {event!.height.toFixed(1)} {unit}
                                     </span>
                                 </div>
@@ -494,29 +504,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 />
             </div>
 
-            {/* STATION INFO OVERLAY - Clean Badge */}
-            <div className={`absolute ${stationPosition === 'bottom' ? 'bottom-7 left-2' : 'top-16 left-2'} z-50 pointer-events-none`}>
-                {(stationName || guiDetails?.stationName) ? (
-                    <div className="flex items-center gap-1.5 ml-1">
-                        {/* LOGIC SWAP: Show Secondary First if exists AND distinct */}
-                        {secondaryStationName && secondaryStationName !== stationName ? (
-                            <>
-                                <span className="text-[9px] font-bold text-white tracking-widest uppercase truncate max-w-[120px]">
-                                    {secondaryStationName}
-                                </span>
-                                <span className="text-[9px] text-white/20">•</span>
-                                <span className="text-[9px] font-bold text-white/50 tracking-widest uppercase">
-                                    {stationName} {guiDetails?.timeOffsetHigh ? `(${guiDetails.timeOffsetHigh > 0 ? '+' : ''}${guiDetails.timeOffsetHigh}m)` : ''}
-                                </span>
-                            </>
-                        ) : (
-                            <span className="text-[9px] font-bold text-white/50 tracking-widest uppercase">
-                                {stationName || guiDetails?.stationName}
-                            </span>
-                        )}
-                    </div>
-                ) : null}
-            </div>
+
         </div>
     );
 };
@@ -525,19 +513,20 @@ export const TideGraph = TideGraphOriginal;
 
 export const TideWidget = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: any, customTime?: number, showAllDayEvents?: boolean }) => {
     return (
-        <Card key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'} className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4">
+        <Card key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'} className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4" role="figure" aria-labelledby="tide-chart-title" aria-describedby="tide-chart-desc">
             {/* Header */}
             <div className="flex justify-between items-start border-b border-white/5 pb-2">
                 <div className="flex items-center gap-2">
-                    <TideCurveIcon className="w-5 h-5 text-sky-400" />
+                    <TideCurveIcon className="w-5 h-5 text-sky-400" aria-hidden="true" />
                     <div className="flex flex-col">
-                        <h3 className="text-sm font-bold text-white uppercase tracking-widest">
+                        <h3 id="tide-chart-title" className="text-sm font-bold text-white uppercase tracking-widest">
                             Tidal Forecast {guiDetails?.stationName ? <span className="text-sky-400">• {guiDetails.stationName}</span> : ''}
                         </h3>
                     </div>
 
                 </div>
             </div>
+            <span id="tide-chart-desc" className="sr-only">Interactive tidal forecast graph showing predicted tide heights over 24 hours. The moving indicator shows the current tide level.</span>
 
             {/* Graph Area */}
             <div className="flex-1 w-full min-h-[160px] relative z-10">

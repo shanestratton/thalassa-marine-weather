@@ -21,8 +21,6 @@ export default defineConfig(({ mode }) => {
     return '';
   };
 
-  console.log("--- THALASSA BUILD CONTEXT ---");
-  console.log(`Mode: ${mode}`);
 
   // Diagnostics: Log key presence (masked) to build logs to verify Vercel injection
   const keysToCheck = [
@@ -38,9 +36,7 @@ export default defineConfig(({ mode }) => {
   keysToCheck.forEach(k => {
     const v = getKey(k);
     if (v) {
-      console.log(`[Config] ${k}: Found (Length: ${v.length}, Ends: ...${v.slice(-4)})`);
     } else {
-      console.log(`[Config] ${k}: MISSING`);
     }
   });
 
@@ -89,8 +85,12 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],
-            'vendor-ui': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities', 'recharts'],
-            'vendor-leaflet': ['leaflet']
+            'vendor-charts': ['uplot'],
+            'vendor-recharts': ['recharts'],
+            'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+            'vendor-leaflet': ['leaflet'],
+            'vendor-pdf': ['html2canvas', 'jspdf'],
+            'vendor-supabase': ['@supabase/supabase-js'],
           }
         }
       }

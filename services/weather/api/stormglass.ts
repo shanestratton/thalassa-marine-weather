@@ -73,7 +73,7 @@ export const fetchStormGlassWeather = async (
 
     const weatherParams = {
         lat, lng: lon,
-        params: 'windSpeed,gust,windDirection,waveHeight,wavePeriod,waveDirection,airTemperature,pressure,cloudCover,visibility,precipitation,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection,humidity',
+        params: 'windSpeed,gust,windDirection,waveHeight,wavePeriod,waveDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection,humidity',
         start, end,
         source: 'sg'
     };
@@ -125,7 +125,6 @@ export const fetchStormGlassWeather = async (
     try {
         weatherRes = await fetchSG<{ hours: StormGlassHour[] }>('weather/point', weatherParams, apiKey);
     } catch (e: any) {
-        console.error(`[StormGlass] Critical Weather Fetch Failed: ${e.message}`, e);
         throw e;
     }
 
@@ -135,15 +134,12 @@ export const fetchStormGlassWeather = async (
 
     const [tidesRes, astronomy, hybridData] = await Promise.all([
         fetchRealTides(lat, lon).catch(e => {
-            console.warn("[SG] Tides (WT) Fetch Failed", e);
             return { tides: [], guiDetails: undefined };
         }),
         fetchAstronomy(lat, lon, 10, apiKey).catch(e => {
-            console.warn("[SG] Astro Fetch Failed", e);
             return [];
         }),
         fetchHybridContext().catch(e => {
-            console.warn("[SG] Hybrid Context Fetch Failed", e);
             return null;
         })
     ]);
@@ -189,7 +185,6 @@ export const fetchStormGlassWeather = async (
         tides = tidesRes.tides;
     } else {
         // Should not happen as fetchRealTides handles errors, but safety first
-        console.warn("[StormGlass] TidesRes was null/undefined");
     }
 
     // 3. Transformation
@@ -215,7 +210,6 @@ export const fetchStormGlassWeather = async (
     try {
         nearestBuoy = await findAndFetchNearestBeacon(lat, lon, 10); // 10nm radius
     } catch (e) {
-        console.warn("[StormGlass] Buoy fetch failed, will use StormGlass only:", e);
     }
 
     // Merge buoy data with StormGlass report to add source tracking
@@ -269,10 +263,13 @@ export const fetchStormGlassWeather = async (
             }
 
             mergedReport.isLandlocked = mergedReport.locationType === 'inland';
+            // Store distToLand for ShipLogService adaptive logging zones
+            if (distToLand < 9999) {
+                mergedReport.distToLandKm = distToLand;
+            }
 
 
         } catch (e) {
-            console.warn("[StormGlass] Failed to calculate location type, using default:", e);
         }
     }
 
@@ -284,7 +281,6 @@ export const fetchStormGlassWeather = async (
         mergedReport.tideGUIDetails = tidesRes.guiDetails;
 
     } else {
-        console.warn("[StormGlass] No tideGUIDetails found in tidesRes");
     }
 
     return mergedReport;

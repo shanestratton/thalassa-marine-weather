@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { t } from '../../theme';
 import { Card } from './shared/Card';
 import { DiamondIcon, BoatIcon, PlayIcon, ShareIcon, SpeakerWaveIcon, QuoteIcon } from '../Icons';
 
@@ -31,7 +32,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
         if (roundedValue > 10) { colorClass = "bg-purple-500"; label = "Extreme"; }
         return (
             <div className="w-full space-y-1 mb-4">
-                <div className="flex justify-between items-end"><span className="text-[10px] uppercase text-gray-400 font-bold tracking-widest">UV Rating</span><span className={`text-xs font-bold ${colorClass.replace("bg-", "text-")}`}>{roundedValue} - {label}</span></div>
+                <div className="flex justify-between items-end"><span className="text-sm uppercase text-gray-400 font-bold tracking-widest">UV Rating</span><span className={`text-sm font-bold ${colorClass.replace("bg-", "text-")}`}>{roundedValue} - {label}</span></div>
                 <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden"><div className={`h-full ${colorClass} rounded-full transition-all duration-1000`} style={{ width: `${percentage}%` }}></div></div>
             </div>
         );
@@ -48,10 +49,10 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
     const showStatus = isBackgroundUpdating;
 
     return (
-        <Card className="bg-[#0f172a] p-0 overflow-hidden border border-white/10 relative shadow-2xl group">
+        <Card className="bg-[#0f172a] p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
             {!isPro && (
                 <div className="absolute inset-0 z-20 backdrop-blur-md bg-slate-900/60 flex items-center justify-center">
-                    <button onClick={onUpgrade} className="bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform border border-white/10">
+                    <button onClick={onUpgrade} className={`bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`} aria-label="Upgrade">
                         <DiamondIcon className="w-5 h-5" />
                         Unlock Digital Captain's Log
                     </button>
@@ -83,12 +84,12 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                                         {showStatus ? (
                                             <span className="flex items-center gap-1.5 ">
                                                 <span className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-ping"></span>
-                                                <span className="text-[9px] text-sky-400 font-mono animate-pulse">UPDATING...</span>
+                                                <span className="text-sm text-sky-400 font-mono animate-pulse">UPDATING...</span>
                                             </span>
                                         ) : (
                                             <>
                                                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
-                                                <span className="text-[10px] text-gray-500 uppercase tracking-widest">Bridge Active</span>
+                                                <span className="text-sm text-gray-500 uppercase tracking-widest">Bridge Active</span>
                                             </>
                                         )}
                                     </div>
@@ -98,7 +99,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                             {/* Controls */}
                             <div className="flex items-center gap-3">
                                 {/* TTS Button Removed */}
-                                <button onClick={handleShare} className="h-11 w-11 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 transition-all active:scale-95" title="Log Entry"><ShareIcon className="w-5 h-5" /></button>
+                                <button onClick={handleShare} className={`h-11 w-11 flex items-center justify-center rounded-full bg-white/5 ${t.border.default} text-gray-300 hover:text-white hover:bg-white/10 transition-all active:scale-95`} title="Log Entry" aria-label="Share"><ShareIcon className="w-5 h-5" /></button>
                             </div>
                         </div>
 
@@ -123,7 +124,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
 
                                 <div className="mt-6 flex items-center gap-2 opacity-50">
                                     <div className="h-[1px] w-8 bg-indigo-400"></div>
-                                    <span className="text-xs font-mono text-indigo-300">END LOG</span>
+                                    <span className="text-sm font-mono text-indigo-300">END LOG</span>
                                 </div>
                             </div>
                         </div>
@@ -134,17 +135,17 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                 <div className="w-full md:w-72 bg-black/20 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col backdrop-blur-md">
                     <div className="flex items-center gap-2 mb-6">
                         <div className="h-1 w-4 bg-orange-400 rounded-full"></div>
-                        <h4 className="text-xs font-bold uppercase tracking-widest text-gray-300">Skipper's Locker</h4>
+                        <h4 className="text-sm font-bold uppercase tracking-widest text-gray-300">Skipper's Locker</h4>
                     </div>
 
                     <UVBar value={uvIndex} />
 
                     {/* Updated Container with Scroll */}
                     <div className="flex-1 mt-4 overflow-y-auto custom-scrollbar min-h-[100px]">
-                        <p className="text-[9px] text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-[#141b29] py-1 z-10 opacity-90">Recommended Gear</p>
+                        <p className="text-sm text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-[#141b29] py-1 z-10 opacity-90">Recommended Gear</p>
                         <div className="flex flex-wrap gap-2 content-start pb-2">
                             {lockerItems.map((item, idx) => (
-                                <span key={idx} className="px-3 py-2 bg-white/5 hover:bg-white/10 text-xs font-medium text-indigo-100 border border-white/10 rounded-lg shadow-sm transition-all hover:border-indigo-500/30 cursor-default flex items-center gap-1.5">
+                                <span key={idx} className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-indigo-100 ${t.border.default} rounded-lg shadow-sm transition-all hover:border-indigo-500/30 cursor-default flex items-center gap-1.5`}>
                                     <span>{item.icon}</span>
                                     {item.name}
                                 </span>

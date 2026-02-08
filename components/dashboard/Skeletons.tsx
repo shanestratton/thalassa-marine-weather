@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../theme';
 
 /**
  * Skeleton loader for HeroSlide cards
@@ -12,7 +13,7 @@ export const HeroSlideSkeleton: React.FC<{ count?: number }> = ({ count = 1 }) =
                     key={i}
                     className="w-full shrink-0 snap-center px-2"
                 >
-                    <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-2xl p-4 border border-white/10 animate-pulse">
+                    <div className={`bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-2xl p-4 ${t.border.default} animate-pulse`}>
                         {/* Header skeleton */}
                         <div className="flex justify-between items-start mb-4">
                             <div className="space-y-2">
@@ -55,7 +56,7 @@ export const HeroSlideSkeleton: React.FC<{ count?: number }> = ({ count = 1 }) =
  * Skeleton for vertical hourly cards
  */
 export const HourlyCardSkeleton: React.FC = () => (
-    <div className="w-20 h-32 shrink-0 bg-gradient-to-b from-white/5 to-white/[0.02] rounded-lg border border-white/5 animate-pulse flex flex-col items-center justify-center gap-2 p-2">
+    <div className={`w-20 h-32 shrink-0 bg-gradient-to-b from-white/5 to-white/[0.02] rounded-lg ${t.border.subtle} animate-pulse flex flex-col items-center justify-center gap-2 p-2`}>
         <div className="h-3 w-8 bg-white/10 rounded" />
         <div className="h-6 w-6 bg-white/10 rounded-full" />
         <div className="h-4 w-10 bg-white/10 rounded" />

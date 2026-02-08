@@ -39,7 +39,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'forecastChart', 'hourly', 'daily', 'map'],
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
     dynamicHeaderMetrics: false, // Default to static header (current behavior)
-    dashboardMode: 'full' // 'essential' = simplified, 'full' = all widgets (default)
+    dashboardMode: 'full', // 'essential' = simplified, 'full' = all widgets (default)
+    screenOrientation: 'auto' // 'auto' | 'portrait' | 'landscape' - in-app orientation lock
 };
 
 interface SettingsContextType {
@@ -79,16 +80,44 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             } catch (e: any) {
                 // Suppress "UNIMPLEMENTED" warnings on Web/Dev
                 if (e?.code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
-                    console.warn("KeepAwake Plugin Error:", e);
                 }
             }
         };
         manageScreen();
     }, [settings.alwaysOn]);
 
+    // --- EFFECT: Manage Screen Orientation Lock ---
+    useEffect(() => {
+        const manageOrientation = async () => {
+            if (!Capacitor.isNativePlatform()) return; // Skip on Web
+
+            try {
+                // Dynamically import to avoid errors on web
+                const { ScreenOrientation } = await import('@capacitor/screen-orientation');
+
+                switch (settings.screenOrientation) {
+                    case 'portrait':
+                        await ScreenOrientation.lock({ orientation: 'portrait' });
+                        break;
+                    case 'landscape':
+                        await ScreenOrientation.lock({ orientation: 'landscape' });
+                        break;
+                    case 'auto':
+                    default:
+                        await ScreenOrientation.unlock();
+                        break;
+                }
+            } catch (e: any) {
+                // Suppress errors on platforms that don't support this
+                if (e?.code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                }
+            }
+        };
+        manageOrientation();
+    }, [settings.screenOrientation]);
+
     // Initial Load from Native Storage (Async)
     useEffect(() => {
-        console.log('[SettingsContext] Mount - Starting initial load');
         const loadNativeSettings = async () => {
             try {
                 const { value } = await Preferences.get({ key: 'thalassa_settings' });
@@ -135,16 +164,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     }));
                     const order = validHeroWidgets.join(', ');
                     addDebugLog(`LOADED: [${order}] from Disk.`);
-                    console.log('[SettingsContext] Settings loaded successfully');
                 } else {
                     addDebugLog(`INIT: No Settings Found (Starting Defaults)`);
-                    console.log('[SettingsContext] No saved settings, using defaults');
                 }
             } catch (e) {
-                console.error("[SettingsContext] Native Load Failed", e);
                 addDebugLog(`ERROR: Native Load Failed`);
             } finally {
-                console.log('[SettingsContext] Setting loading=false');
                 setLoading(false);
             }
         };
@@ -158,7 +183,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const updateSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
         if (loading) {
-            console.warn("Blocked updateSettings during load");
             return;
         }
 
@@ -182,7 +206,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                     addDebugLog(`SAVE OK: Settings Updated`);
                 }
             } catch (err: any) {
-                console.error("Native Save Failed", err);
                 addDebugLog(`SAVE FAIL: ${err.message}`);
             }
 

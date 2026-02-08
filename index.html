@@ -146,6 +146,19 @@
 
 <body>
   <div id="root"></div>
+  <!-- iOS WKWebView: Suppress harmless "readonly property" TypeError during scroll events.
+       React 18's event delegation sets cancelBubble/returnValue on native events, which are
+       readonly in WebKit for scroll/touch events. The scroll still works; this just silences
+       the console error that fires on every scroll gesture. -->
+  <script>
+    window.addEventListener('error', function(e) {
+      if (e.message && e.message.indexOf('readonly property') !== -1) {
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+      }
+    });
+  </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 

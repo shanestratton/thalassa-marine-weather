@@ -14,6 +14,10 @@ const config: CapacitorConfig = {
       style: 'DARK',
       overlaysWebView: true,
     }
+  },
+  ios: {
+    allowsLinkPreview: false,
+    scrollEnabled: false,
   }
 };
 
