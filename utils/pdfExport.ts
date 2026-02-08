@@ -35,10 +35,14 @@ export const generatePassageBriefHTML = ({
         durationHours = parseFloat(durationStr.match(/(\d+\.?\d*)/)?.[0] || '0');
     }
 
-    // Calculate resources
+    // Calculate resources - vessel type aware
+    const isSail = vessel.type === 'sail';
     const fuelBurnRate = vessel.fuelBurn || 0;
-    const fuelRequired = fuelBurnRate * durationHours;
+    const motoringFraction = isSail ? 0.15 : 1.0;
+    const motoringHours = durationHours * motoringFraction;
+    const fuelRequired = fuelBurnRate * motoringHours;
     const fuelWithReserve = fuelRequired * 1.3;
+    const crewCount = vessel.crewCount || 2;
 
     const html = `
 <!DOCTYPE html>
@@ -256,7 +260,7 @@ export const generatePassageBriefHTML = ({
             <div class="meta">
                 Prepared: ${currentDate} | Distance: ${voyagePlan.distanceApprox} | Duration: ${voyagePlan.durationApprox}
             </div>
-            <div class="vessel-badge">${vessel.name} (${vessel.type.toUpperCase()})</div>
+            <div class="vessel-badge">${vessel.name} (${vessel.type.toUpperCase()}) | ${crewCount} crew</div>
         </div>
 
         <!-- VOYAGE OVERVIEW -->
@@ -333,29 +337,29 @@ export const generatePassageBriefHTML = ({
             <div class="section-title">Resource Planning</div>
             <div class="info-grid">
                 <div class="info-item">
-                    <div class="info-label">Fuel Required (+ 30% Reserve)</div>
+                    <div class="info-label">${isSail ? 'Motor Reserve' : 'Fuel Required'} (+ 30% Reserve)</div>
                     <div class="info-value">${fuelWithReserve.toFixed(0)} L</div>
                     <div style="font-size: 9pt; color: #666; margin-top: 4px;">
-                        Base: ${fuelRequired.toFixed(0)}L | Reserve: ${(fuelWithReserve - fuelRequired).toFixed(0)}L
+                        Base: ${fuelRequired.toFixed(0)}L | Reserve: ${(fuelWithReserve - fuelRequired).toFixed(0)}L${isSail ? ' | ~15% motoring' : ''}
                     </div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">Fuel Capacity</div>
                     <div class="info-value">${vessel.fuelCapacity || 0} L</div>
                     <div style="font-size: 9pt; color: ${(vessel.fuelCapacity || 0) >= fuelWithReserve ? '#10b981' : '#dc2626'}; margin-top: 4px;">
-                        ${(vessel.fuelCapacity || 0) >= fuelWithReserve ? '✓ Sufficient' : '⚠ Insufficient - Plan Refueling'}
+                        ${(vessel.fuelCapacity || 0) >= fuelWithReserve ? '✓ Sufficient' : isSail ? '⚠ Motor reserve exceeds tank' : '⚠ Insufficient - Plan Refueling'}
                     </div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">Water Required (3L/person/day)</div>
-                    <div class="info-value">${(2 * (durationHours / 24) * 3).toFixed(0)} L</div>
+                    <div class="info-value">${(crewCount * (durationHours / 24) * 3).toFixed(0)} L</div>
                     <div style="font-size: 9pt; color: #666; margin-top: 4px;">
-                        2 crew × ${(durationHours / 24).toFixed(1)} days
+                        ${crewCount} crew × ${(durationHours / 24).toFixed(1)} days
                     </div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">Meals Required</div>
-                    <div class="info-value">${Math.ceil((durationHours / 24) * 2 * 3)}</div>
+                    <div class="info-value">${Math.ceil((durationHours / 24) * crewCount * 3)}</div>
                     <div style="font-size: 9pt; color: #666; margin-top: 4px;">
                         Plus 48hr emergency rations
                     </div>

@@ -40,7 +40,7 @@ const DefaultErrorFallback: React.FC<{
     boundaryName?: string;
 }> = ({ error, onRetry, boundaryName }) => (
     <div className="flex flex-col items-center justify-center p-8 bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.1)] text-center min-h-[200px]">
-        <div className="p-4 bg-red-500/20 rounded-full mb-4">
+        <div className="p-4 bg-red-500/20 rounded-full mb-4" aria-live="assertive">
             <AlertTriangleIcon className="w-8 h-8 text-red-400" />
         </div>
         <h3 className="text-lg font-bold text-white mb-2">
@@ -49,7 +49,7 @@ const DefaultErrorFallback: React.FC<{
         <p className="text-sm text-gray-400 mb-4 max-w-md">
             {boundaryName ? `Error in ${boundaryName}` : 'An unexpected error occurred'}
             {error?.message && (
-                <span className="block mt-2 text-xs text-red-400/70 font-mono">
+                <span className="block mt-2 text-sm text-red-400/70 font-mono">
                     {error.message.slice(0, 100)}
                 </span>
             )}
@@ -58,7 +58,7 @@ const DefaultErrorFallback: React.FC<{
             <button
                 onClick={onRetry}
                 className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold rounded-lg transition-colors shadow-lg shadow-sky-500/30"
-            >
+                aria-label="Retry">
                 Try Again
             </button>
         )}
@@ -69,7 +69,7 @@ const DefaultErrorFallback: React.FC<{
  * Compact fallback for widgets and small components
  */
 export const CompactErrorFallback: React.FC<{ message?: string }> = ({ message }) => (
-    <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs">
+    <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm" aria-live="assertive">
         <AlertTriangleIcon className="w-4 h-4 flex-shrink-0" />
         <span>{message || 'Error loading widget'}</span>
     </div>
@@ -94,7 +94,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     /**
      * Update state so the next render shows the fallback UI
      */
-    static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> | null {
+        // iOS WKWebView: Suppress harmless "readonly property" TypeError.
+        // React 18's event delegation sets cancelBubble/returnValue on native scroll/touch
+        // events which are readonly in WebKit. The scroll still works — this just prevents
+        // the ErrorBoundary from crashing the entire UI tree for a cosmetic error.
+        if (error?.message?.includes('readonly property')) {
+            return null; // Don't update state — let the app continue normally
+        }
         return { hasError: true, error };
     }
 
@@ -102,23 +109,20 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
      * Log the error and call optional callback
      */
     componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+        // Suppress the iOS readonly property error — it's harmless
+        if (error?.message?.includes('readonly property')) {
+            return;
+        }
+
         this.setState({ errorInfo });
 
         // Log to console with boundary name for easier debugging
         const boundaryName = this.props.boundaryName || 'Unknown';
 
         // Enhanced error logging for debugging non-Error objects
-        console.error(`[ErrorBoundary:${boundaryName}] Caught error:`, error);
-        console.error(`[ErrorBoundary:${boundaryName}] Error type:`, typeof error);
-        console.error(`[ErrorBoundary:${boundaryName}] Error constructor:`, error?.constructor?.name);
-        console.error(`[ErrorBoundary:${boundaryName}] Error message:`, error?.message);
-        console.error(`[ErrorBoundary:${boundaryName}] Error stack:`, error?.stack);
         try {
-            console.error(`[ErrorBoundary:${boundaryName}] Error JSON:`, JSON.stringify(error, null, 2));
         } catch (e) {
-            console.error(`[ErrorBoundary:${boundaryName}] Could not stringify error`);
         }
-        console.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
 
         // Call optional error callback
         if (this.props.onError) {

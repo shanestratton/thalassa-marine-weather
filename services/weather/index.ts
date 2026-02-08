@@ -78,8 +78,6 @@ export const fetchFastWeather = async (
         saveToCache(name, data);
         return data;
     } catch (e: any) {
-        console.error("Fast Weather Failed:", e.message || e);
-        if (e.stack) console.error(e.stack);
         throw e;
     }
 };
@@ -140,7 +138,6 @@ export const fetchPrecisionWeather = async (
         saveToCache(name, data);
         return data;
     } catch (e) {
-        console.error(`[Precision] StormGlass Failed for ${name}. No OpenMeteo fallback allowed.`, e);
         throw e;
     }
 };

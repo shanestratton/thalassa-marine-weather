@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
-import { fetchVoyagePlan, fetchDeepVoyageAnalysis } from '../services/geminiService';
+// geminiService dynamically imported at call sites
 import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
@@ -131,9 +131,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     }
                 }
             } catch (err) {
-                console.warn("Weather context fetch failed, proceeding without it", err);
             }
 
+            const { fetchVoyagePlan } = await import('../services/geminiService');
             const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
             saveVoyagePlan(result);
         } catch (err: any) {
@@ -147,6 +147,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         if (!voyagePlan || !vessel) return;
         setAnalyzingDeep(true);
         try {
+            const { fetchDeepVoyageAnalysis } = await import('../services/geminiService');
             const report = await fetchDeepVoyageAnalysis(voyagePlan, vessel);
             setDeepReport(report);
         } catch (err: any) {
@@ -169,13 +170,25 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
     const toggleCheck = (item: string) => setChecklistState(p => ({ ...p, [item]: !p[item] }));
 
-    const handleMapSelect = (lat: number, lon: number, name: string) => {
+    const handleMapSelect = async (lat: number, lon: number, name: string) => {
+        // Attempt reverse geocode for a friendly name if only coords provided
+        let resolvedName = name;
+        if (!name || name.startsWith('WP ') || /^-?\d/.test(name)) {
+            try {
+                const geoName = await reverseGeocode(lat, lon);
+                if (geoName) resolvedName = geoName;
+            } catch (e) {
+                // Fallback to WP format
+            }
+        }
+        const displayName = resolvedName || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
         if (mapSelectionTarget === 'origin') {
-            setOrigin(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setOrigin(displayName);
         } else if (mapSelectionTarget === 'destination') {
-            setDestination(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setDestination(displayName);
         } else if (mapSelectionTarget === 'via') {
-            setVia(name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            setVia(displayName);
         }
         setIsMapOpen(false);
         setMapSelectionTarget(null);
@@ -235,6 +248,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         voyagePlan,
         vessel,
         isPro,
-        mapboxToken
+        mapboxToken,
+        hourlyForecasts: weatherData?.hourly || []
     };
 };

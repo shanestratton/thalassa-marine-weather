@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../theme';
 import { VoyagePlan, VesselProfile, HourlyForecast } from '../../types';
 import { WindIcon, WaveIcon, SunIcon, MoonIcon } from '../Icons';
 
@@ -48,7 +49,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
     });
 
     return (
-        <div className="w-full bg-slate-900 border border-white/10 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+        <div className="w-full bg-slate-900 ${t.border.default} rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
             <div className="relative z-10">
@@ -58,9 +59,9 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                             <SunIcon className="w-5 h-5 text-amber-400" />
                             Passage Timeline
                         </h3>
-                        <p className="text-xs text-slate-400 font-medium">Hourly Weather Forecast Along Route</p>
+                        <p className="text-sm text-slate-400 font-medium">Hourly Weather Forecast Along Route</p>
                     </div>
-                    <span className="text-xs font-mono text-sky-500 bg-sky-500/10 px-3 py-1.5 rounded border border-sky-500/20">
+                    <span className="text-sm font-mono text-sky-500 bg-sky-500/10 px-3 py-1.5 rounded border border-sky-500/20">
                         {hours} HOURS
                     </span>
                 </div>
@@ -94,7 +95,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                                     >
                                         {/* Tooltip on hover */}
                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-                                            <div className="bg-slate-800 border border-white/20 rounded-lg px-3 py-2 text-xs whitespace-nowrap shadow-xl">
+                                            <div className="bg-slate-800 ${t.border.strong} rounded-lg px-3 py-2 text-sm whitespace-nowrap shadow-xl">
                                                 <div className="font-bold text-white mb-1">{data.time}</div>
                                                 <div className="text-sky-300">Wind: {data.windSpeed.toFixed(1)} kts</div>
                                                 <div className="text-blue-300">Wave: {data.waveHeight.toFixed(1)} m</div>
@@ -130,7 +131,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         >
                             <div className="w-px h-full bg-amber-400/40 relative">
                                 <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-3 h-3 bg-amber-400 border-2 border-slate-900 rounded-full shadow-lg"></div>
-                                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-2 text-[10px] font-bold text-amber-400 bg-slate-900/80 px-2 py-1 rounded whitespace-nowrap">
+                                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-2 text-sm font-bold text-amber-400 bg-slate-900/80 px-2 py-1 rounded whitespace-nowrap">
                                     WP{idx + 1}
                                 </div>
                             </div>
@@ -139,7 +140,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                 </div>
 
                 {/* Legend */}
-                <div className="flex flex-wrap items-center gap-6 mt-6 pt-4 border-t border-white/5 text-xs">
+                <div className="flex flex-wrap items-center gap-6 mt-6 pt-4 border-t border-white/5 text-sm">
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-gradient-to-t from-sky-500/40 to-sky-400/60 rounded"></div>
                         <span className="text-gray-400">Wind Speed (kts)</span>

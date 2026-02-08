@@ -4,13 +4,15 @@ import { AuthProvider, useAuth } from './AuthContext';
 import { SettingsProvider, useSettings } from './SettingsContext';
 import { UIProvider, useUI } from './UIContext';
 import { WeatherProvider, useWeather } from './WeatherContext';
+import { ThemeProvider } from './ThemeContext';
 
 // Re-export types for consumers
 export type { UserSettings, MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 
 /**
  * ThalassaProvider: The root provider that composes all domain-specific providers.
- * Order matters: Auth -> Settings -> UI -> Weather
+ * Order matters: Auth -> Settings -> UI -> Weather -> Theme
+ * Theme is innermost because it depends on weather data (for environment detection).
  */
 export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
@@ -18,7 +20,9 @@ export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             <UIProvider>
                 <SettingsProvider>
                     <WeatherProvider>
-                        {children}
+                        <ThemeProvider>
+                            {children}
+                        </ThemeProvider>
                     </WeatherProvider>
                 </SettingsProvider>
             </UIProvider>

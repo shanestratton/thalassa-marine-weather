@@ -60,4 +60,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Use this method to release any resources that were specific to the discarded scenes, as they will not return.
     }
 
+    // MARK: Screen Orientation Lock Support
+    // Required for @capacitor/screen-orientation plugin to lock presented View Controllers
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        // For scene-based apps, get the root view controller from connected scenes
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootViewController = windowScene.windows.first?.rootViewController as? CAPBridgeViewController {
+            return UIInterfaceOrientationMask(rawValue: rootViewController.supportedInterfaceOrientations.rawValue)
+        }
+        // Fallback: allow all orientations if we can't find the CAPBridgeViewController
+        return .all
+    }
+
 }

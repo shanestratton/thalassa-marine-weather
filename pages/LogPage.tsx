@@ -76,7 +76,6 @@ export const LogPage: React.FC = () => {
             await ShipLogService.initialize();
             await loadData();
         } catch (error) {
-            console.error('Failed to initialize Ship Log Service:', error);
             setLoading(false);
         }
     };
@@ -102,7 +101,6 @@ export const LogPage: React.FC = () => {
         if (logs.length === 0) {
             const offlineEntries = await ShipLogService.getOfflineEntries();
             if (offlineEntries.length > 0) {
-                console.log(`[LogPage] Displaying ${offlineEntries.length} offline entries`);
                 logs = offlineEntries;
             }
         }
@@ -129,22 +127,18 @@ export const LogPage: React.FC = () => {
             // No existing voyages, start new directly
             await startTrackingWithNewVoyage();
         } catch (error: any) {
-            console.error('[LogPage] Error starting tracking:', error);
             alert(error.message || 'Failed to start tracking');
         }
     };
 
     const startTrackingWithNewVoyage = async () => {
-        console.log('[LogPage] Starting tracking with new voyage...');
         await ShipLogService.startTracking();
-        console.log('[LogPage] Tracking started successfully');
         setIsTracking(true);
         setIsPaused(false);
         await loadData();
     };
 
     const continueLastVoyage = async () => {
-        console.log('[LogPage] Continuing last voyage:', lastVoyageId);
         await ShipLogService.startTracking(false, lastVoyageId || undefined);
         setIsTracking(true);
         setIsPaused(false);
@@ -264,7 +258,7 @@ export const LogPage: React.FC = () => {
 
     const handleExportCSV = () => {
         exportToCSV(entries, 'ships_log.csv', {
-            onProgress: (msg) => console.log(msg),
+            onProgress: () => { },
             onSuccess: () => {
                 // Silent success
             },
@@ -276,7 +270,7 @@ export const LogPage: React.FC = () => {
 
     const handleShare = async () => {
         await sharePDF(entries, {
-            onProgress: (msg) => console.log(msg),
+            onProgress: () => { },
             onSuccess: () => {
                 // Silent success
             },
@@ -330,7 +324,7 @@ export const LogPage: React.FC = () => {
     }
 
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden">
+        <div className="relative h-full bg-slate-950 overflow-hidden md:flex md:justify-center">
             {/* Fullscreen Statistics View */}
             {showStats ? (
                 <div className="flex flex-col h-full">
@@ -348,7 +342,7 @@ export const LogPage: React.FC = () => {
                     </div>
 
                     {/* Stats Content - centered with flex */}
-                    <div className="flex-1 overflow-auto p-4 flex flex-col justify-center">
+                    <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col justify-center md:max-w-3xl md:mx-auto">
                         {/* Key Stats Row */}
                         <div className="grid grid-cols-3 gap-3 mb-4">
                             <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 border border-emerald-500/30 rounded-lg p-3 text-center">

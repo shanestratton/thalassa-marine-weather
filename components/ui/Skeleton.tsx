@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../theme';
 
 /**
  * Skeleton loader components for shimmer loading states
@@ -32,7 +33,7 @@ export const SkeletonText: React.FC<{ lines?: number; className?: string }> = ({
 // Skeleton for the CurrentConditionsCard
 export const CurrentConditionsCardSkeleton: React.FC = () => (
     <div className="w-full h-[140px]">
-        <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-4 h-full flex flex-col justify-between">
+        <div className={`bg-white/5 backdrop-blur-md rounded-xl ${t.border.default} p-4 h-full flex flex-col justify-between`}>
             {/* Top row: icon + text */}
             <div className="flex items-center gap-3">
                 <Skeleton className="w-6 h-6 rounded-full" />

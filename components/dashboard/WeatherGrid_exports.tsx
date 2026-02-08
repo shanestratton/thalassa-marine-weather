@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { t } from '../../theme';
 import { Card } from './shared/Card';
 import { Metric } from './shared/Metric';
 import { AlertTriangleIcon, CheckIcon, WindIcon, CompassIcon, ThermometerIcon } from '../Icons';
@@ -17,8 +18,8 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
                     <CheckIcon className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div className="flex flex-col">
-                    <span className="text-emerald-100 font-bold text-xs uppercase tracking-wider">No Warnings</span>
-                    <span className="text-emerald-500/60 text-[10px] uppercase tracking-widest font-medium">Conditions Stable</span>
+                    <span className="text-emerald-100 font-bold text-sm uppercase tracking-wider">No Warnings</span>
+                    <span className="text-emerald-500/60 text-sm uppercase tracking-widest font-medium">Conditions Stable</span>
                 </div>
             </div>
         );
@@ -31,11 +32,11 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
         >
             <div className="flex items-center gap-2.5">
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
-                <span className="text-white font-bold uppercase tracking-wider text-xs">
+                <span className="text-white font-bold uppercase tracking-wider text-sm">
                     Warnings Active
                 </span>
             </div>
-            <div className="bg-white text-red-600 font-black text-xs w-6 h-6 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
+            <div className="bg-white text-red-600 font-black text-sm w-6 h-6 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
                 {alerts.length}
             </div>
         </button>
@@ -61,7 +62,7 @@ export const MetricsWidget = ({ current, units, displayValues }: { current: Weat
                     icon={<ThermometerIcon className="w-6 h-6" />}
                     label="Water Temp"
                     value={(current.waterTemperature !== null && current.waterTemperature !== undefined) ? `${displayValues.waterTemp}°` : "N/A"}
-                    subValue={<span className="opacity-60 text-[10px] uppercase">{(current.waterTemperature !== null && current.waterTemperature !== undefined) ? (isSensorLocked ? 'Verified Buoy' : 'Sea Surface Temp') : 'No Data'}</span>}
+                    subValue={<span className="opacity-60 text-sm uppercase">{(current.waterTemperature !== null && current.waterTemperature !== undefined) ? (isSensorLocked ? 'Verified Buoy' : 'Sea Surface Temp') : 'No Data'}</span>}
                     isEstimated={current.isEstimated}
                 />
             </Card>

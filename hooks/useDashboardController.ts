@@ -94,7 +94,6 @@ export const useDashboardController = (
             setAudioSource(source);
             setIsPlaying(true);
         } catch (e) {
-            console.error("Audio Decode/Play Err:", e);
             setIsPlaying(false);
         }
     }, []);
@@ -156,7 +155,7 @@ export const useDashboardController = (
                 await navigator.clipboard.writeText(text);
                 alert("Report copied to clipboard!");
             }
-        } catch (e) { console.warn("Share failed", e); }
+        } catch (e) { /* Share cancelled or unsupported */ }
     };
 
 
@@ -187,7 +186,22 @@ export const useDashboardController = (
         shareReport,
         setPage, // for 'Open Map' actions
 
-        // Calculated
-        refreshInterval: 300000, // Fixed 5m for now or hook from settings
+        // Calculated — dynamic refresh interval based on location type & weather severity
+        refreshInterval: (() => {
+            // Bad weather detection: high winds, large waves, or poor visibility
+            const isBadWeather = current && (
+                (current.windSpeed != null && current.windSpeed > 30) ||
+                (current.windGust != null && current.windGust > 40) ||
+                (current.waveHeight != null && current.waveHeight > 3) ||
+                (current.visibility != null && current.visibility < 2)
+            );
+            if (isBadWeather) return 10 * 60 * 1000; // 10 minutes
+            switch (data?.locationType) {
+                case 'coastal': return 30 * 60 * 1000;  // 30 min (on the half hour)
+                case 'offshore': return 60 * 60 * 1000; // 60 min (on the hour)
+                case 'inland': return 60 * 60 * 1000;   // 60 min (on the hour)
+                default: return 30 * 60 * 1000;          // 30 min fallback
+            }
+        })()
     };
 };

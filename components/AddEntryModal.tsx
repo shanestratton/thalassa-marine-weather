@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
+import { useFocusTrap } from '../hooks/useAccessibility';
 
 // Event category type for type safety
 type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
@@ -43,6 +44,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
     if (!isOpen) return null;
 
+    const focusTrapRef = useFocusTrap(isOpen);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -76,20 +79,19 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             onSuccess();
             onClose();
         } catch (error) {
-            alert('Failed to add entry. Check console for details.');
-            console.error('Error adding manual entry:', error);
+            alert('Failed to add entry. Please try again.');
         } finally {
             setSaving(false);
         }
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="add-entry-title" ref={focusTrapRef}>
             <div className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 {/* Header with Watch Info */}
                 <div className="flex justify-between items-start mb-4">
                     <div>
-                        <h2 className="text-xl font-bold text-white">Add Log Entry</h2>
+                        <h2 id="add-entry-title" className="text-xl font-bold text-white">Add Log Entry</h2>
                         <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                             <span className="font-mono">{currentTime}</span>
                             <span>•</span>

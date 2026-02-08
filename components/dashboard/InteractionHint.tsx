@@ -30,7 +30,7 @@ export const InteractionHint = () => {
                 >
                     <path d="M12 5v14M19 12l-7 7-7-7" />
                 </svg>
-                <span className="text-[10px] font-mono text-white/60 uppercase tracking-widest font-bold drop-shadow-md">Scroll for Details</span>
+                <span className="text-sm font-mono text-white/60 uppercase tracking-widest font-bold drop-shadow-md">Scroll for Details</span>
             </div>
         </div>
     );

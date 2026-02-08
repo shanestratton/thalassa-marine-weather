@@ -1,144 +1,70 @@
 import { WeatherMetrics } from '../../types';
+import { degreesToCardinal } from '../../utils/format';
 
 // Helper function to generate weather narrative based on current conditions
+// Designed to be concise and consistent with the widget data displayed below
 function generateWeatherNarrative(data: WeatherMetrics): string {
-    const temp = data.airTemperature || 0;
-    const waterTemp = data.waterTemperature;
-    const condition = data.condition?.toLowerCase() || '';
-    const description = data.description || '';
-    const precip = data.precipitation || 0;
-    const cloudCover = data.cloudCover || 0;
-    const uv = data.uvIndex || 0;
+    const temp = data.airTemperature;
+    const condition = data.condition || '';
     const windSpeed = data.windSpeed || 0;
+    const windDir = data.windDirection || degreesToCardinal(data.windDegree || 0);
     const windGust = data.windGust || 0;
-    const windDir = data.windDirection;
-    const waveHeight = data.waveHeight || 0;
-    const visibility = data.visibility || 10;
+    const waveHeight = data.waveHeight || 0; // Already in feet from transformers
+    const visibility = data.visibility || 0;
     const pressure = data.pressure || 1013;
-    const humidity = data.humidity || 0;
-    const dewPoint = (data as any).dewPoint;
 
-    let narrative = '';
+    const parts: string[] = [];
 
-    // DEBUG: Log wind data to help diagnose discrepancy
-    console.log('[WeatherNarrative] Wind data:', {
-        windSpeed,
-        windDir,
-        windGust,
-        condition,
-        description
-    });
-
-    // 1. WEATHER DESCRIPTION/CONDITION (First - headline)
-    if (description && description.length > 0 && description !== 'Unknown') {
-        narrative += `${description}. `;
-    } else if (condition && condition.length > 0 && condition !== 'unknown') {
-        const capitalizedCondition = condition.charAt(0).toUpperCase() + condition.slice(1);
-        narrative += `${capitalizedCondition}. `;
+    // 1. CONDITION - First, headline (capitalize)
+    if (condition && condition.toLowerCase() !== 'unknown') {
+        const cap = condition.charAt(0).toUpperCase() + condition.slice(1).toLowerCase();
+        parts.push(cap);
     }
 
-    // 2. HUMIDITY (Second - atmospheric condition)
-    if (humidity >= 90) {
-        narrative += `💧 Very humid ${Math.round(humidity)}%. `;
-    } else if (humidity >= 75) {
-        narrative += `Humid ${Math.round(humidity)}%. `;
-    } else if (humidity <= 30) {
-        narrative += `Dry ${Math.round(humidity)}%. `;
-    } else if (humidity > 0) {
-        narrative += `Humidity ${Math.round(humidity)}%. `;
-    }
-
-    // 3. DEW POINT (Third - fog/condensation risk)
-    if (dewPoint !== undefined && dewPoint !== null) {
-        const fogRisk = temp - dewPoint;
-        if (fogRisk <= 2) {
-            narrative += `🌫️ Fog/mist likely, dew point ${Math.round(dewPoint)}°C. `;
-        } else if (fogRisk <= 5) {
-            narrative += `Dew point ${Math.round(dewPoint)}°C. `;
+    // 2. WIND - Key metric: "Wind DIR at SPEEDkts (gusts Xkts)"
+    if (windSpeed > 0) {
+        let windStr = `Wind ${windDir || 'VAR'} at ${Math.round(windSpeed)}kts`;
+        if (windGust > windSpeed + 3) {
+            windStr += `, gusts ${Math.round(windGust)}kts`;
         }
-    }
-
-    // 4. WIND CONDITIONS - REMOVED to avoid discrepancy with card widgets
-    // Wind data is displayed in the card widgets which have more accurate source-aware data
-    // Keeping this in narrative caused confusion when buoy wind != forecast wind
-
-    // 5. SEA STATE
-    const waveHeightMeters = waveHeight / 3.28084;
-    if (waveHeightMeters >= 4) {
-        narrative += `Very rough seas ${waveHeightMeters.toFixed(1)}m. `;
-    } else if (waveHeightMeters >= 2.5) {
-        narrative += `Rough seas ${waveHeightMeters.toFixed(1)}m. `;
-    } else if (waveHeightMeters >= 1.5) {
-        narrative += `Moderate seas ${waveHeightMeters.toFixed(1)}m. `;
-    } else if (waveHeightMeters >= 0.5) {
-        narrative += `Slight seas ${waveHeightMeters.toFixed(1)}m. `;
-    } else if (waveHeightMeters > 0) {
-        narrative += `Calm seas. `;
-    }
-
-    // 6. VISIBILITY
-    if (visibility < 2) {
-        narrative += `⚠️ Poor visibility ${visibility.toFixed(1)}nm. `;
-    } else if (visibility < 5) {
-        narrative += `Moderate visibility ${visibility.toFixed(1)}nm. `;
-    } else if (visibility >= 10) {
-        narrative += `Excellent visibility. `;
-    }
-
-    // 7. PRECIPITATION
-    if (precip > 10) {
-        narrative += `Heavy rain ${precip.toFixed(1)}mm/hr. `;
-    } else if (precip > 5) {
-        narrative += `Moderate rain likely. `;
-    } else if (precip > 1) {
-        narrative += `Light showers possible. `;
-    }
-
-    // 8. CLOUD COVER & SKY
-    if (cloudCover > 80) {
-        narrative += `Overcast skies. `;
-    } else if (cloudCover > 50) {
-        narrative += `Partly cloudy. `;
-    } else if (cloudCover < 20) {
-        narrative += `Clear skies. `;
-    }
-
-    // 9. TEMPERATURE CONTEXT
-    if (temp > 30) {
-        narrative += `🔥 Hot ${Math.round(temp)}°C. `;
-    } else if (temp > 25) {
-        narrative += `Warm ${Math.round(temp)}°C. `;
-    } else if (temp > 15) {
-        narrative += `Mild ${Math.round(temp)}°C. `;
-    } else if (temp > 5) {
-        narrative += `Cool ${Math.round(temp)}°C. `;
+        parts.push(windStr);
     } else {
-        narrative += `Cold ${Math.round(temp)}°C. `;
+        parts.push('Calm winds');
     }
 
-    // 10. WATER TEMPERATURE (if available)
-    if (waterTemp !== null && waterTemp !== undefined) {
-        const diff = temp - waterTemp;
-        if (Math.abs(diff) > 3) {
-            narrative += `Water ${Math.round(waterTemp)}°C${diff > 0 ? ' (cooler)' : ' (warmer)'}. `;
-        }
+    // 3. SEAS - "Seas Xft" or sea state descriptor
+    const waveHeightFt = waveHeight; // Already in feet
+    if (waveHeightFt >= 8) {
+        parts.push(`Very rough seas ${waveHeightFt.toFixed(1)}ft`);
+    } else if (waveHeightFt >= 4) {
+        parts.push(`Rough seas ${waveHeightFt.toFixed(1)}ft`);
+    } else if (waveHeightFt >= 2) {
+        parts.push(`Moderate seas ${waveHeightFt.toFixed(1)}ft`);
+    } else if (waveHeightFt > 0.5) {
+        parts.push(`Slight seas ${waveHeightFt.toFixed(1)}ft`);
+    } else {
+        parts.push('Calm seas');
     }
 
-    // 11. PRESSURE TREND
+    // 4. VISIBILITY - Only if notable (poor or moderate)
+    if (visibility > 0 && visibility < 5) {
+        parts.push(`Vis ${visibility.toFixed(1)}nm`);
+    }
+
+    // 5. PRESSURE - Only if notable (low = bad weather, high = stable)
     if (pressure < 1000) {
-        narrative += `Low pressure ${Math.round(pressure)}hPa - weather may deteriorate. `;
+        parts.push(`Low pressure ${Math.round(pressure)}hPa`);
     } else if (pressure > 1025) {
-        narrative += `High pressure ${Math.round(pressure)}hPa - stable conditions. `;
+        parts.push(`High pressure ${Math.round(pressure)}hPa`);
     }
 
-    // 12. UV INDEX (if significant)
-    if (uv >= 8) {
-        narrative += `☀️ Very high UV${uv}, sun protection essential. `;
-    } else if (uv >= 6) {
-        narrative += `UV moderate, sun protection recommended. `;
+    // 6. TEMP - append at end
+    if (temp !== null && temp !== undefined) {
+        parts.push(`${Math.round(temp)}°C`);
     }
 
-    return narrative.trim() || 'Pleasant conditions expected.';
+    // Join with periods for readability
+    return parts.join('. ') + '.' || 'Pleasant conditions expected.';
 }
 
 // Moon phase calculation using accurate synodic month

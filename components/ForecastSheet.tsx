@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
+import { t } from '../theme';
 import { MarineWeatherReport, UnitPreferences } from '../types';
 import { WindIcon, WaveIcon, CompassIcon, ThermometerIcon, ArrowRightIcon, XIcon, ArrowUpIcon, ArrowDownIcon } from './Icons';
 
@@ -21,7 +22,7 @@ const LOADING_STEPS = [
     "Finalizing Report..."
 ];
 
-export const ForecastSheet: React.FC<ForecastSheetProps> = ({ data, isLoading, units, isOpen, onClose, onViewFull }) => {
+export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(({ data, isLoading, units, isOpen, onClose, onViewFull }) => {
     const [isVisible, setIsVisible] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState(LOADING_STEPS[0]);
 
@@ -115,7 +116,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = ({ data, isLoading, u
                 <div className="mx-2 mb-2 md:mx-0">
                     {/* Glass Panel */}
                     <div
-                        className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-2xl overflow-hidden ring-1 ring-white/10 relative"
+                        className="bg-slate-900/95 backdrop-blur-xl ${t.border.default} rounded-[2rem] shadow-2xl overflow-hidden ring-1 ring-white/10 relative"
                     >
 
                         {/* DRAG HANDLE AREA - Expanded touch target */}
@@ -145,7 +146,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = ({ data, isLoading, u
                                     </div>
                                     <div className="text-center">
                                         <p className="text-sm text-white font-bold tracking-wide animate-pulse min-w-[200px]">{loadingMessage}</p>
-                                        <p className="text-xs text-gray-400 mt-1">Please wait...</p>
+                                        <p className="text-sm text-gray-400 mt-1">Please wait...</p>
                                     </div>
                                 </div>
                             ) : current ? (
@@ -158,27 +159,27 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = ({ data, isLoading, u
                                     </div>
 
                                     <div className="grid grid-cols-3 gap-3 mb-6">
-                                        <div className="bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center border border-white/5">
+                                        <div className={`bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center ${t.border.subtle}`}>
                                             <div className="text-sky-400 mb-1"><WindIcon className="w-5 h-5" /></div>
                                             <span className="text-lg font-bold text-white">{current.windSpeed}</span>
-                                            <span className="text-[10px] text-gray-400 uppercase font-bold">{units.speed}</span>
+                                            <span className="text-sm text-gray-400 uppercase font-bold">{units.speed}</span>
                                         </div>
-                                        <div className="bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center border border-white/5">
+                                        <div className={`bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center ${t.border.subtle}`}>
                                             <div className="text-blue-400 mb-1"><WaveIcon className="w-5 h-5" /></div>
                                             <span className="text-lg font-bold text-white">{current.waveHeight}</span>
-                                            <span className="text-[10px] text-gray-400 uppercase font-bold">{units.length}</span>
+                                            <span className="text-sm text-gray-400 uppercase font-bold">{units.length}</span>
                                         </div>
-                                        <div className="bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center border border-white/5">
+                                        <div className={`bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center ${t.border.subtle}`}>
                                             <div className="text-orange-400 mb-1"><CompassIcon rotation={current.windDegree ?? 0} className="w-5 h-5" /></div>
                                             <span className="text-lg font-bold text-white">{current.windDirection}</span>
-                                            <span className="text-[10px] text-gray-400 uppercase font-bold">Dir</span>
+                                            <span className="text-sm text-gray-400 uppercase font-bold">Dir</span>
                                         </div>
                                     </div>
 
                                     <button
                                         onClick={onViewFull}
                                         className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
-                                    >
+                                     aria-label="View Full">
                                         View Full Report
                                         <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                     </button>
@@ -194,4 +195,4 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = ({ data, isLoading, u
             </div>
         </>
     );
-};
+});

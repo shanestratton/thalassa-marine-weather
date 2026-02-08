@@ -37,7 +37,6 @@ const getAI = () => {
         aiInstance = new GoogleGenerativeAI(key);
         return aiInstance;
     } catch (e) {
-        console.error("Gemini Service: Init Failed", e);
         return null;
     }
 };
@@ -383,7 +382,6 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
                 }
                 weatherContext = weatherStr;
             } catch (e) {
-                console.warn("Deep Analysis: Could not fetch real weather", e);
             }
         }
 

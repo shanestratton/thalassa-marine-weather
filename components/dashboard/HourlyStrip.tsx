@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../theme';
 import { UnitPreferences, HourlyForecast } from '../../types';
 import { convertTemp } from '../../utils';
 import { SunIcon, CloudIcon, RainIcon, WindIcon } from '../Icons';
@@ -71,7 +72,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
                     <button
                         key={hour.time || idx}
                         onClick={() => onHourSelect?.(hour)}
-                        className="flex-shrink-0 flex flex-col items-center justify-center bg-white/5 rounded-lg py-2 hover:bg-white/10 transition-colors border border-white/5 snap-start"
+                        className={`flex-shrink-0 flex flex-col items-center justify-center bg-white/5 rounded-lg py-2 hover:bg-white/10 transition-colors ${t.border.subtle} snap-start`}
                         style={{
                             // Width calculated to show ~7 cards (adjusts to screen)
                             width: 'calc((100vw - 16px) / 7)',
@@ -80,7 +81,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
                         }}
                     >
                         {/* Hour */}
-                        <span className="text-[10px] text-white/60 font-medium mb-1">
+                        <span className="text-sm text-white/60 font-medium mb-1">
                             {formatHour(hour.time)}
                         </span>
 
@@ -95,7 +96,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
                         </span>
 
                         {/* Wind speed small */}
-                        <span className="text-[9px] text-white/50">
+                        <span className="text-sm text-white/50">
                             {hour.windSpeed !== null && hour.windSpeed !== undefined
                                 ? `${Math.round(hour.windSpeed)}${units.speed}`
                                 : ''}

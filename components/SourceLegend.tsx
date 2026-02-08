@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { t } from '../theme';
 
 /**
  * SourceLegend - Educational tooltip explaining color-coded data sources
@@ -17,14 +18,14 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
             {/* Info Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors duration-200"
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white/5 ${t.border.default} hover:bg-white/10 transition-colors duration-200`}
                 aria-label="Data source information"
             >
                 {/* Info Icon (inline SVG) */}
                 <svg className="w-3 h-3 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="text-[8px] md:text-[9px] font-medium text-white/70 uppercase tracking-wider">Sources</span>
+                <span className="text-sm md:text-sm font-medium text-white/70 uppercase tracking-wider">Sources</span>
             </button>
 
             {/* Expandable Legend */}
@@ -48,8 +49,8 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-emerald-400 mt-0.5 shadow-lg shadow-emerald-400/50" />
                             <div className="flex-1">
-                                <div className="text-xs font-bold text-emerald-400 mb-0.5">Beacon (Measured)</div>
-                                <div className="text-[10px] text-white/70 leading-relaxed">
+                                <div className="text-sm font-bold text-emerald-400 mb-0.5">Beacon (Measured)</div>
+                                <div className="text-sm text-white/70 leading-relaxed">
                                     Real-time data from marine buoys and BOM weather stations. Direct measurements.
                                 </div>
                             </div>
@@ -59,8 +60,8 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-amber-400 mt-0.5 shadow-lg shadow-amber-400/50" />
                             <div className="flex-1">
-                                <div className="text-xs font-bold text-amber-400 mb-0.5">Model (SG)</div>
-                                <div className="text-[10px] text-white/70 leading-relaxed">
+                                <div className="text-sm font-bold text-amber-400 mb-0.5">Model (SG)</div>
+                                <div className="text-sm text-white/70 leading-relaxed">
                                     Predictions from StormGlass weather models. Computed from satellite and forecast data.
                                 </div>
                             </div>
@@ -70,8 +71,8 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-white mt-0.5 shadow-lg shadow-white/50" />
                             <div className="flex-1">
-                                <div className="text-xs font-bold text-white mb-0.5">Forecast (Future)</div>
-                                <div className="text-[10px] text-white/70 leading-relaxed">
+                                <div className="text-sm font-bold text-white mb-0.5">Forecast (Future)</div>
+                                <div className="text-sm text-white/70 leading-relaxed">
                                     All future forecast data shown in white. These are predictions for upcoming hours and days.
                                 </div>
                             </div>
@@ -80,7 +81,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
                     {/* Footer Note */}
                     <div className="mt-3 pt-3 border-t border-white/10">
-                        <p className="text-[9px] text-white/50 leading-relaxed">
+                        <p className="text-sm text-white/50 leading-relaxed">
                             Thalassa automatically selects the best available source for each metric based on proximity and data quality.
                         </p>
                     </div>

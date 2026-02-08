@@ -29,7 +29,6 @@ export const fetchLiveTideDepth = async (lat: number, lon: number): Promise<Tide
 
         // 1. API Level Errors
         if (data.error) {
-            console.error("WorldTides API Error:", data.error);
             return { height: 0, timestamp: 0, stationName: 'Unknown', datum: 'UNKNOWN', isSafe: false, error: data.error };
         }
 
@@ -57,7 +56,6 @@ export const fetchLiveTideDepth = async (lat: number, lon: number): Promise<Tide
         };
 
     } catch (err) {
-        console.error("Network/Fetch Error:", err);
         return { height: 0, timestamp: 0, stationName: 'N/A', datum: 'N/A', isSafe: false, error: 'Network Failure' };
     }
 };

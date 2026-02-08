@@ -4,37 +4,64 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ThalassaProvider } from './context/ThalassaContext';
 
+// Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue
+// that fires during the brief window between chart mount and layout stabilization.
+const _origWarn = console.warn;
+console.warn = (...args: any[]) => {
+  if (typeof args[0] === 'string' && args[0].includes('The width(') && args[0].includes('of chart should be greater than 0')) {
+    return; // Silently suppress
+  }
+  _origWarn.apply(console, args);
+};
+
+// Diagnostic: intercept console.error to expose Error objects that serialize as {}
+// This helps identify the source of "[error] - {}" messages in Capacitor logs
+const _origError = console.error;
+console.error = (...args: any[]) => {
+  const enrichedArgs = args.map(arg => {
+    if (arg instanceof Error) {
+      return `[Error: ${arg.message}] ${arg.stack || ''}`;
+    }
+    if (typeof arg === 'object' && arg !== null && Object.keys(arg).length === 0 && !(arg instanceof Array)) {
+      // Empty object — try to extract more info
+      try {
+        return `[EmptyObj: ${arg.constructor?.name || 'Object'}] ${String(arg)}`;
+      } catch { return arg; }
+    }
+    return arg;
+  });
+  _origError.apply(console, enrichedArgs);
+};
+
 // Service Worker Registration for PWA/Offline Support
 const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator) {
     // 1. Check for Secure Context (HTTPS or Localhost)
     // Service Workers throw errors if registered in an insecure context (e.g. LAN IP on HTTP)
     if (!window.isSecureContext) {
-        // Silently skip - no need to warn user in console for development/LAN access
-        return;
+      // Silently skip - no need to warn user in console for development/LAN access
+      return;
     }
 
     // 2. Check for Preview Environments (skip to prevent errors)
     const hostname = window.location.hostname;
-    const isPreview = hostname.includes('usercontent.goog') || 
-                      hostname.includes('webcontainer') || 
-                      hostname.includes('ai.studio');
+    const isPreview = hostname.includes('usercontent.goog') ||
+      hostname.includes('webcontainer') ||
+      hostname.includes('ai.studio');
 
     if (isPreview) {
-        return;
+      return;
     }
 
     // 3. Attempt Registration with Error Handling
     try {
-        const registration = await navigator.serviceWorker.register('./sw.js');
-        console.log('Thalassa ServiceWorker registered:', registration.scope);
+      const registration = await navigator.serviceWorker.register('./sw.js');
     } catch (err: any) {
-        // Silently ignore known "origin" or "document" errors common in IFrames/Previews/WebViews
-        const msg = err.message || "";
-        if (msg.includes('origin') || msg.includes('document') || msg.includes('security') || msg.includes('environment')) {
-            return;
-        }
-        console.error('Thalassa ServiceWorker registration failed:', err);
+      // Silently ignore known "origin" or "document" errors common in IFrames/Previews/WebViews
+      const msg = err.message || "";
+      if (msg.includes('origin') || msg.includes('document') || msg.includes('security') || msg.includes('environment')) {
+        return;
+      }
     }
   }
 };
@@ -68,7 +95,6 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("CRITICAL APP ERROR:", error, errorInfo);
   }
 
   public render() {
@@ -82,10 +108,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
           <div style={{ padding: '1rem', backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: '8px', marginBottom: '2rem', fontFamily: 'monospace', fontSize: '0.8rem', color: '#f87171' }}>
             {this.state.error?.message || "Unknown Error"}
           </div>
-          <button 
+          <button
             onClick={() => {
-                localStorage.clear();
-                window.location.reload();
+              localStorage.clear();
+              window.location.reload();
             }}
             style={{ padding: '12px 24px', backgroundColor: '#38bdf8', color: '#0f172a', border: 'none', borderRadius: '99px', fontWeight: 'bold', cursor: 'pointer' }}
           >

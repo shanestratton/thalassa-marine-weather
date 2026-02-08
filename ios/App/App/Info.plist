@@ -6,6 +6,19 @@
 	<string>Thalassa needs your location to provide local marine weather forecasts and navigation.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Thalassa needs your location to provide local marine weather forecasts and navigation.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Thalassa needs continuous location access to automatically log your position every 15 minutes while on a voyage, even when the app is in the background.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Thalassa uses motion detection to optimize GPS battery usage by detecting when you are stationary at anchor versus underway.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+		<string>processing</string>
+	</array>
+	<key>TSLocationManagerLicense</key>
+	<string>a246ce79f5b488b41d12f1c64512e7d795814ba4f9714823d978b7c3c77501b6</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>

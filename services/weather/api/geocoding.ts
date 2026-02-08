@@ -2,7 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { MAJOR_BUOYS, STATE_ABBREVIATIONS } from '../config';
 import { getMapboxKey } from '../keys';
 import { abbreviate } from '../transformers';
-import { suggestLocationCorrection } from '../../geminiService';
+// geminiService dynamically imported to avoid bundling @google/generative-ai in main chunk
 
 export interface GeoContext {
     name: string;
@@ -29,14 +29,12 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             });
 
             if (!res || !res.data) {
-                console.warn('[Geocoding] Mapbox returned empty response');
                 return null;
             }
 
             let data = res.data;
             if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch (e) {
-                    console.error("Mapbox JSON Parse Error", e);
                     return null;
                 }
             }
@@ -56,7 +54,6 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(city);
 
                 if (isGenericWater) {
-                    console.warn('[Geocoding] Mapbox rejected due to Generic Ocean/Sea filter:', city);
                     return null;
                 }
 
@@ -82,7 +79,6 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 return { name, lat: featureLat, lon: featureLon };
             }
         } else {
-            console.warn('[Geocoding] Missing Mapbox Token');
         }
 
 
@@ -94,20 +90,17 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         });
 
         if (!res || !res.data) {
-            console.warn('[Geocoding] Nominatim returned empty response');
             return null;
         }
 
         let data = res.data;
         if (typeof data === 'string') {
             try { data = JSON.parse(data); } catch (e) {
-                console.error("Nominatim JSON Parse Error", e);
                 return null;
             }
         }
 
         if (!data || !data.address) {
-            console.warn('[Geocoding] Nominatim returned no address data');
             return null;
         }
 
@@ -116,7 +109,6 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
 
         if (!addr) {
-            console.warn('[Geocoding] Nominatim No Address Found');
             return null;
         }
 
@@ -151,7 +143,6 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(name);
 
         if (isGenericWater) {
-            console.warn('[Geocoding] Nominatim rejected due to Generic Ocean/Sea filter:', name);
             return null;
         }
 
@@ -163,7 +154,6 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         return { name, lat: resLat, lon: resLon };
 
     } catch (err) {
-        console.error('[Geocoding] Error:', err);
         return null; // Return null on error
     }
 }
@@ -232,7 +222,6 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 });
 
                 if (!res || !res.data) {
-                    console.warn('[Geocoding] OpenMeteo returned empty response');
                     return [];
                 }
 
@@ -252,7 +241,6 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 });
 
                 if (!res.data) {
-                    console.error('[Geocoding] No data in Nominatim response');
                     throw new Error('Geocoding failed: No data from Nominatim');
                 }
 
@@ -270,12 +258,12 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                     }];
                 }
             } catch (e) {
-                console.warn("Nominatim Search Failed", e);
             }
         }
 
         // AUTOCORRECT LOGIC
         if (!results || results.length === 0) {
+            const { suggestLocationCorrection } = await import('../../geminiService');
             const corrected = await suggestLocationCorrection(location);
             if (corrected) {
                 results = await fetchOpenMeteoGeo(corrected);

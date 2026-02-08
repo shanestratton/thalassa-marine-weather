@@ -80,8 +80,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     setHomePort(`WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
                 }
                 setIsLocating(false);
-            }, (err) => {
-                console.error(err);
+            }, () => {
                 setIsLocating(false);
                 alert("Could not access location. Please enter manually.");
             });

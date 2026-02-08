@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { t } from '../../theme';
 import { TideGraph } from './TideAndVessel';
 import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
@@ -6,6 +7,7 @@ import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateAppar
 import { ALL_STATIONS } from '../../services/TideService';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
+import { useEnvironment } from '../../context/ThemeContext';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { ALL_HERO_WIDGETS } from '../WidgetDefinitions';
 import { StatusBadges } from './StatusBadges';
@@ -39,6 +41,7 @@ const HeroSlideComponent = ({
     locationType,
     generatedAt,
     onTimeSelect,
+    onHourChange,
     onActiveDataChange,
     isVisible = false,
     utcOffset,
@@ -66,6 +69,7 @@ const HeroSlideComponent = ({
     locationType?: 'coastal' | 'offshore' | 'inland',
     generatedAt?: string,
     onTimeSelect?: (time: number | undefined) => void,
+    onHourChange?: (hour: number) => void,
     onActiveDataChange?: (data: WeatherMetrics) => void,
     isVisible?: boolean,
     utcOffset?: number,
@@ -128,17 +132,18 @@ const HeroSlideComponent = ({
                 return hourly.slice().sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
             }
         } catch (err) {
-            console.error('[CRITICAL] HeroSlide hourlyToRender crash:', err);
             return [];
         }
     }, [hourly, index, timeZone]);
 
     // --- RESTORED HELPERS ---
-    const rowHeightClass = "h-[60px] sm:h-auto sm:flex-1 overflow-hidden";
+    const rowHeightClass = "min-h-[52px] sm:flex-1";
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
     const showGrid = !showTideGraph; // Explicit switch
+    const env = useEnvironment();
+    const isCompact = env === 'onshore';
 
 
     // 3. DERIVED VISUAL TIME (The "Fast" Time)
@@ -352,8 +357,13 @@ const HeroSlideComponent = ({
             if (horizontalScrollRef.current) {
                 horizontalScrollRef.current.scrollTo({ left: 0 });
             }
-            // Sync ref with reset state
+            // Sync ref and state with reset
             lastScrollIdxRef.current = 0;
+            setActiveHIdx(0);
+            // Also propagate the live data immediately
+            if (onTimeSelect) {
+                onTimeSelect(undefined); // undefined = live/now
+            }
         };
         window.addEventListener('hero-reset-scroll', handleReset);
         return () => {
@@ -396,7 +406,7 @@ const HeroSlideComponent = ({
         highTemp: (displayData as any).highTemp !== undefined ? convertTemp((displayData as any).highTemp, units.temp) : '--',
         lowTemp: (displayData as any).lowTemp !== undefined ? convertTemp((displayData as any).lowTemp, units.temp) : '--',
         windSpeed: hasWind ? Math.round(convertSpeed(displayData.windSpeed!, units.speed)!) : '--',
-        waveHeight: isLandlocked ? "0" : (hasWave ? convertLength(displayData.waveHeight, units.length) : '--'),
+        waveHeight: isLandlocked ? "0" : (hasWave ? String(convertLength(displayData.waveHeight, units.length)).replace(/^0\./, '.') : '--'),
         vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
         gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
         precip: convertPrecip(displayData.precipitation, units.length),
@@ -439,11 +449,11 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <DropletIcon className="w-3 h-3 text-cyan-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-200">Humidity</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-cyan-200">Humidity</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">{displayValues.humidity}</span>
-                            <span className="text-xs text-gray-400 font-medium">%</span>
+                            <span className="text-sm text-gray-400 font-medium">%</span>
                         </div>
                     </div>
 
@@ -451,11 +461,11 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <EyeIcon className="w-3 h-3 text-emerald-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-200">Visibility</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-emerald-200">Visibility</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">{displayValues.vis}</span>
-                            <span className="text-xs text-gray-400 font-medium">{units.visibility}</span>
+                            <span className="text-sm text-gray-400 font-medium">{units.visibility}</span>
                         </div>
                     </div>
 
@@ -463,7 +473,7 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <SunIcon className="w-3 h-3 text-orange-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-orange-200">UV Index</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-orange-200">UV Index</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">{displayValues.uv}</span>
@@ -481,13 +491,13 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <ThermometerIcon className="w-3 h-3 text-blue-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Water</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-blue-200">Water</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">
                                 {displayValues.waterTemperature}
                             </span>
-                            <span className="text-xs text-gray-400 font-medium">°{units.temp}</span>
+                            <span className="text-sm text-gray-400 font-medium">°{units.temp}</span>
                         </div>
                     </div>
 
@@ -495,11 +505,11 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <GaugeIcon className="w-3 h-3 text-violet-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Drift</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Drift</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-black text-white">{displayValues.currentSpeed}</span>
-                            <span className="text-xs text-gray-400 font-medium">kts</span>
+                            <span className="text-sm text-gray-400 font-medium">kts</span>
                         </div>
                     </div>
 
@@ -507,14 +517,14 @@ const HeroSlideComponent = ({
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
                             <CompassIcon rotation={0} className="w-3 h-3 text-violet-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-violet-200">Set</span>
+                            <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Set</span>
                         </div>
                         <div className="flex flex-col justify-center">
                             <span className="text-3xl font-black text-white">
                                 {displayValues.currentDirection}
                             </span>
                         </div>
-                        <div className="mt-auto pt-1 text-[8px] md:text-[10px] text-violet-300 font-bold opacity-80 text-center">
+                        <div className="mt-auto pt-1 text-sm md:text-sm text-violet-300 font-bold opacity-80 text-center">
                             {(() => {
                                 const val = displayValues.currentDirection;
                                 // Extract degrees from cardinal direction if present
@@ -528,7 +538,7 @@ const HeroSlideComponent = ({
         if (!tides || tides.length === 0) return null;
 
         return (
-            <div className="w-full h-36 px-0 pb-0 relative mb-8">
+            <div className="w-full h-36 px-0 pb-0 relative mb-8 transition-all duration-300 ease-in-out">
                 <TideGraph
                     tides={tides}
                     unit={units.tideHeight || 'm'}
@@ -574,16 +584,16 @@ const HeroSlideComponent = ({
                 <div className="flex flex-col h-full justify-between">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <SunIcon className="w-3 h-3 text-orange-400" />
-                        <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-orange-200">Sun Phz</span>
+                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-orange-200">Sun Phz</span>
                     </div>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center justify-between">
-                            <span className="text-[9px] text-orange-300 font-bold uppercase mr-1">Rise</span>
+                            <span className="text-sm text-orange-300 font-bold uppercase mr-1">Rise</span>
                             <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunrise}</span>
                         </div>
                         <div className="w-full h-px bg-white/5 my-0.5"></div>
                         <div className="flex items-center justify-between">
-                            <span className="text-[9px] text-purple-300 font-bold uppercase mr-1">Set</span>
+                            <span className="text-sm text-purple-300 font-bold uppercase mr-1">Set</span>
                             <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunset}</span>
                         </div>
                     </div>
@@ -597,13 +607,13 @@ const HeroSlideComponent = ({
                 <div className="flex flex-col h-full justify-between">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <StarIcon className="w-3 h-3 text-yellow-400" />
-                        <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-yellow-200">Boating</span>
+                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-yellow-200">Boating</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-3xl md:text-5xl font-black tracking-tighter text-white">{score}</span>
-                        <span className="text-[10px] md:text-xs font-medium text-gray-400">/100</span>
+                        <span className="text-sm md:text-sm font-medium text-gray-400">/100</span>
                     </div>
-                    <div className={`mt-auto pt-1 text-[8px] md: text-[10px] font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}>
+                    <div className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}>
                         {scoreText}
                     </div>
                 </div>
@@ -611,7 +621,7 @@ const HeroSlideComponent = ({
         }
 
         // Use Common Renderer
-        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as any).sources : undefined);
+        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as any).sources : undefined, isCompact);
         if (customWidget) {
             return customWidget;
         }
@@ -619,41 +629,38 @@ const HeroSlideComponent = ({
     };
 
     // --- RENDER LOOP PREPARATION ---
-    // Safety: Only create slides if we have valid data
-    if (!data) {
-        return (
-            <div className="flex items-center justify-center h-full">
-                <div className="text-gray-400">Loading weather data...</div>
-            </div>
-        );
-    }
+    // CRITICAL FIX: Do NOT early-return before hooks — it violates React's Rules of Hooks.
+    // Instead, guard inside each hook and move the fallback UI to just before the final JSX return.
 
-    const slides = useMemo(() => [
-        // Only include "current" slide for TODAY (index 0)
-        ...(index === 0 ? [{ type: 'current', data: data, time: undefined as number | undefined }] : []),
-        ...(hourlyToRender || []).map(h => {
-            // Find matching daily forecast for High/Low
-            const hDate = new Date(h.time);
-            const hDayStr = hDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
-            const matchDay = forecast.find(d => d.isoDate === hDayStr || d.date === hDayStr);
+    const slides = useMemo(() => {
+        if (!data) return [];
+        return [
+            // Only include "current" slide for TODAY (index 0)
+            ...(index === 0 ? [{ type: 'current', data: data, time: undefined as number | undefined }] : []),
+            ...(hourlyToRender || []).map(h => {
+                // Find matching daily forecast for High/Low
+                const hDate = new Date(h.time);
+                const hDayStr = hDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+                const matchDay = forecast.find(d => d.isoDate === hDayStr || d.date === hDayStr);
 
-            return {
-                type: 'hourly',
-                data: {
-                    ...h,
-                    airTemperature: h.temperature, // Map for compatibility
-                    feelsLike: h.feelsLike,
-                    windSpeed: h.windSpeed,
-                    waveHeight: h.waveHeight,
-                    highTemp: matchDay?.highTemp, // Inject Daily High
-                    lowTemp: matchDay?.lowTemp,    // Inject Daily Low
-                    sunrise: matchDay?.sunrise || data.sunrise, // Inherit from daily or base data
-                    sunset: matchDay?.sunset || data.sunset     // Inherit from daily or base data
-                } as any,
-                time: hDate.getTime()
-            };
-        })
-    ], [index, data, hourlyToRender, forecast]);
+                return {
+                    type: 'hourly',
+                    data: {
+                        ...h,
+                        airTemperature: h.temperature, // Map for compatibility
+                        feelsLike: h.feelsLike,
+                        windSpeed: h.windSpeed,
+                        waveHeight: h.waveHeight,
+                        highTemp: matchDay?.highTemp, // Inject Daily High
+                        lowTemp: matchDay?.lowTemp,    // Inject Daily Low
+                        sunrise: matchDay?.sunrise || data.sunrise, // Inherit from daily or base data
+                        sunset: matchDay?.sunset || data.sunset     // Inherit from daily or base data
+                    } as any,
+                    time: hDate.getTime()
+                };
+            })
+        ];
+    }, [index, data, hourlyToRender, forecast]);
 
     // Phase 2 Optimization: Pre-compute display values for all slides
     // This avoids recalculating on every scroll/render
@@ -694,7 +701,7 @@ const HeroSlideComponent = ({
             highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
             lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
             windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
-            waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? convertLength(cardData.waveHeight, units.waveHeight) : '--'),
+            waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? String(convertLength(cardData.waveHeight, units.waveHeight)).replace(/^0\./, '.') : '--'),
             vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
             gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
             precip: convertPrecip(cardData.precipitation, units.length),
@@ -723,11 +730,9 @@ const HeroSlideComponent = ({
         const cardIsLive = !isHourly && index === 0;
 
         return { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime };
-    }), [slides, customTime, units, isLandlocked, index]);    // Calculate active slide data for static displays
-    // Use either current data (static) or active scrolled card (dynamic) based on setting
-    const activeSlide = settings.dynamicHeaderMetrics
-        ? slides[activeHIdx]  // Dynamic: show data from currently scrolled card
-        : slides[0];           // Static: always show current/live data (default behavior)
+    }), [slides, units, isLandlocked, index]);    // Calculate active slide data for static displays
+    // Always track the actively scrolled card for header updates
+    const activeSlide = slides[activeHIdx] || slides[0];
     const activeCardData = activeSlide?.data as WeatherMetrics;
     const activeCardTime = activeSlide?.time || customTime;
     const activeIsLive = index === 0 && activeHIdx === 0;
@@ -772,7 +777,7 @@ const HeroSlideComponent = ({
     const staticDisplayValues = {
         airTemp: activeCardData?.airTemperature !== null ? convertTemp(activeCardData?.airTemperature || 0, units.temp) : '--',
         windSpeed: hasActiveWind ? Math.round(convertSpeed(activeCardData.windSpeed!, units.speed)!) : '--',
-        waveHeight: isLandlocked ? "0" : (hasActiveWave ? convertLength(activeCardData.waveHeight, units.length) : '--'),
+        waveHeight: isLandlocked ? "0" : (hasActiveWave ? String(convertLength(activeCardData.waveHeight, units.length)).replace(/^0\./, '.') : '--'),
         vis: activeCardData?.visibility ? convertDistance(activeCardData.visibility, units.visibility || 'nm') : '--',
         gusts: hasActiveWind ? Math.round(convertSpeed(rawActiveGust!, units.speed)!) : '--',
         pressure: activeCardData?.pressure ? Math.round(activeCardData.pressure) : '--',
@@ -788,16 +793,23 @@ const HeroSlideComponent = ({
         })()
     };
 
-    // TODO: Get source colors for static bands - need to pass sources from parent
-    // For now, static bands will show white text (correct for forecast data)
+    // Get source colors for static header metrics
+    // Shows amber (StormGlass), emerald (Buoy), or white (forecast)
     const getActiveSourceColor = (metricKey: string): string => {
-        // When in dynamic mode and showing forecast data, always use white
-        // When in static mode showing live data, source colors would be shown (future enhancement)
-        if (settings.dynamicHeaderMetrics && !activeIsLive) {
-            return 'text-white'; // Forecast data is always white
+        // When showing forecast data (not live), always use white
+        if (!activeIsLive) {
+            return 'text-white';
         }
-        // Static mode or live data - would show source colors if available
-        return 'text-white';
+        // Live data - check if source info is available
+        const liveSources = (activeCardData as any)?.sources;
+        if (!liveSources || !liveSources[metricKey]) return 'text-white';
+
+        const sourceColor = liveSources[metricKey]?.sourceColor;
+        switch (sourceColor) {
+            case 'emerald': return 'text-emerald-400';  // Buoy
+            case 'amber': return 'text-amber-400';      // StormGlass
+            default: return 'text-white';
+        }
     };
 
     // Propagate active card data changes to parent
@@ -809,34 +821,42 @@ const HeroSlideComponent = ({
         }
     }, [activeCardData, onActiveDataChange, isVisible]);
 
-    // Scroll handler to update active index - rAF-throttled for instant scrolling
-    // Performance optimization: Uses requestAnimationFrame to batch scroll calculations
-    // and only triggers state updates when the active card actually changes
+    // Scroll handler to update active index - INSTANT (no throttling)
+    // Performance optimization: Direct state updates for zero-latency scroll response
     const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        // Cancel any pending frame to prevent stacking
-        if (scrollRafRef.current) {
-            cancelAnimationFrame(scrollRafRef.current);
-        }
-
-        // Get values synchronously (before rAF) for accuracy
         const container = e.currentTarget;
         const scrollLeft = container.scrollLeft;
         const cardWidth = container.clientWidth;
+        const newIdx = Math.round(scrollLeft / cardWidth);
 
-        // Schedule position calculation in animation frame for smooth 60fps
-        scrollRafRef.current = requestAnimationFrame(() => {
-            const newIdx = Math.round(scrollLeft / cardWidth);
-
-            // Only update state if the index actually changed
-            if (newIdx !== lastScrollIdxRef.current && newIdx >= 0 && newIdx < slides.length) {
-                lastScrollIdxRef.current = newIdx;
-                setActiveHIdx(newIdx);
-                if (onTimeSelect) {
-                    onTimeSelect(slides[newIdx].time);
+        // Only update state if the index actually changed
+        if (newIdx !== lastScrollIdxRef.current && newIdx >= 0 && newIdx < slides.length) {
+            lastScrollIdxRef.current = newIdx;
+            setActiveHIdx(newIdx);
+            // Update hour index directly — avoids triggering Dashboard state via onTimeSelect
+            if (onHourChange) {
+                onHourChange(newIdx);
+            }
+            // INSTANT UPDATE: Propagate active card data immediately without waiting for useEffect
+            // This eliminates one render cycle delay for temp/description updates
+            if (onActiveDataChange && isVisible) {
+                const newActiveData = slides[newIdx]?.data as WeatherMetrics;
+                if (newActiveData) {
+                    onActiveDataChange(newActiveData);
                 }
             }
-        });
-    }, [slides, onTimeSelect]);
+        }
+    }, [slides, onHourChange, onActiveDataChange, isVisible]);
+
+    // Safety fallback: if data is missing, show loading state
+    // This MUST be after all hooks to respect React's Rules of Hooks
+    if (!data || slides.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="text-gray-400">Loading weather data...</div>
+            </div>
+        );
+    }
 
     return (
         <div className="relative w-full h-full overflow-hidden">
@@ -850,12 +870,8 @@ const HeroSlideComponent = ({
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHorizontalScroll}
-                    className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row px-[1px]"
-                    style={{
-                        willChange: 'transform',
-                        transform: 'translateZ(0)', // Force GPU compositing for smooth scroll
-                        WebkitOverflowScrolling: 'touch' // iOS momentum scrolling
-                    }}
+                    className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row"
+                    style={{ willChange: 'scroll-position' }}
                 >
                     {slides.map((slide, slideIdx) => {
                         // Use pre-computed display data from memoized array
@@ -863,6 +879,11 @@ const HeroSlideComponent = ({
                         // Guard against undefined precomputed data (race condition safety)
                         if (!precomputed) return null;
                         const { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime } = precomputed;
+                        // Gate chart rendering: only render Recharts for the visible day slide
+                        // Off-screen day slides don't render charts (prevents width(-1) warnings)
+                        // NOTE: Do NOT gate on horizontal card proximity (activeHIdx) — that causes
+                        // TideGraph to unmount/remount on every scroll frame, producing flicker.
+                        const shouldRenderChart = isVisible;
                         const forceLabel = rowDateLabel;
 
                         // Helper to get source color for card metrics (kept inline as it's lightweight)
@@ -888,12 +909,12 @@ const HeroSlideComponent = ({
                         return (
                             <div
                                 key={slideIdx}
-                                className="w-full h-full snap-start snap-always shrink-0 relative px-0.5 pb-4 flex flex-col"
+                                className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                <div className="relative w-full h-full rounded-xl overflow-hidden backdrop-blur-md flex flex-col gap-2 border border-white/10 bg-black/20">
-                                    {/* BG */}
-                                    <div className="absolute inset-0 z-0">
-                                        <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-blue-900/20 via-slate-900/40 to-black/60' : 'from-red-900/10 via-slate-900/40 to-black/60'} `} />
+                                <div className={`relative w-full h-full rounded-2xl overflow-hidden flex flex-col gap-2 border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                    {/* BG Gradient */}
+                                    <div className="absolute inset-0 z-0 pointer-events-none">
+                                        <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
                                     </div>
 
 
@@ -905,7 +926,7 @@ const HeroSlideComponent = ({
                                                 {/* Row 1: Small Widgets (hidden in Essential mode) */}
                                                 {!isEssentialMode && (
                                                     <div className="px-0 shrink-0 mt-0.5 sm:flex sm:flex-col sm:justify-center">
-                                                        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative z-10 w-full pb-0">
+                                                        <div className="grid grid-cols-3 gap-2 relative z-10 w-full pb-0">
                                                             {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
                                                                 const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
                                                                 const getTheme = (wid: string) => {
@@ -918,8 +939,11 @@ const HeroSlideComponent = ({
                                                                 };
                                                                 const themeClass = getTheme(id);
                                                                 return (
-                                                                    <div key={id} className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass.replace('md:', 'sm:')} backdrop-blur-sm shadow-lg border ${themeClass} ${justifyClass}`}>
-                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined)}
+                                                                    <div
+                                                                        key={id}
+                                                                        className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass} shadow-lg border ${themeClass} ${justifyClass}`}
+                                                                    >
+                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined, isCompact)}
                                                                     </div>
                                                                 )
                                                             })}
@@ -930,50 +954,50 @@ const HeroSlideComponent = ({
                                                 {/* Tide Graph: Fills ALL Remaining Space */}
                                                 {/* Only show Tide Graph on Main Card (idx 0) or if we want it everywhere? Usually just Main. 
                                             Let's show it on all for consistency if data exists, otherwise blank space is weird. */}
-                                                <div className="flex-1 min-h-0 w-full relative mt-2 mb-2">
-                                                    <TideGraph
-                                                        tides={tides || []}
-                                                        unit={units.tideHeight || 'm'}
-                                                        timeZone={timeZone}
-                                                        hourlyTides={[]}
-                                                        tideSeries={tideHourly}
-                                                        modelUsed="WorldTides"
-                                                        unitPref={units}
-                                                        customTime={cardTime} // USE CARD TIME
-                                                        showAllDayEvents={index > 0 && !cardTime}
-                                                        stationName={guiDetails?.stationName || "Local Station"}
-                                                        secondaryStationName={guiDetails?.stationName}
-                                                        guiDetails={guiDetails}
-                                                        stationPosition="bottom"
-                                                        className="h-full w-full"
-                                                        style={{ height: '100%', width: '100%' }}
-                                                    />
+                                                <div className="flex-1 min-h-0 w-full relative transition-all duration-300 ease-in-out">
+                                                    {shouldRenderChart ? (
+                                                        <TideGraph
+                                                            tides={tides || []}
+                                                            unit={units.tideHeight || 'm'}
+                                                            timeZone={timeZone}
+                                                            hourlyTides={[]}
+                                                            tideSeries={tideHourly}
+                                                            modelUsed="WorldTides"
+                                                            unitPref={units}
+                                                            customTime={cardTime}
+                                                            showAllDayEvents={index > 0 && !cardTime}
+                                                            stationName={guiDetails?.stationName || "Local Station"}
+                                                            secondaryStationName={guiDetails?.stationName}
+                                                            guiDetails={guiDetails}
+                                                            stationPosition="bottom"
+                                                            className="h-full w-full"
+                                                            style={{ height: '100%', width: '100%' }}
+                                                        />
+                                                    ) : (
+                                                        <div className="h-full w-full" />
+                                                    )}
                                                 </div>
                                             </div>
                                         ) : (
                                             /* INLAND / OFFSHORE LAYOUT */
-                                            <div className="w-full max-h-full flex flex-col justify-start gap-1 overflow-y-auto">
+                                            <div className="w-full max-h-full flex flex-col justify-start gap-1 overflow-y-auto safe-bottom">
                                                 <div className="grid grid-cols-3 gap-2 w-full px-2 auto-rows-min">
                                                     {(() => {
-                                                        // 1. Define Layouts based on User Request
-                                                        // Offshore: Wind, Gust, Seas, Pressure, Cloud, Precip, Sea Temp, Drift, Set
                                                         const OFFSHORE_WIDGETS = ['wind', 'gust', 'wave', 'pressure', 'visibility', 'precip', 'waterTemperature', 'currentSpeed', 'currentDirection'];
-
-                                                        // Inland: Wind, Gust, UV, Pressure, Humidity, Precip, Sunrise, Sunset, Moon Phase
                                                         const INLAND_WIDGETS = ['wind', 'gust', 'uv', 'pressure', 'humidity', 'precip', 'sunrise', 'sunset', 'moon'];
 
                                                         const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS : OFFSHORE_WIDGETS;
 
                                                         return widgets.map((id: string, idx: number) => {
-                                                            // 2. Alignment Logic: Left | Center | Right
                                                             const align = idx % 3 === 0 ? 'left' : idx % 3 === 1 ? 'center' : 'right';
-
-                                                            // 3. Justification classes for container
                                                             const justifyClass = align === 'left' ? 'items-start' : align === 'center' ? 'items-center' : 'items-end';
 
                                                             return (
-                                                                <div key={id} className={`bg-white/5 rounded-xl p-2 flex flex-col justify-center ${justifyClass}`}>
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as any).sources : undefined)}
+                                                                <div
+                                                                    key={id}
+                                                                    className={`bg-white/[0.06] backdrop-blur-sm rounded-xl p-2 ${t.border.default} flex flex-col justify-center ${justifyClass}`}
+                                                                >
+                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as any).sources : undefined, isCompact)}
                                                                 </div>
                                                             );
                                                         });
@@ -983,47 +1007,7 @@ const HeroSlideComponent = ({
                                         )}
                                     </div>
 
-                                    {/* 3. FOOTER */}
-                                    <div className="mt-auto w-full relative z-20">
-                                        <div className="mb-3">
-                                            {(() => {
-                                                // Extract source names from cardSources
-                                                // Only for live/current card - forecast cards use model data
-                                                let beaconName = '';
-                                                let buoyName = '';
 
-                                                if (cardIsLive && cardSources) {
-                                                    Object.values(cardSources).forEach((src: any) => {
-                                                        if (src?.source === 'beacon' && src?.sourceName && !beaconName) {
-                                                            beaconName = src.sourceName;
-                                                        } else if (src?.source === 'buoy' && src?.sourceName && !buoyName) {
-                                                            buoyName = src.sourceName;
-                                                        }
-                                                    });
-                                                }
-
-                                                return (
-                                                    <StatusBadges
-                                                        isLandlocked={isLandlocked || false}
-                                                        locationName={locationName || ''}
-                                                        displaySource={displaySource}
-                                                        nextUpdate={nextUpdate}
-                                                        fallbackInland={false}
-                                                        stationId={effectiveData?.stationId}
-                                                        locationType={locationType}
-                                                        beaconName={beaconName}
-                                                        buoyName={buoyName}
-                                                    />
-                                                );
-                                            })()}
-
-
-                                        </div>
-                                        <div className="w-full flex justify-center items-center gap-2 pb-2">
-                                            <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
-                                            <SourceLegend />
-                                        </div>
-                                    </div>
                                 </div>
                             </div >
                         );

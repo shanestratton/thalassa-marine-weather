@@ -1,25 +1,41 @@
 PODS:
   - Capacitor (8.0.2):
     - CapacitorCordova
-  - CapacitorApp (6.0.3):
+  - CapacitorApp (8.0.0):
     - Capacitor
-  - CapacitorCommunityKeepAwake (5.0.1):
+  - CapacitorCommunityKeepAwake (8.0.0):
     - Capacitor
   - CapacitorCordova (8.0.2)
-  - CapacitorFilesystem (6.0.4):
+  - CapacitorFilesystem (8.1.0):
     - Capacitor
+    - IONFilesystemLib (~> 1.1.0)
   - CapacitorGeolocation (8.0.0):
     - Capacitor
     - IONGeolocationLib (= 2.0.0)
-  - CapacitorHaptics (6.0.3):
+  - CapacitorHaptics (8.0.0):
     - Capacitor
-  - CapacitorPreferences (6.0.4):
+  - CapacitorPreferences (8.0.0):
     - Capacitor
-  - CapacitorShare (6.0.4):
+  - CapacitorPushNotifications (8.0.0):
     - Capacitor
-  - CapacitorStatusBar (6.0.3):
+  - CapacitorScreenOrientation (8.0.0):
     - Capacitor
+  - CapacitorShare (8.0.0):
+    - Capacitor
+  - CapacitorStatusBar (8.0.0):
+    - Capacitor
+  - CocoaLumberjack (3.7.4):
+    - CocoaLumberjack/Core (= 3.7.4)
+  - CocoaLumberjack/Core (3.7.4)
+  - IONFilesystemLib (1.1.0)
   - IONGeolocationLib (2.0.0)
+  - TransistorsoftCapacitorBackgroundFetch (8.0.0):
+    - Capacitor
+    - TSBackgroundFetch (~> 4.0)
+  - TransistorsoftCapacitorBackgroundGeolocation (8.0.1):
+    - Capacitor
+    - CocoaLumberjack (~> 3.7.2)
+  - TSBackgroundFetch (4.0.6)
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
@@ -30,12 +46,19 @@ DEPENDENCIES:
   - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
+  - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
+  - "CapacitorScreenOrientation (from `../../node_modules/@capacitor/screen-orientation`)"
   - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
+  - "TransistorsoftCapacitorBackgroundFetch (from `../../node_modules/@transistorsoft/capacitor-background-fetch`)"
+  - "TransistorsoftCapacitorBackgroundGeolocation (from `../../node_modules/@transistorsoft/capacitor-background-geolocation`)"
 
 SPEC REPOS:
   trunk:
+    - CocoaLumberjack
+    - IONFilesystemLib
     - IONGeolocationLib
+    - TSBackgroundFetch
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -54,24 +77,39 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/haptics"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
+  CapacitorPushNotifications:
+    :path: "../../node_modules/@capacitor/push-notifications"
+  CapacitorScreenOrientation:
+    :path: "../../node_modules/@capacitor/screen-orientation"
   CapacitorShare:
     :path: "../../node_modules/@capacitor/share"
   CapacitorStatusBar:
     :path: "../../node_modules/@capacitor/status-bar"
+  TransistorsoftCapacitorBackgroundFetch:
+    :path: "../../node_modules/@transistorsoft/capacitor-background-fetch"
+  TransistorsoftCapacitorBackgroundGeolocation:
+    :path: "../../node_modules/@transistorsoft/capacitor-background-geolocation"
 
 SPEC CHECKSUMS:
   Capacitor: 2b79172ad27f3be2d103cce88b8eb9803fdcc744
-  CapacitorApp: a19ccb4f5f32d2534be5c6f524d5a9b614a1e8a7
-  CapacitorCommunityKeepAwake: 6ca8e4c8db46f0cf99e33f1ca1162fbc97c8611e
+  CapacitorApp: 3963a84197280757b84f126afd1520a85ae3b092
+  CapacitorCommunityKeepAwake: 332bf035bbdf0b1c244fd492b35a8a06c8802111
   CapacitorCordova: 921bdb690ebe82421b24fce45552fd3dea2ae43a
-  CapacitorFilesystem: 5b9aec35c0212bd0064e26d278c93e925864f212
+  CapacitorFilesystem: a957d4a4b6860844c4eba5bf441607a5166f92a7
   CapacitorGeolocation: 8a405e707de9aff6ac9eca7f408966a370f7ca33
-  CapacitorHaptics: 40f83026feeee9cfe36e89e9c98a3baaaf20c450
-  CapacitorPreferences: 5848e0691b36b4bb4acc98e481ab56d451578d30
-  CapacitorShare: 77ff779e3b7c6ae9fb5461e52cf7ef805d429491
-  CapacitorStatusBar: 149cde8f1328ec3aa6cbdd872a55137ae3f98b16
+  CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
+  CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CapacitorPushNotifications: 722c1528eabbefd355f47e373a4c6235d01e85e9
+  CapacitorScreenOrientation: d962f79e5bcbba4e01e9dc0cd872abf465fb943f
+  CapacitorShare: 12f1d192170cbcf9f108fd675ac8e343761a4638
+  CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
+  CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
+  IONFilesystemLib: 50b9a0f3052a9b40b9bedb43f328a8fe222f9f87
   IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
+  TransistorsoftCapacitorBackgroundFetch: 12dc742682562c9339241d12615f27ef7dbfb88f
+  TransistorsoftCapacitorBackgroundGeolocation: bb25918e2b847d71edabdd62d84b771b05d0878f
+  TSBackgroundFetch: 0afbeaae4e1132866e1d4b6e55265af26b5958ae
 
-PODFILE CHECKSUM: d1916d113eb29b7e6e8a50da0666e7b235f72615
+PODFILE CHECKSUM: 5380f1375f9d4b9efda212c19bbfccc50bdb8c7d
 
 COCOAPODS: 1.16.2

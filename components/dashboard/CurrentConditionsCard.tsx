@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../../theme';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertSpeed } from '../../utils';
 import { SunIcon, CloudIcon, RainIcon, WindIcon, DropletIcon, ThermometerIcon } from '../Icons';
@@ -78,18 +79,18 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
     const condition = data.condition || 'Clear';
 
     return (
-        <div className="w-full h-[140px]">
-            <div className={`bg-gradient-to-br ${getWeatherGradient()} backdrop-blur-md rounded-xl border border-white/10 p-4 h-full flex flex-col justify-between`}>
-                {/* TOP ROW: Weather Icon + Condition */}
-                <div className="flex items-center gap-3">
+        <div className="w-full rounded-xl overflow-hidden backdrop-blur-md ${t.border.default} bg-black transition-all duration-300">
+            <div className={`bg-gradient-to-br ${getWeatherGradient()} h-full flex flex-col`}>
+                {/* TOP ROW: Weather Icon + Condition - matches HeroWidgets top row height */}
+                <div className="flex items-center gap-3 px-3 py-2 border-b border-white/5 min-h-[60px]">
                     {getWeatherIcon()}
                     <span className="text-white font-bold text-lg capitalize">
                         {condition}
                     </span>
                 </div>
 
-                {/* BOTTOM ROW: Stats Grid - 5 columns */}
-                <div className="flex items-end justify-between mt-3">
+                {/* BOTTOM ROW: Stats Grid - 5 columns - matches HeroWidgets bottom row height */}
+                <div className="grid grid-cols-5 gap-2 px-2 py-2 min-h-[60px]">
                     {/* Wind */}
                     <div className="flex flex-col items-center flex-1">
                         <div className="flex items-center gap-1 mb-1">
@@ -102,38 +103,38 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                                 <path d="M12 2L8 10h8L12 2z" />
                                 <rect x="10" y="10" width="4" height="12" />
                             </svg>
-                            <span className="text-[10px] text-white/60 font-bold">{windDir}</span>
+                            <span className="text-sm text-white/60 font-bold">{windDir}</span>
                         </div>
                         <span className="text-xl font-black text-white">{windSpeed}</span>
-                        <span className="text-[10px] text-white/70 uppercase tracking-wide">{units.speed}</span>
+                        <span className="text-sm text-white/70 uppercase tracking-wide">{units.speed}</span>
                     </div>
 
                     {/* Rain */}
                     <div className="flex flex-col items-center flex-1">
                         <RainIcon className="w-4 h-4 text-blue-400 mb-1" />
                         <span className="text-xl font-black text-white">{rainChance}</span>
-                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Rain</span>
+                        <span className="text-sm text-white/70 uppercase tracking-wide">Rain</span>
                     </div>
 
                     {/* UV */}
                     <div className="flex flex-col items-center flex-1">
                         <SunIcon className="w-4 h-4 text-orange-400 mb-1" />
                         <span className="text-xl font-black text-white">{uvIndex}</span>
-                        <span className="text-[10px] text-white/70 uppercase tracking-wide">UV</span>
+                        <span className="text-sm text-white/70 uppercase tracking-wide">UV</span>
                     </div>
 
                     {/* Humidity */}
                     <div className="flex flex-col items-center flex-1">
                         <DropletIcon className="w-4 h-4 text-sky-400 mb-1" />
                         <span className="text-xl font-black text-white">{humidity}</span>
-                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Humid</span>
+                        <span className="text-sm text-white/70 uppercase tracking-wide">Humid</span>
                     </div>
 
                     {/* Dew Point */}
                     <div className="flex flex-col items-center flex-1">
                         <ThermometerIcon className="w-4 h-4 text-teal-400 mb-1" />
                         <span className="text-xl font-black text-white">{dewPoint}</span>
-                        <span className="text-[10px] text-white/70 uppercase tracking-wide">Dew</span>
+                        <span className="text-sm text-white/70 uppercase tracking-wide">Dew</span>
                     </div>
                 </div>
             </div>

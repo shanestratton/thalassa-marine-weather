@@ -19,12 +19,17 @@ export const formatTime24 = (date: Date | string): string => {
 };
 
 /**
- * Format time with colon: "14:35" or "00:23"
+ * Format time with colon: "14:35" or "00:23" or with seconds "14:35:45"
+ * @param showSeconds - If true, includes seconds (for rapid GPS entries)
  */
-export const formatTime24Colon = (date: Date | string): string => {
+export const formatTime24Colon = (date: Date | string, showSeconds: boolean = false): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
     const hours = d.getHours().toString().padStart(2, '0');
     const minutes = d.getMinutes().toString().padStart(2, '0');
+    if (showSeconds) {
+        const seconds = d.getSeconds().toString().padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    }
     return `${hours}:${minutes}`;
 };
 

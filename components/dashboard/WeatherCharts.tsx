@@ -1,9 +1,10 @@
 
 import React from 'react';
 import { Card } from './shared/Card';
+import { SafeResponsiveContainer } from './shared/SafeResponsiveContainer';
 import { WeatherIcon } from './shared/WeatherIcon';
 import { ArrowRightIcon, LockIcon, WindIcon, WaveIcon, TideCurveIcon, SunIcon, CompassIcon, ArrowUpIcon, ArrowDownIcon, DropletIcon, MapIcon, GaugeIcon, ClockIcon, CalendarIcon } from '../Icons';
-import { AreaChart, ComposedChart, Area, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from 'recharts';
+import { AreaChart, ComposedChart, Area, Line, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, Legend, ReferenceLine } from 'recharts';
 import { convertLength, convertSpeed, convertTemp, convertPrecip, calculateWindChill, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText } from '../../utils';
 import { ForecastDay, HourlyForecast, UnitPreferences, VesselProfile, ChartDataPoint } from '../../types';
 
@@ -113,17 +114,18 @@ export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, 
     const rightAxisColor = isNightMode ? "#ffffff" : "#10b981";
 
     return (
-        <Card className="overflow-hidden bg-[#0f172a] border border-white/10 shadow-2xl relative">
+        <Card className="overflow-hidden bg-[#0f172a] border border-white/10 shadow-2xl relative" role="figure" aria-labelledby="forecast-chart-title" aria-describedby="forecast-chart-desc">
             {/* Header / Controls */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 px-2 pt-2 gap-4 z-10 relative">
                 <div>
-                    <h3 className="text-sm font-bold text-sky-300 uppercase tracking-widest flex items-center gap-2">
+                    <h3 id="forecast-chart-title" className="text-sm font-bold text-sky-300 uppercase tracking-widest flex items-center gap-2">
                         {view === 'hourly' ? <ClockIcon className="w-5 h-5 text-sky-400" /> : <CalendarIcon className="w-5 h-5 text-sky-400" />}
                         {view === 'hourly' ? 'Tactical Outlook' : 'Long Range Forecast'}
                     </h3>
                     <p className="text-[10px] text-gray-500 uppercase tracking-widest pl-7 mt-0.5 font-medium">
                         {locationName} • {view === 'hourly' ? '24 Hours' : '10 Days'}
                     </p>
+                    <span id="forecast-chart-desc" className="sr-only">Interactive weather forecast chart showing wind speed, wave height, and gusts over time. Toggle series visibility with the buttons. Switch between hourly and daily views.</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -159,7 +161,7 @@ export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, 
                 {/* Background Grid Accent */}
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
 
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <SafeResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <ComposedChart key={locationName + view + (isNightMode ? '_night' : '_day')} data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <defs>
                             {/* Rich Wind Gradient */}
@@ -218,7 +220,7 @@ export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, 
                             tickLine={false}
                             axisLine={false}
                             width={40}
-                            tickFormatter={(val) => val > 0 ? `${val}` : ''}
+                            tickFormatter={(val: number) => val > 0 ? `${val}` : ''}
                         />
 
                         {/* Right Axis: Wind Speed */}
@@ -316,7 +318,7 @@ export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, 
                         )}
 
                     </ComposedChart>
-                </ResponsiveContainer>
+                </SafeResponsiveContainer>
             </div>
         </Card>
     );

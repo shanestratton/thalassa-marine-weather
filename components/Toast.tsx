@@ -43,6 +43,9 @@ export const Toast: React.FC<ToastProps> = ({ message, type, onClose, duration =
 
     return (
         <div
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
             className={`fixed top-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
                 }`}
         >
@@ -92,7 +95,7 @@ export const useToast = () => {
     };
 
     const ToastContainer = () => (
-        <>
+        <div aria-live="polite" aria-relevant="additions removals" className="contents">
             {toasts.map(toast => (
                 <Toast
                     key={toast.id}
@@ -102,7 +105,7 @@ export const useToast = () => {
                     onClose={() => hideToast(toast.id)}
                 />
             ))}
-        </>
+        </div>
     );
 
     return {
