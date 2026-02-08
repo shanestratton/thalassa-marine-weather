@@ -75,7 +75,6 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             'vendor-react': ['react', 'react-dom'],
             'vendor-charts': ['uplot'],
-            'vendor-recharts': ['recharts'],
             'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
             'vendor-leaflet': ['leaflet'],
             'vendor-pdf': ['html2canvas', 'jspdf'],

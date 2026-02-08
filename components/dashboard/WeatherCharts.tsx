@@ -1,10 +1,8 @@
 
-import React from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Card } from './shared/Card';
-import { SafeResponsiveContainer } from './shared/SafeResponsiveContainer';
 import { WeatherIcon } from './shared/WeatherIcon';
 import { ArrowRightIcon, LockIcon, WindIcon, WaveIcon, TideCurveIcon, SunIcon, CompassIcon, ArrowUpIcon, ArrowDownIcon, DropletIcon, MapIcon, GaugeIcon, ClockIcon, CalendarIcon } from '../Icons';
-import { AreaChart, ComposedChart, Area, Line, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, Legend, ReferenceLine } from 'recharts';
 import { convertLength, convertSpeed, convertTemp, convertPrecip, calculateWindChill, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText } from '../../utils';
 import { ForecastDay, HourlyForecast, UnitPreferences, VesselProfile, ChartDataPoint } from '../../types';
 
@@ -21,81 +19,335 @@ interface ForecastChartProps {
     isNightMode?: boolean;
 }
 
-const CustomTooltip = ({ active, payload, label, units, isNightMode }: any) => {
-    if (active && payload && payload.length) {
-        // Deduplicate entries by dataKey to avoid showing both Area and Line for same metric
-        const uniquePayload = payload.filter((entry: any, index: number, self: any[]) =>
-            index === self.findIndex((t) => (
-                t.dataKey === entry.dataKey
-            ))
-        );
+// --- Canvas-based Forecast Chart ---
+// Replaces Recharts ComposedChart with direct canvas rendering.
+// Handles dual Y-axes, gradient fills, multi-series lines, tooltip, and wind limit line.
 
-        return (
-            <div className={`bg-[#0f172a]/95 border ${isNightMode ? 'border-white/20' : 'border-sky-500/20'} p-4 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-xl min-w-[180px]`}>
-                <div className={`flex justify-between items-center border-b ${isNightMode ? 'border-white/20' : 'border-white/5'} pb-2 mb-3`}>
-                    <span className={`text-xs font-bold ${isNightMode ? 'text-white' : 'text-sky-400'} font-mono tracking-widest uppercase`}>{label}</span>
-                    <div className={`w-1.5 h-1.5 rounded-full ${isNightMode ? 'bg-white' : 'bg-emerald-500'} animate-pulse`}></div>
-                </div>
-                <div className="space-y-2.5">
-                    {uniquePayload.map((entry: any, index: number) => {
-                        // Skip if hidden
-                        if (entry.value === undefined) return null;
+interface ForecastUPlotChartProps {
+    data: ChartDataPoint[];
+    hiddenSeries: Record<string, boolean>;
+    isLandlocked?: boolean;
+    isNightMode?: boolean;
+    maxWindLimit: number;
+    limitLabel: string;
+    windStroke: string;
+    waveStroke: string;
+    gustStroke: string;
+    tideStroke: string;
+    view: string;
+    locationName: string;
+    units: UnitPreferences;
+}
 
-                        const isWind = entry.dataKey === 'wind';
-                        const isGust = entry.dataKey === 'gust';
-                        const isWave = entry.dataKey === 'wave';
-                        const isTide = entry.dataKey === 'tide';
+const ForecastUPlotChart: React.FC<ForecastUPlotChartProps> = ({
+    data, hiddenSeries, isLandlocked, isNightMode,
+    maxWindLimit, limitLabel, windStroke, waveStroke, gustStroke, tideStroke,
+    view, locationName, units,
+}) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [tooltip, setTooltip] = useState<{ x: number; y: number; point: ChartDataPoint } | null>(null);
 
-                        let label = entry.name;
-                        let unit = '';
-                        let icon = null;
-                        let colorClass = "text-white";
-                        let displayValue = entry.value;
+    const draw = useCallback(() => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container || data.length < 2) return;
 
-                        if (isWind) {
-                            label = "Wind Avg";
-                            unit = units.speed;
-                            icon = <WindIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-300' : 'text-sky-300'}`} />;
-                        }
-                        if (isGust) {
-                            label = "Max Gust";
-                            unit = units.speed;
-                            colorClass = isNightMode ? "text-gray-300" : "text-orange-300";
-                            icon = <WindIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-400' : 'text-orange-400'}`} />;
-                        }
-                        if (isWave) {
-                            label = "Wave Hgt";
-                            unit = units.length;
-                            colorClass = isNightMode ? "text-gray-400" : "text-blue-300";
-                            icon = <WaveIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-500' : 'text-blue-400'}`} />;
-                        }
-                        if (isTide) {
-                            label = "Tide Lvl";
-                            unit = units.tideHeight || 'm';
-                            colorClass = isNightMode ? "text-gray-500" : "text-purple-300";
-                            icon = <TideCurveIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-600' : 'text-purple-400'}`} />;
-                            if (typeof entry.value === 'number') {
-                                displayValue = entry.value.toFixed(2);
-                            }
-                        }
+        const dpr = window.devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
 
-                        return (
-                            <div key={index} className="flex justify-between items-center gap-6">
-                                <div className="flex items-center gap-2">
-                                    <div className="opacity-80">{icon}</div>
-                                    <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider">{label}</span>
-                                </div>
-                                <span className={`text-sm font-bold font-mono ${colorClass}`}>
-                                    {displayValue} <span className="text-[9px] text-gray-600 font-normal">{unit}</span>
-                                </span>
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, w, h);
+
+        // Chart area
+        const marginLeft = 40;
+        const marginRight = 40;
+        const marginTop = 10;
+        const marginBottom = 30;
+        const plotW = w - marginLeft - marginRight;
+        const plotH = h - marginTop - marginBottom;
+
+        // Compute Y ranges for left (wave/tide) and right (wind/gust) axes
+        const waveVals = (!hiddenSeries['wave'] && !isLandlocked) ? data.map(d => d.wave ?? 0) : [0];
+        const tideVals = (!hiddenSeries['tide'] && view === 'hourly' && !isLandlocked) ? data.map(d => d.tide ?? 0) : [0];
+        const leftVals = [...waveVals, ...tideVals].filter(v => v !== undefined);
+        const leftMin = 0;
+        const leftMax = Math.max(...leftVals, 1) * 1.2;
+
+        const windVals = !hiddenSeries['wind'] ? data.map(d => d.wind ?? 0) : [0];
+        const gustVals = !hiddenSeries['gust'] ? data.map(d => d.gust ?? 0) : [0];
+        const rightVals = [...windVals, ...gustVals, maxWindLimit];
+        const rightMin = 0;
+        const rightMax = Math.max(...rightVals, 1) * 1.15;
+
+        // Coordinate mappers
+        const toX = (i: number) => marginLeft + (i / (data.length - 1)) * plotW;
+        const toYLeft = (v: number) => marginTop + plotH - ((v - leftMin) / (leftMax - leftMin || 1)) * plotH;
+        const toYRight = (v: number) => marginTop + plotH - ((v - rightMin) / (rightMax - rightMin || 1)) * plotH;
+
+        // --- GRID LINES ---
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        // Horizontal
+        for (let i = 0; i <= 4; i++) {
+            const y = marginTop + (i / 4) * plotH;
+            ctx.beginPath(); ctx.moveTo(marginLeft, y); ctx.lineTo(w - marginRight, y); ctx.stroke();
+        }
+        // Vertical
+        const tickInterval = Math.max(1, Math.floor(data.length / 8));
+        for (let i = 0; i < data.length; i += tickInterval) {
+            const x = toX(i);
+            ctx.beginPath(); ctx.moveTo(x, marginTop); ctx.lineTo(x, marginTop + plotH); ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        // --- HELPER: Draw filled area ---
+        const drawArea = (series: (number | undefined)[], mapY: (v: number) => number, color: string, opacityTop: number, opacityBottom: number) => {
+            const gradient = ctx.createLinearGradient(0, marginTop, 0, marginTop + plotH);
+            gradient.addColorStop(0, color.replace(')', `, ${opacityTop})`).replace('rgb', 'rgba'));
+            gradient.addColorStop(1, color.replace(')', `, ${opacityBottom})`).replace('rgb', 'rgba'));
+
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < series.length; i++) {
+                const val = series[i];
+                if (val === undefined) continue;
+                const x = toX(i);
+                const y = mapY(val);
+                if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+            }
+            // Close to bottom
+            ctx.lineTo(toX(series.length - 1), marginTop + plotH);
+            ctx.lineTo(toX(0), marginTop + plotH);
+            ctx.closePath();
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        };
+
+        // --- HELPER: Draw line ---
+        const drawLine = (series: (number | undefined)[], mapY: (v: number) => number, stroke: string, lineWidth: number, dash?: number[]) => {
+            ctx.save();
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lineWidth;
+            if (dash) ctx.setLineDash(dash);
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < series.length; i++) {
+                const val = series[i];
+                if (val === undefined) continue;
+                const x = toX(i);
+                const y = mapY(val);
+                if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke();
+            ctx.restore();
+        };
+
+        // --- HELPER: Parse hex to rgb ---
+        const hexToRgb = (hex: string): string => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgb(${r}, ${g}, ${b})`;
+        };
+
+        // --- DRAW SERIES ---
+        const windData = data.map(d => d.wind);
+        const waveData = data.map(d => d.wave);
+        const gustData = data.map(d => d.gust);
+        const tideData = data.map(d => d.tide);
+
+        // Wave area + line (left axis)
+        if (!hiddenSeries['wave'] && !isLandlocked) {
+            drawArea(waveData, toYLeft, hexToRgb(waveStroke), 0.4, 0.05);
+            drawLine(waveData, toYLeft, waveStroke, 2);
+        }
+
+        // Wind area + line (right axis)
+        if (!hiddenSeries['wind']) {
+            drawArea(windData, toYRight, hexToRgb(windStroke), 0.6, 0.1);
+            drawLine(windData, toYRight, windStroke, 3);
+        }
+
+        // Gust dashed line + dots (right axis)
+        if (!hiddenSeries['gust']) {
+            ctx.globalAlpha = 0.8;
+            drawLine(gustData, toYRight, gustStroke, 2, [4, 4]);
+            // Dots
+            for (let i = 0; i < gustData.length; i++) {
+                const val = gustData[i];
+                if (val === undefined) continue;
+                ctx.beginPath();
+                ctx.arc(toX(i), toYRight(val), 2, 0, Math.PI * 2);
+                ctx.fillStyle = gustStroke;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Tide line (left axis, hourly only)
+        if (view === 'hourly' && !hiddenSeries['tide'] && !isLandlocked) {
+            ctx.globalAlpha = 0.6;
+            drawLine(tideData, toYLeft, tideStroke, 2);
+            ctx.globalAlpha = 1;
+        }
+
+        // --- WIND LIMIT REFERENCE LINE ---
+        if (!hiddenSeries['wind']) {
+            const limitY = toYRight(maxWindLimit);
+            if (limitY >= marginTop && limitY <= marginTop + plotH) {
+                ctx.save();
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+                ctx.setLineDash([3, 3]);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(marginLeft, limitY);
+                ctx.lineTo(w - marginRight, limitY);
+                ctx.stroke();
+                // Label
+                ctx.fillStyle = '#ef4444';
+                ctx.font = '8px monospace';
+                ctx.textAlign = 'right';
+                ctx.fillText(limitLabel, w - marginRight - 2, limitY - 3);
+                ctx.restore();
+            }
+        }
+
+        // --- X AXIS LABELS ---
+        ctx.fillStyle = '#64748b';
+        ctx.font = '600 10px monospace';
+        ctx.textAlign = 'center';
+        for (let i = 0; i < data.length; i += tickInterval) {
+            const label = data[i].time;
+            if (label) ctx.fillText(String(label), toX(i), h - 8);
+        }
+
+        // --- LEFT Y AXIS ---
+        if (!isLandlocked) {
+            const leftAxisColor = isNightMode ? '#94a3b8' : '#0ea5e9';
+            ctx.fillStyle = leftAxisColor;
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= 4; i++) {
+                const val = leftMin + (i / 4) * (leftMax - leftMin);
+                if (val > 0) {
+                    const y = toYLeft(val);
+                    ctx.fillText(val.toFixed(0), marginLeft - 4, y + 3);
+                }
+            }
+        }
+
+        // --- RIGHT Y AXIS ---
+        const rightAxisTickColor = gustStroke;
+        ctx.fillStyle = rightAxisTickColor;
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'left';
+        for (let i = 0; i <= 4; i++) {
+            const val = rightMin + (i / 4) * (rightMax - rightMin);
+            const y = toYRight(val);
+            ctx.fillText(val.toFixed(0), w - marginRight + 4, y + 3);
+        }
+
+    }, [data, hiddenSeries, isLandlocked, isNightMode, maxWindLimit, limitLabel,
+        windStroke, waveStroke, gustStroke, tideStroke, view, locationName]);
+
+    useEffect(() => {
+        draw();
+        const container = containerRef.current;
+        if (!container) return;
+        const ro = new ResizeObserver(() => draw());
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, [draw]);
+
+    // Touch/mouse tooltip handler
+    const handleInteraction = useCallback((clientX: number, clientY: number) => {
+        const container = containerRef.current;
+        if (!container || data.length === 0) return;
+        const rect = container.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const marginLeft = 40;
+        const marginRight = 40;
+        const plotW = rect.width - marginLeft - marginRight;
+        const fraction = (x - marginLeft) / plotW;
+        const idx = Math.round(fraction * (data.length - 1));
+        if (idx >= 0 && idx < data.length) {
+            setTooltip({ x: clientX - rect.left, y: clientY - rect.top, point: data[idx] });
+        }
+    }, [data]);
+
+    const handleTouchMove = useCallback((e: React.TouchEvent) => {
+        if (e.touches.length > 0) {
+            handleInteraction(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    }, [handleInteraction]);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        handleInteraction(e.clientX, e.clientY);
+    }, [handleInteraction]);
+
+    const handleLeave = useCallback(() => setTooltip(null), []);
+
+    return (
+        <div ref={containerRef} className="relative w-full h-full"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleLeave}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleLeave}
+        >
+            <canvas ref={canvasRef} className="absolute inset-0" />
+            {/* Tooltip */}
+            {tooltip && (
+                <div
+                    className={`absolute z-30 pointer-events-none bg-[#0f172a]/95 border ${isNightMode ? 'border-white/20' : 'border-sky-500/20'} p-3 rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.5)] backdrop-blur-xl min-w-[160px] text-xs`}
+                    style={{
+                        left: Math.min(tooltip.x + 12, (containerRef.current?.clientWidth || 300) - 180),
+                        top: Math.max(tooltip.y - 60, 0),
+                    }}
+                >
+                    <div className={`border-b ${isNightMode ? 'border-white/20' : 'border-white/5'} pb-1 mb-2`}>
+                        <span className={`text-[10px] font-bold ${isNightMode ? 'text-white' : 'text-sky-400'} font-mono tracking-widest uppercase`}>{tooltip.point.time}</span>
+                    </div>
+                    <div className="space-y-1.5">
+                        {!hiddenSeries['wind'] && tooltip.point.wind !== undefined && (
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1"><WindIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-300' : 'text-sky-300'}`} /> Wind</span>
+                                <span className="font-bold font-mono text-white">{tooltip.point.wind.toFixed(1)} <span className="text-[9px] text-gray-600">{units.speed}</span></span>
                             </div>
-                        );
-                    })}
+                        )}
+                        {!hiddenSeries['gust'] && tooltip.point.gust !== undefined && (
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1"><WindIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-400' : 'text-orange-400'}`} /> Gust</span>
+                                <span className={`font-bold font-mono ${isNightMode ? 'text-gray-300' : 'text-orange-300'}`}>{tooltip.point.gust.toFixed(1)} <span className="text-[9px] text-gray-600">{units.speed}</span></span>
+                            </div>
+                        )}
+                        {!hiddenSeries['wave'] && !isLandlocked && tooltip.point.wave !== undefined && (
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1"><WaveIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-500' : 'text-blue-400'}`} /> Wave</span>
+                                <span className={`font-bold font-mono ${isNightMode ? 'text-gray-400' : 'text-blue-300'}`}>{tooltip.point.wave.toFixed(1)} <span className="text-[9px] text-gray-600">{units.length}</span></span>
+                            </div>
+                        )}
+                        {!hiddenSeries['tide'] && view === 'hourly' && !isLandlocked && tooltip.point.tide !== undefined && (
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1"><TideCurveIcon className={`w-3 h-3 ${isNightMode ? 'text-gray-600' : 'text-purple-400'}`} /> Tide</span>
+                                <span className={`font-bold font-mono ${isNightMode ? 'text-gray-500' : 'text-purple-300'}`}>{tooltip.point.tide.toFixed(2)} <span className="text-[9px] text-gray-600">{units.tideHeight || 'm'}</span></span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-        );
-    }
-    return null;
+            )}
+        </div>
+    );
 };
 
 export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, setView, units, hiddenSeries, toggleSeries, locationName, vessel, isLandlocked, isNightMode }) => {
@@ -161,164 +413,21 @@ export const ForecastChartWidget: React.FC<ForecastChartProps> = ({ data, view, 
                 {/* Background Grid Accent */}
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
 
-                <SafeResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                    <ComposedChart key={locationName + view + (isNightMode ? '_night' : '_day')} data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                            {/* Rich Wind Gradient */}
-                            <linearGradient id="windFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={windStroke} stopOpacity={0.6} />
-                                <stop offset="40%" stopColor={windStroke} stopOpacity={0.4} />
-                                <stop offset="100%" stopColor={windStroke} stopOpacity={0.1} />
-                            </linearGradient>
-
-                            {/* Wave Gradient */}
-                            <linearGradient id="waveFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={waveStroke} stopOpacity={0.4} />
-                                <stop offset="100%" stopColor={waveStroke} stopOpacity={0.05} />
-                            </linearGradient>
-
-                            {/* Neon Glow Filters - Only use in Day Mode to prevent blurring red lines */}
-                            {!isNightMode && (
-                                <>
-                                    <filter id="glowWind" height="200%">
-                                        <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                                        <feMerge>
-                                            <feMergeNode in="coloredBlur" />
-                                            <feMergeNode in="SourceGraphic" />
-                                        </feMerge>
-                                    </filter>
-                                    <filter id="glowWave" height="200%">
-                                        <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                                        <feMerge>
-                                            <feMergeNode in="coloredBlur" />
-                                            <feMergeNode in="SourceGraphic" />
-                                        </feMerge>
-                                    </filter>
-                                </>
-                            )}
-                        </defs>
-
-                        {/* ENABLED VERTICAL GRID LINES FOR CHECKING */}
-                        <CartesianGrid strokeDasharray="3 3" vertical={true} stroke="rgba(255,255,255,0.05)" />
-
-                        <XAxis
-                            dataKey="time"
-                            stroke="rgba(255,255,255,0.3)"
-                            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}
-                            tickLine={false}
-                            axisLine={false}
-                            interval="preserveStartEnd"
-                            minTickGap={30}
-                            dy={10}
-                        />
-
-                        {/* Left Axis: Wave Height */}
-                        <YAxis
-                            yAxisId="left"
-                            stroke={isLandlocked ? "transparent" : leftAxisColor}
-                            tick={{ fill: leftAxisColor, fontSize: 10, fontFamily: 'monospace' }}
-                            tickLine={false}
-                            axisLine={false}
-                            width={40}
-                            tickFormatter={(val: number) => val > 0 ? `${val}` : ''}
-                        />
-
-                        {/* Right Axis: Wind Speed */}
-                        <YAxis
-                            yAxisId="right"
-                            orientation="right"
-                            stroke={rightAxisColor}
-                            tick={{ fill: gustStroke, fontSize: 10, fontFamily: 'monospace' }}
-                            tickLine={false}
-                            axisLine={false}
-                            width={40}
-                        />
-
-                        <RechartsTooltip content={<CustomTooltip units={units} isNightMode={isNightMode} />} cursor={{ stroke: 'rgba(255,255,255,0.2)', strokeWidth: 1, strokeDasharray: '5 5' }} />
-
-                        {/* WAVE: Area Background */}
-                        <Area
-                            yAxisId="left"
-                            type="monotone"
-                            dataKey="wave"
-                            stroke="none"
-                            fill="url(#waveFill)"
-                            hide={hiddenSeries['wave'] || isLandlocked}
-                            animationDuration={1500}
-                        />
-                        {/* WAVE: Line */}
-                        <Line
-                            yAxisId="left"
-                            type="monotone"
-                            dataKey="wave"
-                            stroke={waveStroke}
-                            strokeWidth={2}
-                            dot={false}
-                            filter={!isNightMode ? "url(#glowWave)" : undefined}
-                            hide={hiddenSeries['wave'] || isLandlocked}
-                            animationDuration={1500}
-                        />
-
-                        {/* WIND: Area Background */}
-                        <Area
-                            yAxisId="right"
-                            type="monotone"
-                            dataKey="wind"
-                            stroke="none"
-                            fill="url(#windFill)"
-                            hide={hiddenSeries['wind']}
-                            animationDuration={2000}
-                        />
-                        {/* WIND: Line */}
-                        <Line
-                            yAxisId="right"
-                            type="monotone"
-                            dataKey="wind"
-                            stroke={windStroke}
-                            strokeWidth={3}
-                            dot={false}
-                            filter={!isNightMode ? "url(#glowWind)" : undefined}
-                            hide={hiddenSeries['wind']}
-                            animationDuration={2000}
-                        />
-
-                        {/* GUSTS: Dashed Line */}
-                        <Line
-                            yAxisId="right"
-                            type="monotone"
-                            dataKey="gust"
-                            stroke={gustStroke}
-                            strokeWidth={2}
-                            strokeDasharray="4 4"
-                            dot={{ r: 2, fill: gustStroke, strokeWidth: 0 }}
-                            activeDot={{ r: 6, fill: '#fff' }}
-                            hide={hiddenSeries['gust']}
-                            animationDuration={2000}
-                            opacity={0.8}
-                        />
-
-                        {/* TIDE: Subtle Curve */}
-                        {view === 'hourly' && !isLandlocked && (
-                            <Line
-                                yAxisId="left"
-                                type="basis"
-                                dataKey="tide"
-                                stroke={tideStroke}
-                                strokeWidth={2}
-                                strokeOpacity={0.6}
-                                dot={false}
-                                hide={hiddenSeries['tide']}
-                                animationDuration={3000}
-                            />
-                        )}
-
-                        {/* Dynamic Warning Line based on Vessel Profile */}
-                        {!hiddenSeries['wind'] && (
-                            <ReferenceLine yAxisId="right" y={maxWindLimit} stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} label={{ value: limitLabel, position: 'right', fill: '#ef4444', fontSize: 8 }} />
-                        )}
-
-                    </ComposedChart>
-                </SafeResponsiveContainer>
+                <ForecastUPlotChart
+                    data={data}
+                    hiddenSeries={hiddenSeries}
+                    isLandlocked={isLandlocked}
+                    isNightMode={isNightMode}
+                    maxWindLimit={maxWindLimit}
+                    limitLabel={limitLabel}
+                    windStroke={windStroke}
+                    waveStroke={waveStroke}
+                    gustStroke={gustStroke}
+                    tideStroke={tideStroke}
+                    view={view}
+                    locationName={locationName}
+                    units={units}
+                />
             </div>
         </Card>
     );
