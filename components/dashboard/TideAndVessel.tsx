@@ -1,10 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from './shared/Card';
-import { SafeResponsiveContainer } from './shared/SafeResponsiveContainer';
 import { PowerBoatIcon, SailBoatIcon, TideCurveIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, GaugeIcon, ClockIcon, MoonIcon, SunIcon, EyeIcon, StarIcon } from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ReferenceDot, LabelList, Tooltip } from 'recharts';
 import { calculateMCR, calculateCSF, calculateDLR, calculateHullSpeed, convertDistance, convertLength, convertMetersTo } from '../../utils';
 
 // --- CELESTIAL COMPONENTS (Extracted for modularity) ---
@@ -16,135 +14,144 @@ export { MoonVisual, SolarArc, getMoonPhaseData };
 
 
 
-// --- OPTIMIZED CHART COMPONENTS ---
+// --- CANVAS-BASED TIDE CHART ---
+// Replaces the old Recharts StaticTideBackground + ActiveTideOverlay with a single <canvas>.
+// Canvas eliminates SVG DOM overhead and merges what were two stacked AreaCharts into one draw call.
 
-// 1. Static Background (Memoized): Renders the Heavy Area, Gradients, and Axes
-// This component ONLY re-renders when the DATA changes, not when time ticks.
-// 1. Static Background (Memoized): Renders the Heavy Area, Gradients, and Axes
-// This component ONLY re-renders when the DATA changes, not when time ticks.
-const StaticTideBackground = React.memo(({ dataPoints, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], minHeight: number, maxHeight: number, domainBuffer: number }) => {
+const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: {
+    dataPoints: { time: number; height: number }[];
+    currentHour: number;
+    currentHeight: number;
+    minHeight: number;
+    maxHeight: number;
+    domainBuffer: number;
+}) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-    const Tick = ({ x, y, payload }: any) => {
-        const val = payload.value;
-        const hr = Math.floor(val);
-        const displayHr = (hr % 24).toString().padStart(2, '0');
-        const isKeyTime = hr === 0 || hr === 6 || hr === 12 || hr === 18 || hr === 24;
+    const draw = useCallback(() => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container || dataPoints.length < 2) return;
 
-        return (
-            <g transform={`translate(${x},${y})`}>
-                <text x={0} y={0} dy={16} textAnchor="middle" fill="#cbd5e1" fontSize={9} fontWeight={600} fontFamily="monospace" opacity={isKeyTime || true ? 0.8 : 0}>
-                    {displayHr}
-                </text>
-            </g>
-        );
-    };
+        const dpr = window.devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(dpr, dpr);
+
+        // Chart area with margins matching old Recharts layout
+        const marginTop = 20;
+        const marginRight = 10;
+        const marginLeft = 10;
+        const marginBottom = 4;
+        const plotW = w - marginLeft - marginRight;
+        const plotH = h - marginTop - marginBottom;
+
+        const yMin = minHeight - domainBuffer;
+        const yMax = maxHeight + domainBuffer;
+
+        // Coordinate mappers
+        const toX = (time: number) => marginLeft + (time / 24) * plotW;
+        const toY = (height: number) => marginTop + plotH - ((height - yMin) / (yMax - yMin)) * plotH;
+
+        // Clear
+        ctx.clearRect(0, 0, w, h);
+
+        // --- GRADIENT FILL ---
+        const gradient = ctx.createLinearGradient(0, marginTop, 0, h);
+        gradient.addColorStop(0, 'rgba(14, 165, 233, 0.8)'); // sky-500
+        gradient.addColorStop(1, 'rgba(2, 132, 199, 0.4)');   // sky-600
+
+        ctx.beginPath();
+        ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
+        for (let i = 1; i < dataPoints.length; i++) {
+            ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
+        }
+        // Close path down to bottom for fill
+        ctx.lineTo(toX(dataPoints[dataPoints.length - 1].time), h);
+        ctx.lineTo(toX(dataPoints[0].time), h);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // --- CURVE STROKE with shadow ---
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 4;
+        ctx.beginPath();
+        ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
+        for (let i = 1; i < dataPoints.length; i++) {
+            ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
+        }
+        ctx.strokeStyle = '#38bdf8'; // sky-400
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
+
+        // --- CURRENT TIME REFERENCE LINE (dashed vertical) ---
+        if (currentHour >= 0 && currentHour <= 24) {
+            const cx = toX(currentHour);
+            ctx.save();
+            ctx.setLineDash([3, 3]);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(cx, marginTop);
+            ctx.lineTo(cx, h - marginBottom);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // --- CURRENT POSITION DOT ---
+        if (currentHour >= 0 && currentHour <= 24) {
+            const dotX = toX(currentHour);
+            const dotY = toY(currentHeight);
+            // White stroke
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, 7, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            // Yellow fill
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+            ctx.fillStyle = '#facc15'; // yellow-400
+            ctx.fill();
+        }
+    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
+
+    useEffect(() => {
+        draw();
+        const container = containerRef.current;
+        if (!container) return;
+
+        const ro = new ResizeObserver(() => draw());
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, [draw]);
 
     return (
-        <div className="absolute inset-0 z-0">
-            <SafeResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
-                    <defs>
-                        <pattern id="waterPattern" patternUnits="userSpaceOnUse" width="100" height="100" viewBox="0 0 100 100">
-                            <image href="https://images.unsplash.com/photo-1505118380757-91f5f5632de0?q=80&w=2071&fm=jpg&fit=crop" x="0" y="0" width="300" height="300" preserveAspectRatio="xMidYMid slice" opacity="0.5" />
-                        </pattern>
-                        <linearGradient id="deepWater" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.8} />
-                            <stop offset="100%" stopColor="#0284c7" stopOpacity={0.4} />
-                        </linearGradient>
-                        <filter id="waveShadow" height="130%">
-                            <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000" floodOpacity="0.5" />
-                        </filter>
-                    </defs>
-
-                    <XAxis
-                        dataKey="time"
-                        type="number"
-                        domain={[0, 24]}
-                        ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
-                        tick={false}
-                        tickLine={false}
-                        axisLine={false}
-                        height={1}
-                        interval={0}
-                    />
-                    <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
-
-                    <Area
-                        type="linear"
-                        dataKey="height"
-                        stroke="#38bdf8"
-                        strokeWidth={3}
-                        fill="url(#deepWater)"
-                        filter="url(#waveShadow)"
-                        isAnimationActive={false}
-                        activeDot={false}
-                        dot={false}
-                    />
-                </AreaChart>
-            </SafeResponsiveContainer>
+        <div ref={containerRef} className="absolute inset-0">
+            <canvas ref={canvasRef} className="absolute inset-0" />
         </div>
     );
 }, (prev, next) => {
-    // Only re-render if data or scale changes. Ignore parent re-renders triggered by time.
-    return prev.dataPoints === next.dataPoints && prev.minHeight === next.minHeight && prev.maxHeight === next.maxHeight;
+    // Re-render when data, time position, or scale changes
+    return prev.dataPoints === next.dataPoints &&
+        prev.currentHour === next.currentHour &&
+        prev.currentHeight === next.currentHeight &&
+        prev.minHeight === next.minHeight &&
+        prev.maxHeight === next.maxHeight;
 });
-
-// 2. Active Overlay (Lightweight): Renders ONLY the Line and Dot
-// This component re-renders every time `currentHour` changes, but it's very cheap.
-const ActiveTideOverlay = ({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: { dataPoints: any[], currentHour: number, currentHeight: number, minHeight: number, maxHeight: number, domainBuffer: number }) => {
-    return (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-            <SafeResponsiveContainer width="100%" height="100%">
-                {/* 
-                  FIX: Pass actual dataPoints so Recharts can compute the plot area correctly.
-                  Without data, the ReferenceDot and ReferenceLine have no axis context
-                  and don't render. We add an invisible Area to give the chart data context.
-                */}
-                <AreaChart data={dataPoints} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
-                    {/* 
-                       LAYOUT MATCHING FIX:
-                       The Background chart has a visible XAxis which takes up vertical space.
-                       We MUST render the same XAxis here (but invisible) so the Grid/Plot area 
-                       calculates the exact same pixel height. Otherwise, scale mismatch = floating dot.
-                    */}
-                    <XAxis
-                        dataKey="time"
-                        type="number"
-                        domain={[0, 24]}
-                        ticks={[0, 3, 6, 9, 12, 15, 18, 21, 24]}
-                        tick={false}
-                        tickLine={false}
-                        axisLine={false}
-                        height={1}
-                        interval={0}
-                    />
-                    <YAxis hide domain={[minHeight - domainBuffer, maxHeight + domainBuffer]} />
-
-                    {/* Invisible Area — gives chart data context without visual output */}
-                    <Area
-                        type="linear"
-                        dataKey="height"
-                        stroke="transparent"
-                        fill="transparent"
-                        isAnimationActive={false}
-                    />
-
-                    {/* @ts-ignore - Recharts types missing animation props for Reference components, but they work at runtime */}
-                    <ReferenceLine x={currentHour} stroke="rgba(255,255,255,0.5)" strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
-                    <ReferenceDot
-                        x={currentHour}
-                        y={currentHeight}
-                        r={5}
-                        fill="#facc15"
-                        stroke="#fff"
-                        strokeWidth={2}
-                        className="pointer-events-none"
-                    />
-                </AreaChart>
-            </SafeResponsiveContainer>
-        </div>
-    );
-};
 
 export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: any, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
@@ -485,16 +492,8 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             {/* CHART AREA */}
             {/* CHART AREA */}
             <div className="flex-1 w-full relative overflow-hidden rounded-xl bg-slate-950 border border-white/5 shadow-inner min-h-[120px]">
-                {/* 1. STATIC BACKGROUND (Memoized) */}
-                <StaticTideBackground
-                    dataPoints={dataPoints}
-                    minHeight={minHeight}
-                    maxHeight={maxHeight}
-                    domainBuffer={domainBuffer}
-                />
-
-                {/* 2. ACTIVE OVERLAY (Updates with Time) */}
-                <ActiveTideOverlay
+                {/* Canvas-based tide chart (replaces old Recharts split architecture) */}
+                <TideCanvas
                     dataPoints={dataPoints}
                     currentHour={currentHour}
                     currentHeight={currentHeight}
