@@ -155,6 +155,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // FILESYSTEM BACKED CACHE
     const [historyCache, setHistoryCache] = useState<Record<string, MarineWeatherReport>>({});
 
+    const historyCacheRef = useRef<Record<string, MarineWeatherReport>>({});
     const weatherDataRef = useRef<MarineWeatherReport | null>(null);
     const settingsRef = useRef(settings);
     const isFirstRender = useRef(true);
@@ -164,6 +165,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Sync Refs
     useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
     useEffect(() => { settingsRef.current = settings; }, [settings]);
+    useEffect(() => { historyCacheRef.current = historyCache; }, [historyCache]);
 
     const incrementQuota = useCallback(() => setQuotaUsed(p => p + 1), []);
 
@@ -357,9 +359,10 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // OFFLINE CHECK
         if (!navigator.onLine) {
-            if (historyCache[location]) { setWeatherData(historyCache[location]); return; }
-            if (!weatherDataRef.current) setError("Offline Mode: No Data");
+            if (historyCacheRef.current[location]) { setWeatherData(historyCacheRef.current[location]); }
+            else if (!weatherDataRef.current) setError("Offline Mode: No Data");
             setLoading(false);
+            isFetchingRef.current = false;
             return;
         }
 
@@ -367,9 +370,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         // CACHE HIT?
         let isServingFromCache = false;
-        if (!weatherDataRef.current && historyCache[location] && !force) {
-
-            setWeatherData(historyCache[location]);
+        if (!weatherDataRef.current && historyCacheRef.current[location] && !force) {
+            setWeatherData(historyCacheRef.current[location]);
             isServingFromCache = true;
         }
 
@@ -556,7 +558,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
 
         } catch (err: any) {
-            if (!navigator.onLine && (weatherDataRef.current || historyCache[location])) {
+            if (!navigator.onLine && (weatherDataRef.current || historyCacheRef.current[location])) {
                 // OK
             } else {
                 if (!weatherDataRef.current) setError(err.message || "Weather Unavailable");
@@ -567,7 +569,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setBackgroundUpdating(false);
             setLoading(false);
         }
-    }, [incrementQuota, historyCache]);
+    }, [incrementQuota]);
 
     // --- REFRESH / SELECT ---
     const refreshData = useCallback((silent = false) => {
@@ -594,23 +596,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         // OPTIMISTIC UPDATE: Update UI immediately with target name
-        // We construct a temporary "Loading..." report to show INSTANT feedback
-        // Logic: specific "WP" check for offshore optimistic typing
-        // This hides the Tide Graph immediately for offshore points
         const isOptimisticOffshore = location.startsWith("WP");
+        const cache = historyCacheRef.current;
 
-        const optimisticData = historyCache[location] || {
-            // RESET DATA: Do not inherit old metrics. Start fresh to show "--" in UI.
+        const optimisticData = cache[location] || {
             locationName: location,
             coordinates: coords || { lat: 0, lon: 0 },
             locationType: isOptimisticOffshore ? 'offshore' : 'coastal',
-            timeZone: 'UTC', // Default until loaded
+            timeZone: 'UTC',
             generatedAt: new Date().toISOString(),
             isEstimated: true,
             alerts: [],
             loading: true,
-
-            // Blank Metrics to force "--" display
             current: {
                 windSpeed: null,
                 windGust: null,
@@ -638,27 +635,20 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             modelUsed: "Loading..."
         } as unknown as MarineWeatherReport;
 
-        // Force update the state immediately
-        // FIX: NULL ISLAND BUG (Refined)
-        // Check for validity of cache data. Previous bugs may have poisoned the cache with 0,0.
-        // If the cache exists but has 0,0 coordinates, we treat it as INVALID and wait for a fresh fetch.
-        const cached = historyCache[location];
+        // NULL ISLAND BUG guard: reject poisoned 0,0 cache entries
+        const cached = cache[location];
         const isCacheValid = cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
         if (isCacheValid || coords) {
             setWeatherData(optimisticData);
         }
 
-        // Loading overlay only on cold start (no cached/optimistic data)
-
-        if (historyCache[location]) {
-            // If we have full cache, we stick with it, but trigger a silent background refresh
+        if (cache[location]) {
             await fetchWeather(location, false, coords, false, true);
         } else {
-            // New location: Fetch freshly
             await fetchWeather(location, false, coords, true);
         }
-    }, [fetchWeather, historyCache, updateSettings]);
+    }, [fetchWeather, updateSettings]);
 
     // --- WATCHDOG: Ensure nextUpdate is set if data exists ---
     useEffect(() => {

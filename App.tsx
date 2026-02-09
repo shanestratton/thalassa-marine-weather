@@ -268,24 +268,7 @@ const App: React.FC = () => {
                 )}
 
                 <ForecastSheet
-                    data={sheetData} // Managed by Controller? Setup controller to pass this? 
-                    // Wait, Controller exposes setSheetData but where is it set?
-                    // In WeatherMap, when clicking a buoy?
-                    // The App does not pass setSheetData to WeatherMap. 
-                    // Ah, WeatherMap likely has its own sheet logic or calls a callback?
-                    // Looking at old App.tsx: lines 31-33: [sheetData, setSheetData] = useState...
-                    // But WeatherMap (line 282) props: onLocationSelect...
-                    // It doesn't seem to take setSheetData.
-                    // Oh, ForecastSheet is rendered in App line 309. 
-                    // How does map trigger it?
-                    // Maybe WeatherMap is self-contained? Or App passes onStationSelect?
-                    // Line 288: onLocationSelect={handleMapTargetSelect}.
-                    // Maybe the ForecastSheet is for something else?
-                    // Let's assume sheetData is managed elsewhere or I missed a prop.
-                    // In old App.tsx line 31, sheetData is state. 
-                    // But I don't see any component calling setSheetData!
-                    // Maybe it's dead code?
-                    // Let's keep it to be safe, but it looks suspicious.
+                    data={sheetData}
                     isLoading={false}
                     units={settings.units}
                     isOpen={sheetOpen}
