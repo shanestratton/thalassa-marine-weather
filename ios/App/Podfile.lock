@@ -14,6 +14,8 @@ PODS:
     - IONGeolocationLib (= 2.0.0)
   - CapacitorHaptics (8.0.0):
     - Capacitor
+  - CapacitorKeyboard (8.0.0):
+    - Capacitor
   - CapacitorPreferences (8.0.0):
     - Capacitor
   - CapacitorPushNotifications (8.0.0):
@@ -45,6 +47,7 @@ DEPENDENCIES:
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
   - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorKeyboard (from `../../node_modules/@capacitor/keyboard`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
   - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
   - "CapacitorScreenOrientation (from `../../node_modules/@capacitor/screen-orientation`)"
@@ -75,6 +78,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/geolocation"
   CapacitorHaptics:
     :path: "../../node_modules/@capacitor/haptics"
+  CapacitorKeyboard:
+    :path: "../../node_modules/@capacitor/keyboard"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
   CapacitorPushNotifications:
@@ -98,6 +103,7 @@ SPEC CHECKSUMS:
   CapacitorFilesystem: a957d4a4b6860844c4eba5bf441607a5166f92a7
   CapacitorGeolocation: 8a405e707de9aff6ac9eca7f408966a370f7ca33
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
+  CapacitorKeyboard: d7868c079a4d5277a3deca27a10a488fcbbb8b69
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
   CapacitorPushNotifications: 722c1528eabbefd355f47e373a4c6235d01e85e9
   CapacitorScreenOrientation: d962f79e5bcbba4e01e9dc0cd872abf465fb943f
@@ -110,6 +116,6 @@ SPEC CHECKSUMS:
   TransistorsoftCapacitorBackgroundGeolocation: bb25918e2b847d71edabdd62d84b771b05d0878f
   TSBackgroundFetch: 0afbeaae4e1132866e1d4b6e55265af26b5958ae
 
-PODFILE CHECKSUM: 5380f1375f9d4b9efda212c19bbfccc50bdb8c7d
+PODFILE CHECKSUM: c804971e94e25998455a6e1562415e98a6cfcff3
 
 COCOAPODS: 1.16.2
