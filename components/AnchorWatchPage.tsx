@@ -929,7 +929,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         : 0;
 
     return (
-        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[113px]`}>
+        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[98px]`}>
             {/* Header — glassmorphism */}
             <div className={t.header.glass}>
                 <div className="flex items-center justify-between">
@@ -948,7 +948,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
             {/* Action Buttons — glassmorphism pills */}
             <div className="shrink-0 px-3 py-1.5 flex gap-2">
                 {syncState?.connected ? (
-                    <div className="flex-1 flex items-center justify-center gap-2 py-2 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl">
+                    <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl">
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />
                         <span className="text-sm text-sky-400 font-mono font-bold tracking-wider">{syncState.sessionCode}</span>
                         <span className="text-sm text-slate-400 uppercase">sharing</span>
@@ -956,14 +956,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 ) : (
                     <button
                         onClick={handleCreateSession}
-                        className="flex-1 py-2 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
+                        className="flex-1 py-3 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
                         aria-label="Create Sessi">
                         📱 Shore Share
                     </button>
                 )}
                 <button
                     onClick={handleStopWatch}
-                    className={`flex-1 ${t.button.danger}`}
+                    className={`flex-1 py-3 bg-red-500/[0.08] backdrop-blur border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`}
                     aria-label="Stop Watch">
                     ⏏ Weigh Anchor
                 </button>
@@ -1036,25 +1036,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 </div>
 
                 {/* Distance / Radius — premium readout */}
-                <div className="shrink-0 border-t border-white/[0.06] px-4 py-2.5 bg-slate-900/30">
+                <div className="shrink-0 border-t border-white/[0.06] px-4 py-1.5 bg-slate-900/30">
                     <div className="flex items-center justify-around gap-4">
                         <div className="text-center flex-1">
-                            <div className="text-sm text-slate-500 uppercase tracking-wider mb-0.5">Distance</div>
-                            <div className={`text-3xl font-black font-mono ${isHolding ? 'text-emerald-400' : 'text-red-400'}`}>
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Distance</div>
+                            <div className={`text-xl font-black font-mono ${isHolding ? 'text-emerald-400' : 'text-red-400'}`}>
                                 {snapshot ? formatDistance(snapshot.distanceFromAnchor) : '--'}
                             </div>
                         </div>
-                        <div className="w-px h-10 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+                        <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
                         <div className="text-center flex-1">
-                            <div className="text-sm text-slate-500 uppercase tracking-wider mb-0.5">Radius</div>
-                            <div className="text-3xl font-black font-mono text-white">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Radius</div>
+                            <div className="text-xl font-black font-mono text-white">
                                 {snapshot ? formatDistance(snapshot.swingRadius) : `--`}
                             </div>
                         </div>
                     </div>
 
                     {/* Gradient usage bar */}
-                    <div className="mt-2 h-2 bg-slate-800/60 rounded-full overflow-hidden">
+                    <div className="mt-1.5 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
                         <div
                             className="h-full rounded-full transition-all duration-500"
                             style={{
@@ -1067,7 +1067,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                             }}
                         />
                     </div>
-                    <div className="flex justify-between text-sm text-slate-500 mt-0.5">
+                    <div className="flex justify-between text-xs text-slate-500 mt-0.5">
                         <span>Anchor</span>
                         <span className="font-bold font-mono">{holdPercent.toFixed(0)}%</span>
                         <span>Alarm</span>
