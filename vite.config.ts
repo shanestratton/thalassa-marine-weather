@@ -71,16 +71,18 @@ export default defineConfig(({ mode }) => {
       cssMinify: true,
       chunkSizeWarningLimit: 2000,
       rollupOptions: {
+        onwarn(warning, warn) {
+          // Suppress "is dynamically imported by X but also statically imported by Y"
+          if (warning.code === 'MIXED_IMPORTS' || warning.message?.includes('dynamic import will not move module')) return;
+          warn(warning);
+        },
         output: {
           manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-charts': ['uplot'],
             'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
             'vendor-leaflet': ['leaflet'],
             'vendor-pdf': ['html2canvas', 'jspdf'],
             'vendor-supabase': ['@supabase/supabase-js'],
             'vendor-motion': ['framer-motion'],
-            'vendor-mapbox': ['mapbox-gl'],
           }
         }
       }
