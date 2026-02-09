@@ -13,6 +13,10 @@ const config: CapacitorConfig = {
     StatusBar: {
       style: 'DARK',
       overlaysWebView: true,
+    },
+    Keyboard: {
+      resize: 'none',        // Keyboard overlays — doesn't push content up
+      resizeOnFullScreen: false,
     }
   },
   ios: {
