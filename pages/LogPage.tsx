@@ -47,6 +47,7 @@ export const LogPage: React.FC = () => {
     const [entries, setEntries] = useState<ShipLogEntry[]>([]);
     const [isTracking, setIsTracking] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
+    const [isRapidMode, setIsRapidMode] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
     const [editEntry, setEditEntry] = useState<ShipLogEntry | null>(null);
     const [showTrackMap, setShowTrackMap] = useState(false);
@@ -90,6 +91,7 @@ export const LogPage: React.FC = () => {
         const status = ShipLogService.getTrackingStatus();
         setIsTracking(status.isTracking);
         setIsPaused(status.isPaused);
+        setIsRapidMode(status.isRapidMode);
 
         // Get current voyage ID if tracking
         const voyageId = ShipLogService.getCurrentVoyageId();
@@ -168,6 +170,13 @@ export const LogPage: React.FC = () => {
         await ShipLogService.pauseTracking();
         setIsTracking(false);
         setIsPaused(true);
+        setIsRapidMode(false);
+    };
+
+    const handleToggleRapidMode = async () => {
+        const newState = !isRapidMode;
+        await ShipLogService.setRapidMode(newState);
+        setIsRapidMode(newState);
     };
 
     const handleStopTracking = () => {
@@ -460,6 +469,23 @@ export const LogPage: React.FC = () => {
                                     >
                                         <PlayIcon className="w-4 h-4" />
                                         Start
+                                    </button>
+                                )}
+
+                                {isTracking && (
+                                    <button
+                                        onClick={handleToggleRapidMode}
+                                        className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-all ${isRapidMode
+                                                ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-lg shadow-red-500/30'
+                                                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                                            }`}
+                                        title={isRapidMode ? 'Rapid GPS active (5s) — tap to disable' : 'Enable rapid GPS (5s intervals)'}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <circle cx="12" cy="12" r="3" strokeWidth={2} />
+                                            <path strokeLinecap="round" strokeWidth={2} d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
+                                        </svg>
+                                        {isRapidMode ? '5s' : 'Rapid'}
                                     </button>
                                 )}
 
