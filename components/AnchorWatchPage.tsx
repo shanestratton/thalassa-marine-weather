@@ -738,12 +738,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {
                     showShoreModal && (
                         <div
-                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-start items-center"
-                            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 52px)' }}
+                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col items-center"
                             onClick={() => setShowShoreModal(false)}
                         >
+                            {/* Spacer that matches the header bar height */}
+                            <div className="shrink-0" style={{ height: 'calc(env(safe-area-inset-top, 0px) + 44px)' }} />
                             <div
-                                className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl"
+                                className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl mt-2"
                                 onClick={e => e.stopPropagation()}
                             >
                                 {/* Modal Header */}
