@@ -738,8 +738,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {
                     showShoreModal && (
                         <div
-                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end items-center"
-                            style={{ paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : '120px', transition: 'padding-bottom 0.25s ease-out' }}
+                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-start items-center"
+                            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 52px)' }}
                             onClick={() => setShowShoreModal(false)}
                         >
                             <div
