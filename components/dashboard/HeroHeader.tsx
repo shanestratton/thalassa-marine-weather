@@ -129,9 +129,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {/* Date/Time - NOW IN CENTER - CLICKABLE TOGGLE */}
                     <button
                         onClick={onToggleMode}
-                        className="flex-1 p-2 flex flex-col justify-center items-center min-w-0 hover:bg-white/5 active:bg-white/10 transition-colors cursor-pointer touch-none select-none"
+                        className="flex-1 p-2 flex flex-col justify-center items-center min-w-0 cursor-pointer touch-none select-none group/toggle relative"
                         style={{ WebkitTapHighlightColor: 'transparent' }}
                         aria-label="Toggle Mode">
+                        {/* Soft press glow — rounded pill shape, no hard edges */}
+                        <div className="absolute inset-x-2 inset-y-1 rounded-xl bg-white/0 group-active/toggle:bg-white/10 transition-colors duration-150" />
                         <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none w-full text-center`}>
                             {isLive ? "TODAY" : "FORECAST"}
                         </span>
