@@ -66,6 +66,7 @@ export const LogPage: React.FC = () => {
     const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
     const [showStopVoyageDialog, setShowStopVoyageDialog] = useState(false);
     const [actionSheet, setActionSheet] = useState<'export' | 'share' | 'stats' | null>(null);
+    const [gpsStatus, setGpsStatus] = useState<'locked' | 'stale' | 'none'>('none');
     const [showCommunityBrowser, setShowCommunityBrowser] = useState(false);
 
     const toast = useToast();
@@ -113,6 +114,18 @@ export const LogPage: React.FC = () => {
         setEntries(logs);
         setLoading(false);
     };
+
+    // GPS STATUS POLLING — check GPS health every 5 seconds while tracking
+    useEffect(() => {
+        if (!isTracking) {
+            setGpsStatus('none');
+            return;
+        }
+        const poll = () => setGpsStatus(ShipLogService.getGpsStatus());
+        poll(); // immediate check
+        const id = setInterval(poll, 5000);
+        return () => clearInterval(id);
+    }, [isTracking]);
 
     const handleStartTracking = async () => {
         try {
@@ -426,7 +439,15 @@ export const LogPage: React.FC = () => {
                                 <AnchorIcon className="w-6 h-6 text-sky-400" />
                                 Ship's Log
                                 {isTracking && (
-                                    <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                                    <span
+                                        className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
+                                                ? 'bg-emerald-400 animate-pulse'
+                                                : gpsStatus === 'stale'
+                                                    ? 'bg-amber-400 animate-pulse'
+                                                    : 'bg-red-500 animate-pulse'
+                                            }`}
+                                        title={gpsStatus === 'locked' ? 'GPS locked' : gpsStatus === 'stale' ? 'GPS stale' : 'No GPS signal'}
+                                    />
                                 )}
                             </h1>
 

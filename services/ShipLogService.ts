@@ -626,6 +626,9 @@ class ShipLogServiceClass {
      * Start automatic GPS tracking
      * @param resume - If true, resume existing voyage. If false, start new voyage.
      * @param continueVoyageId - Optional: specify a voyage ID to continue
+     *
+     * HARDENED ORDERING: GPS engine starts BEFORE state is committed.
+     * If requestStart() fails, state rolls back and error propagates to UI.
      */
     async startTracking(resume: boolean = false, continueVoyageId?: string): Promise<void> {
         if (this.trackingState.isTracking) {
@@ -635,6 +638,12 @@ class ShipLogServiceClass {
         // Initialize shared BackgroundGeolocation engine
         await BgGeoManager.ensureReady();
 
+        // Start Transistorsoft continuous background tracking FIRST (ref-counted).
+        // If this fails (permission denied, plugin crash), we never set isTracking=true
+        // and the error bubbles up to the UI via the calling function's catch block.
+        await BgGeoManager.requestStart();
+
+        // GPS engine confirmed running — NOW commit tracking state.
         // Determine voyage ID:
         // 1. If continueVoyageId is provided, use that
         // 2. If resume and currentVoyageId exists, use that
@@ -678,9 +687,6 @@ class ShipLogServiceClass {
 
         // Schedule clock-aligned entries (e.g. 15-min → fires at xx:00, xx:15, xx:30, xx:45)
         this.scheduleClockAlignedInterval(initialInterval, initialZone);
-
-        // Start Transistorsoft continuous background tracking (ref-counted)
-        await BgGeoManager.requestStart();
     }
 
     /**
@@ -759,6 +765,23 @@ class ShipLogServiceClass {
 
         // Cache is stale or empty — fetch fresh (blocking, but only as fallback)
         return BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
+    }
+
+    /**
+     * GPS HEALTH STATUS — Public API for UI indicators.
+     * Returns the current GPS fix quality:
+     *   'locked'  — fresh fix received within 60s (green)
+     *   'stale'   — last fix is 60s–300s old (amber)
+     *   'none'    — no fix ever received, or older than 5min (red)
+     */
+    getGpsStatus(): 'locked' | 'stale' | 'none' {
+        const pos = this.lastBgLocation || BgGeoManager.getLastPosition();
+        if (!pos) return 'none';
+
+        const ageMs = Date.now() - pos.receivedAt;
+        if (ageMs < GPS_STALE_LIMIT_MS) return 'locked';   // < 60s
+        if (ageMs < 5 * 60 * 1000) return 'stale';          // 60s – 5min
+        return 'none';                                       // > 5min
     }
 
     /**
