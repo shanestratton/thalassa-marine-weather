@@ -79,6 +79,8 @@ export default defineConfig(({ mode }) => {
             'vendor-leaflet': ['leaflet'],
             'vendor-pdf': ['html2canvas', 'jspdf'],
             'vendor-supabase': ['@supabase/supabase-js'],
+            'vendor-motion': ['framer-motion'],
+            'vendor-mapbox': ['mapbox-gl'],
           }
         }
       }

@@ -3,7 +3,7 @@
  * Displays automatic voyage tracking with 15-minute GPS intervals
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 import { ShipLogEntry } from '../types';
 import {
@@ -272,7 +272,7 @@ export const LogPage: React.FC = () => {
             });
     };
 
-    const voyageGroups = groupEntriesByVoyage(entries);
+    const voyageGroups = useMemo(() => groupEntriesByVoyage(entries), [entries]);
 
     const handleExportCSV = () => {
         exportToCSV(entries, 'ships_log.csv', {
@@ -441,10 +441,10 @@ export const LogPage: React.FC = () => {
                                 {isTracking && (
                                     <span
                                         className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
-                                                ? 'bg-emerald-400 animate-pulse'
-                                                : gpsStatus === 'stale'
-                                                    ? 'bg-amber-400 animate-pulse'
-                                                    : 'bg-red-500 animate-pulse'
+                                            ? 'bg-emerald-400 animate-pulse'
+                                            : gpsStatus === 'stale'
+                                                ? 'bg-amber-400 animate-pulse'
+                                                : 'bg-red-500 animate-pulse'
                                             }`}
                                         title={gpsStatus === 'locked' ? 'GPS locked' : gpsStatus === 'stale' ? 'GPS stale' : 'No GPS signal'}
                                     />

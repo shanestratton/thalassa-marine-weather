@@ -313,12 +313,10 @@ async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
 async function determineLoggingZone(): Promise<LoggingZone> {
     try {
         // Read cached weather data (same cache used by the dashboard)
-        const cachedDataStr = await loadLargeData(DATA_CACHE_KEY);
-        if (!cachedDataStr) {
+        const cachedData = await loadLargeData(DATA_CACHE_KEY);
+        if (!cachedData) {
             return 'nearshore'; // No data = safe default, frequent fixes
         }
-
-        const cachedData = JSON.parse(cachedDataStr);
 
         // IMMEDIATE CHECK: isLandlocked flag (set by transformers.ts when locationType === 'inland')
         // This is the most reliable signal — if we know we're on land, use 30s interval
@@ -519,18 +517,24 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Reschedule the interval to sync to the next quarter-hour
+     * Clear all active timers (interval + quarter-hour timeout)
      */
-    private rescheduleNextQuarterHour(): void {
-        // Clear existing timers
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
+    private clearAllTimers(): void {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = undefined;
         }
+        if (this.quarterTimeoutId) {
+            clearTimeout(this.quarterTimeoutId);
+            this.quarterTimeoutId = undefined;
+        }
+    }
+
+    /**
+     * Reschedule the interval to sync to the next quarter-hour
+     */
+    private rescheduleNextQuarterHour(): void {
+        this.clearAllTimers();
 
         // Schedule next quarter-hour entry
         const { nextTime, msUntil } = getNextQuarterHour();
@@ -592,15 +596,7 @@ class ShipLogServiceClass {
      *      30-sec interval → fires at xx:xx:00, xx:xx:30
      */
     private scheduleClockAlignedInterval(intervalMs: number, zone: string): void {
-        // Clear existing timers
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = undefined;
-        }
+        this.clearAllTimers();
 
         const now = Date.now();
         const msToNext = intervalMs - (now % intervalMs);
@@ -788,14 +784,7 @@ class ShipLogServiceClass {
      * Pause tracking (user initiated)
      */
     async pauseTracking(): Promise<void> {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = undefined;
-        }
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
+        this.clearAllTimers();
 
         // Clean up GPS subscriptions to save battery while paused
         this.cleanupGpsSubscriptions();
@@ -811,14 +800,7 @@ class ShipLogServiceClass {
      * Responds instantly - final entry capture happens in background
      */
     async stopTracking(): Promise<void> {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = undefined;
-        }
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
+        this.clearAllTimers();
 
         // Clean up all GPS stream subscriptions
         this.cleanupGpsSubscriptions();

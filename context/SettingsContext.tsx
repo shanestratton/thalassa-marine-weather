@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { UserSettings } from '../types';
 import { getSystemUnits } from '../utils';
 import { useAuth } from './AuthContext';
@@ -227,15 +227,17 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const togglePro = useCallback(() => updateSettings({ isPro: true }), [updateSettings]);
 
+    const contextValue = useMemo(() => ({
+        settings,
+        loading,
+        quotaLimit: DAILY_STORMGLASS_LIMIT,
+        updateSettings,
+        togglePro,
+        resetSettings
+    }), [settings, loading, updateSettings, togglePro, resetSettings]);
+
     return (
-        <SettingsContext.Provider value={{
-            settings,
-            loading,
-            quotaLimit: DAILY_STORMGLASS_LIMIT,
-            updateSettings,
-            togglePro,
-            resetSettings
-        }}>
+        <SettingsContext.Provider value={contextValue}>
             {children}
         </SettingsContext.Provider>
     );
