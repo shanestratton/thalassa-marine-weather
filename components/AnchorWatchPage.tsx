@@ -929,7 +929,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         : 0;
 
     return (
-        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden overflow-x-hidden`}>
+        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[113px]`}>
             {/* Header — glassmorphism */}
             <div className={t.header.glass}>
                 <div className="flex items-center justify-between">
@@ -969,8 +969,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 </button>
             </div>
 
-            {/* Main Card — gradient glass */}
-            <div className="flex-1 min-h-0 mx-3 mb-2 bg-gradient-to-b from-slate-900/70 to-slate-950/50 rounded-2xl border border-white/[0.07] flex flex-col overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.3)]">
+            {/* Main Card — gradient glass, fits available space */}
+            <div className="flex-1 min-h-0 mx-3 mb-3 bg-gradient-to-b from-slate-900/70 to-slate-950/50 rounded-2xl border border-white/[0.07] flex flex-col overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.3)]">
                 {/* Status Badge — animated with dot */}
                 <div className="shrink-0 flex justify-center py-2">
                     <div className={`px-6 py-1.5 rounded-full text-sm font-black tracking-widest uppercase transition-all flex items-center gap-2 ${isHolding
