@@ -293,18 +293,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         units: units,
 
-        // UI State stubs for context compatibility (can be expanded)
-        chartData: [],
-        chartView: chartView as 'hourly' | 'daily',
-        hiddenSeries: {},
+        // UI State
         isSpeaking: isPlaying,
         isBuffering: false,
         isAudioPreloading: false,
         isNightMode: props.isNightMode,
         backgroundUpdating: props.isRefreshing || false,
-
-        setChartView: () => { },
-        toggleChartSeries: () => { },
         handleAudioBroadcast: handleAudioBroadcast,
         shareReport: shareReport,
         onTriggerUpgrade: props.onTriggerUpgrade,

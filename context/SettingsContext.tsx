@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     aiPersona: 50, // Default to Pro (Professional/Concise) instead of Salty
     heroWidgets: ['wind', 'wave', 'pressure'],
     detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
-    rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'forecastChart', 'hourly', 'daily', 'map'],
+    rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'hourly', 'daily', 'map'],
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
     dynamicHeaderMetrics: false, // Default to static header (current behavior)
     dashboardMode: 'full', // 'essential' = simplified, 'full' = all widgets (default)
@@ -139,10 +139,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         rowOrder: (() => {
                             const saved = Array.isArray(parsed.rowOrder) ? [...parsed.rowOrder] : [...(DEFAULT_SETTINGS.rowOrder || [])];
 
-                            // Migration: Split 'charts' into individual widgets
+                            // Migration: Remove legacy 'charts' and 'forecastChart' entries
                             const chartsIdx = saved.indexOf('charts');
                             if (chartsIdx !== -1) {
-                                saved.splice(chartsIdx, 1, 'forecastChart', 'hourly', 'daily');
+                                saved.splice(chartsIdx, 1, 'hourly', 'daily');
+                            }
+                            const fcIdx = saved.indexOf('forecastChart');
+                            if (fcIdx !== -1) {
+                                saved.splice(fcIdx, 1);
                             }
 
                             // Migration: Ensure new widgets exist

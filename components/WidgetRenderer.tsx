@@ -1,7 +1,7 @@
 
 import React, { Suspense } from 'react';
 import { AdviceWidget } from './dashboard/Advice';
-const ForecastChartWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.ForecastChartWidget })));
+
 const HourlyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.HourlyWidget })));
 const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.DailyWidget })));
 const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.MapWidget })));
@@ -33,9 +33,7 @@ export interface DashboardWidgetContextType {
     isPro: boolean;
 
     // UI State & Computed
-    chartData: ChartDataPoint[];
-    chartView: 'hourly' | 'daily';
-    hiddenSeries: Record<string, boolean>;
+
     isSpeaking: boolean;
     isBuffering: boolean;
     isAudioPreloading: boolean;
@@ -43,8 +41,7 @@ export interface DashboardWidgetContextType {
     backgroundUpdating: boolean;
 
     // Handlers
-    setChartView: (v: 'hourly' | 'daily') => void;
-    toggleChartSeries: (k: string) => void;
+
     handleAudioBroadcast: () => void;
     shareReport: () => void;
     onTriggerUpgrade: () => void;
@@ -73,22 +70,6 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             isBackgroundUpdating={ctx.backgroundUpdating}
         />
     ),
-    'forecastChart': (ctx) => (
-        <Suspense fallback={<div className="h-64 bg-white/5 rounded-2xl animate-pulse" />}>
-            <ForecastChartWidget
-                data={ctx.chartData}
-                view={ctx.chartView}
-                setView={ctx.setChartView}
-                units={ctx.units}
-                hiddenSeries={ctx.hiddenSeries}
-                toggleSeries={ctx.toggleChartSeries}
-                locationName={ctx.locationName}
-                vessel={ctx.vessel}
-                isLandlocked={ctx.isLandlocked}
-                isNightMode={ctx.isNightMode}
-            />
-        </Suspense>
-    ),
     'hourly': (ctx) => (
         <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
             <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
@@ -97,27 +78,6 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
     'daily': (ctx) => (
         <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
             <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
-        </Suspense>
-    ),
-    // FALLBACK for old settings that might still have 'charts'
-    'charts': (ctx) => (
-        <Suspense fallback={<div className="h-96 bg-white/5 rounded-2xl animate-pulse" />}>
-            <div className="space-y-6">
-                <ForecastChartWidget
-                    data={ctx.chartData}
-                    view={ctx.chartView}
-                    setView={ctx.setChartView}
-                    units={ctx.units}
-                    hiddenSeries={ctx.hiddenSeries}
-                    toggleSeries={ctx.toggleChartSeries}
-                    locationName={ctx.locationName}
-                    vessel={ctx.vessel}
-                    isLandlocked={ctx.isLandlocked}
-                    isNightMode={ctx.isNightMode}
-                />
-                <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
-                <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
-            </div>
         </Suspense>
     ),
     'beaufort': (ctx) => (
