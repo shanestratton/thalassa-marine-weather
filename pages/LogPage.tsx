@@ -710,219 +710,221 @@ export const LogPage: React.FC = () => {
 
             {/* ========== ACTION SHEET MODALS ========== */}
 
-            {/* EXPORT ACTION SHEET */}
+            {/* EXPORT ACTION SHEET — full screen panel */}
             {actionSheet === 'export' && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActionSheet(null)}>
-                    {/* Backdrop */}
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    {/* Sheet */}
-                    <div
-                        className="relative w-full max-w-lg mx-4 mb-4 animate-[slideUp_0.3s_ease-out]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-                            {/* Handle */}
-                            <div className="flex justify-center pt-3 pb-1">
-                                <div className="w-10 h-1 rounded-full bg-white/20" />
-                            </div>
-                            {/* Header */}
-                            <div className="px-6 pb-4 pt-2">
-                                <h2 className="text-xl font-bold text-white">Export Voyage</h2>
-                                <p className="text-sm text-slate-400 mt-1">
-                                    {selectedVoyageId ? 'Export the selected voyage' : 'Export all voyage data'}
-                                </p>
-                            </div>
-                            {/* Options */}
-                            <div className="px-4 pb-4 space-y-3">
-                                {/* PDF */}
-                                <button
-                                    onClick={() => { handleShare(); setActionSheet(null); }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">Official Deck Log (PDF)</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Complete voyage report with charts &amp; positions</div>
-                                    </div>
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    {/* Header bar */}
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>
-                                </button>
-                                {/* GPX */}
-                                <button
-                                    onClick={() => { handleExportGPX(); }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border border-emerald-500/20 hover:border-emerald-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">GPS Track (GPX)</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Import into OpenCPN, Navionics, or any chartplotter</div>
-                                    </div>
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Export Voyage</h2>
+                            </div>
+                            <button
+                                onClick={() => setActionSheet(null)}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-2">
+                            {selectedVoyageId ? 'Export the selected voyage' : 'Export all voyage data'}
+                        </p>
+                    </div>
+
+                    {/* Content — vertically centered */}
+                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                            {/* PDF Card */}
+                            <button
+                                onClick={() => { handleShare(); setActionSheet(null); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
                                     </svg>
-                                </button>
-                            </div>
-                            {/* Cancel */}
-                            <div className="px-4 pb-6">
-                                <button
-                                    onClick={() => setActionSheet(null)}
-                                    className="w-full py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-sm transition-colors active:scale-[0.98]"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Official Deck Log</div>
+                                    <div className="text-slate-400 text-sm mt-1">PDF with charts, positions &amp; weather data</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+
+                            {/* GPX Card */}
+                            <button
+                                onClick={() => { handleExportGPX(); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border border-emerald-500/20 hover:border-emerald-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">GPS Track (GPX)</div>
+                                    <div className="text-slate-400 text-sm mt-1">Import into OpenCPN, Navionics, or any chartplotter</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* SHARE ACTION SHEET */}
+            {/* SHARE ACTION SHEET — full screen panel */}
             {actionSheet === 'share' && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActionSheet(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-lg mx-4 mb-4 animate-[slideUp_0.3s_ease-out]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-                            <div className="flex justify-center pt-3 pb-1">
-                                <div className="w-10 h-1 rounded-full bg-white/20" />
-                            </div>
-                            <div className="px-6 pb-4 pt-2">
-                                <h2 className="text-xl font-bold text-white">Community Sharing</h2>
-                                <p className="text-sm text-slate-400 mt-1">Share tracks with sailors worldwide</p>
-                            </div>
-                            <div className="px-4 pb-4 space-y-3">
-                                {/* Share Track */}
-                                <button
-                                    onClick={handleShareToCommunity}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-violet-500/15 to-violet-600/5 border border-violet-500/20 hover:border-violet-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">Share This Track</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Upload to the Thalassa community for others to discover</div>
-                                    </div>
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                     </svg>
-                                </button>
-                                {/* Browse Community */}
-                                <button
-                                    onClick={() => { setShowCommunityBrowser(true); setActionSheet(null); }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">Browse Community</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Discover anchorages, passages &amp; routes from other sailors</div>
-                                    </div>
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Community Sharing</h2>
+                            </div>
+                            <button
+                                onClick={() => setActionSheet(null)}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-2">Share tracks with sailors worldwide</p>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                            {/* Share Track Card */}
+                            <button
+                                onClick={handleShareToCommunity}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-violet-500/15 to-violet-600/5 border border-violet-500/20 hover:border-violet-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                                     </svg>
-                                </button>
-                            </div>
-                            <div className="px-4 pb-6">
-                                <button
-                                    onClick={() => setActionSheet(null)}
-                                    className="w-full py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-sm transition-colors active:scale-[0.98]"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Share This Track</div>
+                                    <div className="text-slate-400 text-sm mt-1">Upload to the Thalassa community for others to discover</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+
+                            {/* Browse Community Card */}
+                            <button
+                                onClick={() => { setShowCommunityBrowser(true); setActionSheet(null); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Browse Community</div>
+                                    <div className="text-slate-400 text-sm mt-1">Discover anchorages, passages &amp; routes from other sailors</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* STATS ACTION SHEET */}
+            {/* STATS ACTION SHEET — full screen panel */}
             {actionSheet === 'stats' && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActionSheet(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-lg mx-4 mb-4 animate-[slideUp_0.3s_ease-out]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="bg-slate-900/95 backdrop-blur-xl rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
-                            <div className="flex justify-center pt-3 pb-1">
-                                <div className="w-10 h-1 rounded-full bg-white/20" />
-                            </div>
-                            <div className="px-6 pb-4 pt-2">
-                                <h2 className="text-xl font-bold text-white">Voyage Statistics</h2>
-                                <p className="text-sm text-slate-400 mt-1">Analyze your sailing performance</p>
-                            </div>
-                            <div className="px-4 pb-4 space-y-3">
-                                {/* This Voyage */}
-                                <button
-                                    onClick={() => { setShowStats(true); setActionSheet(null); }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">This Voyage</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Stats for the selected voyage track</div>
-                                    </div>
-                                    {selectedVoyageId && (
-                                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
-                                            {entries.filter(e => e.voyageId === selectedVoyageId).length} pts
-                                        </span>
-                                    )}
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
-                                </button>
-                                {/* All Voyages */}
-                                <button
-                                    onClick={() => { setSelectedVoyageId(null); setShowStats(true); setActionSheet(null); }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-base">All Voyages</div>
-                                        <div className="text-slate-400 text-sm mt-0.5">Combined statistics across every voyage</div>
-                                    </div>
-                                    <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
-                                        {entries.length} pts
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
+                            </div>
+                            <button
+                                onClick={() => setActionSheet(null)}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-2">Analyze your sailing performance</p>
+                    </div>
+
+                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                            {/* This Voyage Card */}
+                            <button
+                                onClick={() => { setShowStats(true); setActionSheet(null); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">This Voyage</div>
+                                    <div className="text-slate-400 text-sm mt-1">Stats for the selected voyage track</div>
+                                </div>
+                                {selectedVoyageId && (
+                                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
+                                        {entries.filter(e => e.voyageId === selectedVoyageId).length} pts
                                     </span>
-                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                )}
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+
+                            {/* All Voyages Card */}
+                            <button
+                                onClick={() => { setSelectedVoyageId(null); setShowStats(true); setActionSheet(null); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                                     </svg>
-                                </button>
-                            </div>
-                            <div className="px-4 pb-6">
-                                <button
-                                    onClick={() => setActionSheet(null)}
-                                    className="w-full py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-sm transition-colors active:scale-[0.98]"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">All Voyages</div>
+                                    <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
+                                </div>
+                                <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
+                                    {entries.length} pts
+                                </span>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 </div>
