@@ -10,7 +10,6 @@ vi.mock('./dashboard/Advice', () => ({
 }));
 
 vi.mock('./dashboard/WeatherCharts', () => ({
-    ForecastChartWidget: () => <div data-testid="charts-widget">Charts Widget</div>,
     HourlyWidget: () => <div>Hourly</div>,
     DailyWidget: () => <div>Daily</div>,
     MapWidget: () => <div data-testid="map-widget">Map Widget</div>
@@ -47,16 +46,11 @@ const mockContext: DashboardWidgetContextType = {
     units: { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm' },
     vessel: { name: 'Test Boat', type: 'sail', length: 30 } as any,
     isPro: true,
-    chartData: [],
-    chartView: 'hourly',
-    hiddenSeries: {},
     isSpeaking: false,
     isBuffering: false,
     isAudioPreloading: false,
     isNightMode: false,
     backgroundUpdating: false,
-    setChartView: vi.fn(),
-    toggleChartSeries: vi.fn(),
     handleAudioBroadcast: vi.fn(),
     shareReport: vi.fn(),
     onTriggerUpgrade: vi.fn(),
@@ -71,10 +65,7 @@ describe('WidgetRenderer', () => {
         expect(screen.getByTestId('advice-widget')).toBeInTheDocument();
     });
 
-    it('renders Forecast Charts when id is "charts"', () => {
-        render(<WidgetRenderer id="charts" context={mockContext} />);
-        expect(screen.getByTestId('charts-widget')).toBeInTheDocument();
-    });
+
 
     it('renders Beaufort Widget when id is "beaufort"', () => {
         render(<WidgetRenderer id="beaufort" context={mockContext} />);
