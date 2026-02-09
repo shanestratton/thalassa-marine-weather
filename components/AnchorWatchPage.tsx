@@ -874,7 +874,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                 {syncState?.peerConnected ? (
                                     <><span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" /> <span className="text-emerald-400">Vessel Connected</span></>
                                 ) : (
-                                    <><span className="w-2 h-2 bg-red-500 rounded-full inline-block" /> <span className="text-red-400">Vessel Offline</span></>
+                                    <><span className="w-2 h-2 bg-red-500 rounded-full inline-block animate-pulse" /> <span className="text-red-400">Vessel Offline</span></>
                                 )}
                             </p>
                         </div>
@@ -886,6 +886,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         </button>
                     </div>
                 </div>
+
+                {/* Vessel Disconnection Banner */}
+                {!syncState?.peerConnected && (
+                    <div className="shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 bg-red-500/[0.08] backdrop-blur border border-red-500/25 rounded-xl">
+                        <span className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
+                        <span className="text-sm text-red-400 font-bold flex-1">
+                            ⚠️ Vessel connection lost
+                            {syncState?.peerDisconnectedAt ? ` · ${formatElapsed(syncState.peerDisconnectedAt)} ago` : ''}
+                        </span>
+                        <span className="text-xs text-red-500/50 animate-pulse">Reconnecting...</span>
+                    </div>
+                )}
 
                 {/* Remote Data Display */}
                 <div className="flex-1 p-4 flex flex-col items-center justify-center">
@@ -1002,6 +1014,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                     ⏏ Weigh Anchor
                 </button>
             </div>
+
+            {/* Shore Disconnection Banner — visible when shore device drops */}
+            {syncState?.connected && !syncState.peerConnected && syncState.sessionCode && (
+                <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] backdrop-blur border border-amber-500/25 rounded-xl animate-pulse">
+                    <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
+                    <span className="text-xs text-amber-400 font-bold flex-1">
+                        ⚠️ Shore device disconnected
+                        {syncState.peerDisconnectedAt ? ` · Lost ${formatElapsed(syncState.peerDisconnectedAt)} ago` : ''}
+                    </span>
+                    <span className="text-xs text-amber-500/60">Waiting...</span>
+                </div>
+            )}
 
             {/* Main Card — gradient glass, fits available space */}
             <div className="flex-1 min-h-0 mx-3 mb-3 bg-gradient-to-b from-slate-900/70 to-slate-950/50 rounded-2xl border border-white/[0.07] flex flex-col overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.3)]">

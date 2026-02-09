@@ -25,6 +25,7 @@ export interface SyncState {
     sessionCode: string | null;
     peerConnected: boolean;
     lastPeerUpdate: number | null;
+    peerDisconnectedAt: number | null;
 }
 
 export interface PositionBroadcast {
@@ -75,6 +76,7 @@ class AnchorWatchSyncServiceClass {
     private connected = false;
     private peerConnected = false;
     private lastPeerUpdate: number | null = null;
+    private peerDisconnectedAt: number | null = null;
 
     private channel: any | null = null;
     private stateListeners: Set<SyncListener> = new Set();
@@ -82,8 +84,30 @@ class AnchorWatchSyncServiceClass {
     private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     private peerTimeoutInterval: ReturnType<typeof setInterval> | null = null;
     private reconnectAttempts = 0;
-    private maxReconnectAttempts = 5;
     private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    constructor() {
+        // Auto-reconnect when app returns to foreground
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && !this.connected && this.sessionCode) {
+                    console.log('[SyncService] App foregrounded — attempting reconnect');
+                    this.reconnectAttempts = 0; // Reset backoff on foreground
+                    this.scheduleReconnect();
+                }
+            });
+        }
+        // Auto-reconnect when network is restored
+        if (typeof window !== 'undefined') {
+            window.addEventListener('online', () => {
+                if (!this.connected && this.sessionCode) {
+                    console.log('[SyncService] Network restored — attempting reconnect');
+                    this.reconnectAttempts = 0;
+                    this.scheduleReconnect();
+                }
+            });
+        }
+    }
 
     // ---- PUBLIC API ----
 
@@ -108,6 +132,7 @@ class AnchorWatchSyncServiceClass {
             sessionCode: this.sessionCode,
             peerConnected: this.peerConnected,
             lastPeerUpdate: this.lastPeerUpdate,
+            peerDisconnectedAt: this.peerDisconnectedAt,
         };
     }
 
@@ -412,6 +437,7 @@ class AnchorWatchSyncServiceClass {
                 this.lastPeerUpdate = Date.now();
                 if (!this.peerConnected) {
                     this.peerConnected = true;
+                    this.peerDisconnectedAt = null;
                     this.notifyState();
                 }
             });
@@ -420,7 +446,9 @@ class AnchorWatchSyncServiceClass {
             this.channel.on('presence', { event: 'join' }, ({ key }: { key: any }) => {
                 if (key !== this.role) {
                     this.peerConnected = true;
+                    this.peerDisconnectedAt = null;
                     this.lastPeerUpdate = Date.now();
+                    console.log('[SyncService] Peer joined:', key);
                     this.notifyState();
                 }
             });
@@ -428,6 +456,8 @@ class AnchorWatchSyncServiceClass {
             this.channel.on('presence', { event: 'leave' }, ({ key }: { key: any }) => {
                 if (key !== this.role) {
                     this.peerConnected = false;
+                    this.peerDisconnectedAt = Date.now();
+                    console.log('[SyncService] Peer left:', key);
                     this.notifyState();
                 }
             });
@@ -465,6 +495,8 @@ class AnchorWatchSyncServiceClass {
                 if (this.lastPeerUpdate && Date.now() - this.lastPeerUpdate > 30000) {
                     if (this.peerConnected) {
                         this.peerConnected = false;
+                        this.peerDisconnectedAt = Date.now();
+                        console.log('[SyncService] Peer timed out (no heartbeat for 30s)');
                         this.notifyState();
                     }
                 }
@@ -484,18 +516,23 @@ class AnchorWatchSyncServiceClass {
      * Only reconnects if there's a persisted session to restore.
      */
     private scheduleReconnect(): void {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
         if (!this.sessionCode) return;
+        // Clear any pending reconnect
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
 
-        // Exponential backoff: 2s, 4s, 8s, 16s, 32s
-        const delayMs = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 32000);
+        // Exponential backoff: 2s, 4s, 8s, 16s, 32s, capped at 60s — never gives up
+        const delayMs = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 60000);
         this.reconnectAttempts++;
+        console.log(`[SyncService] Reconnect attempt ${this.reconnectAttempts} in ${delayMs / 1000}s`);
 
         this.reconnectTimeout = setTimeout(async () => {
             if (!this.connected && this.sessionCode) {
                 const joined = await this.joinChannel();
-                if (!joined && this.reconnectAttempts < this.maxReconnectAttempts) {
-                    this.scheduleReconnect();
+                if (!joined) {
+                    this.scheduleReconnect(); // Keep trying forever
                 }
             }
         }, delayMs);
