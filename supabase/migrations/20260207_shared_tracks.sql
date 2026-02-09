@@ -8,13 +8,15 @@ CREATE TABLE IF NOT EXISTS shared_tracks (
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     tags TEXT[] DEFAULT '{}',
-    category TEXT NOT NULL CHECK (category IN ('anchorage', 'port_entry', 'walking', 'reef_passage', 'coastal', 'offshore')),
+    category TEXT NOT NULL CHECK (category IN ('anchorage', 'port_entry', 'walking', 'reef_passage', 'coastal', 'offshore', 'bar_crossing', 'driving')),
     region TEXT NOT NULL DEFAULT '',
     center_lat DOUBLE PRECISION NOT NULL DEFAULT 0,
     center_lon DOUBLE PRECISION NOT NULL DEFAULT 0,
     distance_nm DOUBLE PRECISION NOT NULL DEFAULT 0,
     point_count INTEGER NOT NULL DEFAULT 0,
     download_count INTEGER NOT NULL DEFAULT 0,
+    vessel_draft_m DOUBLE PRECISION,  -- Draft depth of sharing vessel (meters)
+    tide_info TEXT,                     -- Tide conditions at time of recording
     created_at TIMESTAMPTZ DEFAULT NOW(),
     gpx_data TEXT -- Full GPX XML (typically 10-100KB per track)
 );

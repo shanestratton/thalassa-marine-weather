@@ -7,6 +7,8 @@
  */
 
 import { ShipLogEntry } from '../types';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 // --- GPX EXPORT ---
 
@@ -335,17 +337,51 @@ function formatDMS(lat: number, lon: number): string {
     return `${formatCoord(lat, 'N', 'S')} ${formatCoord(lon, 'E', 'W')}`;
 }
 
-// --- FILE DOWNLOAD ---
+// --- FILE SHARING ---
 
 /**
- * Trigger a GPX file download in the browser
+ * Share a GPX file via native share sheet (email, AirDrop, Save to Files, etc.)
+ * Falls back to browser download when native Share API is unavailable.
  */
-export function downloadGPXFile(gpxXml: string, filename: string): void {
+export async function shareGPXFile(gpxXml: string, filename: string): Promise<void> {
+    const safeName = filename.endsWith('.gpx') ? filename : `${filename}.gpx`;
+
+    try {
+        // Write GPX to cache directory
+        const writeResult = await Filesystem.writeFile({
+            path: safeName,
+            data: gpxXml,
+            directory: Directory.Cache,
+            encoding: Encoding.UTF8,
+        });
+
+        // Trigger native share sheet with the file URI
+        await Share.share({
+            title: safeName,
+            url: writeResult.uri,
+            dialogTitle: 'Export Voyage Track',
+        });
+    } catch (err: any) {
+        // If user cancelled the share sheet, that's fine — not an error
+        if (err?.message?.includes('cancel') || err?.message?.includes('dismissed')) {
+            return;
+        }
+
+        // Fallback: browser blob download (web dev mode or Share API unavailable)
+        console.warn('[GPX] Native share unavailable, falling back to browser download:', err?.message);
+        browserDownloadGPX(gpxXml, safeName);
+    }
+}
+
+/**
+ * Browser-only fallback for GPX download (used in web dev mode)
+ */
+function browserDownloadGPX(gpxXml: string, filename: string): void {
     const blob = new Blob([gpxXml], { type: 'application/gpx+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename.endsWith('.gpx') ? filename : `${filename}.gpx`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
