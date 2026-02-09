@@ -26,7 +26,7 @@ import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { useSettings } from '../context/SettingsContext';
-import { exportVoyageAsGPX, downloadGPXFile } from '../services/gpxService';
+import { exportVoyageAsGPX, shareGPXFile } from '../services/gpxService';
 import { TrackSharingService, SharedTrackInput } from '../services/TrackSharingService';
 
 // Inline icons not in Icons.tsx
@@ -298,8 +298,8 @@ export const LogPage: React.FC = () => {
         }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
     };
 
-    // GPX export — selected voyage or all
-    const handleExportGPX = () => {
+    // GPX export — selected voyage or all (native share sheet)
+    const handleExportGPX = async () => {
         const targetEntries = selectedVoyageId
             ? entries.filter(e => e.voyageId === selectedVoyageId)
             : entries;
@@ -308,8 +308,8 @@ export const LogPage: React.FC = () => {
             ? `Voyage ${selectedVoyageId.slice(0, 8)}`
             : 'All Voyages';
         const gpxXml = exportVoyageAsGPX(targetEntries, voyageName, settings.vessel?.name);
-        downloadGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
         setActionSheet(null);
+        await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
     };
 
     // Community share — share selected voyage track
