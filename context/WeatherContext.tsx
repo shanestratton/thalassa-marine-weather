@@ -307,16 +307,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     }, [historyCache]);
 
-    const handleSaveVoyagePlan = (plan: VoyagePlan) => {
+    const handleSaveVoyagePlan = useCallback((plan: VoyagePlan) => {
         setVoyagePlan(plan);
         // Transient: Do not save to disk
         // saveLargeData(VOYAGE_CACHE_KEY, plan);
-    };
+    }, []);
 
-    const clearVoyagePlan = () => {
+    const clearVoyagePlan = useCallback(() => {
         setVoyagePlan(null);
         deleteLargeData(VOYAGE_CACHE_KEY);
-    };
+    }, []);
 
     // --- HELPER: Regenerate Advice ---
     const regenerateAdvice = useCallback(async () => {

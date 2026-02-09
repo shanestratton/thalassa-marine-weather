@@ -802,8 +802,8 @@ export const LogPage: React.FC = () => {
                                 onClick={() => { if (!hasNonDeviceEntries) { handleShare(); setActionSheet(null); } }}
                                 disabled={hasNonDeviceEntries}
                                 className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
-                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                        : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
+                                    ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                    : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
                                     }`}
                             >
                                 <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
@@ -1106,14 +1106,14 @@ export const LogPage: React.FC = () => {
 
 // --- SUB-COMPONENTS ---
 
-const StatBox: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
+const StatBox: React.FC<{ label: string; value: string | number }> = React.memo(({ label, value }) => (
     <div className="bg-slate-800 rounded-lg p-3 text-center">
         <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
         <div className="text-xl font-bold text-white">{value}</div>
     </div>
-);
+));
 
-const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = ({ entry }) => {
+const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) => {
     const timestamp = new Date(entry.timestamp);
     const timeStr = timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -1203,4 +1203,4 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = ({ entry }) => {
             )}
         </div>
     );
-};
+});

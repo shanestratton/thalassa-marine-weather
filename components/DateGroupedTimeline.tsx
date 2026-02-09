@@ -4,7 +4,7 @@
  * Sticky date headers, smooth animations
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { ShipLogEntry } from '../types';
 import { GroupedEntries } from '../utils/voyageData';
 import { CompassIcon, WindIcon } from './Icons';
@@ -56,25 +56,32 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
     // Track expanded individual entries
     const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
 
-    const toggleDate = (date: string) => {
-        const newExpanded = new Set(expandedDates);
-        if (newExpanded.has(date)) {
-            newExpanded.delete(date);
-        } else {
-            newExpanded.add(date);
-        }
-        setExpandedDates(newExpanded);
-    };
+    // PERF: Stable callbacks prevent child re-renders (used by React.memo'd CompactLogEntry)
+    const toggleDate = useCallback((date: string) => {
+        setExpandedDates(prev => {
+            const next = new Set(prev);
+            if (next.has(date)) next.delete(date);
+            else next.add(date);
+            return next;
+        });
+    }, []);
 
-    const toggleEntry = (entryId: string) => {
-        const newExpanded = new Set(expandedEntries);
-        if (newExpanded.has(entryId)) {
-            newExpanded.delete(entryId);
-        } else {
-            newExpanded.add(entryId);
-        }
-        setExpandedEntries(newExpanded);
-    };
+    const toggleEntry = useCallback((entryId: string) => {
+        setExpandedEntries(prev => {
+            const next = new Set(prev);
+            if (next.has(entryId)) next.delete(entryId);
+            else next.add(entryId);
+            return next;
+        });
+    }, []);
+
+    const handleDeleteEntry = useCallback((entryId: string) => {
+        onDeleteEntry?.(entryId);
+    }, [onDeleteEntry]);
+
+    const handleEditEntry = useCallback((entry: ShipLogEntry) => {
+        onEditEntry?.(entry);
+    }, [onEditEntry]);
 
     if (groupedEntries.length === 0) {
         return (
@@ -123,15 +130,15 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                         )}
                                     </div>
                                     <div className="text-[10px] text-slate-400">
-                                        {group.stats.entryCount} entries · {group.stats.totalDistance.toFixed(1)} NM
+                                        {group.stats.entryCount} entries · {(group.stats.totalDistance ?? 0).toFixed(1)} NM
                                     </div>
                                 </div>
                             </div>
 
                             {/* Day Stats - Compact */}
                             <div className="flex gap-3 text-[10px] text-slate-400">
-                                <span><span className="text-white font-bold">{group.stats.avgSpeed.toFixed(1)}</span> avg</span>
-                                <span><span className="text-white font-bold">{group.stats.maxSpeed.toFixed(1)}</span> max</span>
+                                <span><span className="text-white font-bold">{(group.stats.avgSpeed ?? 0).toFixed(1)}</span> avg</span>
+                                <span><span className="text-white font-bold">{(group.stats.maxSpeed ?? 0).toFixed(1)}</span> max</span>
                             </div>
                         </button>
 
@@ -143,9 +150,9 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                         key={entry.id}
                                         entry={entry}
                                         isExpanded={expandedEntries.has(entry.id)}
-                                        onToggle={() => toggleEntry(entry.id)}
-                                        onDelete={onDeleteEntry ? () => onDeleteEntry(entry.id) : undefined}
-                                        onEdit={onEditEntry ? () => onEditEntry(entry) : undefined}
+                                        onToggle={toggleEntry}
+                                        onDelete={onDeleteEntry ? handleDeleteEntry : undefined}
+                                        onEdit={onEditEntry ? handleEditEntry : undefined}
                                         isVoyageStart={entry.id === voyageFirstEntryId}
                                         isVoyageEnd={entry.id === voyageLastEntryId}
                                     />
@@ -160,42 +167,44 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
 };
 
 // --- COMPACT LOG ENTRY ---
+
+// PERF: Static data moved to module scope — no allocation per render
+const TYPE_INDICATOR = {
+    auto: { color: 'bg-green-500', label: 'A' },
+    manual: { color: 'bg-purple-500', label: 'M' },
+    waypoint: { color: 'bg-blue-500', label: 'W' }
+} as const;
+
+const getBfColor = (bf: number) => {
+    if (bf <= 3) return 'text-sky-400';
+    if (bf <= 5) return 'text-amber-400';
+    if (bf <= 7) return 'text-orange-400';
+    return 'text-red-400';
+};
+
 interface CompactLogEntryProps {
     entry: ShipLogEntry;
     isExpanded: boolean;
-    onToggle: () => void;
-    onDelete?: () => void;
-    onEdit?: () => void;
+    onToggle: (entryId: string) => void;
+    onDelete?: (entryId: string) => void;
+    onEdit?: (entry: ShipLogEntry) => void;
     isVoyageStart?: boolean;
     isVoyageEnd?: boolean;
 }
 
-const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
+// PERF: React.memo — this component renders for every log entry in every expanded day
+// With 100+ entries per voyage, skipping re-renders on parent state changes is critical
+const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
     const timestamp = new Date(entry.timestamp);
     const timeStr = formatTime24Colon(timestamp);
 
-    // Entry type colors - more subtle for compact view
-    const typeIndicator = {
-        auto: { color: 'bg-green-500', label: 'A' },
-        manual: { color: 'bg-purple-500', label: 'M' },
-        waypoint: { color: 'bg-blue-500', label: 'W' }
-    };
-
-    const type = typeIndicator[entry.entryType];
-
-    // Beaufort color
-    const getBfColor = (bf: number) => {
-        if (bf <= 3) return 'text-sky-400';
-        if (bf <= 5) return 'text-amber-400';
-        if (bf <= 7) return 'text-orange-400';
-        return 'text-red-400';
-    };
+    const type = TYPE_INDICATOR[entry.entryType];
 
     return (
         <div className={`rounded-lg transition-all duration-150 ${isExpanded ? 'bg-slate-800/80' : 'bg-slate-800/40 hover:bg-slate-800/60'}`}>
             {/* Compact Row - Always Visible */}
             <button
-                onClick={onToggle}
+                onClick={() => onToggle(entry.id)}
                 className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
             >
                 {/* Type Indicator */}
@@ -221,7 +230,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
                     {/* Speed */}
                     {entry.speedKts !== undefined && (
                         <span className="text-xs">
-                            <span className="text-white font-bold">{entry.speedKts.toFixed(1)}</span>
+                            <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>
                             <span className="text-slate-400">kts</span>
                         </span>
                     )}
@@ -287,13 +296,13 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
                         {entry.distanceNM !== undefined && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                 <div className="text-[9px] text-slate-500 uppercase">Dist</div>
-                                <div className="text-xs font-bold text-white">{entry.distanceNM.toFixed(1)} NM</div>
+                                <div className="text-xs font-bold text-white">{(entry.distanceNM ?? 0).toFixed(1)} NM</div>
                             </div>
                         )}
                         {entry.speedKts !== undefined && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                 <div className="text-[9px] text-slate-500 uppercase">Speed</div>
-                                <div className="text-xs font-bold text-white">{entry.speedKts.toFixed(1)} kts</div>
+                                <div className="text-xs font-bold text-white">{(entry.speedKts ?? 0).toFixed(1)} kts</div>
                             </div>
                         )}
                         {entry.courseDeg !== undefined && (
@@ -321,12 +330,12 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
                             )}
                             {entry.waveHeight !== undefined && (
                                 <span>
-                                    Seas <span className="text-white font-bold">{entry.waveHeight.toFixed(1)}m</span>
+                                    Seas <span className="text-white font-bold">{(entry.waveHeight ?? 0).toFixed(1)}m</span>
                                     {entry.seaState !== undefined && ` (${getSeaStateDescription(entry.seaState)})`}
                                 </span>
                             )}
                             {entry.pressure !== undefined && (
-                                <span><span className="text-white font-bold">{entry.pressure.toFixed(0)}</span>hPa</span>
+                                <span><span className="text-white font-bold">{(entry.pressure ?? 0).toFixed(0)}</span>hPa</span>
                             )}
                         </div>
                     )}
@@ -368,7 +377,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onEdit();
+                                        onEdit!(entry);
                                     }}
                                     className="flex-1 px-3 py-2 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 rounded-lg text-blue-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                                 >
@@ -382,7 +391,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onDelete();
+                                        onDelete!(entry.id);
                                     }}
                                     className="flex-1 px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                                 >
@@ -398,4 +407,4 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = ({ entry, isExpanded, on
             </div>
         </div>
     );
-};
+});
