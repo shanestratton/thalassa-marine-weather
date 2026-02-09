@@ -90,6 +90,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
     const [safetyMargin, setSafetyMargin] = useState(10);
     const [sessionCode, setSessionCode] = useState('');
     const [showShoreModal, setShowShoreModal] = useState(false);
+
+    // Track iOS keyboard height via visualViewport so the modal stays above the keyboard
+    const [keyboardOffset, setKeyboardOffset] = useState(0);
+    useEffect(() => {
+        if (!showShoreModal) { setKeyboardOffset(0); return; }
+        const vv = window.visualViewport;
+        if (!vv) return;
+        const update = () => {
+            // On iOS, when keyboard opens, visualViewport.height shrinks
+            const offset = Math.max(0, window.innerHeight - vv.height);
+            setKeyboardOffset(offset);
+        };
+        vv.addEventListener('resize', update);
+        vv.addEventListener('scroll', update);
+        return () => {
+            vv.removeEventListener('resize', update);
+            vv.removeEventListener('scroll', update);
+        };
+    }, [showShoreModal]);
     const [isSettingAnchor, setIsSettingAnchor] = useState(false);
     const [gpsStatus, setGpsStatus] = useState<string>('Waiting for GPS...');
 
@@ -719,7 +738,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {
                     showShoreModal && (
                         <div
-                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end items-center pb-[120px]"
+                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex flex-col justify-end items-center"
+                            style={{ paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : '120px', transition: 'padding-bottom 0.25s ease-out' }}
                             onClick={() => setShowShoreModal(false)}
                         >
                             <div
