@@ -385,6 +385,15 @@ export const LogPage: React.FC = () => {
         waypoint: entries.filter(e => e.entryType === 'waypoint').length
     }), [entries]);
 
+    // PROVENANCE GUARD: Check if selected entries contain non-device (imported/community) data
+    // These entries must NOT be exportable as an "Official Deck Log" PDF
+    const hasNonDeviceEntries = React.useMemo(() => {
+        const targetEntries = selectedVoyageId
+            ? entries.filter(e => e.voyageId === selectedVoyageId)
+            : entries;
+        return targetEntries.some(e => e.source && e.source !== 'device');
+    }, [entries, selectedVoyageId]);
+
     // Calculate stats
     const totalDistance = filteredEntries.length > 0 ? filteredEntries[0].cumulativeDistanceNM || 0 : 0;
     const avgSpeed = filteredEntries.length > 0
@@ -476,8 +485,8 @@ export const LogPage: React.FC = () => {
                                     <button
                                         onClick={handleToggleRapidMode}
                                         className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-all ${isRapidMode
-                                                ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-lg shadow-red-500/30'
-                                                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-lg shadow-red-500/30'
+                                            : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                                             }`}
                                         title={isRapidMode ? 'Rapid GPS active (5s) — tap to disable' : 'Enable rapid GPS (5s intervals)'}
                                     >
@@ -788,10 +797,14 @@ export const LogPage: React.FC = () => {
                     {/* Content — vertically centered */}
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                         <div className="space-y-4 max-w-lg mx-auto w-full">
-                            {/* PDF Card */}
+                            {/* PDF Card — disabled for imported/community tracks (provenance) */}
                             <button
-                                onClick={() => { handleShare(); setActionSheet(null); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
+                                onClick={() => { if (!hasNonDeviceEntries) { handleShare(); setActionSheet(null); } }}
+                                disabled={hasNonDeviceEntries}
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
+                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                        : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
+                                    }`}
                             >
                                 <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
                                     <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -801,7 +814,11 @@ export const LogPage: React.FC = () => {
                                 </div>
                                 <div className="flex-1 text-left">
                                     <div className="text-white font-bold text-lg">Official Deck Log</div>
-                                    <div className="text-slate-400 text-sm mt-1">PDF with charts, positions &amp; weather data</div>
+                                    {hasNonDeviceEntries ? (
+                                        <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
+                                    ) : (
+                                        <div className="text-slate-400 text-sm mt-1">PDF with charts, positions &amp; weather data</div>
+                                    )}
                                 </div>
                                 <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
