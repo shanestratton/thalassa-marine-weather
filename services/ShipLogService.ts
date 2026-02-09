@@ -670,8 +670,8 @@ class ShipLogServiceClass {
         this.wireGpsSubscriptions();
 
         // IMMEDIATE ENTRY: Create first entry right now (at actual time, e.g., 07:14)
-        // This entry is created immediately regardless of GPS - position will be added async
-        this.captureImmediateEntry().catch(err => {
+        // AWAIT so the entry exists before the UI calls loadData() — fixes "voyage doesn't appear on start"
+        await this.captureImmediateEntry().catch(err => {
         });
 
         // ADAPTIVE SCHEDULING: Determine zone and set appropriate interval
@@ -802,9 +802,6 @@ class ShipLogServiceClass {
     async stopTracking(): Promise<void> {
         this.clearAllTimers();
 
-        // Clean up all GPS stream subscriptions
-        this.cleanupGpsSubscriptions();
-
         // Update state immediately so UI responds instantly
         // IMPORTANT: Store end time now (before async ops) to ensure it's always recorded
         const previousVoyageId = this.trackingState.currentVoyageId;
@@ -821,11 +818,13 @@ class ShipLogServiceClass {
         };
         await this.saveTrackingState();
 
-        // Capture final entry immediately with the exact end timestamp
-        // This ensures the entry is created with the precise voyage end time
-        // GPS position is fetched async - if unavailable, entry still saves with placeholder
-        this.captureImmediateEntry(previousVoyageId).catch((err: any) => {
+        // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
+        // GPS subscriptions are still alive here so getBestPosition() can use cached fix
+        await this.captureImmediateEntry(previousVoyageId).catch((err: any) => {
         });
+
+        // NOW clean up GPS stream subscriptions (after final entry has GPS)
+        this.cleanupGpsSubscriptions();
 
         // Clear voyage data
         await Preferences.remove({ key: LAST_POSITION_KEY });
@@ -867,34 +866,46 @@ class ShipLogServiceClass {
         // Flag to track if GPS failed and needs background retry
         let needsGpsRetry = false;
 
-        // CACHED GPS — uses onLocation-streamed position (instant, no blocking).
-        // Falls back to getCurrentPosition only if cache is stale (>60s).
-        try {
-            const bestPos = await this.getBestPosition();
+        // COLD START WARM-UP: If no cached GPS fix yet, wait briefly for the first one
+        // This handles the common case where tracking just started and GPS hasn't locked yet
+        // Up to 3 attempts (1s each) = 3s max wait, then fallback to placeholder
+        const GPS_WARMUP_ATTEMPTS = 3;
+        const GPS_WARMUP_DELAY_MS = 1000;
 
-            if (bestPos) {
-                entry.latitude = bestPos.latitude;
-                entry.longitude = bestPos.longitude;
-                entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
-
-                if (bestPos.heading !== null && bestPos.heading !== undefined && bestPos.heading !== 0) {
-                    entry.courseDeg = Math.round(bestPos.heading);
+        let bestPos = this.lastBgLocation;
+        if (!bestPos || (Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS)) {
+            // No fresh cached position — try warm-up loop
+            for (let i = 0; i < GPS_WARMUP_ATTEMPTS; i++) {
+                await new Promise(resolve => setTimeout(resolve, GPS_WARMUP_DELAY_MS));
+                bestPos = this.lastBgLocation;
+                if (bestPos && (Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS)) {
+                    break; // Got a fresh fix
                 }
-
-                // Update last position
-                await this.saveLastPosition({
-                    latitude: bestPos.latitude,
-                    longitude: bestPos.longitude,
-                    timestamp,
-                    cumulativeDistanceNM: 0
-                });
-            } else {
-                // No GPS at all — will retry in background
-                needsGpsRetry = true;
+                // Also try getCurrentPosition as a final fallback on last attempt
+                if (i === GPS_WARMUP_ATTEMPTS - 1) {
+                    bestPos = await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10);
+                }
             }
-        } catch (gpsError: any) {
-            // Entry will be saved with placeholder position initially
-            // We'll retry GPS in background and update the entry later
+        }
+
+        if (bestPos && (Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS)) {
+            entry.latitude = bestPos.latitude;
+            entry.longitude = bestPos.longitude;
+            entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
+
+            if (bestPos.heading !== null && bestPos.heading !== undefined && bestPos.heading !== 0) {
+                entry.courseDeg = Math.round(bestPos.heading);
+            }
+
+            // Update last position
+            await this.saveLastPosition({
+                latitude: bestPos.latitude,
+                longitude: bestPos.longitude,
+                timestamp,
+                cumulativeDistanceNM: 0
+            });
+        } else {
+            // No GPS at all after warm-up — will retry in background
             needsGpsRetry = true;
         }
 
