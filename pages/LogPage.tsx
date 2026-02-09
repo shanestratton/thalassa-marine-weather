@@ -3,7 +3,7 @@
  * Displays automatic voyage tracking with 15-minute GPS intervals
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 import { ShipLogEntry } from '../types';
 import {
@@ -23,8 +23,11 @@ import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
 import { VoyageHeader } from '../components/VoyageHeader';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
+import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { useSettings } from '../context/SettingsContext';
+import { exportVoyageAsGPX, downloadGPXFile } from '../services/gpxService';
+import { TrackSharingService, SharedTrackInput } from '../services/TrackSharingService';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -62,6 +65,9 @@ export const LogPage: React.FC = () => {
     const [lastVoyageId, setLastVoyageId] = useState<string | null>(null);
     const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
     const [showStopVoyageDialog, setShowStopVoyageDialog] = useState(false);
+    const [activeDropdown, setActiveDropdown] = useState<'export' | 'share' | 'stats' | null>(null);
+    const [showCommunityBrowser, setShowCommunityBrowser] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
     const toast = useToast();
     const { settings } = useSettings();
@@ -280,6 +286,67 @@ export const LogPage: React.FC = () => {
         }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
     };
 
+    // GPX export — selected voyage or all
+    const handleExportGPX = () => {
+        const targetEntries = selectedVoyageId
+            ? entries.filter(e => e.voyageId === selectedVoyageId)
+            : entries;
+        if (targetEntries.length === 0) return;
+        const voyageName = selectedVoyageId
+            ? `Voyage ${selectedVoyageId.slice(0, 8)}`
+            : 'All Voyages';
+        const gpxXml = exportVoyageAsGPX(targetEntries, voyageName, settings.vessel?.name);
+        downloadGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
+        setActiveDropdown(null);
+    };
+
+    // Community share — share selected voyage track
+    const handleShareToCommunity = async () => {
+        setActiveDropdown(null);
+        const targetEntries = selectedVoyageId
+            ? entries.filter(e => e.voyageId === selectedVoyageId)
+            : entries;
+        if (targetEntries.length === 0) {
+            toast.error('No entries to share');
+            return;
+        }
+        // For now use a simple prompt-based flow
+        const title = prompt('Track title (e.g. "Moreton Bay Anchorage")');
+        if (!title) return;
+        const description = prompt('Short description') || '';
+        const category = prompt('Category: anchorage, port_entry, bar_crossing, reef_passage, coastal, offshore, walking, driving') || 'coastal';
+        const region = prompt('Region (e.g. "Queensland, AU")') || '';
+
+        try {
+            const result = await TrackSharingService.shareTrack(targetEntries, {
+                title,
+                description,
+                tags: [],
+                category: category as any,
+                region,
+            });
+            if (result) {
+                toast.success('Track shared to community!');
+            } else {
+                toast.error('Failed to share track');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Share failed');
+        }
+    };
+
+    // Close dropdown when tapping outside
+    useEffect(() => {
+        if (!activeDropdown) return;
+        const handleClick = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setActiveDropdown(null);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [activeDropdown]);
+
     // Apply filters
     const filteredEntries = React.useMemo(() => {
         let filtered = entries;
@@ -410,52 +477,119 @@ export const LogPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Export Buttons Row - Grey out when no entries */}
-                        <div className="flex gap-2 mb-2">
+                        {/* Action Bar — 4 dropdown buttons */}
+                        <div className="flex gap-2 mb-2 relative" ref={dropdownRef}>
+                            {/* EXPORT — sky */}
+                            <div className="flex-1 relative">
+                                <button
+                                    onClick={() => setActiveDropdown(activeDropdown === 'export' ? null : 'export')}
+                                    disabled={entries.length === 0}
+                                    className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${entries.length > 0
+                                        ? activeDropdown === 'export'
+                                            ? 'bg-sky-500 text-white'
+                                            : 'bg-sky-500/[0.12] border border-sky-500/25 text-sky-400 hover:bg-sky-500/20'
+                                        : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Export
+                                </button>
+                                {activeDropdown === 'export' && (
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-30">
+                                        <button
+                                            onClick={() => { handleShare(); setActiveDropdown(null); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-sky-500/20 flex items-center gap-2 transition-colors"
+                                        >
+                                            📄 PDF
+                                        </button>
+                                        <button
+                                            onClick={handleExportGPX}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-sky-500/20 flex items-center gap-2 transition-colors border-t border-white/5"
+                                        >
+                                            🗺️ GPX
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* SHARE — violet */}
+                            <div className="flex-1 relative">
+                                <button
+                                    onClick={() => setActiveDropdown(activeDropdown === 'share' ? null : 'share')}
+                                    disabled={entries.length === 0}
+                                    className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${entries.length > 0
+                                        ? activeDropdown === 'share'
+                                            ? 'bg-violet-500 text-white'
+                                            : 'bg-violet-500/[0.12] border border-violet-500/25 text-violet-400 hover:bg-violet-500/20'
+                                        : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                    Share
+                                </button>
+                                {activeDropdown === 'share' && (
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-30">
+                                        <button
+                                            onClick={handleShareToCommunity}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-violet-500/20 flex items-center gap-2 transition-colors"
+                                        >
+                                            📤 Share Track
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowCommunityBrowser(true); setActiveDropdown(null); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-violet-500/20 flex items-center gap-2 transition-colors border-t border-white/5"
+                                        >
+                                            🌍 Browse All
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* STATS — amber */}
+                            <div className="flex-1 relative">
+                                <button
+                                    onClick={() => setActiveDropdown(activeDropdown === 'stats' ? null : 'stats')}
+                                    disabled={entries.length === 0}
+                                    className={`w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${entries.length > 0
+                                        ? activeDropdown === 'stats'
+                                            ? 'bg-amber-500 text-white'
+                                            : 'bg-amber-500/[0.12] border border-amber-500/25 text-amber-400 hover:bg-amber-500/20'
+                                        : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    Stats
+                                </button>
+                                {activeDropdown === 'stats' && (
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-30">
+                                        <button
+                                            onClick={() => { setShowStats(true); setActiveDropdown(null); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-amber-500/20 flex items-center gap-2 transition-colors"
+                                        >
+                                            📊 This Voyage
+                                        </button>
+                                        <button
+                                            onClick={() => { setSelectedVoyageId(null); setShowStats(true); setActiveDropdown(null); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-amber-500/20 flex items-center gap-2 transition-colors border-t border-white/5"
+                                        >
+                                            📈 All Voyages
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* MAP — emerald (direct action) */}
                             <button
-                                onClick={handleShare}
+                                onClick={() => { setShowTrackMap(true); setActiveDropdown(null); }}
                                 disabled={entries.length === 0}
-                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
-                                    ? 'bg-sky-600 hover:bg-sky-700 text-white'
-                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                </svg>
-                                Share
-                            </button>
-                            <button
-                                onClick={handleExportCSV}
-                                disabled={entries.length === 0}
-                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-white'
-                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                CSV
-                            </button>
-                            <button
-                                onClick={() => setShowStats(true)}
-                                disabled={entries.length === 0}
-                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-white'
-                                    : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                Stats
-                            </button>
-                            <button
-                                onClick={() => setShowTrackMap(true)}
-                                disabled={entries.length === 0}
-                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-2 ${entries.length > 0
-                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 ${entries.length > 0
+                                    ? 'bg-emerald-500/[0.12] border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20'
                                     : 'bg-slate-800/50 text-slate-500 cursor-not-allowed'
                                     }`}
                             >
@@ -639,11 +773,19 @@ export const LogPage: React.FC = () => {
                 onSave={handleSaveEdit}
             />
 
-            {/* Full Track Map Viewer */}
+            {/* Full Track Map Viewer — shows selected voyage or all */}
             <TrackMapViewer
                 isOpen={showTrackMap}
                 onClose={() => setShowTrackMap(false)}
-                entries={entries}
+                entries={selectedVoyageId ? entries.filter(e => e.voyageId === selectedVoyageId) : entries}
+            />
+
+            {/* Community Track Browser */}
+            <CommunityTrackBrowser
+                isOpen={showCommunityBrowser}
+                onClose={() => setShowCommunityBrowser(false)}
+                onImportComplete={loadData}
+                onLocalImport={() => { setShowCommunityBrowser(false); }}
             />
 
             {/* Voyage Choice Dialog - Continue or New */}
