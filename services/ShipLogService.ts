@@ -1589,11 +1589,18 @@ class ShipLogServiceClass {
      * Queue entry for offline sync
      */
     private async queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<void> {
+        const MAX_OFFLINE_QUEUE = 500; // Prevent unbounded storage growth
         try {
             const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
             const queue: Partial<ShipLogEntry>[] = value ? JSON.parse(value) : [];
 
             queue.push(entry);
+
+            // PERF: Cap queue size — drop oldest entries if we exceed the limit
+            // In long voyages with poor connectivity, this prevents unbounded growth
+            if (queue.length > MAX_OFFLINE_QUEUE) {
+                queue.splice(0, queue.length - MAX_OFFLINE_QUEUE);
+            }
 
             await Preferences.set({
                 key: OFFLINE_QUEUE_KEY,
