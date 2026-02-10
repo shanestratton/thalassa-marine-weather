@@ -4,6 +4,7 @@ import { getSystemUnits } from '../utils';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
 import { supabase } from '../services/supabase';
+import { getErrorMessage } from '../utils/logger';
 
 const CACHE_VERSION = 'v1.3.14-WIDGET-REFRESH';
 const DAILY_STORMGLASS_LIMIT = 100;
@@ -77,9 +78,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 } else {
                     await KeepAwake.allowSleep();
                 }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 // Suppress "UNIMPLEMENTED" warnings on Web/Dev
-                if (e?.code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                const code = (e as Record<string, unknown>)?.code;
+                if (code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
                 }
             }
         };
@@ -107,9 +109,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                         await ScreenOrientation.unlock();
                         break;
                 }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 // Suppress errors on platforms that don't support this
-                if (e?.code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                const code = (e as Record<string, unknown>)?.code;
+                if (code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
                 }
             }
         };
@@ -209,8 +212,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 } else {
                     addDebugLog(`SAVE OK: Settings Updated`);
                 }
-            } catch (err: any) {
-                addDebugLog(`SAVE FAIL: ${err.message}`);
+            } catch (err: unknown) {
+                addDebugLog(`SAVE FAIL: ${getErrorMessage(err)}`);
             }
 
             if (user && user.id) syncUp(user.id, updatedState);

@@ -365,6 +365,7 @@ class AnchorWatchServiceClass {
                 timestamp: pos.timestamp,
             };
         } catch {
+            /* GPS timeout or hardware failure — return null to indicate no fix */
             return null;
         }
     }
@@ -414,6 +415,7 @@ class AnchorWatchServiceClass {
             this.notify();
             return true;
         } catch {
+            /* Corrupted persisted data — clear and start fresh */
             this.clearPersistedWatchState();
             return false;
         }
@@ -646,7 +648,8 @@ class AnchorWatchServiceClass {
     private startAlarmSound(): void {
         // Use Web Audio API for alarm tone
         try {
-            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const AudioCtx = window.AudioContext || ('webkitAudioContext' in window ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext : AudioContext);
+            const ctx = new AudioCtx();
             const playAlarmTone = () => {
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();

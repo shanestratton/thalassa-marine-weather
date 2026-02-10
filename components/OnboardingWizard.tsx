@@ -113,6 +113,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     });
                 }
             } catch {
+                /* Reverse geocode failed — fall back to WP coordinate format */
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
                         return { lat, lon, name: `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}` };
@@ -459,7 +460,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Rigging Type</label>
                                             <select
                                                 value={riggingType}
-                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiggingType(e.target.value as any)}
+                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiggingType(e.target.value as VesselProfile['riggingType'] & string)}
                                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
                                             >
                                                 <option value="Sloop" className="bg-slate-900">Sloop</option>

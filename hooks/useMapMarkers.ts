@@ -46,7 +46,7 @@ export const useMapMarkers = (
                 if (!wp.coordinates) return null;
                 const pt = map.latLngToContainerPoint([wp.coordinates.lat, wp.coordinates.lon]);
                 return { x: pt.x, y: pt.y, idx: i, name: wp.name, wp };
-            }).filter(Boolean) as any[];
+            }).filter(Boolean) as { x: number; y: number; idx: number; name: string; wp: Waypoint }[];
             setWaypointPositions(pts);
         } else {
             setWaypointPositions([]);

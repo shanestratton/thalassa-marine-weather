@@ -9,6 +9,7 @@ import { t } from '../theme';
 import { TrackSharingService, SharedTrack, TrackCategory, BrowseFilters } from '../services/TrackSharingService';
 import { ShipLogService } from '../services/ShipLogService';
 import { importGPXToEntries } from '../services/gpxService';
+import { getErrorMessage } from '../utils/logger';
 
 interface CommunityTrackBrowserProps {
     isOpen: boolean;
@@ -70,8 +71,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             const result = await TrackSharingService.browseSharedTracks(filters);
             setTracks(result.tracks);
             setTotal(result.total);
-        } catch (err: any) {
-            setError(err.message || 'Failed to load tracks');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || 'Failed to load tracks');
         } finally {
             setLoading(false);
         }
@@ -113,7 +114,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
 
             // Stamp as community download for provenance tracking
             importedEntries.forEach(e => {
-                (e as any).source = 'community_download';
+                Object.assign(e, { source: 'community_download' });
             });
 
             const { savedCount } = await ShipLogService.importGPXVoyage(importedEntries);
@@ -123,8 +124,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             setTimeout(() => {
                 onImportComplete();
             }, 1500);
-        } catch (err: any) {
-            setImportStatus(err.message || 'Download failed');
+        } catch (err: unknown) {
+            setImportStatus(getErrorMessage(err) || 'Download failed');
         } finally {
             setDownloadingId(null);
         }
@@ -135,7 +136,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
         try {
             const result = await TrackSharingService.getMySharedTracks();
             setMyTracks(result);
-        } catch (err: any) {
+        } catch (err: unknown) {
         } finally {
             setMyTracksLoading(false);
         }
@@ -152,8 +153,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             } else {
                 setImportStatus('Failed to delete track');
             }
-        } catch (err: any) {
-            setImportStatus(err.message || 'Delete failed');
+        } catch (err: unknown) {
+            setImportStatus(getErrorMessage(err) || 'Delete failed');
         } finally {
             setDeletingId(null);
         }
@@ -169,7 +170,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950" role="dialog" aria-modal="true" aria-label="Community track browser">
             {/* Header */}
             <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between mb-3">

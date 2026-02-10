@@ -14,6 +14,9 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('SyncService');
 
 // ------- TYPES -------
 
@@ -78,7 +81,7 @@ class AnchorWatchSyncServiceClass {
     private lastPeerUpdate: number | null = null;
     private peerDisconnectedAt: number | null = null;
 
-    private channel: any | null = null;
+    private channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
     private stateListeners: Set<SyncListener> = new Set();
     private broadcastListeners: Set<BroadcastListener> = new Set();
     private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -91,7 +94,7 @@ class AnchorWatchSyncServiceClass {
         if (typeof document !== 'undefined') {
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && !this.connected && this.sessionCode) {
-                    console.log('[SyncService] App foregrounded — attempting reconnect');
+                    log.info('App foregrounded — attempting reconnect');
                     this.reconnectAttempts = 0; // Reset backoff on foreground
                     this.scheduleReconnect();
                 }
@@ -101,7 +104,7 @@ class AnchorWatchSyncServiceClass {
         if (typeof window !== 'undefined') {
             window.addEventListener('online', () => {
                 if (!this.connected && this.sessionCode) {
-                    console.log('[SyncService] Network restored — attempting reconnect');
+                    log.info('Network restored — attempting reconnect');
                     this.reconnectAttempts = 0;
                     this.scheduleReconnect();
                 }
@@ -333,7 +336,7 @@ class AnchorWatchSyncServiceClass {
             event: 'position',
             payload,
         }).then((status: string) => {
-        }).catch((err: any) => {
+        }).catch((_err: unknown) => {
         });
     }
 
@@ -364,6 +367,7 @@ class AnchorWatchSyncServiceClass {
             const ageMs = Date.now() - (persisted.savedAt || 0);
             return ageMs < 24 * 60 * 60 * 1000 && !!persisted.sessionCode;
         } catch {
+            /* Corrupted localStorage JSON — treat as no session */
             return false;
         }
     }
@@ -377,6 +381,7 @@ class AnchorWatchSyncServiceClass {
             if (!raw) return null;
             return JSON.parse(raw);
         } catch {
+            /* Corrupted localStorage JSON — treat as no session */
             return null;
         }
     }
@@ -421,13 +426,13 @@ class AnchorWatchSyncServiceClass {
             });
 
             // Listen for position broadcasts
-            this.channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: any }) => {
+            this.channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: PositionBroadcast }) => {
                 this.lastPeerUpdate = Date.now();
                 this.broadcastListeners.forEach(l => l(payload as PositionBroadcast));
             });
 
             // Listen for alarm broadcasts
-            this.channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: any }) => {
+            this.channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: AlarmBroadcast }) => {
                 this.lastPeerUpdate = Date.now();
                 this.broadcastListeners.forEach(l => l(payload as AlarmBroadcast));
             });
@@ -443,21 +448,21 @@ class AnchorWatchSyncServiceClass {
             });
 
             // Track presence
-            this.channel.on('presence', { event: 'join' }, ({ key }: { key: any }) => {
+            this.channel.on('presence', { event: 'join' }, ({ key }: { key: string }) => {
                 if (key !== this.role) {
                     this.peerConnected = true;
                     this.peerDisconnectedAt = null;
                     this.lastPeerUpdate = Date.now();
-                    console.log('[SyncService] Peer joined:', key);
+                    log.info('Peer joined:', key);
                     this.notifyState();
                 }
             });
 
-            this.channel.on('presence', { event: 'leave' }, ({ key }: { key: any }) => {
+            this.channel.on('presence', { event: 'leave' }, ({ key }: { key: string }) => {
                 if (key !== this.role) {
                     this.peerConnected = false;
                     this.peerDisconnectedAt = Date.now();
-                    console.log('[SyncService] Peer left:', key);
+                    log.info('Peer left:', key);
                     this.notifyState();
                 }
             });
@@ -496,7 +501,7 @@ class AnchorWatchSyncServiceClass {
                     if (this.peerConnected) {
                         this.peerConnected = false;
                         this.peerDisconnectedAt = Date.now();
-                        console.log('[SyncService] Peer timed out (no heartbeat for 30s)');
+                        log.warn('Peer timed out (no heartbeat for 30s)');
                         this.notifyState();
                     }
                 }
@@ -526,7 +531,7 @@ class AnchorWatchSyncServiceClass {
         // Exponential backoff: 2s, 4s, 8s, 16s, 32s, capped at 60s — never gives up
         const delayMs = Math.min(2000 * Math.pow(2, this.reconnectAttempts), 60000);
         this.reconnectAttempts++;
-        console.log(`[SyncService] Reconnect attempt ${this.reconnectAttempts} in ${delayMs / 1000}s`);
+        log.info(`Reconnect attempt ${this.reconnectAttempts} in ${delayMs / 1000}s`);
 
         this.reconnectTimeout = setTimeout(async () => {
             if (!this.connected && this.sessionCode) {

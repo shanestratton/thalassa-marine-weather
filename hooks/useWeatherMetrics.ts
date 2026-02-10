@@ -75,15 +75,15 @@ export const useWeatherMetrics = ({
                 // Batch state updates
                 setActiveDayData({
                     ...matchedHourly,
-                    airTemperature: (matchedHourly as any).temperature,
+                    airTemperature: matchedHourly.temperature,
                     windDirection: matchedHourly.windDirection || 'VAR',
                     description: matchedHourly.condition || current.description,
                     condition: matchedHourly.condition,
-                    sunrise: dayData.sunrise,
-                    sunset: dayData.sunset,
-                    highTemp: (dayData as any).highTemp,
-                    lowTemp: (dayData as any).lowTemp
-                } as any);
+                    sunrise: 'sunrise' in dayData ? dayData.sunrise : undefined,
+                    sunset: 'sunset' in dayData ? dayData.sunset : undefined,
+                    highTemp: 'highTemp' in dayData ? dayData.highTemp : undefined,
+                    lowTemp: 'lowTemp' in dayData ? dayData.lowTemp : undefined
+                } as WeatherMetrics);
 
                 const hourOffset = activeDay === 0
                     ? selectedHour - new Date().getHours()

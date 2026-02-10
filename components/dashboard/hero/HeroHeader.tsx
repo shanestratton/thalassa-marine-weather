@@ -3,6 +3,7 @@ import { t } from '../../../theme';
 import { ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, DropletIcon, EyeIcon, SunriseIcon, SunsetIcon, SunIcon, GaugeIcon } from '../../Icons';
 import { convertTemp } from '../../../utils';
 import { UnitPreferences, WeatherMetrics } from '../../../types';
+import { CardDisplayValues } from './types';
 
 /** Selects the appropriate weather background image based on conditions */
 function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number, moonIllumination?: number): string {
@@ -31,7 +32,7 @@ function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCov
 
 interface HeroHeaderProps {
     cardData: WeatherMetrics;
-    cardDisplayValues: any;
+    cardDisplayValues: CardDisplayValues;
     units: UnitPreferences;
     isCardDay: boolean;
     cardIsLive: boolean;

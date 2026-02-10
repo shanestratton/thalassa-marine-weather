@@ -11,6 +11,83 @@ import { fetchRealTides } from './tides';
 import { checkMarineProximity } from '../marineProximity'; // Static Import
 import { reverseGeocodeContext } from './geocoding'; // Static Import
 
+// --- OpenMeteo API Response Types ---
+interface OMCurrentBlock {
+    temperature_2m: number;
+    relative_humidity_2m: number;
+    apparent_temperature: number;
+    is_day: number;
+    precipitation: number;
+    rain: number;
+    showers: number;
+    snowfall: number;
+    weather_code: number;
+    cloud_cover: number;
+    pressure_msl: number;
+    surface_pressure: number;
+    wind_speed_10m: number;
+    wind_direction_10m: number;
+    wind_gusts_10m: number;
+}
+
+interface OMHourlyBlock {
+    time: string[];
+    temperature_2m: number[];
+    relative_humidity_2m: number[];
+    dew_point_2m: number[];
+    precipitation_probability: number[];
+    precipitation: number[];
+    weather_code: number[];
+    pressure_msl: number[];
+    surface_pressure: number[];
+    cloud_cover: number[];
+    visibility: number[];
+    wind_speed_10m: number[];
+    wind_direction_10m: number[];
+    wind_gusts_10m: number[];
+    uv_index: number[];
+}
+
+interface OMDailyBlock {
+    time: string[];
+    weather_code: number[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    sunrise: string[];
+    sunset: string[];
+    uv_index_max: number[];
+    precipitation_sum: number[];
+    precipitation_hours: number[];
+    wind_speed_10m_max: number[];
+    wind_gusts_10m_max: number[];
+    wind_direction_10m_dominant: number[];
+}
+
+interface OMWeatherResponse {
+    current: OMCurrentBlock;
+    hourly: OMHourlyBlock;
+    daily: OMDailyBlock;
+    timezone: string;
+    utc_offset_seconds: number;
+    elevation: number | string;
+}
+
+interface OMMarineHourly {
+    wave_height?: number[];
+    wave_period?: number[];
+    wave_direction?: number[];
+}
+
+interface OMMarineDaily {
+    wave_height_max?: number[];
+}
+
+interface OMMarineResponse {
+    current?: { wave_height?: number; wave_period?: number; wave_direction?: number };
+    hourly?: OMMarineHourly;
+    daily?: OMMarineDaily;
+}
+
 // ... existing code ...
 
 // ... inside fetchOpenMeteo ...
@@ -109,13 +186,13 @@ export const fetchOpenMeteo = async (
         throw new Error('OpenMeteo returned no data');
     }
 
-    let wData: any = res.data;
+    let wData = res.data as OMWeatherResponse;
     if (typeof wData === 'string') {
         try { wData = JSON.parse(wData); } catch (e) { throw e; }
     }
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
-    let waveData: any = null;
+    let waveData: OMMarineResponse | null = null;
     let distToWaterIdx = 9999;
 
     try {
@@ -123,7 +200,7 @@ export const fetchOpenMeteo = async (
         const proxResult = await checkMarineProximity(lat, lon);
 
         if (proxResult.hasMarineData) {
-            waveData = proxResult.data;
+            waveData = proxResult.data as OMMarineResponse;
             distToWaterIdx = proxResult.nearestWaterDistanceKm;
         } else {
 
@@ -308,7 +385,7 @@ export const fetchOpenMeteo = async (
 
     // 2. Perform Geocoding Lookup (Context)
     // We need this to determine distance to land (for Offshore rule) AND verify if we are actually on land.
-    let landCtx: any = null;
+    let landCtx: { name: string; lat: number; lon: number } | null = null;
     let distToLand = 9999;
     try {
         // const { reverseGeocodeContext } = await import('./geocoding'); // Static import used
@@ -359,7 +436,7 @@ export const fetchOpenMeteo = async (
         distToWaterIdx,
         landCtx?.name,
         report.tides && report.tides.length > 0,
-        wData.elevation // Pass elevation for Lake filtering
+        typeof wData.elevation === 'number' ? wData.elevation : undefined // Pass elevation for Lake filtering
     );
 
 
@@ -372,7 +449,7 @@ export const fetchOpenMeteo = async (
     }
     // Store elevation for EnvironmentService theme detection
     if (wData.elevation !== undefined && wData.elevation !== 'nan') {
-        (report as any)._elevation = typeof wData.elevation === 'number' ? wData.elevation : parseFloat(wData.elevation);
+        (report as unknown as Record<string, unknown>)._elevation = typeof wData.elevation === 'number' ? wData.elevation : parseFloat(wData.elevation as string);
     }
 
     return report;

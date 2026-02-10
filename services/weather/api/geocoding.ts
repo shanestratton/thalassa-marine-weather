@@ -43,8 +43,8 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 const place = data.features[0];
                 // Mapbox Context: find country and region
                 const context = place.context || [];
-                const countryCtx = context.find((c: any) => c.id.startsWith('country'));
-                const regionCtx = context.find((c: any) => c.id.startsWith('region'));
+                const countryCtx = context.find((c: { id: string; text?: string; short_code?: string }) => c.id.startsWith('country'));
+                const regionCtx = context.find((c: { id: string; text?: string; short_code?: string }) => c.id.startsWith('region'));
 
                 const city = place.text;
 

@@ -16,10 +16,10 @@ const getGeminiKey = (): string => {
     // 2. Try process.env shim
     if (!key) {
         try {
-            if (typeof process !== 'undefined' && (process as any).env) {
-                key = (process as any).env.API_KEY || (process as any).env.GEMINI_API_KEY;
+            if (typeof process !== 'undefined' && process.env) {
+                key = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
             }
-        } catch (e) { }
+        } catch { /* process.env may not exist in browser */ }
     }
     return key;
 };
@@ -209,11 +209,12 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
     } catch {
+        /* AI geo-lookup failed — return slight coord offset as safe fallback */
         return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.045 };
     }
 };
 
-export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: any, generalUnits?: any, via?: string, weatherContext?: any): Promise<VoyagePlan> => {
+export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: VesselDimensionUnits, generalUnits?: UnitPreferences, via?: string, weatherContext?: Record<string, unknown>): Promise<VoyagePlan> => {
     const ai = getAI();
     if (!ai) throw new Error("Gemini AI unavailable");
     try {
@@ -284,7 +285,7 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         if (!data.hazards) data.hazards = [];
         if (!data.customs) data.customs = { required: false, destinationCountry: "", procedures: "" };
 
-        data.waypoints = data.waypoints.map((wp: any) => {
+        data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
             const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
             if (isCoordName && !wp.name.toUpperCase().startsWith("WP")) {
                 return { ...wp, name: `WP ${wp.name}` };
@@ -293,8 +294,10 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         });
         return data;
 
-    } catch (e: any) {
-        if (e.message?.includes('429') || e.message?.includes('Quota') || e.status === 429) {
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '';
+        const status = (e as Record<string, unknown>)?.status;
+        if (msg?.includes('429') || msg?.includes('Quota') || status === 429) {
             return { ...MOCK_VOYAGE_PLAN, origin: origin, destination: destination };
         }
         throw e;
@@ -436,6 +439,7 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         }
         return data;
     } catch {
+        /* AI analysis unavailable — return static safety defaults */
         return {
             strategy: "Analysis unavailable due to network or quota limits.",
             fuelTactics: "Standard conservation recommended.",

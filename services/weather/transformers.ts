@@ -6,6 +6,14 @@ import { calculateFeelsLike, getSunTimes } from '../../utils/math';
 import { degreesToCardinal } from '../../utils/format';
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../utils/advisory';
 
+/** StormGlass Astronomy API response shape */
+export interface AstroEntry {
+    sunrise?: string;
+    sunset?: string;
+    moonPhase?: { current?: { text?: string; value?: number } };
+    moonFraction?: number;
+}
+
 // Helpers
 export const abbreviate = (val: string): string => {
     if (!val) return "";
@@ -50,7 +58,7 @@ export const mapStormGlassToReport = (
     tides: Tide[] = [],
     seaLevels: Partial<StormGlassTideData>[] = [],
     model: string = 'sg',
-    astro?: any[], // Pass astronomy data
+    astro?: AstroEntry[], // Pass astronomy data
     existingLocationType?: 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
     utcOffset?: number

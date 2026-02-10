@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { t } from '../../theme';
 import { TideGraph } from './TideAndVessel';
 import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
-import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
+import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast, UserSettings, SourcedWeatherMetrics } from '../../types';
+import { TideGUIDetails } from '../../services/weather/api/tides';
 import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, convertMetersTo, formatCoordinate } from '../../utils';
 import { ALL_STATIONS } from '../../services/TideService';
 import { useSettings } from '../../context/SettingsContext';
@@ -48,13 +49,13 @@ const HeroSlideComponent = ({
     tideHourly,
     isEssentialMode = false
 }: {
-    data: WeatherMetrics,
+    data: SourcedWeatherMetrics,
     index: number,
     units: UnitPreferences,
     tides?: Tide[],
-    settings: any,
-    updateSettings: any,
-    addDebugLog: any,
+    settings: UserSettings,
+    updateSettings: (newSettings: Partial<UserSettings>) => void,
+    addDebugLog: ((msg: string) => void) | undefined,
     timeZone?: string,
     locationName?: string,
     isLandlocked?: boolean,
@@ -64,13 +65,13 @@ const HeroSlideComponent = ({
     hourly?: HourlyForecast[],
     fullHourly?: HourlyForecast[],
     lat?: number,
-    guiDetails?: any,
+    guiDetails?: TideGUIDetails,
     coordinates?: { lat: number, lon: number },
     locationType?: 'coastal' | 'offshore' | 'inland',
     generatedAt?: string,
     onTimeSelect?: (time: number | undefined) => void,
     onHourChange?: (hour: number) => void,
-    onActiveDataChange?: (data: WeatherMetrics) => void,
+    onActiveDataChange?: (data: SourcedWeatherMetrics) => void,
     isVisible?: boolean,
     utcOffset?: number,
     tideHourly?: TidePoint[],
@@ -403,13 +404,13 @@ const HeroSlideComponent = ({
 
     const displayValues = {
         airTemp: displayData.airTemperature !== null ? convertTemp(displayData.airTemperature, units.temp) : '--',
-        highTemp: (displayData as any).highTemp !== undefined ? convertTemp((displayData as any).highTemp, units.temp) : '--',
-        lowTemp: (displayData as any).lowTemp !== undefined ? convertTemp((displayData as any).lowTemp, units.temp) : '--',
+        highTemp: displayData.highTemp !== undefined ? convertTemp(displayData.highTemp, units.temp) : '--',
+        lowTemp: displayData.lowTemp !== undefined ? convertTemp(displayData.lowTemp, units.temp) : '--',
         windSpeed: hasWind ? Math.round(convertSpeed(displayData.windSpeed!, units.speed)!) : '--',
         waveHeight: isLandlocked ? "0" : (hasWave ? String(convertLength(displayData.waveHeight, units.length)).replace(/^0\./, '.') : '--'),
         vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
         gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
-        precip: convertPrecip(displayData.precipitation, units.length),
+        precip: convertPrecip(displayData.precipitation, units.length) ?? '0',
         pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
         cloudCover: (displayData.cloudCover !== null && displayData.cloudCover !== undefined) ? Math.round(displayData.cloudCover) : '--',
         uv: (displayData.uvIndex !== undefined && displayData.uvIndex !== null) ? Math.round(displayData.uvIndex) : '--',
@@ -621,7 +622,7 @@ const HeroSlideComponent = ({
         }
 
         // Use Common Renderer
-        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as any).sources : undefined, isCompact);
+        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact);
         if (customWidget) {
             return customWidget;
         }
@@ -655,7 +656,7 @@ const HeroSlideComponent = ({
                         lowTemp: matchDay?.lowTemp,    // Inject Daily Low
                         sunrise: matchDay?.sunrise || data.sunrise, // Inherit from daily or base data
                         sunset: matchDay?.sunset || data.sunset     // Inherit from daily or base data
-                    } as any,
+                    } as unknown as SourcedWeatherMetrics,
                     time: hDate.getTime()
                 };
             })
@@ -665,7 +666,7 @@ const HeroSlideComponent = ({
     // Phase 2 Optimization: Pre-compute display values for all slides
     // This avoids recalculating on every scroll/render
     const slideDisplayData = useMemo(() => slides.map((slide, slideIdx) => {
-        const cardData = slide.data as WeatherMetrics;
+        const cardData = slide.data as SourcedWeatherMetrics;
         const cardTime = slide.type === 'current' ? undefined : (slide.time || customTime);
         const isHourly = slide.type === 'hourly';
 
@@ -698,13 +699,13 @@ const HeroSlideComponent = ({
         // Pre-compute display values
         const cardDisplayValues = {
             airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
-            highTemp: (cardData as any).highTemp !== undefined ? convertTemp((cardData as any).highTemp, units.temp) : '--',
-            lowTemp: (cardData as any).lowTemp !== undefined ? convertTemp((cardData as any).lowTemp, units.temp) : '--',
+            highTemp: cardData.highTemp !== undefined ? convertTemp(cardData.highTemp, units.temp) : '--',
+            lowTemp: cardData.lowTemp !== undefined ? convertTemp(cardData.lowTemp, units.temp) : '--',
             windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
             waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? String(convertLength(cardData.waveHeight, units.waveHeight)).replace(/^0\./, '.') : '--'),
             vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
             gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
-            precip: convertPrecip(cardData.precipitation, units.length),
+            precip: convertPrecip(cardData.precipitation, units.length) ?? '0',
             pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
             cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
             uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
@@ -713,7 +714,7 @@ const HeroSlideComponent = ({
             humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
             dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null) ? convertTemp(cardData.dewPoint, units.temp) : '--',
             waterTemperature: (() => {
-                const val = cardData.waterTemperature ?? (cardData as any).seaSurfaceTemperature ?? (cardData as any).seaTemp;
+                const val = cardData.waterTemperature;
                 return (val !== undefined && val !== null) ? convertTemp(val, units.temp) : '--';
             })(),
             currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
@@ -723,7 +724,7 @@ const HeroSlideComponent = ({
                 if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
                 return '--';
             })(),
-            moon: (cardData as any).moonPhase || 'Waxing'
+            moon: cardData.moonPhase || 'Waxing'
         };
 
         const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
@@ -733,7 +734,7 @@ const HeroSlideComponent = ({
     }), [slides, units, isLandlocked, index]);    // Calculate active slide data for static displays
     // Always track the actively scrolled card for header updates
     const activeSlide = slides[activeHIdx] || slides[0];
-    const activeCardData = activeSlide?.data as WeatherMetrics;
+    const activeCardData = activeSlide?.data as SourcedWeatherMetrics;
     const activeCardTime = activeSlide?.time || customTime;
     const activeIsLive = index === 0 && activeHIdx === 0;
 
@@ -795,13 +796,13 @@ const HeroSlideComponent = ({
 
     // Get source colors for static header metrics
     // Shows amber (StormGlass), emerald (Buoy), or white (forecast)
-    const getActiveSourceColor = (metricKey: string): string => {
+    const getActiveSourceColor = (metricKey: keyof WeatherMetrics): string => {
         // When showing forecast data (not live), always use white
         if (!activeIsLive) {
             return 'text-white';
         }
         // Live data - check if source info is available
-        const liveSources = (activeCardData as any)?.sources;
+        const liveSources = activeCardData?.sources;
         if (!liveSources || !liveSources[metricKey]) return 'text-white';
 
         const sourceColor = liveSources[metricKey]?.sourceColor;
@@ -887,8 +888,8 @@ const HeroSlideComponent = ({
                         const forceLabel = rowDateLabel;
 
                         // Helper to get source color for card metrics (kept inline as it's lightweight)
-                        const cardSources = (cardData as any).sources;
-                        const getCardSourceColor = (metricKey: string): string => {
+                        const cardSources = cardData.sources;
+                        const getCardSourceColor = (metricKey: keyof WeatherMetrics): string => {
                             // Only show source colors on the live/current card (index 0)
                             // All forecast cards should be white since they're all from StormGlass
                             if (!cardIsLive) return 'text-white';
@@ -943,7 +944,7 @@ const HeroSlideComponent = ({
                                                                         key={id}
                                                                         className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass} shadow-lg border ${themeClass} ${justifyClass}`}
                                                                     >
-                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as any).sources : undefined, isCompact)}
+                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact)}
                                                                     </div>
                                                                 )
                                                             })}
@@ -997,7 +998,7 @@ const HeroSlideComponent = ({
                                                                     key={id}
                                                                     className={`bg-white/[0.06] backdrop-blur-sm rounded-xl p-2 ${t.border.default} flex flex-col justify-center ${justifyClass}`}
                                                                 >
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as any).sources : undefined, isCompact)}
+                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact)}
                                                                 </div>
                                                             );
                                                         });

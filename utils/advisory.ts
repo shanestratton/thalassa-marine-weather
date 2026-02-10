@@ -1,5 +1,5 @@
 
-import { WeatherMetrics, VesselProfile, HourlyForecast, ForecastDay, NotificationPreferences, LockerItem } from '../types';
+import { WeatherMetrics, VesselProfile, HourlyForecast, ForecastDay, NotificationPreferences, LockerItem, Tide } from '../types';
 import { expandCompassDirection } from './format';
 import { calculateApparentTemp } from './math';
 
@@ -9,7 +9,7 @@ export const generateTacticalAdvice = (
     isLandlocked: boolean = false,
     locationName: string = "Current Location",
     vessel?: VesselProfile,
-    tides?: any[], // Using any[] to avoid circular dependency issues if strict types aren't handy
+    tides?: Tide[],
     sunsetTime?: string
 ): string => {
     const wind = metrics.windSpeed || 0;
@@ -26,7 +26,7 @@ export const generateTacticalAdvice = (
     if (tides && tides.length > 0) {
         const nextTide = tides.find(t => new Date(t.time) > now);
         if (nextTide) {
-            const isHigh = nextTide.type === 'high';
+            const isHigh = nextTide.type === 'High';
             const timeDiff = (new Date(nextTide.time).getTime() - now.getTime()) / 3600000;
             const hours = Math.floor(timeDiff);
             const mins = Math.round((timeDiff - hours) * 60);
@@ -68,7 +68,7 @@ export const generateTacticalAdvice = (
 
         if (tides && vessel.draft) {
             const nextTide = tides.find(t => new Date(t.time) > now);
-            if (nextTide && nextTide.type === 'low' && vessel.draft > 2) {
+            if (nextTide && nextTide.type === 'Low' && vessel.draft > 2) {
                 vesselStatus += `Depth Alert: Low tide approaching. Keep a sharp watch on sounder given your ${vessel.draft}ft draft. `;
             }
         }

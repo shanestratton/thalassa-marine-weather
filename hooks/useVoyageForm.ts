@@ -6,6 +6,7 @@ import { useWeather } from '../context/WeatherContext';
 import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
+import { getErrorMessage } from '../utils/logger';
 
 export const LOADING_PHASES = [
     "Querying Hydrographic Data...",
@@ -59,7 +60,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
     // Loading Animation Loop
     useEffect(() => {
-        let interval: any;
+        let interval: ReturnType<typeof setInterval> | undefined;
         if (loading) {
             setLoadingStep(0);
             interval = setInterval(() => {
@@ -105,7 +106,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setDeepReport(null);
         try {
             // ENHANCED INTELLIGENCE: Try to get weather context for the origin
-            let weatherContext = null;
+            let weatherContext: Record<string, unknown> | undefined = undefined;
             try {
                 // Check if origin contains coordinates (e.g. "WP 32.5, -117.2" or just raw coords)
                 const coordMatch = fmtOrigin.match(/([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)/);
@@ -120,7 +121,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         weatherContext = {
                             current: wx.current,
                             tides: wx.tides?.slice(0, 4), // Next 4 tide events
-                            forecastSample: wx.hourly?.slice(0, 24).map((h: any) => ({ // First 24h
+                            forecastSample: wx.hourly?.slice(0, 24).map((h) => ({ // First 24h
                                 time: h.time,
                                 wind: h.windSpeed,
                                 gust: h.windGust,
@@ -136,8 +137,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const { fetchVoyagePlan } = await import('../services/geminiService');
             const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
             saveVoyagePlan(result);
-        } catch (err: any) {
-            setError(err.message || 'Calculation Systems Failure');
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || 'Calculation Systems Failure');
         } finally {
             setLoading(false);
         }
@@ -150,7 +151,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const { fetchDeepVoyageAnalysis } = await import('../services/geminiService');
             const report = await fetchDeepVoyageAnalysis(voyagePlan, vessel);
             setDeepReport(report);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError('Deep analysis unavailable. Please retry.');
         } finally {
             setAnalyzingDeep(false);

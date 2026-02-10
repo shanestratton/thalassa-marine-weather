@@ -122,8 +122,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                     </div>
 
                     {/* Multi-Source Badge — tappable */}
-                    <div
+                    <button
                         onClick={() => setShowInfoModal(true)}
+                        aria-label="View data sources"
                         className="px-2 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider bg-black/40 border-white/20 flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
                     >
                         <RadioTowerIcon className="w-2.5 h-2.5 shrink-0 text-white/70" />
@@ -144,7 +145,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                 <span className="text-amber-400 font-bold">SG</span>
                             )}
                         </div>
-                    </div>
+                    </button>
 
                     {/* Timer Badge */}
                     <div className={`px-1.5 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
@@ -158,6 +159,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                 <div
                     className="fixed inset-0 z-[9999] flex items-center justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md p-4"
                     onClick={() => setShowInfoModal(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Data sources details"
                 >
                     <div
                         className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl overflow-hidden"
@@ -171,6 +175,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                             </div>
                             <button
                                 onClick={() => setShowInfoModal(false)}
+                                aria-label="Close data sources"
                                 className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                             >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

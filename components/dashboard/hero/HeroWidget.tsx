@@ -2,11 +2,12 @@ import React from 'react';
 import { t } from '../../../theme';
 import { WindIcon, WaveIcon, CompassIcon, DropletIcon, GaugeIcon, CloudIcon, RainIcon, SunIcon, EyeIcon, ClockIcon, SunriseIcon, SunsetIcon, ThermometerIcon, MinusIcon, ArrowUpIcon, ArrowDownIcon } from '../../Icons';
 import { UnitPreferences, WeatherMetrics } from '../../../types';
+import { CardDisplayValues } from './types';
 
 interface HeroWidgetProps {
     id: string;
     data: WeatherMetrics;
-    values: any;
+    values: CardDisplayValues;
     units: UnitPreferences;
     isLive: boolean;
     trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>;

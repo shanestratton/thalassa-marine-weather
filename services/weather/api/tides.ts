@@ -12,7 +12,16 @@ import { getNavigationMode, applyTideOffsets, resolveTideFetchSource, ALL_STATIO
 
 import { fetchWorldTides } from './worldtides';
 
-export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides: Tide[], guiDetails?: any }> => {
+/** Tide station GUI metadata for source provenance display */
+export interface TideGUIDetails {
+    stationName: string;
+    isSecondary: boolean;
+    referenceStation?: string;
+    timeOffsetHigh?: number;
+    timeOffsetLow?: number;
+}
+
+export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides: Tide[], guiDetails?: TideGUIDetails }> => {
     // 1. Check Navigation Mode
     const mode = getNavigationMode(lat, lon);
     if (mode.mode === 'OFFSHORE') return {
@@ -139,7 +148,7 @@ export const fetchSeaLevels = async (lat: number, lon: number): Promise<Partial<
     }
 
     if (data && data.data) {
-        return data.data.map((item: any) => ({
+        return data.data.map((item: { time: string; sg: number }) => ({
             time: item.time,
             sg: item.sg
         }));

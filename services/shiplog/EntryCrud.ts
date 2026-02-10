@@ -146,7 +146,7 @@ export async function importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise
             id: crypto.randomUUID(),
             userId: user.id,
             voyageId,
-            source: (entry as any).source || 'gpx_import',
+            source: ('source' in entry ? (entry as Partial<ShipLogEntry> & { source?: string }).source : undefined) || 'gpx_import',
             distanceNM: entry.distanceNM || 0,
             cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
             speedKts: entry.speedKts || 0,

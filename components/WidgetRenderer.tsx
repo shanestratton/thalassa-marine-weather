@@ -7,7 +7,8 @@ const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m 
 const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.MapWidget })));
 import { BeaufortWidget, DetailedMetricsWidget } from './dashboard/WeatherGrid';
 import { TideWidget, SunMoonWidget, VesselWidget, VesselStatusWidget } from './dashboard/TideAndVessel';
-import { UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, ForecastDay, Tide, TidePoint, ChartDataPoint, LockerItem } from '../types';
+import { UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, ForecastDay, Tide, TidePoint, ChartDataPoint, LockerItem, UserSettings, MarineWeatherReport } from '../types';
+import { TideGUIDetails } from '../services/weather/api/tides';
 // Export Context Value
 export const DashboardWidgetContext = React.createContext<DashboardWidgetContextType | null>(null);
 
@@ -25,7 +26,7 @@ export interface DashboardWidgetContextType {
     modelUsed?: string;
     isLandlocked?: boolean;
     lat?: number; // Added for Southern Hemi Moon Logic
-    tideGUIDetails?: any; // Added for Station Overlay
+    tideGUIDetails?: TideGUIDetails;
 
     // Settings
     units: UnitPreferences;
@@ -48,8 +49,8 @@ export interface DashboardWidgetContextType {
     onOpenMap: () => void;
 
     // Access to full settings object if needed for deep nested props
-    settings: any;
-    weatherData: any;
+    settings: Partial<UserSettings>;
+    weatherData?: MarineWeatherReport;
 }
 
 type WidgetRenderFn = (ctx: DashboardWidgetContextType) => React.ReactNode;

@@ -4,7 +4,7 @@ import { getOpenMeteoKey } from './keys';
 export interface MarineProximityResult {
     hasMarineData: boolean;
     nearestWaterDistanceKm: number; // 0 if on water, otherwise approx distance
-    data?: any; // The valid marine data found (if any)
+    data?: unknown; // The valid marine data found (if any)
 }
 
 /**
@@ -74,7 +74,7 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
         // 3. Check for ANY valid data
         for (const r of results) {
             // Check if ANY day in forecast has valid wave data
-            const hasWaves = r.daily?.wave_height_max?.some((h: any) => h !== null && h > 0);
+            const hasWaves = r.daily?.wave_height_max?.some((h: number | null) => h !== null && h > 0);
             if (hasWaves) {
                 // Found valid water!
 

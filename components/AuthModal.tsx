@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { t } from '../theme';
 import { supabase } from '../services/supabase';
+import { getErrorMessage } from '../utils/logger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon, PhoneIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 
@@ -103,8 +104,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             setStep('otp');
             setResendCooldown(60);
-        } catch (err: any) {
-            setError(err.message || "Failed to send code. Please try again.");
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || "Failed to send code. Please try again.");
         } finally {
             setLoading(false);
         }
@@ -149,8 +150,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setStep('success');
                 setTimeout(() => onClose(), 1500);
             }
-        } catch (err: any) {
-            setError(err.message || "Invalid or expired code. Please try again.");
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || "Invalid or expired code. Please try again.");
             setOtp('');
         } finally {
             setLoading(false);
@@ -181,8 +182,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             setResendCooldown(60);
             setOtp('');
-        } catch (err: any) {
-            setError(err.message || "Failed to resend code.");
+        } catch (err: unknown) {
+            setError(getErrorMessage(err) || "Failed to resend code.");
         } finally {
             setLoading(false);
         }

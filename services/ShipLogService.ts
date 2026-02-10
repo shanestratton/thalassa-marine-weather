@@ -218,7 +218,7 @@ class ShipLogServiceClass {
                 if (entry) {
                 } else {
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 log.error('checkMissedEntries: catch-up entry failed', err);
             }
         }
@@ -531,7 +531,7 @@ class ShipLogServiceClass {
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
-        await this.captureImmediateEntry(previousVoyageId).catch((err: any) => {
+        await this.captureImmediateEntry(previousVoyageId).catch((err: unknown) => {
         });
 
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
@@ -711,7 +711,7 @@ class ShipLogServiceClass {
                     }
                 }
                 return; // Success - stop retrying
-            } catch (gpsError: any) {
+            } catch (gpsError: unknown) {
                 log.warn('retryGpsAndUpdateEntry: GPS retry failed', gpsError);
             }
         }
@@ -985,7 +985,7 @@ class ShipLogServiceClass {
                     cumulativeDistanceNM: entry.cumulativeDistanceNM || 0
                 });
             }
-        } catch (gpsError: any) {
+        } catch (gpsError: unknown) {
             log.warn('addManualEntry: GPS failed, using placeholder', gpsError);
         }
 
@@ -1147,6 +1147,7 @@ class ShipLogServiceClass {
             const { value } = await Preferences.get({ key: LAST_POSITION_KEY });
             return value ? JSON.parse(value) : null;
         } catch {
+            /* Preferences read/parse failure — null signals no cached position */
             return null;
         }
     }

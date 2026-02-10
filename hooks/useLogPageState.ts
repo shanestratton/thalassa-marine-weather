@@ -16,8 +16,9 @@ import { useSettings } from '../context/SettingsContext';
 import { exportToCSV, sharePDF } from '../utils/logExport';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { exportVoyageAsGPX, shareGPXFile } from '../services/gpxService';
-import { TrackSharingService } from '../services/TrackSharingService';
+import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
 import { LogFilters } from '../components/LogFilterToolbar';
+import { getErrorMessage } from '../utils/logger';
 
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 
@@ -226,6 +227,7 @@ export function useLogPageState() {
                 await ShipLogService.initialize();
                 await loadData();
             } catch {
+                /* Init or load failure — stop spinner to show empty state */
                 dispatch({ type: 'DONE_LOADING' });
             }
         })();
@@ -259,8 +261,8 @@ export function useLogPageState() {
             await ShipLogService.startTracking();
             dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
             await loadData();
-        } catch (error: any) {
-            alert(error.message || 'Failed to start tracking');
+        } catch (error: unknown) {
+            alert(getErrorMessage(error) || 'Failed to start tracking');
         }
     }, [state.entries, loadData]);
 
@@ -400,7 +402,7 @@ export function useLogPageState() {
                 title,
                 description,
                 tags: [],
-                category: category as any,
+                category: category as TrackCategory,
                 region,
             });
             if (result) {
@@ -408,8 +410,8 @@ export function useLogPageState() {
             } else {
                 toast.error('Failed to share track');
             }
-        } catch (err: any) {
-            toast.error(err.message || 'Share failed');
+        } catch (err: unknown) {
+            toast.error(getErrorMessage(err) || 'Share failed');
         }
     }, [state.selectedVoyageId, state.entries, toast]);
 

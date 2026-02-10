@@ -18,7 +18,7 @@ import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
 import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 
 import { DashboardWidgetContext } from './WidgetRenderer';
-import { UnitPreferences } from '../types';
+import { UnitPreferences, WeatherMetrics, SourcedWeatherMetrics } from '../types';
 
 interface DashboardProps {
     onOpenMap: () => void;
@@ -112,7 +112,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, []);
 
-    const handleActiveDataChange = useCallback((newData: any) => {
+    const handleActiveDataChange = useCallback((newData: SourcedWeatherMetrics) => {
         activeDayDataRef.current = newData;
         if (!rafIdRef.current) {
             rafIdRef.current = requestAnimationFrame(() => {
@@ -141,10 +141,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     }, [activeDay, activeHour, data.forecast]);
 
     const widgetSources = useMemo(() => {
-        return (activeDay === 0 && activeHour === 0) ? (current as any).sources : (activeDayData as any).sources;
+        return (activeDay === 0 && activeHour === 0) ? current.sources : activeDayData.sources;
     }, [activeDay, activeHour, current, activeDayData]);
 
-    const currentSources = useMemo(() => (current as any).sources, [current]);
+    const currentSources = useMemo(() => current.sources, [current]);
 
     // Memoize nextUpdate — compute the next scheduled wall-clock refresh time
     const nextUpdateTime = useMemo(() => {
@@ -194,11 +194,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         let beacon = '';
         let buoy = '';
         if (currentSources) {
-            Object.values(currentSources).forEach((src: any) => {
-                if (src?.source === 'beacon' && src?.sourceName && !beacon) {
-                    beacon = src.sourceName;
-                } else if (src?.source === 'buoy' && src?.sourceName && !buoy) {
-                    buoy = src.sourceName;
+            Object.values(currentSources).forEach((src) => {
+                const s = src as { source?: string; sourceName?: string };
+                if (s?.source === 'beacon' && s?.sourceName && !beacon) {
+                    beacon = s.sourceName;
+                } else if (s?.source === 'buoy' && s?.sourceName && !buoy) {
+                    buoy = s.sourceName;
                 }
             });
         }
@@ -353,7 +354,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     dateLabel={getDateLabel(activeDay)}
                                     timeLabel={getTimeLabel()}
                                     timeZone={data.timeZone}
-                                    sources={(dynamicHeaderEnabled ? activeDayData : current as any).sources}
+                                    sources={(dynamicHeaderEnabled ? activeDayData : current).sources}
                                     isEssentialMode={isEssentialMode}
                                     onToggleMode={() => updateSettings({ dashboardMode: isEssentialMode ? 'full' : 'essential' })}
                                 />
