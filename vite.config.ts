@@ -83,6 +83,8 @@ export default defineConfig(({ mode }) => {
             'vendor-pdf': ['html2canvas', 'jspdf'],
             'vendor-supabase': ['@supabase/supabase-js'],
             'vendor-motion': ['framer-motion'],
+            'vendor-capacitor': ['@capacitor/preferences', '@capacitor/share', '@capacitor/filesystem', '@capacitor/app'],
+            'vendor-react': ['react', 'react-dom'],
           }
         }
       }

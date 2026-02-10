@@ -17,10 +17,6 @@ export { fetchActiveBuoys } from './api/buoys';
 // Alias for compatibility
 export const fetchStormglassData = fetchStormGlassWeather;
 
-
-
-
-
 // --- MAIN ORCHESTRATORS ---
 
 /**
@@ -100,7 +96,6 @@ export const fetchPrecisionWeather = async (
     if (coords) {
         lat = coords.lat;
         lon = coords.lon;
-        name = location;
         name = location;
 
         // RETRY GEOCODING if name is generic (WP ...)
