@@ -1,11 +1,11 @@
 /**
  * Log Page - Ship's GPS-based Log
- * Displays automatic voyage tracking with 15-minute GPS intervals
+ * 
+ * Pure rendering shell — all state management lives in useLogPageState hook.
+ * This file is ONLY responsible for JSX layout.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ShipLogService } from '../services/ShipLogService';
-import { ShipLogEntry } from '../types';
+import React from 'react';
 import {
     PlayIcon,
     PauseIcon,
@@ -14,20 +14,17 @@ import {
     WindIcon
 } from '../components/Icons';
 import { AddEntryModal } from '../components/AddEntryModal';
-import { exportToCSV, sharePDF } from '../utils/logExport';
 import { useToast } from '../components/Toast';
 import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
-import { LogFilterToolbar, LogFilters } from '../components/LogFilterToolbar';
 import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
 import { VoyageHeader } from '../components/VoyageHeader';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
-import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
-import { useSettings } from '../context/SettingsContext';
-import { exportVoyageAsGPX, shareGPXFile } from '../services/gpxService';
-import { TrackSharingService, SharedTrackInput } from '../services/TrackSharingService';
+import { groupEntriesByDate } from '../utils/voyageData';
+import { useLogPageState } from '../hooks/useLogPageState';
+import { ShipLogEntry } from '../types';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -44,361 +41,53 @@ const AnchorIcon = ({ className }: { className?: string }) => (
 
 
 export const LogPage: React.FC = () => {
-    const [entries, setEntries] = useState<ShipLogEntry[]>([]);
-    const [isTracking, setIsTracking] = useState(false);
-    const [isPaused, setIsPaused] = useState(false);
-    const [isRapidMode, setIsRapidMode] = useState(false);
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [editEntry, setEditEntry] = useState<ShipLogEntry | null>(null);
-    const [showTrackMap, setShowTrackMap] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [showStats, setShowStats] = useState(false);
-    const [filters, setFilters] = useState<LogFilters>({
-        types: ['auto', 'manual', 'waypoint'],
-        searchQuery: ''
-    });
-
-    // Voyage management state
-    const [expandedVoyages, setExpandedVoyages] = useState<Set<string>>(new Set());
-    const [deleteVoyageId, setDeleteVoyageId] = useState<string | null>(null);
-    const [currentVoyageId, setCurrentVoyageId] = useState<string | undefined>();
-    const [showVoyageChoiceDialog, setShowVoyageChoiceDialog] = useState(false);
-    const [lastVoyageId, setLastVoyageId] = useState<string | null>(null);
-    const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
-    const [showStopVoyageDialog, setShowStopVoyageDialog] = useState(false);
-    const [actionSheet, setActionSheet] = useState<'export' | 'share' | 'stats' | null>(null);
-    const [gpsStatus, setGpsStatus] = useState<'locked' | 'stale' | 'none'>('none');
-    const [showCommunityBrowser, setShowCommunityBrowser] = useState(false);
+    const {
+        state,
+        dispatch,
+        settings,
+        // Tracking
+        handleStartTracking,
+        startTrackingWithNewVoyage,
+        continueLastVoyage,
+        handlePauseTracking,
+        handleToggleRapidMode,
+        handleStopTracking,
+        confirmStopVoyage,
+        // Entry CRUD
+        handleDeleteEntry,
+        handleEditEntry,
+        handleSaveEdit,
+        loadData,
+        // Voyage management
+        toggleVoyage,
+        handleDeleteVoyageRequest,
+        handleConfirmDeleteVoyage,
+        // Export / share
+        handleExportCSV,
+        handleShare,
+        handleExportThenDelete,
+        handleExportGPX,
+        handleShareToCommunity,
+        // Derived state
+        filteredEntries,
+        groupedEntries,
+        entryCounts,
+        voyageGroups,
+        hasNonDeviceEntries,
+        totalDistance,
+        avgSpeed,
+    } = useLogPageState();
 
     const toast = useToast();
-    const { settings } = useSettings();
 
-    // Load tracking status and entries
-    useEffect(() => {
-        initializeService();
-    }, []);
-
-    const initializeService = async () => {
-        try {
-            await ShipLogService.initialize();
-            await loadData();
-        } catch (error) {
-            setLoading(false);
-        }
-    };
-
-    const loadData = async () => {
-        const status = ShipLogService.getTrackingStatus();
-        setIsTracking(status.isTracking);
-        setIsPaused(status.isPaused);
-        setIsRapidMode(status.isRapidMode);
-
-        // Get current voyage ID if tracking
-        const voyageId = ShipLogService.getCurrentVoyageId();
-        setCurrentVoyageId(voyageId);
-
-        // Expand current voyage by default
-        if (voyageId) {
-            setExpandedVoyages(new Set([voyageId]));
-        }
-
-        // Try to get entries from database first
-        let logs = await ShipLogService.getLogEntries(100);
-
-        // If no database entries, show offline queue
-        if (logs.length === 0) {
-            const offlineEntries = await ShipLogService.getOfflineEntries();
-            if (offlineEntries.length > 0) {
-                logs = offlineEntries;
-            }
-        }
-
-        setEntries(logs);
-        setLoading(false);
-    };
-
-    // GPS STATUS POLLING — check GPS health every 5 seconds while tracking
-    useEffect(() => {
-        if (!isTracking) {
-            setGpsStatus('none');
-            return;
-        }
-        const poll = () => setGpsStatus(ShipLogService.getGpsStatus());
-        poll(); // immediate check
-        const id = setInterval(poll, 5000);
-        return () => clearInterval(id);
-    }, [isTracking]);
-
-    const handleStartTracking = async () => {
-        try {
-            // Calculate voyage groups to check if any voyages exist
-            const voyages = groupEntriesByVoyage(entries);
-
-            // Only ask about continuing if there are existing voyages
-            if (voyages.length > 0) {
-                // Get the most recent voyage ID (voyages are sorted newest first)
-                const recentVoyageId = voyages[0]?.voyageId;
-                if (recentVoyageId) {
-                    setLastVoyageId(recentVoyageId);
-                    setShowVoyageChoiceDialog(true);
-                    return;
-                }
-            }
-            // No existing voyages, start new directly
-            await startTrackingWithNewVoyage();
-        } catch (error: any) {
-            alert(error.message || 'Failed to start tracking');
-        }
-    };
-
-    const startTrackingWithNewVoyage = async () => {
-        await ShipLogService.startTracking();
-        setIsTracking(true);
-        setIsPaused(false);
-        await loadData();
-    };
-
-    const continueLastVoyage = async () => {
-        await ShipLogService.startTracking(false, lastVoyageId || undefined);
-        setIsTracking(true);
-        setIsPaused(false);
-        setShowVoyageChoiceDialog(false);
-        await loadData();
-    };
-
-    const handlePauseTracking = async () => {
-        await ShipLogService.pauseTracking();
-        setIsTracking(false);
-        setIsPaused(true);
-        setIsRapidMode(false);
-    };
-
-    const handleToggleRapidMode = async () => {
-        const newState = !isRapidMode;
-        await ShipLogService.setRapidMode(newState);
-        setIsRapidMode(newState);
-    };
-
-    const handleStopTracking = () => {
-        setShowStopVoyageDialog(true);
-    };
-
-    const confirmStopVoyage = async () => {
-        setShowStopVoyageDialog(false);
-        await ShipLogService.stopTracking();
-        setIsTracking(false);
-        setIsPaused(false);
-        await loadData();
-    };
-
-
-
-    const handleDeleteEntry = async (entryId: string) => {
-        if (confirm('Delete this entry?')) {
-            // Delete from database permanently
-            const success = await ShipLogService.deleteEntry(entryId);
-            if (success) {
-                // Remove from local state
-                setEntries(prev => prev.filter(e => e.id !== entryId));
-                // Silent deletion - no toast
-            } else {
-                toast.error('Failed to delete entry');
-            }
-        }
-    };
-
-    const handleEditEntry = (entry: ShipLogEntry) => {
-        setEditEntry(entry);
-    };
-
-    const handleSaveEdit = (entryId: string, updates: { notes?: string; waypointName?: string }) => {
-        setEntries(prev => prev.map(e =>
-            e.id === entryId ? { ...e, ...updates } : e
-        ));
-        toast.success('Entry updated');
-    };
-
-    // Voyage management handlers
-    const toggleVoyage = (voyageId: string) => {
-        setExpandedVoyages(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(voyageId)) {
-                newSet.delete(voyageId);
-            } else {
-                newSet.add(voyageId);
-            }
-            return newSet;
-        });
-    };
-
-    const handleDeleteVoyageRequest = (voyageId: string) => {
-        setDeleteVoyageId(voyageId);
-    };
-
-    const handleConfirmDeleteVoyage = async () => {
-        if (!deleteVoyageId) return;
-
-        const success = await ShipLogService.deleteVoyage(deleteVoyageId);
-        if (success) {
-            setEntries(prev => prev.filter(e => e.voyageId !== deleteVoyageId));
-            // Silent delete - no toast needed
-        } else {
-            toast.error('Failed to delete voyage');
-        }
-        setDeleteVoyageId(null);
-    };
-
-    const handleExportThenDelete = async () => {
-        // Export first, then show delete confirmation again
-        await handleShare();
-        // Keep modal open - user can click delete afterward
-    };
-
-    // Group entries by voyage
-    const groupEntriesByVoyage = (entries: ShipLogEntry[]) => {
-        const voyageMap = new Map<string, ShipLogEntry[]>();
-
-        entries.forEach(entry => {
-            const voyageId = entry.voyageId || 'default_voyage';
-            if (!voyageMap.has(voyageId)) {
-                voyageMap.set(voyageId, []);
-            }
-            voyageMap.get(voyageId)!.push(entry);
-        });
-
-        // Sort voyages by most recent first
-        return Array.from(voyageMap.entries())
-            .map(([voyageId, entries]) => ({
-                voyageId,
-                entries: entries.sort((a, b) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                )
-            }))
-            .sort((a, b) => {
-                const aTime = new Date(a.entries[0]?.timestamp || 0).getTime();
-                const bTime = new Date(b.entries[0]?.timestamp || 0).getTime();
-                return bTime - aTime;
-            });
-    };
-
-    const voyageGroups = useMemo(() => groupEntriesByVoyage(entries), [entries]);
-
-    const handleExportCSV = () => {
-        exportToCSV(entries, 'ships_log.csv', {
-            onProgress: () => { },
-            onSuccess: () => {
-                // Silent success
-            },
-            onError: (err) => {
-                toast.error(err);
-            }
-        });
-    };
-
-    const handleShare = async () => {
-        await sharePDF(entries, {
-            onProgress: () => { },
-            onSuccess: () => {
-                // Silent success
-            },
-            onError: (err) => {
-                toast.error(err);
-            }
-        }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
-    };
-
-    // GPX export — selected voyage or all (native share sheet)
-    const handleExportGPX = async () => {
-        const targetEntries = selectedVoyageId
-            ? entries.filter(e => e.voyageId === selectedVoyageId)
-            : entries;
-        if (targetEntries.length === 0) return;
-        const voyageName = selectedVoyageId
-            ? `Voyage ${selectedVoyageId.slice(0, 8)}`
-            : 'All Voyages';
-        const gpxXml = exportVoyageAsGPX(targetEntries, voyageName, settings.vessel?.name);
-        setActionSheet(null);
-        await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
-    };
-
-    // Community share — share selected voyage track
-    const handleShareToCommunity = async () => {
-        setActionSheet(null);
-        const targetEntries = selectedVoyageId
-            ? entries.filter(e => e.voyageId === selectedVoyageId)
-            : entries;
-        if (targetEntries.length === 0) {
-            toast.error('No entries to share');
-            return;
-        }
-        // For now use a simple prompt-based flow
-        const title = prompt('Track title (e.g. "Moreton Bay Anchorage")');
-        if (!title) return;
-        const description = prompt('Short description') || '';
-        const category = prompt('Category: anchorage, port_entry, bar_crossing, reef_passage, coastal, offshore, walking, driving') || 'coastal';
-        const region = prompt('Region (e.g. "Queensland, AU")') || '';
-
-        try {
-            const result = await TrackSharingService.shareTrack(targetEntries, {
-                title,
-                description,
-                tags: [],
-                category: category as any,
-                region,
-            });
-            if (result) {
-                toast.success('Track shared to community!');
-            } else {
-                toast.error('Failed to share track');
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Share failed');
-        }
-    };
-
-    // Apply filters
-    const filteredEntries = React.useMemo(() => {
-        let filtered = entries;
-
-        // Filter by type
-        filtered = filterEntriesByType(filtered, filters.types);
-
-        // Search
-        filtered = searchEntries(filtered, filters.searchQuery);
-
-        return filtered;
-    }, [entries, filters]);
-
-    // Group by date - with newest first for display
-    const groupedEntries = React.useMemo(() => {
-        // Sort entries newest first for display
-        const newestFirst = [...filteredEntries].sort((a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-        return groupEntriesByDate(newestFirst);
-    }, [filteredEntries]);
-
-    // Calculate entry counts by type
-    const entryCounts = React.useMemo(() => ({
-        auto: entries.filter(e => e.entryType === 'auto').length,
-        manual: entries.filter(e => e.entryType === 'manual').length,
-        waypoint: entries.filter(e => e.entryType === 'waypoint').length
-    }), [entries]);
-
-    // PROVENANCE GUARD: Check if selected entries contain non-device (imported/community) data
-    // These entries must NOT be exportable as an "Official Deck Log" PDF
-    const hasNonDeviceEntries = React.useMemo(() => {
-        const targetEntries = selectedVoyageId
-            ? entries.filter(e => e.voyageId === selectedVoyageId)
-            : entries;
-        return targetEntries.some(e => e.source && e.source !== 'device');
-    }, [entries, selectedVoyageId]);
-
-    // Calculate stats
-    const totalDistance = filteredEntries.length > 0 ? filteredEntries[0].cumulativeDistanceNM || 0 : 0;
-    const avgSpeed = filteredEntries.length > 0
-        ? filteredEntries.filter(e => e.speedKts).reduce((sum, e) => sum + (e.speedKts || 0), 0) / filteredEntries.filter(e => e.speedKts).length
-        : 0;
+    // Destructure frequently used state for JSX readability
+    const {
+        entries, isTracking, isPaused, isRapidMode, loading,
+        showAddModal, showTrackMap, showStats, showStopVoyageDialog,
+        showVoyageChoiceDialog, showCommunityBrowser, actionSheet,
+        editEntry, selectedVoyageId, deleteVoyageId, currentVoyageId,
+        expandedVoyages, gpsStatus, filters,
+    } = state;
 
     if (loading) {
         return (
@@ -417,7 +106,7 @@ export const LogPage: React.FC = () => {
                     <div className="flex items-center justify-between p-4 border-b border-white/10">
                         <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
                         <button
-                            onClick={() => setShowStats(false)}
+                            onClick={() => dispatch({ type: 'SHOW_STATS', show: false })}
                             className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                         >
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -523,7 +212,7 @@ export const LogPage: React.FC = () => {
                         {/* Action Bar — 4 buttons */}
                         <div className="grid grid-cols-4 gap-2 mb-2">
                             <button
-                                onClick={() => setActionSheet('export')}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' })}
                                 disabled={entries.length === 0}
                                 className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
                                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
@@ -536,7 +225,7 @@ export const LogPage: React.FC = () => {
                                 Export
                             </button>
                             <button
-                                onClick={() => setActionSheet('share')}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
                                 disabled={entries.length === 0}
                                 className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
                                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
@@ -549,7 +238,7 @@ export const LogPage: React.FC = () => {
                                 Share
                             </button>
                             <button
-                                onClick={() => setActionSheet('stats')}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' })}
                                 disabled={entries.length === 0}
                                 className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
                                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
@@ -562,7 +251,7 @@ export const LogPage: React.FC = () => {
                                 Stats
                             </button>
                             <button
-                                onClick={() => setShowTrackMap(true)}
+                                onClick={() => dispatch({ type: 'SHOW_TRACK_MAP', show: true })}
                                 disabled={entries.length === 0}
                                 className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
                                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
@@ -584,7 +273,7 @@ export const LogPage: React.FC = () => {
                                     type="text"
                                     placeholder="Search..."
                                     value={filters.searchQuery}
-                                    onChange={(e) => setFilters({ ...filters, searchQuery: e.target.value })}
+                                    onChange={(e) => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: e.target.value } })}
                                     className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                                 />
                                 <svg
@@ -597,7 +286,7 @@ export const LogPage: React.FC = () => {
                                 </svg>
                                 {filters.searchQuery && (
                                     <button
-                                        onClick={() => setFilters({ ...filters, searchQuery: '' })}
+                                        onClick={() => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: '' } })}
                                         className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                                     >
                                         ×
@@ -612,7 +301,7 @@ export const LogPage: React.FC = () => {
                                         const newTypes = filters.types.includes('auto')
                                             ? filters.types.filter(t => t !== 'auto')
                                             : [...filters.types, 'auto'] as ('auto' | 'manual' | 'waypoint')[];
-                                        setFilters({ ...filters, types: newTypes });
+                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('auto')
                                         ? 'bg-green-500/30 border-green-500/60 text-green-400'
@@ -628,7 +317,7 @@ export const LogPage: React.FC = () => {
                                         const newTypes = filters.types.includes('manual')
                                             ? filters.types.filter(t => t !== 'manual')
                                             : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
-                                        setFilters({ ...filters, types: newTypes });
+                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
                                         ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
@@ -644,7 +333,7 @@ export const LogPage: React.FC = () => {
                                         const newTypes = filters.types.includes('waypoint')
                                             ? filters.types.filter(t => t !== 'waypoint')
                                             : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
-                                        setFilters({ ...filters, types: newTypes });
+                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
                                     }}
                                     className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
                                         ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
@@ -689,7 +378,7 @@ export const LogPage: React.FC = () => {
                                                     isSelected={selectedVoyageId === voyage.voyageId || (!selectedVoyageId && index === 0)}
                                                     isExpanded={isExpanded}
                                                     onToggle={() => toggleVoyage(voyage.voyageId)}
-                                                    onSelect={() => setSelectedVoyageId(voyage.voyageId)}
+                                                    onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })}
                                                     onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)}
                                                 />
 
@@ -721,7 +410,7 @@ export const LogPage: React.FC = () => {
             {/* Add Manual Entry Button - FIXED at bottom using absolute positioning */}
             <div className="absolute bottom-0 left-0 right-0 z-20 p-4 pt-2 border-t border-white/10 bg-slate-900">
                 <button
-                    onClick={() => isTracking && setShowAddModal(true)}
+                    onClick={() => isTracking && dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
                     disabled={!isTracking}
                     className={`w-full px-4 py-3 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 ${isTracking
                         ? 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -736,7 +425,7 @@ export const LogPage: React.FC = () => {
             {/* Manual Entry Modal */}
             <AddEntryModal
                 isOpen={showAddModal}
-                onClose={() => setShowAddModal(false)}
+                onClose={() => dispatch({ type: 'SHOW_ADD_MODAL', show: false })}
                 onSuccess={loadData}
                 selectedVoyageId={selectedVoyageId}
             />
@@ -745,23 +434,23 @@ export const LogPage: React.FC = () => {
             <EditEntryModal
                 isOpen={editEntry !== null}
                 entry={editEntry}
-                onClose={() => setEditEntry(null)}
+                onClose={() => dispatch({ type: 'SET_EDIT_ENTRY', entry: null })}
                 onSave={handleSaveEdit}
             />
 
             {/* Full Track Map Viewer — shows selected voyage or all */}
             <TrackMapViewer
                 isOpen={showTrackMap}
-                onClose={() => setShowTrackMap(false)}
+                onClose={() => dispatch({ type: 'SHOW_TRACK_MAP', show: false })}
                 entries={selectedVoyageId ? entries.filter(e => e.voyageId === selectedVoyageId) : entries}
             />
 
             {/* Community Track Browser */}
             <CommunityTrackBrowser
                 isOpen={showCommunityBrowser}
-                onClose={() => setShowCommunityBrowser(false)}
+                onClose={() => dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false })}
                 onImportComplete={loadData}
-                onLocalImport={() => { setShowCommunityBrowser(false); }}
+                onLocalImport={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false }); }}
             />
 
             {/* ========== ACTION SHEET MODALS ========== */}
@@ -781,7 +470,7 @@ export const LogPage: React.FC = () => {
                                 <h2 className="text-lg font-bold text-white">Export Voyage</h2>
                             </div>
                             <button
-                                onClick={() => setActionSheet(null)}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -799,7 +488,7 @@ export const LogPage: React.FC = () => {
                         <div className="space-y-4 max-w-lg mx-auto w-full">
                             {/* PDF Card — disabled for imported/community tracks (provenance) */}
                             <button
-                                onClick={() => { if (!hasNonDeviceEntries) { handleShare(); setActionSheet(null); } }}
+                                onClick={() => { if (!hasNonDeviceEntries) { handleShare(); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); } }}
                                 disabled={hasNonDeviceEntries}
                                 className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
                                     ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
@@ -862,7 +551,7 @@ export const LogPage: React.FC = () => {
                                 <h2 className="text-lg font-bold text-white">Community Sharing</h2>
                             </div>
                             <button
-                                onClick={() => setActionSheet(null)}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -896,7 +585,7 @@ export const LogPage: React.FC = () => {
 
                             {/* Browse Community Card */}
                             <button
-                                onClick={() => { setShowCommunityBrowser(true); setActionSheet(null); }}
+                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
                                 className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
                             >
                                 <div className="w-14 h-14 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
@@ -931,7 +620,7 @@ export const LogPage: React.FC = () => {
                                 <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
                             </div>
                             <button
-                                onClick={() => setActionSheet(null)}
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -946,7 +635,7 @@ export const LogPage: React.FC = () => {
                         <div className="space-y-4 max-w-lg mx-auto w-full">
                             {/* This Voyage Card */}
                             <button
-                                onClick={() => { setShowStats(true); setActionSheet(null); }}
+                                onClick={() => { dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
                                 className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
                             >
                                 <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
@@ -970,7 +659,7 @@ export const LogPage: React.FC = () => {
 
                             {/* All Voyages Card */}
                             <button
-                                onClick={() => { setSelectedVoyageId(null); setShowStats(true); setActionSheet(null); }}
+                                onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: null }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
                                 className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
                             >
                                 <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
@@ -1017,7 +706,7 @@ export const LogPage: React.FC = () => {
 
                             <button
                                 onClick={async () => {
-                                    setShowVoyageChoiceDialog(false);
+                                    dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
                                     await startTrackingWithNewVoyage();
                                 }}
                                 className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
@@ -1029,7 +718,7 @@ export const LogPage: React.FC = () => {
                             </button>
 
                             <button
-                                onClick={() => setShowVoyageChoiceDialog(false)}
+                                onClick={() => dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false })}
                                 className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
                             >
                                 Cancel
@@ -1049,7 +738,7 @@ export const LogPage: React.FC = () => {
                         </p>
                         <div className="flex gap-3">
                             <button
-                                onClick={() => setShowStopVoyageDialog(false)}
+                                onClick={() => dispatch({ type: 'SHOW_STOP_DIALOG', show: false })}
                                 className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
                             >
                                 Cancel
@@ -1076,7 +765,7 @@ export const LogPage: React.FC = () => {
                 const startDate = first ? new Date(first.timestamp) : new Date();
                 const endDate = last ? new Date(last.timestamp) : new Date();
                 const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
-                const totalDistance = Math.max(...voyageEntries.map(e => e.cumulativeDistanceNM || 0), 0);
+                const voyageTotalDistance = Math.max(...voyageEntries.map(e => e.cumulativeDistanceNM || 0), 0);
 
                 const formatLoc = (e: ShipLogEntry | undefined) => {
                     if (!e) return 'Unknown';
@@ -1087,7 +776,7 @@ export const LogPage: React.FC = () => {
                 return (
                     <DeleteVoyageModal
                         isOpen={true}
-                        onClose={() => setDeleteVoyageId(null)}
+                        onClose={() => dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null })}
                         onExportFirst={handleExportThenDelete}
                         onDelete={handleConfirmDeleteVoyage}
                         voyageInfo={{
@@ -1095,7 +784,7 @@ export const LogPage: React.FC = () => {
                             endLocation: formatLoc(last),
                             totalDays,
                             totalEntries: voyageEntries.length,
-                            totalDistance
+                            totalDistance: voyageTotalDistance
                         }}
                     />
                 );
@@ -1118,7 +807,6 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
     const timeStr = timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-    // Entry type colors
     const typeColors = {
         auto: 'bg-green-500/20 text-green-400 border-green-500/30',
         manual: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
@@ -1126,81 +814,39 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
     };
 
     return (
-        <div className="bg-slate-800/50 border border-white/10 rounded-xl p-4 hover:bg-slate-800 transition-colors">
-            {/* Header: Time + Type */}
-            <div className="flex justify-between items-start mb-3">
-                <div>
-                    <div className="text-white font-bold text-lg">{timeStr}</div>
-                    <div className="text-slate-400 text-xs">{dateStr}</div>
-                </div>
-                <span className={`px-2 py-1 rounded-lg text-xs font-bold uppercase border ${typeColors[entry.entryType]}`}>
-                    {entry.entryType}
-                </span>
-            </div>
-
-            {/* Position */}
-            <div className="mb-3">
-                <div className="text-xs text-slate-400 mb-1">Position</div>
-                <div className="text-emerald-400 font-mono font-bold text-base">
-                    {entry.positionFormatted}
+        <div className="bg-slate-800/40 rounded-lg p-3 border border-white/5 mb-2">
+            <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${typeColors[entry.entryType]}`}>
+                        {entry.entryType.toUpperCase()}
+                    </span>
+                    <span className="text-sm text-white">{timeStr}</span>
+                    <span className="text-xs text-slate-500">{dateStr}</span>
                 </div>
             </div>
 
-            {/* Navigation Stats */}
-            {(entry.distanceNM || entry.speedKts || entry.courseDeg !== undefined) && (
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                    {entry.distanceNM !== undefined && (
-                        <div className="bg-slate-900/50 rounded-lg p-2">
-                            <div className="text-[10px] text-slate-400 uppercase">Distance</div>
-                            <div className="text-sm font-bold text-white">{entry.distanceNM.toFixed(1)} NM</div>
-                        </div>
-                    )}
-                    {entry.speedKts !== undefined && (
-                        <div className="bg-slate-900/50 rounded-lg p-2">
-                            <div className="text-[10px] text-slate-400 uppercase">Speed</div>
-                            <div className="text-sm font-bold text-white">{entry.speedKts.toFixed(1)} kts</div>
-                        </div>
-                    )}
-                    {entry.courseDeg !== undefined && (
-                        <div className="bg-slate-900/50 rounded-lg p-2 flex items-center gap-2">
-                            <CompassIcon className="w-4 h-4 text-sky-400" rotation={entry.courseDeg} />
-                            <div>
-                                <div className="text-[10px] text-slate-400 uppercase">Course</div>
-                                <div className="text-sm font-bold text-white">{entry.courseDeg}°</div>
-                            </div>
-                        </div>
-                    )}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center gap-1 text-slate-400">
+                    <CompassIcon className="w-3 h-3" rotation={0} />
+                    {entry.latitude?.toFixed(4)}°, {entry.longitude?.toFixed(4)}°
                 </div>
-            )}
-
-            {/* Weather Snapshot */}
-            {(entry.windSpeed || entry.waveHeight) && (
-                <div className="pt-2 border-t border-white/5 text-xs text-slate-400 flex items-center gap-3">
-                    {entry.windSpeed && (
-                        <span className="flex items-center gap-1">
-                            <WindIcon className="w-3 h-3" />
-                            {entry.windSpeed}kts {entry.windDirection}
-                        </span>
-                    )}
-                    {entry.waveHeight && <span>Seas: {entry.waveHeight.toFixed(1)}m</span>}
-                    {entry.airTemp && <span>Air: {entry.airTemp}°</span>}
-                </div>
-            )}
-
-            {/* Notes */}
-            {entry.notes && (
-                <div className="mt-3 pt-3 border-t border-white/5">
-                    <div className="text-xs text-slate-400 mb-1">Notes</div>
-                    <div className="text-sm text-white italic">"{entry.notes}"</div>
-                </div>
-            )}
-
-            {/* Waypoint Name */}
-            {entry.waypointName && (
-                <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded text-blue-400 text-xs font-bold">
-                    📍 {entry.waypointName}
-                </div>
-            )}
+                {entry.speedKts !== null && (
+                    <div className="flex items-center gap-1 text-slate-400">
+                        <span>Speed: {(entry.speedKts ?? 0).toFixed(1)} kts</span>
+                    </div>
+                )}
+                {entry.windSpeed !== null && entry.windSpeed !== undefined && (
+                    <div className="flex items-center gap-1 text-slate-400">
+                        <WindIcon className="w-3 h-3" />
+                        {entry.windSpeed} kts {entry.windDirection}°
+                    </div>
+                )}
+                {entry.notes && (
+                    <div className="col-span-2 text-slate-300 italic">
+                        {entry.notes}
+                    </div>
+                )}
+            </div>
         </div>
     );
 });
