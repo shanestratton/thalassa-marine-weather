@@ -511,6 +511,12 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     maxHeight={maxHeight}
                     domainBuffer={domainBuffer}
                 />
+                {/* Station name — bottom left */}
+                {(guiDetails?.stationName || stationName) && (
+                    <span className="absolute bottom-1.5 left-2 text-[9px] font-medium text-white/25 tracking-wide pointer-events-none select-none">
+                        {guiDetails?.stationName || stationName}
+                    </span>
+                )}
             </div>
 
 

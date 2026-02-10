@@ -370,8 +370,8 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                         </div>
                     )}
 
-                    {/* Action Buttons */}
-                    {(onEdit || onDelete) && (
+                    {/* Action Buttons — Delete hidden for auto GPS entries (provenance) */}
+                    {(onEdit || (onDelete && entry.entryType !== 'auto')) && (
                         <div className="mt-3 flex gap-2">
                             {onEdit && (
                                 <button
@@ -387,7 +387,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                                     Edit
                                 </button>
                             )}
-                            {onDelete && (
+                            {onDelete && entry.entryType !== 'auto' && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();

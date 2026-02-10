@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import L from 'leaflet';
+import 'leaflet.markercluster';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
 import {
     WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon, CompassIcon
 } from './Icons';
@@ -88,8 +90,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     const [pendingSelection, setPendingSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
 
     // Ref to track markers so we can remove them when layer changes
-    // Optimization: Use LayerGroup instead of array of markers for bulk operations
-    const buoyLayerGroupRef = useRef<L.LayerGroup | null>(null);
+    // Optimization: Use MarkerClusterGroup for automatic clustering of buoy stations
+    const buoyLayerGroupRef = useRef<L.MarkerClusterGroup | null>(null);
 
     const centerLat = lat ?? -27.47;
     const centerLon = lon ?? 153.02;
@@ -129,21 +131,52 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         fetchActiveBuoys(centerLat, centerLon).then(setBuoys);
     }, [centerLat, centerLon]);
 
-    // Handle Buoy Markers
+    // Handle Buoy Markers with Clustering
     useEffect(() => {
         const map = mapInstance.current;
         if (!map || !mapReady) return;
 
-        // Init LayerGroup if needed
-        if (!buoyLayerGroupRef.current) {
-            buoyLayerGroupRef.current = L.layerGroup().addTo(map);
+        // Remove previous cluster group entirely and re-create
+        if (buoyLayerGroupRef.current) {
+            map.removeLayer(buoyLayerGroupRef.current);
+            buoyLayerGroupRef.current = null;
         }
 
-        // Clear existing markers immediately
-        buoyLayerGroupRef.current.clearLayers();
-
         if (activeLayer === 'buoys') {
-            // Static SVG string for the icon
+            // Custom cluster icon factory
+            const createClusterIcon = (cluster: L.MarkerCluster) => {
+                const count = cluster.getChildCount();
+                const size = count < 10 ? 36 : count < 50 ? 44 : 52;
+                return L.divIcon({
+                    html: `<div style="
+                        width:${size}px;height:${size}px;
+                        background:radial-gradient(circle,#f59e0b 60%,#d97706 100%);
+                        border:2px solid rgba(255,255,255,0.8);
+                        border-radius:50%;
+                        display:flex;align-items:center;justify-content:center;
+                        color:#fff;font-weight:800;font-size:${size < 40 ? 12 : 14}px;
+                        box-shadow:0 2px 8px rgba(0,0,0,0.4),0 0 12px rgba(245,158,11,0.3);
+                        font-family:system-ui,sans-serif;
+                    ">${count}</div>`,
+                    className: 'custom-cluster-icon',
+                    iconSize: L.point(size, size),
+                    iconAnchor: L.point(size / 2, size / 2),
+                });
+            };
+
+            // Create cluster group with tuned settings
+            buoyLayerGroupRef.current = L.markerClusterGroup({
+                maxClusterRadius: 50,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true,
+                disableClusteringAtZoom: 10,
+                iconCreateFunction: createClusterIcon,
+                animate: true,
+                animateAddingMarkers: false,
+            });
+
+            // Static SVG string for the individual buoy icon
             const iconHtml = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" class="drop-shadow-lg">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="#f59e0b" fill-opacity="0.9" stroke="white" stroke-width="1.5" />
@@ -159,7 +192,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 iconAnchor: [15, 30],
             });
 
-            // Batch add to layer group
+            // Create markers array for bulk add
+            const markers: L.Marker[] = [];
             buoys.forEach(buoy => {
                 const marker = L.marker([buoy.lat, buoy.lon], { icon: buoyIcon })
                     .bindTooltip(buoy.name, {
@@ -180,8 +214,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     }
                 });
 
-                buoyLayerGroupRef.current?.addLayer(marker);
+                markers.push(marker);
             });
+
+            // Bulk add all markers at once (faster than one-by-one)
+            buoyLayerGroupRef.current.addLayers(markers);
+            buoyLayerGroupRef.current.addTo(map);
         }
 
     }, [activeLayer, buoys, mapReady, onLocationSelect, isConfirmMode]);

@@ -56,7 +56,7 @@ const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
 const TRACKING_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (legacy default / offshore)
 const RAPID_INTERVAL_MS = 5 * 1000; // 5 seconds for marina/shore navigation (manual override)
 const STATIONARY_THRESHOLD_NM = 0.05; // Less than 0.05nm movement = anchored
-const STATIONARY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour without movement = auto-pause
+
 const DEDUP_THRESHOLD_NM = 0.0027; // ~5 meters — discard auto entry if vessel hasn't moved
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
 
@@ -780,7 +780,7 @@ class ShipLogServiceClass {
                 // DEDUP FILTER: If this is an auto entry and the vessel hasn't moved
                 // more than ~5 meters, silently discard it to avoid cluttering the logbook.
                 // This is separate from auto-pause (which triggers after 1 hour stationary).
-                if (entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
+                if (entryType === 'auto' && !this.trackingState.isRapidMode && distanceNM < DEDUP_THRESHOLD_NM) {
                     return null;
                 }
 
@@ -791,16 +791,8 @@ class ShipLogServiceClass {
 
                 cumulativeDistanceNM = lastPos.cumulativeDistanceNM + distanceNM;
 
-                // Auto-pause detection: Check if vessel is stationary
-                if (entryType === 'auto' && distanceNM < STATIONARY_THRESHOLD_NM) {
-                    const timeSinceMovement = new Date().getTime() - new Date(this.trackingState.lastMovementTime || timestamp).getTime();
-
-                    if (timeSinceMovement > STATIONARY_TIMEOUT_MS) {
-                        await this.pauseTracking();
-                        // Still log this entry before pausing
-                    }
-                } else {
-                    // Movement detected - update last movement time
+                // Track last movement time (for analytics/stats)
+                if (distanceNM >= STATIONARY_THRESHOLD_NM) {
                     this.trackingState.lastMovementTime = timestamp;
                     await this.saveTrackingState();
                 }

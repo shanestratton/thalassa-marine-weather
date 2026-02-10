@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { t } from '../../theme';
 import { RadioTowerIcon } from '../Icons';
 import { Countdown } from './Countdown';
+import { useEnvironment } from '../../context/ThemeContext';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -51,6 +52,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     coordinates
 }) => {
     const [showInfoModal, setShowInfoModal] = useState(false);
+    const env = useEnvironment();
+    const badgeTextSize = env === 'onshore' ? 'text-[10px]' : 'text-xs';
 
     const shortenSourceName = (name: string): string => {
         // Abbreviate common words
@@ -117,7 +120,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
             <div className="px-0 shrink-0 relative z-20">
                 <div className="flex items-center justify-between gap-2 w-full mb-0">
                     {/* Coastal / Offshore Badge */}
-                    <div className={`px-2 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40`}>
+                    <div className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40`}>
                         {statusBadgeLabel}
                     </div>
 
@@ -125,7 +128,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                     <button
                         onClick={() => setShowInfoModal(true)}
                         aria-label="View data sources"
-                        className="px-2 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider bg-black/40 border-white/20 flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
+                        className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider bg-black/40 border-white/20 flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer active:scale-[0.97] transition-transform`}
                     >
                         <RadioTowerIcon className="w-2.5 h-2.5 shrink-0 text-white/70" />
                         <div className="flex items-center gap-1.5 truncate">
@@ -148,7 +151,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                     </button>
 
                     {/* Timer Badge */}
-                    <div className={`px-1.5 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
+                    <div className={`px-1.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
                         {nextUpdate ? <Countdown targetTime={nextUpdate} /> : "LIVE"}
                     </div>
                 </div>
