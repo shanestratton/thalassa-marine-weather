@@ -24,6 +24,9 @@ import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../utils/marineF
 import { loadLargeData, DATA_CACHE_KEY } from './nativeStorage';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ShipLog');
 
 // Staleness threshold: if cached GPS is older than this, fetch fresh
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
@@ -455,6 +458,7 @@ class ShipLogServiceClass {
             }
 
         } catch (error) {
+            log.error('initialize failed', error);
         }
     }
 
@@ -509,6 +513,7 @@ class ShipLogServiceClass {
                 } else {
                 }
             } catch (err: any) {
+                log.error('checkMissedEntries: catch-up entry failed', err);
             }
         }
 
@@ -1001,6 +1006,7 @@ class ShipLogServiceClass {
                 }
                 return; // Success - stop retrying
             } catch (gpsError: any) {
+                log.warn('retryGpsAndUpdateEntry: GPS retry failed', gpsError);
             }
         }
 
@@ -1186,10 +1192,12 @@ class ShipLogServiceClass {
             // Re-evaluate logging zone after each successful fix
             // This allows the interval to adapt as the vessel moves closer/further from shore
             this.rescheduleAdaptiveInterval().catch(err => {
+                log.warn('captureLogEntry: adaptive reschedule failed', err);
             });
 
             return entry as ShipLogEntry;
         } catch (error) {
+            log.error('captureLogEntry failed', error);
             return null;
         }
     }
@@ -1272,7 +1280,7 @@ class ShipLogServiceClass {
                 });
             }
         } catch (gpsError: any) {
-            // Entry will be saved with placeholder position - that's OK
+            log.warn('addManualEntry: GPS failed, using placeholder', gpsError);
         }
 
         // Save the entry (online or offline queue)
@@ -1432,6 +1440,7 @@ class ShipLogServiceClass {
                     }
                 }
             } catch (error) {
+                log.error('deleteVoyage: DB delete failed', error);
             }
         }
 
@@ -1495,6 +1504,7 @@ class ShipLogServiceClass {
                     }
                 }
             } catch (error) {
+                log.error('deleteEntry: DB delete failed', error);
             }
         }
 
@@ -1554,6 +1564,7 @@ class ShipLogServiceClass {
 
             return (data || []).map(row => fromDbFormat(row));
         } catch (error) {
+            log.error('getLogEntries failed', error);
             return [];
         }
     }
@@ -1608,6 +1619,7 @@ class ShipLogServiceClass {
             });
 
         } catch (error) {
+            log.error('queueOfflineEntry failed', error);
         }
     }
 
@@ -1640,6 +1652,7 @@ class ShipLogServiceClass {
 
             return data.length;
         } catch (error) {
+            log.error('syncOfflineQueue failed', error);
             return 0;
         }
     }
@@ -1685,6 +1698,7 @@ class ShipLogServiceClass {
                 ...entry
             } as ShipLogEntry));
         } catch (error) {
+            log.error('getOfflineEntries failed', error);
             return [];
         }
     }
