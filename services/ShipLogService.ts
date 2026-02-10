@@ -78,6 +78,10 @@ interface TrackingState {
     lastEntryTime?: string;
     loggingZone?: LoggingZone;
     currentIntervalMs?: number;
+    /** Timestamp of the last position-check (whether saved or deduped) */
+    lastCheckTime?: number;
+    /** True if the last position-check was deduped (vessel hasn't moved) */
+    lastCheckDeduped?: boolean;
 }
 
 interface StoredPosition {
@@ -385,15 +389,20 @@ class ShipLogServiceClass {
         await this.captureImmediateEntry().catch(err => {
         });
 
-        // ADAPTIVE SCHEDULING: Determine zone and set appropriate interval
-        const initialZone = await determineLoggingZone();
+        // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
+        // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the
+        // zone once weather-cache data is available (e.g. coastal → 2min, offshore → 15min).
+        const initialZone: LoggingZone = 'nearshore';
         const initialInterval = getIntervalForZone(initialZone);
         this.trackingState.loggingZone = initialZone;
         this.trackingState.currentIntervalMs = initialInterval;
         await this.saveTrackingState();
 
-        // Schedule clock-aligned entries (e.g. 15-min → fires at xx:00, xx:15, xx:30, xx:45)
+        // Schedule clock-aligned entries (30s → fires at xx:xx:00, xx:xx:30)
         this.scheduleClockAlignedInterval(initialInterval, initialZone);
+
+        // Kick off async zone refinement in the background — won't block UI
+        this.rescheduleAdaptiveInterval().catch(() => { });
     }
 
     /**
@@ -778,9 +787,11 @@ class ShipLogServiceClass {
                 );
 
                 // DEDUP FILTER: If this is an auto entry and the vessel hasn't moved
-                // more than ~5 meters, silently discard it to avoid cluttering the logbook.
-                // This is separate from auto-pause (which triggers after 1 hour stationary).
-                if (entryType === 'auto' && !this.trackingState.isRapidMode && distanceNM < DEDUP_THRESHOLD_NM) {
+                // more than ~5 meters, discard it to avoid cluttering the logbook.
+                // Record the check so the UI can show "Position unchanged" feedback.
+                if (entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
+                    this.trackingState.lastCheckTime = Date.now();
+                    this.trackingState.lastCheckDeduped = true;
                     return null;
                 }
 
@@ -885,6 +896,8 @@ class ShipLogServiceClass {
 
             // Track when this entry was created for background resume catch-up
             this.trackingState.lastEntryTime = timestamp;
+            this.trackingState.lastCheckTime = Date.now();
+            this.trackingState.lastCheckDeduped = false;
             await this.saveTrackingState();
 
             // Re-evaluate logging zone after each successful fix
