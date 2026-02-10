@@ -56,7 +56,6 @@ const mockContext: DashboardWidgetContextType = {
     onTriggerUpgrade: vi.fn(),
     onOpenMap: vi.fn(),
     settings: {},
-    weatherData: {}
 };
 
 describe('WidgetRenderer', () => {
@@ -82,9 +81,10 @@ describe('WidgetRenderer', () => {
         expect(screen.getByTestId('tides-widget')).toBeInTheDocument();
     });
 
-    it('renders Map Widget when id is "map"', () => {
+    it('renders Map Widget when id is "map"', async () => {
         render(<WidgetRenderer id="map" context={mockContext} />);
-        expect(screen.getByTestId('map-widget')).toBeInTheDocument();
+        const mapWidget = await screen.findByTestId('map-widget');
+        expect(mapWidget).toBeInTheDocument();
     });
 
     it('renders nothing for an unknown widget ID', () => {

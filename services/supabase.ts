@@ -17,11 +17,11 @@ const getUrl = () => {
     // 2. Try Process Env (Direct access required for replacement)
     if (!url) {
         try {
-            if (typeof process !== 'undefined' && (process as any).env && (process as any).env.SUPABASE_URL) {
-                url = (process as any).env.SUPABASE_URL;
+            if (typeof process !== 'undefined' && process.env && process.env.SUPABASE_URL) {
+                url = process.env.SUPABASE_URL;
                 logConfig("Found URL in process.env.SUPABASE_URL");
             }
-        } catch (e) { }
+        } catch { /* process.env may not exist in browser */ }
     }
 
     return url;
@@ -39,11 +39,11 @@ const getKey = () => {
 
     if (!key) {
         try {
-            if (typeof process !== 'undefined' && (process as any).env && (process as any).env.SUPABASE_KEY) {
-                key = (process as any).env.SUPABASE_KEY;
+            if (typeof process !== 'undefined' && process.env && process.env.SUPABASE_KEY) {
+                key = process.env.SUPABASE_KEY;
                 logConfig("Found KEY in process.env.SUPABASE_KEY");
             }
-        } catch (e) { }
+        } catch { /* process.env may not exist in browser */ }
     }
 
     return key;

@@ -8,7 +8,7 @@ export const HISTORY_CACHE_KEY = 'thalassa_history_cache_v3';
 const saveTimers: Record<string, NodeJS.Timeout> = {};
 
 // --- HELPER: SAVE FILE (Debounced) ---
-export const saveLargeData = async (key: string, data: any) => {
+export const saveLargeData = async (key: string, data: unknown) => {
     // Clear pending write for this key
     if (saveTimers[key]) {
         clearTimeout(saveTimers[key]);
@@ -53,7 +53,7 @@ export const loadLargeData = async (key: string) => {
             directory: Directory.Documents
         });
         // Capacitor 6 returns FileInfo[] objects, but handle strings for safety
-        fileFound = result.files.some((f: any) => {
+        fileFound = result.files.some((f: { name: string } | string) => {
             const name = typeof f === 'string' ? f : f.name;
             return name === fileName;
         });
@@ -76,7 +76,7 @@ export const loadLargeData = async (key: string) => {
             // If we detect data from 2028+, we NUKE this cache hit immediately.
             if (data && data.hourly && Array.isArray(data.hourly) && data.hourly.length > 0) {
                 const poisonThreshold = new Date('2028-01-01').getTime();
-                const hasCorruption = data.hourly.some((h: any) => new Date(h.time).getTime() > poisonThreshold);
+                const hasCorruption = data.hourly.some((h: { time: string }) => new Date(h.time).getTime() > poisonThreshold);
 
                 if (hasCorruption) {
                     return null;

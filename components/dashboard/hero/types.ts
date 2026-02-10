@@ -43,27 +43,31 @@ export interface MetricSource {
 export type SourceMap = Record<string, MetricSource>;
 
 /**
- * Display values for card metrics (formatted strings)
+ * Display values for card metrics (formatted for rendering).
+ * All fields are `number | string` because fallback values use `'--'`.
  */
 export interface CardDisplayValues {
-    airTemp: number;
-    waterTemperature: string;
-    windSpeed: string;
-    windDirection: string;
-    gusts: string;
-    waveHeight: string;
-    pressure: string;
-    vis: string;
-    humidity: string;
-    precip: string;
-    dewPoint: number;
-    highTemp: number;
-    lowTemp: number;
-    uv: string;
-    sunrise: string;
-    sunset: string;
-    currentSpeed: string;
-    currentDirection: string;
+    airTemp: number | string;
+    waterTemperature: number | string;
+    windSpeed: number | string;
+    windDirection?: string;
+    gusts: number | string;
+    waveHeight: number | string;
+    pressure: number | string;
+    vis: number | string;
+    humidity: number | string;
+    precip: number | string;
+    dewPoint: number | string;
+    highTemp: number | string;
+    lowTemp: number | string;
+    uv: number | string;
+    sunrise?: string;
+    sunset?: string;
+    currentSpeed: number | string;
+    currentDirection: number | string;
+    feelsLike?: number | string;
+    cloudCover?: number | string;
+    moon?: string;
 }
 
 /**
@@ -72,7 +76,7 @@ export interface CardDisplayValues {
 export interface HeroWidgetProps {
     id: string;
     data: WeatherMetrics;
-    values: any;
+    values: CardDisplayValues;
     units: UnitPreferences;
     isLive: boolean;
     trends?: TrendMap;
@@ -111,7 +115,7 @@ export interface HeroStatsRowsProps {
 export interface HeroWidgetGridProps {
     layoutType: 'coastal' | 'offshore' | 'inland';
     data: WeatherMetrics;
-    values: any;
+    values: CardDisplayValues;
     units: UnitPreferences;
     isLive: boolean;
     trends?: TrendMap;

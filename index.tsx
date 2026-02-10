@@ -56,9 +56,9 @@ const registerServiceWorker = async () => {
     // 3. Attempt Registration with Error Handling
     try {
       const registration = await navigator.serviceWorker.register('./sw.js');
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Silently ignore known "origin" or "document" errors common in IFrames/Previews/WebViews
-      const msg = err.message || "";
+      const msg = err instanceof Error ? err.message : "";
       if (msg.includes('origin') || msg.includes('document') || msg.includes('security') || msg.includes('environment')) {
         return;
       }

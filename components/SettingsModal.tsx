@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserSettings, LengthUnit, WeightUnit, VesselDimensionUnits, DisplayMode, VolumeUnit } from '../types';
+import { UserSettings, LengthUnit, WeightUnit, SpeedUnit, VesselDimensionUnits, DisplayMode, VolumeUnit } from '../types';
 import {
     WindIcon, CompassIcon,
     SailBoatIcon, PowerBoatIcon, BellIcon, ArrowRightIcon,
@@ -17,11 +17,12 @@ import { isGeminiConfigured } from '../services/geminiService';
 import { ALL_HERO_WIDGETS, ALL_DETAIL_WIDGETS, ALL_ROW_WIDGETS } from './WidgetDefinitions';
 import { EnvironmentService } from '../services/EnvironmentService';
 import type { EnvironmentMode } from '../services/EnvironmentService';
+import { getErrorMessage } from '../utils/logger';
 
 
 
 const isMapboxConfigured = () => {
-    const envKey = (process as any).env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+    const envKey = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
     if (envKey && envKey.length > 5) return true;
     if (typeof window !== 'undefined') {
         const local = localStorage.getItem('thalassa_mapbox_key');
@@ -31,18 +32,18 @@ const isMapboxConfigured = () => {
 }
 
 const isOpenMeteoConfigured = () => {
-    const envKey = (process as any).env?.OPEN_METEO_API_KEY || (import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY);
+    const envKey = process.env?.OPEN_METEO_API_KEY || (import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY);
     return envKey && envKey.length > 5;
 }
 
 const getKeyPreview = (keyName: 'GEMINI' | 'STORMGLASS' | 'MAPBOX') => {
     let val = "";
     if (keyName === 'GEMINI') {
-        val = (process as any).env?.API_KEY || (process as any).env?.GEMINI_API_KEY || (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY);
+        val = process.env?.API_KEY || process.env?.GEMINI_API_KEY || (import.meta.env && import.meta.env.VITE_GEMINI_API_KEY);
     } else if (keyName === 'STORMGLASS') {
-        val = (process as any).env?.STORMGLASS_API_KEY || (import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY);
+        val = process.env?.STORMGLASS_API_KEY || (import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY);
     } else if (keyName === 'MAPBOX') {
-        val = (process as any).env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+        val = process.env?.MAPBOX_ACCESS_TOKEN || (import.meta.env && import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
     }
     if (!val || val.length < 5 || val.includes("YOUR_")) return "MISSING";
     return `Ends in ...${val.slice(-4)}`;
@@ -114,7 +115,7 @@ const Row = React.memo(({ children, className = "", onClick }: { children?: Reac
     </div>
 ));
 
-const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: any) => {
+const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: { label: string; valInStandard: number; unitType: string; unitOptions: string[]; onChangeValue: (v: number) => void; onChangeUnit: (u: string) => void; placeholder?: string; isEstimated?: boolean }) => {
     const isWeight = unitOptions.includes('lbs');
     const [localStr, setLocalStr] = useState<string>('');
 
@@ -207,22 +208,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         try {
             const result = await debugStormglassConnection();
             setDebugLog(result);
-        } catch (e: any) {
-            setDebugLog(`FATAL ERROR: ${e.message}`);
+        } catch (e: unknown) {
+            setDebugLog(`FATAL ERROR: ${getErrorMessage(e)}`);
         } finally {
             setIsRunningDebug(false);
         }
     };
 
     // Safe update helper - only sends 'units' delta
-    const updateUnit = (type: keyof typeof settings.units, value: any) => {
+    const updateUnit = (type: keyof typeof settings.units, value: string) => {
         onSave({ units: { ...settings.units, [type]: value } });
     };
 
-    const updateAlert = async (key: keyof typeof settings.notifications, field: 'enabled' | 'threshold', value: any) => {
+    const updateAlert = async (key: keyof typeof settings.notifications, field: 'enabled' | 'threshold', value: boolean | number) => {
         if (field === 'enabled' && value === true) {
             if ('Notification' in window && Notification.permission !== 'granted') {
-                try { await Notification.requestPermission(); } catch (e) { }
+                try { await Notification.requestPermission(); } catch { /* user denied or API unavailable */ }
             }
         }
         onSave({
@@ -233,7 +234,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         });
     };
 
-    const updateVessel = (field: string, value: any) => {
+    const updateVessel = (field: string, value: string | number) => {
         let newEstimatedFields = settings.vessel?.estimatedFields;
         if (newEstimatedFields && newEstimatedFields.includes(field)) {
             newEstimatedFields = newEstimatedFields.filter(f => f !== field);
@@ -242,7 +243,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             vessel: {
                 name: 'My Boat', type: 'sail', length: 30, beam: 10, draft: 5, displacement: 10000,
                 maxWaveHeight: 6, cruisingSpeed: 6, fuelCapacity: 0, waterCapacity: 0,
-                ...((settings.vessel || {}) as any),
+                ...(settings.vessel || {}),
                 estimatedFields: newEstimatedFields,
                 [field]: value
             }
@@ -255,7 +256,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             navigator.geolocation.getCurrentPosition(async (position) => {
                 const { latitude, longitude } = position.coords;
                 let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { }
+                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch { /* fallback to WP coords */ }
                 onSave({ defaultLocation: resolvedName });
                 setDetectingLoc(false);
             }, () => setDetectingLoc(false));
@@ -263,7 +264,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     };
 
     // UPDATED STATUS ROW
-    const StatusRow = ({ label, isConnected, status, details, loading, onTest }: any) => {
+    const StatusRow = ({ label, isConnected, status, details, loading, onTest }: { label: string; isConnected?: boolean; status?: string; details?: string; loading?: boolean; onTest?: () => void }) => {
         const isMissing = status === 'MISSING_KEY' || (!isConnected && !status);
         const isActive = status === 'OK' || isConnected;
         let indicatorColor = 'bg-red-500 shadow-red-500/20';
@@ -303,11 +304,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
 
             {debugLog && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Stormglass diagnostic log">
                     <div className="bg-[#0f172a] border border-white/20 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
                         <div className="p-4 border-b border-white/10 flex justify-between items-center">
                             <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2"><BugIcon className="w-4 h-4 text-emerald-400" /> Stormglass Diagnostic</h3>
-                            <button onClick={() => setDebugLog(null)} className="p-1 hover:bg-white/10 rounded"><XIcon className="w-5 h-5 text-gray-400" /></button>
+                            <button onClick={() => setDebugLog(null)} aria-label="Close diagnostic log" className="p-1 hover:bg-white/10 rounded"><XIcon className="w-5 h-5 text-gray-400" /></button>
                         </div>
                         <div className="flex-1 overflow-auto p-4 bg-black/50 font-mono text-[10px] text-green-300 whitespace-pre-wrap">{debugLog}</div>
                     </div>
@@ -496,7 +497,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     <StatusRow label="Gemini AI" isConnected={isGeminiConfigured()} details={getKeyPreview('GEMINI')} />
                                     <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getKeyPreview('MAPBOX')} />
                                     <StatusRow label="Supabase" isConnected={isSupabaseConfigured()} details={isSupabaseConfigured() ? 'Connected' : 'Not configured'} />
-                                    <StatusRow label="Open-Meteo" isConnected={isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Configured' : 'FREE MODE'} />
+                                    <StatusRow label="Open-Meteo" isConnected={!!isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Configured' : 'FREE MODE'} />
                                 </div>
                                 {isStormglassKeyPresent() && (
                                     <Row>
@@ -605,8 +606,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                                 onSave({
                                                     units: {
                                                         ...settings.units,
-                                                        length: val as any,
-                                                        tideHeight: val as any
+                                                        length: val as LengthUnit,
+                                                        tideHeight: val as LengthUnit
                                                     }
                                                 });
                                             }}
@@ -666,14 +667,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                 </Row>
                                 <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
-                                    <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v: any) => updateVessel('length', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u } as any })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
-                                    <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v: any) => updateVessel('beam', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u } as any })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
-                                    <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v: any) => updateVessel('draft', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u } as any })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
-                                    <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v: any) => updateVessel('displacement', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u } as any })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
-                                    <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v: any) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u: any) => onSave({ units: { ...settings.units, speed: u } as any })} placeholder="6" />
-                                    <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v: any) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u } as any })} placeholder="10" />
-                                    <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v: any) => updateVessel('fuelCapacity', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u } as any })} placeholder="0" />
-                                    <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v: any) => updateVessel('waterCapacity', v)} onChangeUnit={(u: any) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u } as any })} placeholder="0" />
+                                    <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
+                                    <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
+                                    <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
+                                    <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
+                                    <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
+                                    <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
+                                    <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
+                                    <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                                 </div>
                             </Section>
                         </div>
@@ -900,7 +901,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     <select
                                         value={settings.displayMode}
-                                        onChange={(e) => onSave({ displayMode: e.target.value as any })}
+                                        onChange={(e) => onSave({ displayMode: e.target.value as DisplayMode })}
                                         className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-sky-500"
                                     >
                                         <option value="auto">Auto (Time based)</option>

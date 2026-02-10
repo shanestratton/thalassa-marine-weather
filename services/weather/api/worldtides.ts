@@ -36,7 +36,7 @@ export const fetchWorldTides = async (
 
         if (res.status === 200 && res.data) {
             // Check if response has station in body (WorldTides V3 often returns 'station' object or name field)
-            const data = res.data as any;
+            const data = res.data as Record<string, unknown> & { station?: string | { name?: string }; atlasLatitude?: number; atlasLongitude?: number };
 
 
 

@@ -79,7 +79,8 @@ export const useDashboardController = (
 
     const playAudio = useCallback(async (buffer: ArrayBuffer) => {
         if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const AudioCtx = window.AudioContext || ('webkitAudioContext' in window ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext : AudioContext);
+            audioContextRef.current = new AudioCtx();
         }
         const ctx = audioContextRef.current;
         if (ctx.state === 'suspended') await ctx.resume();

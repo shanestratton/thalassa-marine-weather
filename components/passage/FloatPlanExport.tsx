@@ -109,15 +109,15 @@ export const FloatPlanExport: React.FC<FloatPlanProps> = ({
             </div>
             <div class="field">
                 <div class="label">Hull Color</div>
-                <div class="value">${(vessel as any).hullColor || 'N/A'}</div>
+                <div class="value">${vessel.hullColor || 'N/A'}</div>
             </div>
             <div class="field">
                 <div class="label">Registration</div>
-                <div class="value">${(vessel as any).registration || 'N/A'}</div>
+                <div class="value">${vessel.registration || 'N/A'}</div>
             </div>
             <div class="field">
                 <div class="label">MMSI / Call Sign</div>
-                <div class="value">${(vessel as any).mmsi || 'N/A'}</div>
+                <div class="value">${vessel.mmsi || 'N/A'}</div>
             </div>
         </div>
     </div>
@@ -239,7 +239,7 @@ export const FloatPlanExport: React.FC<FloatPlanProps> = ({
 
             {/* Modal */}
             {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop-enter bg-black/70 backdrop-blur-sm">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop-enter bg-black/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Float plan export">
                     <div className={`modal-panel-enter bg-slate-900 ${t.border.strong} rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl`}>
                         {/* Header */}
                         <div className="flex items-center justify-between p-4 border-b border-white/10">

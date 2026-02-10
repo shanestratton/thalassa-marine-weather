@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { HeroSlide } from './HeroSlide';
 import { HeroSlideSkeleton } from './Skeletons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
+import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
 
 export const HeroSection = ({
@@ -46,7 +47,7 @@ export const HeroSection = ({
     hourly?: HourlyForecast[],
     className?: string,
     lat?: number,
-    guiDetails?: any,
+    guiDetails?: TideGUIDetails,
     coordinates?: { lat: number, lon: number },
     locationType?: 'coastal' | 'offshore' | 'inland',
     onTimeSelect?: (time: number | undefined) => void,

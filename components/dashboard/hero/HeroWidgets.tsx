@@ -2,14 +2,15 @@ import React from 'react';
 import { t } from '../../../theme';
 import { WindIcon, WaveIcon, CompassIcon, DropletIcon, GaugeIcon, ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, SunIcon, EyeIcon, ClockIcon, MoonIcon, SunriseIcon, SunsetIcon, ThermometerIcon } from '../../Icons';
 import { UnitPreferences, WeatherMetrics } from '../../../types';
+import { CardDisplayValues, SourceMap } from './types';
 
 // --- HOISTED HELPERS ---
 export const formatTemp = (t?: number | null) => Math.round(t || 0);
 export const formatCondition = (c?: string) => c || 'Clear';
 export const renderHighLow = (d: WeatherMetrics) => (
     <div className="flex gap-2 text-sm uppercase font-bold text-white/60">
-        <span>H: {Math.round((d as any).maxTemp || (d.airTemperature || 0) + 2)}°</span>
-        <span>L: {Math.round((d as any).minTemp || (d.airTemperature || 0) - 2)}°</span>
+        <span>H: {Math.round(d.highTemp || (d.airTemperature || 0) + 2)}°</span>
+        <span>L: {Math.round(d.lowTemp || (d.airTemperature || 0) - 2)}°</span>
     </div>
 );
 
@@ -17,12 +18,12 @@ export const renderHighLow = (d: WeatherMetrics) => (
 export const renderHeroWidget = (
     id: string,
     data: WeatherMetrics,
-    values: any,
+    values: CardDisplayValues,
     units: UnitPreferences,
     isLive: boolean,
     trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>,
     align: 'left' | 'center' | 'right' = 'left',
-    sources?: any,
+    sources?: SourceMap,
     compact?: boolean
 ) => {
     const valSize = compact ? 'text-lg' : 'text-2xl';

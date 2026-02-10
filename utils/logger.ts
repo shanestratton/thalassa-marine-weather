@@ -54,3 +54,14 @@ export function createLogger(module: string): Logger {
         },
     };
 }
+
+/**
+ * Safely extract an error message from an unknown catch value.
+ * Use this instead of `(err as any).message` after converting
+ * catch blocks from `catch (err: any)` to `catch (err: unknown)`.
+ */
+export function getErrorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === 'string') return err;
+    return String(err);
+}

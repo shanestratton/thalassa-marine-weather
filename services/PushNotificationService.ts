@@ -48,6 +48,7 @@ class PushNotificationServiceClass {
 
             this.initialized = true;
         } catch (error) {
+            /* Push init is best-effort — app functions without notifications */
         }
     }
 
@@ -88,6 +89,7 @@ class PushNotificationServiceClass {
                 });
             });
         } catch (error) {
+            /* APNs registration failure — return null to indicate unavailable */
             return null;
         }
     }
@@ -104,6 +106,7 @@ class PushNotificationServiceClass {
             const status = await PushNotifications.checkPermissions();
             return status.receive === 'granted';
         } catch {
+            /* Permission check may throw on unsupported platforms */
             return false;
         }
     }

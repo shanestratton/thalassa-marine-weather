@@ -47,6 +47,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
                 timeZone: timeZone || undefined
             }).replace(' ', '');
         } catch {
+            /* Invalid timeZone string — fall back to device-local time */
             return date.toLocaleTimeString([], { hour: 'numeric', hour12: true }).replace(' ', '');
         }
     };

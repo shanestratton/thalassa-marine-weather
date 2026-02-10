@@ -12,6 +12,7 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string
   readonly VITE_SUPABASE_KEY: string
   readonly VITE_WORLDTIDES_API_KEY: string
+  readonly VITE_WORLD_TIDES_API_KEY: string
   // Standard Vite Environment Variables
   readonly BASE_URL: string
   readonly MODE: string

@@ -113,14 +113,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-0.5">
                                 <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
                                 <span className="text-sm font-bold text-white opacity-80">
-                                    {(data as any).highTemp !== undefined ? convertTemp((data as any).highTemp, units.temp) : '--'}°
+                                    {data.highTemp !== undefined ? convertTemp(data.highTemp, units.temp) : '--'}°
                                 </span>
                             </div>
                             <div className="w-px h-2.5 bg-white/20"></div>
                             <div className="flex items-center gap-0.5">
                                 <ArrowDownIcon className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
                                 <span className="text-sm font-bold text-white opacity-80">
-                                    {(data as any).lowTemp !== undefined ? convertTemp((data as any).lowTemp, units.temp) : '--'}°
+                                    {data.lowTemp !== undefined ? convertTemp(data.lowTemp, units.temp) : '--'}°
                                 </span>
                             </div>
                         </div>

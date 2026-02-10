@@ -3,7 +3,16 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from './shared/Card';
 import { PowerBoatIcon, SailBoatIcon, TideCurveIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, GaugeIcon, ClockIcon, MoonIcon, SunIcon, EyeIcon, StarIcon } from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
+import { TideGUIDetails } from '../../services/weather/api/tides';
 import { calculateMCR, calculateCSF, calculateDLR, calculateHullSpeed, convertDistance, convertLength, convertMetersTo } from '../../utils';
+
+/** Vessel safety status, derived from weather conditions vs vessel limits */
+export interface VesselStatus {
+    status?: 'safe' | 'unsafe';
+}
+
+/** CSS class overrides for vessel status display elements */
+export type VesselStatusStyles = Record<string, string>;
 
 // --- CELESTIAL COMPONENTS (Extracted for modularity) ---
 import { MoonVisual, SolarArc, getMoonPhaseData } from './tide/CelestialComponents';
@@ -153,7 +162,7 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         prev.maxHeight === next.maxHeight;
 });
 
-export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: any, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
+export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
 
@@ -169,6 +178,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
             return h + (m / 60);
         } catch {
+            /* Invalid timeZone or Intl unavailable — fall back to local device time */
             return date.getHours() + (date.getMinutes() / 60);
         }
     };
@@ -510,7 +520,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
 export const TideGraph = TideGraphOriginal;
 
-export const TideWidget = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: any, customTime?: number, showAllDayEvents?: boolean }) => {
+export const TideWidget = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: TideGUIDetails, customTime?: number, showAllDayEvents?: boolean }) => {
     return (
         <Card key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'} className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4" role="figure" aria-labelledby="tide-chart-title" aria-describedby="tide-chart-desc">
             {/* Header */}
@@ -570,7 +580,7 @@ export const SunMoonWidget = ({ current, units, timeZone, lat }: { current: Weat
     );
 };
 
-export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, vesselStatus: any }) => {
+export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, vesselStatus: VesselStatus }) => {
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
@@ -630,7 +640,7 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
 };
 
 // --- LEGACY EXPORT FOR BACKWARD COMPAT (DEPRECATED) ---
-export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles, tides, hourlyTides, tideHourly, units, timeZone, modelUsed, isLandlocked, lat }: { vessel: VesselProfile, current: WeatherMetrics, vesselStatus: any, statusStyles: any, tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, isLandlocked?: boolean, lat?: number }) => {
+export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles, tides, hourlyTides, tideHourly, units, timeZone, modelUsed, isLandlocked, lat }: { vessel: VesselProfile, current: WeatherMetrics, vesselStatus: VesselStatus, statusStyles: VesselStatusStyles, tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, isLandlocked?: boolean, lat?: number }) => {
 
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;

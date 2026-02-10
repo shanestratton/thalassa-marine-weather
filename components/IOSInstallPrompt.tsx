@@ -12,11 +12,11 @@ export const IOSInstallPrompt = () => {
         if (Capacitor.isNativePlatform()) return;
 
         // 2. Detect iOS Browser
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
 
         // 3. Detect if already installed as PWA
         // Add optional chaining to window.matchMedia to prevent crashes in environments where it might be missing
-        const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+        const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || ('standalone' in navigator && (navigator as Navigator & { standalone: boolean }).standalone);
 
         // 4. Check dismissal history
         const dismissed = localStorage.getItem('thalassa_install_dismissed');

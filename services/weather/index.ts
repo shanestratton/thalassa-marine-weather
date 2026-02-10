@@ -48,6 +48,7 @@ export const fetchFastWeather = async (
                     name = `Ocean Point ${latStr} ${lonStr}`;
                 }
             } catch {
+                /* Reverse geocode failed — fall back to coordinate-based name */
                 name = `Location ${lat.toFixed(2)},${lon.toFixed(2)}`;
             }
         }
@@ -73,7 +74,7 @@ export const fetchFastWeather = async (
         // 4. Cache Result
         saveToCache(name, data);
         return data;
-    } catch (e: any) {
+    } catch (e: unknown) {
         throw e;
     }
 };

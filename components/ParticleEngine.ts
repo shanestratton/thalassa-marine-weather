@@ -1,4 +1,5 @@
 
+import * as L from 'leaflet';
 interface Particle {
     lat: number;
     lon: number;
@@ -12,7 +13,7 @@ export class ParticleEngine {
     private ctx: CanvasRenderingContext2D;
     private particles: Particle[] = [];
     private requestRef: number | null = null;
-    private map: any;
+    private map: L.Map & { _mapPane?: HTMLElement };
     private activeLayer: 'wind' | 'waves' | 'rain' = 'wind';
     private sampleValue: (lat: number, lon: number, type: string) => number | null;
     private sampleDir: (lat: number, lon: number) => number;
@@ -29,7 +30,7 @@ export class ParticleEngine {
     private reducedMotion = false;
     private reducedMotionQuery: MediaQueryList | null = null;
 
-    constructor(canvas: HTMLCanvasElement, map: any, sampleVal: any, sampleDir: any) {
+    constructor(canvas: HTMLCanvasElement, map: L.Map, sampleVal: (lat: number, lon: number, type: string) => number | null, sampleDir: (lat: number, lon: number) => number) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { alpha: true })!;
         this.map = map;
@@ -95,7 +96,7 @@ export class ParticleEngine {
         }
     }
 
-    private createParticle(sw: any, ne: any): Particle {
+    private createParticle(sw: L.LatLng, ne: L.LatLng): Particle {
         const latBuffer = (ne.lat - sw.lat) * 0.1;
         const lonBuffer = (ne.lng - sw.lng) * 0.1;
 
@@ -186,6 +187,7 @@ export class ParticleEngine {
 
             this.ctx.restore();
         } catch {
+            /* Canvas draw error — restore state to prevent corruption */
             this.ctx.restore();
         }
     }
@@ -360,9 +362,10 @@ export class ParticleEngine {
             });
 
             this.ctx.restore();
-        } catch (e: any) {
+        } catch (e: unknown) {
             // Suppress the Leaflet internal destruction error if it happens during animation frame race condition
-            if (e.message && (e.message.includes('_leaflet_pos') || e.message.includes('undefined'))) {
+            const msg = e instanceof Error ? e.message : '';
+            if (msg && (msg.includes('_leaflet_pos') || msg.includes('undefined'))) {
                 this.stop();
                 this.ctx.restore();
                 return;

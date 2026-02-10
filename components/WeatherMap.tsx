@@ -190,16 +190,18 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     useEffect(() => {
         // Unlock orientation when Map is mounted (Allows Landscape)
         try {
-            if (screen.orientation && typeof (screen.orientation as any).unlock === 'function') {
-                (screen.orientation as any).unlock();
+            const so = screen.orientation as ScreenOrientation & { unlock?: () => void };
+            if (so && typeof so.unlock === 'function') {
+                so.unlock();
             }
         } catch (e) { /* Ignore */ }
 
         return () => {
             // Re-lock to Portrait when leaving Map
             try {
-                if (screen.orientation && typeof (screen.orientation as any).lock === 'function') {
-                    (screen.orientation as any).lock('portrait').catch(() => { });
+                const so = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
+                if (so && typeof so.lock === 'function') {
+                    so.lock('portrait').catch(() => { });
                 }
             } catch (e) { /* Ignore */ }
         };
@@ -236,7 +238,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             map.scrollWheelZoom.enable();
             map.boxZoom.enable();
             map.keyboard.enable();
-            if ((map as any).tap) (map as any).tap.enable();
+            if ('tap' in map && map.tap) (map.tap as { enable(): void }).enable();
 
             // Auto-fit route in passage view even if unrestricted
             if (routeCoordinates && routeCoordinates.length > 1 && bounds && bounds.isValid()) {
@@ -285,7 +287,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         if (!mapInstance.current) return;
         const map = mapInstance.current;
 
-        const handleClick = (e: any) => {
+        const handleClick = (e: L.LeafletMouseEvent) => {
             if (minimal) return;
             // Prevent interference with marker clicks
             if ((e.originalEvent?.target as HTMLElement).closest('.leaflet-marker-icon')) return;

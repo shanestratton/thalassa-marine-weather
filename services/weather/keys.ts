@@ -1,5 +1,6 @@
 
 import { CapacitorHttp } from '@capacitor/core';
+import { getErrorMessage } from '../../utils/logger';
 
 export const getApiKey = () => {
     // Priority: 1. Runtime Env (Vite), 2. Hardcoded (if any, dangerous), 3. Null
@@ -78,8 +79,8 @@ export const debugStormglassConnection = async (): Promise<string> => {
         if (res.status === 402 || res.status === 429) return `Error: Quota Exceeded${quotaInfo}`;
         if (res.status === 401 || res.status === 403) return "Error: Invalid API Key";
         return `Error: HTTP ${res.status}`;
-    } catch (e: any) {
-        return `Error: Network Fail (${e.message})`;
+    } catch (e: unknown) {
+        return `Error: Network Fail (${getErrorMessage(e)})`;
     }
 };
 
@@ -96,7 +97,7 @@ export const checkStormglassStatus = async (): Promise<{ status: 'OK' | 'ERROR' 
 
         if (res.status === 200) return { status: 'OK', message: 'Service Operational' };
         return { status: 'ERROR', message: `HTTP ${res.status}`, code: res.status };
-    } catch (e: any) {
-        return { status: 'ERROR', message: e.message };
+    } catch (e: unknown) {
+        return { status: 'ERROR', message: getErrorMessage(e) };
     }
 };

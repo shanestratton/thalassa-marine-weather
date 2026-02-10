@@ -120,7 +120,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     aria-label={`Wind direction ${topRowData.windDirection || 'unknown'}`}
                 >
                     <div className="flex items-center gap-1">
-                        <CompassIcon className="w-3.5 h-3.5 text-sky-400" rotation={(topRowData as any).windDegree || 0} />
+                        <CompassIcon className="w-3.5 h-3.5 text-sky-400" rotation={topRowData.windDegree || 0} />
                         <span className={`${headingSize} text-sky-300 uppercase tracking-wider font-bold`}>Dir</span>
                     </div>
                     <span className={`${metricSize} font-black ${getSourceColor('windDirection', true)}`}>

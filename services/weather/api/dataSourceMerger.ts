@@ -69,7 +69,7 @@ function formatDistance(distanceNM: number): string {
  * ```
  */
 function createMetricSource(
-    value: any,
+    value: unknown,
     source: DataSource,
     sourceName: string,
     distance?: number
@@ -163,8 +163,8 @@ export function mergeWeatherData(
     // Helper to set metric with source tracking
     function setMetric<K extends keyof WeatherMetrics>(
         key: K,
-        buoyVal: any,
-        stormglassVal: any
+        buoyVal: WeatherMetrics[K] | null | undefined,
+        stormglassVal: WeatherMetrics[K] | null | undefined
     ): WeatherMetrics[K] {
         // Priority: Buoy/AWS > StormGlass
         // Note: BOM AWS data comes through the 'buoy' param (BeaconObservation)
@@ -174,7 +174,7 @@ export function mergeWeatherData(
         } else if (sources) {
             sources[key] = createMetricSource(stormglassVal, 'stormglass', 'StormGlass Pro');
         }
-        return stormglassVal;
+        return stormglassVal as WeatherMetrics[K];
     }
 
     // WIND SPEED: BOM AWS/Buoy > StormGlass (rounded to whole number)
@@ -317,7 +317,7 @@ export function mergeWeatherData(
         cloudCover,
         precipitation,
         currentSpeed,
-        currentDirection: currentDirection as any,
+        currentDirection: currentDirection as string,
         uvIndex: stormglass.uvIndex,  // FIXED: UV index was missing!
 
         // Add source tracking
@@ -399,7 +399,7 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
 }
 
 // Helper to format metric values for display
-function formatMetricValue(key: string, value: any): string {
+function formatMetricValue(key: string, value: unknown): string {
     if (value === null || value === undefined) return 'N/A';
 
     switch (key) {

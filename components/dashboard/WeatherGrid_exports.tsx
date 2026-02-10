@@ -5,6 +5,7 @@ import { Card } from './shared/Card';
 import { Metric } from './shared/Metric';
 import { AlertTriangleIcon, CheckIcon, WindIcon, CompassIcon, ThermometerIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
+import { CardDisplayValues } from './hero/types';
 
 import { useUI } from '../../context/UIContext';
 
@@ -43,7 +44,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     );
 };
 
-export const MetricsWidget = ({ current, units, displayValues }: { current: WeatherMetrics, units: UnitPreferences, displayValues: any }) => {
+export const MetricsWidget = ({ current, units, displayValues }: { current: WeatherMetrics, units: UnitPreferences, displayValues: CardDisplayValues }) => {
     const isSensorLocked = current.isEstimated === false;
 
     return (
@@ -61,7 +62,7 @@ export const MetricsWidget = ({ current, units, displayValues }: { current: Weat
                 <Metric
                     icon={<ThermometerIcon className="w-6 h-6" />}
                     label="Water Temp"
-                    value={(current.waterTemperature !== null && current.waterTemperature !== undefined) ? `${displayValues.waterTemp}°` : "N/A"}
+                    value={(current.waterTemperature !== null && current.waterTemperature !== undefined) ? `${displayValues.waterTemperature}°` : "N/A"}
                     subValue={<span className="opacity-60 text-sm uppercase">{(current.waterTemperature !== null && current.waterTemperature !== undefined) ? (isSensorLocked ? 'Verified Buoy' : 'Sea Surface Temp') : 'No Data'}</span>}
                     isEstimated={current.isEstimated}
                 />

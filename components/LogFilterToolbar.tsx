@@ -42,7 +42,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
     };
 
     return (
-        <div className="bg-slate-900/30 border border-white/5 rounded-xl p-2 mb-2">
+        <div className="bg-slate-900/30 border border-white/5 rounded-xl p-2 mb-2" role="toolbar" aria-label="Log entry filters">
             {/* Compact Row: Search + Filters */}
             <div className="flex gap-2 items-center">
                 {/* Search */}
@@ -50,6 +50,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                     <input
                         type="text"
                         placeholder="Search..."
+                        aria-label="Search log entries"
                         value={filters.searchQuery}
                         onChange={(e) => onFiltersChange({ ...filters, searchQuery: e.target.value })}
                         className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
@@ -65,6 +66,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                     {filters.searchQuery && (
                         <button
                             onClick={() => onFiltersChange({ ...filters, searchQuery: '' })}
+                            aria-label="Clear search"
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                         >
                             ×
@@ -73,7 +75,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                 </div>
 
                 {/* Type Pill Filters with Counts */}
-                <div className="flex gap-1">
+                <div className="flex gap-1" role="group" aria-label="Entry type filters">
                     <FilterPill
                         label="A"
                         count={entryCounts?.auto}
@@ -131,6 +133,8 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
     return (
         <button
             onClick={onClick}
+            aria-label={`Filter ${label === 'A' ? 'auto' : label === 'M' ? 'manual' : 'waypoint'} entries${count !== undefined ? ` (${count})` : ''}`}
+            aria-pressed={active}
             className={`min-w-[40px] min-h-[36px] px-2 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}

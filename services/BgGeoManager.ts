@@ -18,6 +18,9 @@ import BackgroundGeolocation, {
     Location,
     Subscription as BGSubscription,
 } from '@transistorsoft/capacitor-background-geolocation';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('BgGeo');
 
 // ---------- TYPES ----------
 
@@ -245,7 +248,7 @@ class BgGeoManagerClass {
             },
             (error) => {
                 // Location error — log but don't crash
-                console.warn('[BgGeoManager] Location error:', error);
+                log.warn('Location error:', error);
             }
         );
         this.coreSubscriptions.push(locSub);
@@ -253,7 +256,7 @@ class BgGeoManagerClass {
         // Geofence events → fan-out
         const geoSub = BackgroundGeolocation.onGeofence((event) => {
             this.geofenceListeners.forEach(cb => {
-                try { cb(event as any); } catch { /* listener error */ }
+                try { cb(event); } catch { /* listener error */ }
             });
         });
         this.coreSubscriptions.push(geoSub);
@@ -266,7 +269,7 @@ class BgGeoManagerClass {
                 this._lastPosition = cached;
             }
             this.heartbeatListeners.forEach(cb => {
-                try { cb(event as any); } catch { /* listener error */ }
+                try { cb(event); } catch { /* listener error */ }
             });
         });
         this.coreSubscriptions.push(hbSub);

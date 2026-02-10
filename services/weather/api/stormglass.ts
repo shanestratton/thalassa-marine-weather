@@ -3,27 +3,27 @@ import { getApiKey, checkStormglassStatus, getOpenMeteoKey } from '../keys';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
 
-import { mapStormGlassToReport } from '../transformers';
+import { mapStormGlassToReport, AstroEntry } from '../transformers';
 import { calculateDistance } from '../../../utils/math'; // Added
 import { determineLocationType } from '../locationType'; // Added
 import { mergeWeatherData } from './dataSourceMerger'; // Added for source tracking
 import { findAndFetchNearestBeacon } from './beaconService'; // Added for buoy data
 
-const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: string) => {
+const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: string): Promise<AstroEntry[]> => {
     const end = new Date();
     end.setDate(end.getDate() + days);
-    return fetchSG<{ data: any[] }>('astronomy/point', {
+    return fetchSG<{ data: AstroEntry[] }>('astronomy/point', {
         lat, lng: lon, end: end.toISOString()
     }, apiKey).then(r => r.data).catch(() => []);
 };
 
 // FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
 // This restores the Tide Graph without needing the expensive SeaLevel API.
-const interpolateTides = (tides: any[]): any[] => {
+const interpolateTides = (tides: { time: string; height: number }[]): { time: string; sg: number }[] => {
     if (!tides || tides.length < 2) return [];
 
     const sorted = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    const interpolated: any[] = [];
+    const interpolated: { time: string; sg: number }[] = [];
 
     for (let i = 0; i < sorted.length - 1; i++) {
         const start = sorted[i];
@@ -124,7 +124,7 @@ export const fetchStormGlassWeather = async (
     let weatherRes: { hours: StormGlassHour[] };
     try {
         weatherRes = await fetchSG<{ hours: StormGlassHour[] }>('weather/point', weatherParams, apiKey);
-    } catch (e: any) {
+    } catch (e: unknown) {
         throw e;
     }
 
@@ -172,7 +172,7 @@ export const fetchStormGlassWeather = async (
 
             if (matchIdx !== -1) {
                 // Inject as MultiSourceField so getVal can extract it
-                h.uvIndex = { openmeteo: omValues[matchIdx] } as any;
+                h.uvIndex = { openmeteo: omValues[matchIdx] } as unknown as typeof h.uvIndex;
             }
         });
     }

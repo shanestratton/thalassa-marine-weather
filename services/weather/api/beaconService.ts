@@ -113,7 +113,7 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
         const dataLine = lines[2].split(/\s+/);
 
         // Parse into object
-        const data: any = {};
+        const data: Record<string, string> = {};
         headers.forEach((header: string, i: number) => {
             data[header] = dataLine[i];
         });
@@ -245,7 +245,7 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         // Parse BOM AWS data
         // Fields: wind_dir, wind_spd_kmh, gust_kmh, air_temp, press, etc.
         // Convert km/h to m/s for consistency with NDBC (m/s * 1.944 = knots)
-        const parseFloat = (val: any): number | undefined => {
+        const parseFloat = (val: unknown): number | undefined => {
             if (val === null || val === undefined || val === '-') return undefined;
             const parsed = Number(val);
             return isNaN(parsed) ? undefined : parsed;
@@ -322,7 +322,7 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         const data = response.data;
 
         // Find the specific station in the wind array
-        const windData = data.wind?.data?.find((s: any) =>
+        const windData = data.wind?.data?.find((s: { place?: string; mean?: number; max?: number; direction?: string }) =>
             s.place?.toLowerCase().includes(stationId.toLowerCase())
         );
 
@@ -349,10 +349,10 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         const windGust = !isNaN(gustKmh) ? gustKmh / 3.6 : undefined;
 
         // Try to get temperature/humidity from other sections
-        const tempData = data.temperature?.data?.find((s: any) =>
+        const tempData = data.temperature?.data?.find((s: { place?: string; value?: number }) =>
             s.place?.toLowerCase().includes(stationId.toLowerCase())
         );
-        const humidityData = data.humidity?.data?.find((s: any) =>
+        const humidityData = data.humidity?.data?.find((s: { place?: string; value?: number }) =>
             s.place?.toLowerCase().includes(stationId.toLowerCase())
         );
 

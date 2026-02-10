@@ -9,6 +9,9 @@
 import { ShipLogEntry } from '../types';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('GPX');
 
 // --- GPX EXPORT ---
 
@@ -361,14 +364,15 @@ export async function shareGPXFile(gpxXml: string, filename: string): Promise<vo
             url: writeResult.uri,
             dialogTitle: 'Export Voyage Track',
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
         // If user cancelled the share sheet, that's fine — not an error
-        if (err?.message?.includes('cancel') || err?.message?.includes('dismissed')) {
+        const errMsg = err instanceof Error ? err.message : '';
+        if (errMsg?.includes('cancel') || errMsg?.includes('dismissed')) {
             return;
         }
 
         // Fallback: browser blob download (web dev mode or Share API unavailable)
-        console.warn('[GPX] Native share unavailable, falling back to browser download:', err?.message);
+        log.warn('Native share unavailable, falling back to browser download:', errMsg);
         browserDownloadGPX(gpxXml, safeName);
     }
 }

@@ -169,7 +169,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                                         {/* GPS Button - Prevent bubbling to map open */}
                                         <button
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as any); }}
+                                            onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>); }}
                                             className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg z-10"
                                             title="Use Current Location"
                                             aria-label="Use Current Location"

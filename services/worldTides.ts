@@ -2,8 +2,8 @@
 // src/services/worldTides.ts
 
 // Key Access Strategy: Try Vite env first, then Node process.env
-const API_KEY = (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env as any).VITE_WORLD_TIDES_API_KEY)
-    || (typeof process !== 'undefined' && process.env && (process.env as any).WORLD_TIDES_API_KEY)
+const API_KEY = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORLD_TIDES_API_KEY)
+    || (typeof process !== 'undefined' && process.env && process.env.WORLD_TIDES_API_KEY)
     || '';
 
 export interface TideResult {

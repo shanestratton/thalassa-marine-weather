@@ -2,10 +2,10 @@ import { CapacitorHttp } from '@capacitor/core';
 
 const BASE_URL = 'https://api.stormglass.io/v2';
 
-export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, apiKey: string): Promise<T> => {
+export const fetchSG = async <T>(endpoint: string, params: Record<string, string | number>, apiKey: string): Promise<T> => {
     const cleanEndpoint = endpoint.replace(/^\/+/, '');
     const url = new URL(`${BASE_URL}/${cleanEndpoint}`);
-    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+    Object.keys(params).forEach(key => url.searchParams.append(key, String(params[key])));
     try {
         // Use Native HTTP to bypass CORS/SSL issues on simulator/device
         const options = {
@@ -32,7 +32,7 @@ export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, 
         }
 
         return res.data as T;
-    } catch (e: any) {
+    } catch (e: unknown) {
 
         try {
             const res = await fetch(url.toString(), {
@@ -44,7 +44,7 @@ export const fetchSG = async <T>(endpoint: string, params: Record<string, any>, 
                 throw new Error(`SG_HTTP_FETCH_${res.status}: ${body}`);
             }
             return await res.json() as T;
-        } catch (fetchErr: any) {
+        } catch (fetchErr: unknown) {
             throw fetchErr;
         }
     }

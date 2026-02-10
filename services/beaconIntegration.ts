@@ -7,12 +7,26 @@
  * 2. Merges multi-source data with source tracking
  */
 
-import { MarineWeatherReport } from '../types';
+import { MarineWeatherReport, SourcedWeatherMetrics, MetricSource } from '../types';
 import { findAndFetchNearestBeacon } from './weather/api/beaconService';
 import { mergeWeatherData, generateSourceReport } from './weather/api/dataSourceMerger';
 
+/** Debug state shape for the THALASSA_DEBUG global */
+interface ThalassaDebug {
+    beacon: unknown;
+    sources: Record<string, MetricSource> | null;
+    lastUpdate: string | null;
+    error?: string;
+}
+
+declare global {
+    interface Window {
+        THALASSA_DEBUG: ThalassaDebug;
+    }
+}
+
 // Global debug state for UI display
-(window as any).THALASSA_DEBUG = {
+window.THALASSA_DEBUG = {
     beacon: null,
     sources: null,
     lastUpdate: null
@@ -26,7 +40,7 @@ export async function enhanceWithBeaconData(
     coords: { lat: number, lon: number }
 ): Promise<MarineWeatherReport> {
 
-    const debug = (window as any).THALASSA_DEBUG;
+    const debug = window.THALASSA_DEBUG;
 
     try {
         // Fetch nearest beacon (BOM AWS or wave buoy) within 10nm
@@ -42,12 +56,13 @@ export async function enhanceWithBeaconData(
         const mergedReport = mergeWeatherData(beacon, report, {
             lat: coords.lat,
             lon: coords.lon,
-            name: (report as any).location?.name || 'Unknown'
+            name: report.locationName || 'Unknown'
         });
 
         // Update debug state
-        if (mergedReport.current && (mergedReport.current as any).sources) {
-            debug.sources = (mergedReport.current as any).sources;
+        const currentData = mergedReport.current as SourcedWeatherMetrics;
+        if (currentData?.sources) {
+            debug.sources = currentData.sources;
             debug.lastUpdate = new Date().toLocaleTimeString();
         }
 

@@ -204,7 +204,7 @@ class TrackSharingServiceClass {
 
         // Increment download counter (fire-and-forget)
         (async () => {
-            try { await supabase.rpc('increment_download_count', { track_id: trackId }); } catch { }
+            try { await supabase.rpc('increment_download_count', { track_id: trackId }); } catch { /* Fire-and-forget — counter miss is non-critical */ }
         })();
 
         return data.gpx_data;

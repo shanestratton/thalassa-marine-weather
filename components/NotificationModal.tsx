@@ -28,7 +28,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
   const focusTrapRef = useFocusTrap(isOpen);
 
-  const updateSetting = (key: keyof NotificationPreferences, field: 'enabled' | 'threshold', value: any) => {
+  const updateSetting = (key: keyof NotificationPreferences, field: 'enabled' | 'threshold', value: boolean | number) => {
     setLocalSettings(prev => ({
       ...prev,
       [key]: {

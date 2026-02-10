@@ -9,6 +9,7 @@ import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
 import { calculateDistance } from '../utils';
 import { enhanceWithBeaconData } from '../services/beaconIntegration';
 import { EnvironmentService } from '../services/EnvironmentService';
+import { getErrorMessage } from '../utils/logger';
 
 import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
@@ -146,7 +147,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             EnvironmentService.updateFromWeatherData({
                 locationType: data.locationType,
                 isLandlocked: data.isLandlocked,
-                elevation: (data as any)._elevation,
+                elevation: '_elevation' in data ? (data as MarineWeatherReport & { _elevation?: number })._elevation : undefined,
             });
         }
     }, []);
@@ -485,7 +486,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                     currentReport = precisionReport;
 
-                } catch (e: any) {
+                } catch (e: unknown) {
                     throw e; // No fallback data available
                 }
             } else {
@@ -543,7 +544,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         setWeatherData(enriched);
                         setHistoryCache(prev => ({ ...prev, [location]: enriched }));
                         saveLargeData(DATA_CACHE_KEY, enriched);
-                    } catch (e) { }
+                    } catch { /* non-critical: previous weather data already set */ }
                 } else {
                     if (weatherDataRef.current?.boatingAdvice) {
                         const reportWithAdvice = {
@@ -557,11 +558,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             if (!navigator.onLine && (weatherDataRef.current || historyCacheRef.current[location])) {
                 // OK
             } else {
-                if (!weatherDataRef.current) setError(err.message || "Weather Unavailable");
+                if (!weatherDataRef.current) setError(getErrorMessage(err) || "Weather Unavailable");
             }
             setLoading(false);
         } finally {
