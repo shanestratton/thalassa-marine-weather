@@ -779,6 +779,56 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         y += 24;
     }
 
+    // ===== ARRIVAL WEATHER HEADER =====
+    // Add weather conditions at the end of the log for arrival context
+    const arrivalForHeader = sortedByTimeForWeather[sortedByTimeForWeather.length - 1];
+
+    if (arrivalForHeader && arrivalForHeader !== departureForHeader &&
+        (arrivalForHeader.windSpeed || arrivalForHeader.waveHeight || arrivalForHeader.pressure)) {
+        pdf.setFillColor(26, 42, 58); // Navy background
+        pdf.roundedRect(margin, y, contentWidth, 18, 2, 2, 'F');
+
+        // Header title
+        pdf.setTextColor(201, 162, 39); // Gold text
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        const arrTime = new Date(arrivalForHeader.timestamp);
+        const arrTimeStr = arrTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        pdf.text(`Arrival Conditions (${arrTimeStr})`, margin + 4, y + 6);
+
+        // Weather data row
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'normal');
+
+        const arrWxParts: string[] = [];
+        if (arrivalForHeader.windSpeed) {
+            arrWxParts.push(`Wind: ${arrivalForHeader.windSpeed}kts ${arrivalForHeader.windDirection || ''}`);
+        }
+        if (arrivalForHeader.beaufortScale !== undefined) {
+            arrWxParts.push(`Beaufort: F${arrivalForHeader.beaufortScale}`);
+        }
+        if (arrivalForHeader.waveHeight) {
+            arrWxParts.push(`Waves: ${arrivalForHeader.waveHeight.toFixed(1)}m`);
+        }
+        if (arrivalForHeader.seaState !== undefined) {
+            arrWxParts.push(`Sea State: ${arrivalForHeader.seaState}`);
+        }
+        if (arrivalForHeader.pressure) {
+            arrWxParts.push(`Barometric Pressure: ${Math.round(arrivalForHeader.pressure)}mb`);
+        }
+        if (arrivalForHeader.airTemp !== undefined) {
+            arrWxParts.push(`Air: ${arrivalForHeader.airTemp}°C`);
+        }
+        if (arrivalForHeader.waterTemp !== undefined) {
+            arrWxParts.push(`Sea: ${arrivalForHeader.waterTemp}°C`);
+        }
+
+        pdf.text(arrWxParts.join('     '), margin + 4, y + 13);
+
+        y += 24;
+    }
+
     // Vessel Specifications Section (only if vessel data exists)
     const vesselProfile = vesselData?.vessel;
     const vesselUnits = vesselData?.vesselUnits;
@@ -891,6 +941,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         notes: contentWidth - 18 - 45 - 25 - 28
     };
 
+    // Track which watch headers have been rendered to prevent duplicates in rapid mode
+    const renderedWatches = new Set<string>();
+
     // Process entries by date (reverse to show newest entries first within each day)
     entriesByDate.forEach((dateEntries, dateKey) => {
         const entriesNewestFirst = [...dateEntries].reverse();
@@ -980,7 +1033,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
             const isWatchChange = watchChangeHours.includes(hour) && time.getMinutes() < 15;
 
             // Draw weather summary box at watch changes
-            if (isWatchChange && (idx === 0 || new Date(dateEntries[idx - 1].timestamp).getHours() !== hour)) {
+            const watchKey = `${dateKey}:${hour}`;
+            if (isWatchChange && !renderedWatches.has(watchKey)) {
+                renderedWatches.add(watchKey);
                 // Check if we have room for weather box
                 if (y > pageHeight - 45) {
                     pdf.addPage();

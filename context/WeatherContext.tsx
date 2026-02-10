@@ -720,6 +720,71 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return () => clearInterval(checkInterval);
     }, [fetchWeather, locationMode]); // Removed nextUpdate to prevent interval recreation
 
+    // --- GPS DRIFT DETECTOR (30s) ---
+    // Two-tier: name-only update for short moves, full weather refresh for long moves
+    useEffect(() => {
+        if (locationMode !== 'gps') return; // Only active in GPS/"Current Location" mode
+
+        const NAME_CHECK_NM = 0.5;    // Suburb change threshold (filter GPS jitter)
+        const WEATHER_REFRESH_NM = 5;  // Full weather refresh threshold
+        const POLL_MS = 10_000;
+
+        const haversineNM = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+            const R = 3440.065; // Earth radius in nautical miles
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a));
+        };
+
+        const driftCheck = setInterval(() => {
+            if (!navigator.onLine || isFetchingRef.current) return;
+            if (!navigator.geolocation) return;
+
+            const current = weatherDataRef.current?.coordinates;
+            if (!current) return;
+
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                const dist = haversineNM(current.lat, current.lon, latitude, longitude);
+
+                if (dist < NAME_CHECK_NM) return; // GPS jitter — discard
+
+                // Reverse geocode the new position
+                let name = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                try {
+                    const geo = await reverseGeocode(latitude, longitude);
+                    if (geo) name = geo;
+                } catch { /* fallback to WP coords */ }
+
+                if (dist >= WEATHER_REFRESH_NM) {
+                    // TIER 2: Moved ≥5nm — full location + weather update
+                    selectLocation(name, { lat: latitude, lon: longitude });
+                } else if (name !== weatherDataRef.current?.locationName) {
+                    // TIER 1: Moved 0.5–5nm + suburb changed — name-only update (no weather fetch)
+                    const existing = weatherDataRef.current;
+                    if (existing) {
+                        setWeatherData({
+                            ...existing,
+                            locationName: name,
+                            coordinates: { lat: latitude, lon: longitude }
+                        });
+                        updateSettings({ defaultLocation: name });
+                    }
+                }
+                // else: moved but same suburb name — do nothing
+            }, () => { /* GPS error — skip silently */ }, {
+                enableHighAccuracy: false,
+                timeout: 10_000,
+                maximumAge: 15_000
+            });
+        }, POLL_MS);
+
+        return () => clearInterval(driftCheck);
+    }, [locationMode, selectLocation, setWeatherData, updateSettings]);
+
     // Model Change Effect
     const prevModelRef = useRef(settings.preferredModel);
     useEffect(() => {

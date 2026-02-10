@@ -205,15 +205,30 @@ export function useLogPageState() {
         const status = ShipLogService.getTrackingStatus();
         const voyageId = ShipLogService.getCurrentVoyageId();
 
-        let logs = await ShipLogService.getLogEntries(100);
-        if (logs.length === 0) {
-            const offlineEntries = await ShipLogService.getOfflineEntries();
-            if (offlineEntries.length > 0) logs = offlineEntries;
+        // Fetch from BOTH sources and merge — ensures entries are visible
+        // whether they're synced to Supabase or still in the offline queue.
+        const [dbEntries, offlineEntries] = await Promise.all([
+            ShipLogService.getLogEntries(100),
+            ShipLogService.getOfflineEntries(),
+        ]);
+
+        // Merge + deduplicate by entry ID (offline entries may not yet be in Supabase)
+        const seen = new Set<string>();
+        const merged: ShipLogEntry[] = [];
+        for (const entry of [...dbEntries, ...offlineEntries]) {
+            const key = entry.id;
+            if (key && !seen.has(key)) {
+                seen.add(key);
+                merged.push(entry);
+            }
         }
+
+        // Sort newest first
+        merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         dispatch({
             type: 'LOAD_DATA',
-            entries: logs,
+            entries: merged,
             isTracking: status.isTracking,
             isPaused: status.isPaused,
             isRapidMode: status.isRapidMode,
@@ -222,15 +237,23 @@ export function useLogPageState() {
     }, []);
 
     useEffect(() => {
+        let mounted = true;
+        const timeout = setTimeout(() => {
+            /* Safety: dismiss spinner after 5s if init hangs (web/no Capacitor) */
+            if (mounted) dispatch({ type: 'DONE_LOADING' });
+        }, 5000);
         (async () => {
             try {
                 await ShipLogService.initialize();
-                await loadData();
+                if (mounted) await loadData();
             } catch {
                 /* Init or load failure — stop spinner to show empty state */
-                dispatch({ type: 'DONE_LOADING' });
+                if (mounted) dispatch({ type: 'DONE_LOADING' });
+            } finally {
+                clearTimeout(timeout);
             }
         })();
+        return () => { mounted = false; clearTimeout(timeout); };
     }, [loadData]);
 
     // ── GPS Status Polling ──────────────────────────────────────────────────
@@ -245,6 +268,18 @@ export function useLogPageState() {
         const id = setInterval(poll, 5000);
         return () => clearInterval(id);
     }, [state.isTracking]);
+
+    // ── Entry Refresh Polling — live updates while tracking ──────────────────
+    // Poll every 5s when tracking so new auto entries appear on screen promptly.
+    // This is lightweight — just reads from local DB, no GPS calls.
+
+    useEffect(() => {
+        if (!state.isTracking) return;
+
+        const pollMs = state.isRapidMode ? 3_000 : 5_000;
+        const id = setInterval(() => { loadData(); }, pollMs);
+        return () => clearInterval(id);
+    }, [state.isTracking, state.isRapidMode, loadData]);
 
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
@@ -350,20 +385,26 @@ export function useLogPageState() {
     // ── Export / Share ───────────────────────────────────────────────────────
 
     const handleExportCSV = useCallback(() => {
-        exportToCSV(state.entries, 'ships_log.csv', {
+        const targetEntries = state.selectedVoyageId
+            ? state.entries.filter(e => e.voyageId === state.selectedVoyageId)
+            : state.entries;
+        exportToCSV(targetEntries, 'ships_log.csv', {
             onProgress: () => { },
             onSuccess: () => { },
             onError: (err) => toast.error(err),
         });
-    }, [state.entries, toast]);
+    }, [state.selectedVoyageId, state.entries, toast]);
 
     const handleShare = useCallback(async () => {
-        await sharePDF(state.entries, {
+        const targetEntries = state.selectedVoyageId
+            ? state.entries.filter(e => e.voyageId === state.selectedVoyageId)
+            : state.entries;
+        await sharePDF(targetEntries, {
             onProgress: () => { },
             onSuccess: () => { },
             onError: (err) => toast.error(err),
         }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
-    }, [state.entries, settings.vessel, settings.vesselUnits, toast]);
+    }, [state.selectedVoyageId, state.entries, settings.vessel, settings.vesselUnits, toast]);
 
     const handleExportThenDelete = useCallback(async () => {
         await handleShare();

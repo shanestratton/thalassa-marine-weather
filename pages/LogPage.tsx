@@ -8,7 +8,7 @@
 import React from 'react';
 import {
     PlayIcon,
-    PauseIcon,
+
     StopIcon,
     CompassIcon,
     WindIcon
@@ -25,6 +25,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
+import { t } from '../theme';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -49,7 +50,7 @@ export const LogPage: React.FC = () => {
         handleStartTracking,
         startTrackingWithNewVoyage,
         continueLastVoyage,
-        handlePauseTracking,
+
         handleToggleRapidMode,
         handleStopTracking,
         confirmStopVoyage,
@@ -82,7 +83,7 @@ export const LogPage: React.FC = () => {
 
     // Destructure frequently used state for JSX readability
     const {
-        entries, isTracking, isPaused, isRapidMode, loading,
+        entries, isTracking, isRapidMode, loading,
         showAddModal, showTrackMap, showStats, showStopVoyageDialog,
         showVoyageChoiceDialog, showCommunityBrowser, actionSheet,
         editEntry, selectedVoyageId, deleteVoyageId, currentVoyageId,
@@ -139,10 +140,10 @@ export const LogPage: React.FC = () => {
                 </div>
             ) : (
                 <div className="flex flex-col h-full">
-                    {/* Header with Controls - FIXED at top */}
-                    <div className="shrink-0 p-4 bg-slate-900 border-b border-white/10 z-20">
-                        <div className="flex justify-between items-center mb-2">
-                            <h1 className="text-xl font-bold text-white flex items-center gap-2">
+                    {/* Page Header — matches Anchor Watch pattern */}
+                    <div className={t.header.bar}>
+                        <div className="flex justify-between items-center">
+                            <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
                                 <AnchorIcon className="w-6 h-6 text-sky-400" />
                                 Ship's Log
                                 {isTracking && (
@@ -160,7 +161,7 @@ export const LogPage: React.FC = () => {
 
                             {/* Tracking Controls */}
                             <div className="flex gap-2">
-                                {!isTracking && !isPaused && (
+                                {!isTracking && (
                                     <button
                                         onClick={handleStartTracking}
                                         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors"
@@ -189,16 +190,6 @@ export const LogPage: React.FC = () => {
 
                                 {isTracking && (
                                     <button
-                                        onClick={handlePauseTracking}
-                                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors"
-                                    >
-                                        <PauseIcon className="w-4 h-4" />
-                                        Pause
-                                    </button>
-                                )}
-
-                                {(isTracking || isPaused) && (
-                                    <button
                                         onClick={handleStopTracking}
                                         className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors"
                                     >
@@ -208,6 +199,10 @@ export const LogPage: React.FC = () => {
                                 )}
                             </div>
                         </div>
+                    </div>
+
+                    {/* Controls Card — Action Bar + Filters */}
+                    <div className="shrink-0 px-4 pt-2 pb-2 z-20">
 
                         {/* Action Bar — 4 buttons */}
                         <div className="grid grid-cols-4 gap-2 mb-2">
@@ -349,16 +344,84 @@ export const LogPage: React.FC = () => {
                     </div>
 
                     {/* Log Entries Timeline - Scrollable area */}
-                    <div className="flex-1 overflow-y-auto">
-                        <div className="p-4 min-h-full flex flex-col">
+                    <div className="flex-1 overflow-y-auto relative">
+                        {/* Maritime watermark — visible when empty, fades as logs fill */}
+                        <div
+                            className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"
+                            style={{ opacity: Math.max(0, 0.12 - entries.length * 0.012) }}
+                        >
+                            <svg viewBox="0 0 200 200" fill="none" className="w-64 h-64 text-white">
+                                {/* Outer rim — thick band with detail */}
+                                <circle cx="100" cy="100" r="88" stroke="currentColor" strokeWidth="2" />
+                                <circle cx="100" cy="100" r="82" stroke="currentColor" strokeWidth="4" />
+                                <circle cx="100" cy="100" r="76" stroke="currentColor" strokeWidth="1.5" />
+                                {/* Decorative inner ring */}
+                                <circle cx="100" cy="100" r="50" stroke="currentColor" strokeWidth="1" strokeDasharray="3 5" />
+                                {/* Hub — chunky center boss */}
+                                <circle cx="100" cy="100" r="22" stroke="currentColor" strokeWidth="3" />
+                                <circle cx="100" cy="100" r="16" stroke="currentColor" strokeWidth="1.5" />
+                                <circle cx="100" cy="100" r="7" fill="currentColor" fillOpacity="0.25" />
+                                <circle cx="100" cy="100" r="3" fill="currentColor" fillOpacity="0.4" />
+                                {/* 8 spokes — tapered (wider at hub, narrower at rim) */}
+                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => {
+                                    const rad = (angle - 90) * Math.PI / 180;
+                                    const perpRad = rad + Math.PI / 2;
+                                    const hubR = 22; const rimR = 76;
+                                    const hubW = 4; const rimW = 2.5;
+                                    const hx = 100 + Math.cos(rad) * hubR;
+                                    const hy = 100 + Math.sin(rad) * hubR;
+                                    const rx = 100 + Math.cos(rad) * rimR;
+                                    const ry = 100 + Math.sin(rad) * rimR;
+                                    return (
+                                        <polygon key={angle} fill="currentColor" fillOpacity="0.35" stroke="currentColor" strokeWidth="1"
+                                            points={`${hx + Math.cos(perpRad) * hubW},${hy + Math.sin(perpRad) * hubW} ${rx + Math.cos(perpRad) * rimW},${ry + Math.sin(perpRad) * rimW} ${rx - Math.cos(perpRad) * rimW},${ry - Math.sin(perpRad) * rimW} ${hx - Math.cos(perpRad) * hubW},${hy - Math.sin(perpRad) * hubW}`}
+                                        />
+                                    );
+                                })}
+                                {/* 8 turned handle pegs — classic barrel shape */}
+                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => {
+                                    const rad = (angle - 90) * Math.PI / 180;
+                                    const pegCenter = 92;
+                                    const cx = 100 + Math.cos(rad) * pegCenter;
+                                    const cy = 100 + Math.sin(rad) * pegCenter;
+                                    return (
+                                        <g key={`peg-${angle}`}>
+                                            {/* Peg barrel */}
+                                            <circle cx={cx} cy={cy} r="6" stroke="currentColor" strokeWidth="2" fill="none" />
+                                            {/* Peg detail ring */}
+                                            <circle cx={cx} cy={cy} r="3.5" stroke="currentColor" strokeWidth="0.8" fill="currentColor" fillOpacity="0.1" />
+                                        </g>
+                                    );
+                                })}
+                                {/* Rim detail — decorative dots between handles */}
+                                {[22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5].map(angle => {
+                                    const rad = (angle - 90) * Math.PI / 180;
+                                    const cx = 100 + Math.cos(rad) * 82;
+                                    const cy = 100 + Math.sin(rad) * 82;
+                                    return <circle key={`dot-${angle}`} cx={cx} cy={cy} r="1.5" fill="currentColor" fillOpacity="0.3" />;
+                                })}
+                            </svg>
+                        </div>
+
+                        <div className="p-4 min-h-full flex flex-col relative z-10">
                             {entries.length === 0 ? (
-                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                                    <div className="text-6xl mb-4">⚓</div>
+                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6">
+                                    {/* Compass Rose SVG illustration */}
+                                    <div className="relative w-24 h-24 mb-6">
+                                        <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/40">
+                                            <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                            <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
+                                            <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                            <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
+                                            <path d="M8 48L44 44V52L8 48Z" fill="currentColor" fillOpacity="0.3" />
+                                            <path d="M88 48L52 52V44L88 48Z" fill="currentColor" fillOpacity="0.3" />
+                                        </svg>
+                                        <div className="absolute inset-0 rounded-full bg-sky-500/5 animate-ping" style={{ animationDuration: '3s' }} />
+                                    </div>
                                     <p className="text-lg font-bold text-white mb-2">Your Voyage Awaits</p>
-                                    <p className="text-sm mb-6 max-w-xs mx-auto text-center">
-                                        "Twenty years from now you will be more disappointed by the things you didn't do than by the ones you did do."
+                                    <p className="text-sm text-white/60 max-w-[260px] text-center leading-relaxed">
+                                        Start tracking to record GPS positions, waypoints, and voyage data.
                                     </p>
-                                    <p className="text-xs text-slate-500">— Mark Twain</p>
                                 </div>
                             ) : (
                                 <>

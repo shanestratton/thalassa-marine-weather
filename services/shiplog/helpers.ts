@@ -253,58 +253,44 @@ export async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
 // --- ADAPTIVE LOGGING ZONE DETECTION ---
 
 /**
- * Determine the logging zone based on cached weather data's distance-to-land.
- * Uses the last weather report to avoid extra API calls per GPS fix.
- * 
- * SAFETY-FIRST: Falls back to 'nearshore' (30s) when uncertain.
- * On a boat, missing a GPS fix is worse than an extra one.
+ * Determine the logging zone for adaptive GPS intervals.
+ *
+ * Uses the cached weather data — which reflects the dashboard's selected location.
+ * If the dashboard is set to "Current Location" (GPS), this is the vessel's real position.
+ *
+ * SAFETY-FIRST RULES:
+ * 1. Default = 'nearshore' (30s) — extra entries are cheap, missed ones are not.
+ * 2. Only go 'offshore' (15min) when we have CONFIRMED distance > 5nm from land.
+ * 3. Never trust locationType alone for offshore — require distToLandKm confirmation.
  */
 export async function determineLoggingZone(): Promise<LoggingZone> {
     try {
-        // Read cached weather data (same cache used by the dashboard)
         const cachedData = await loadLargeData(DATA_CACHE_KEY);
-        if (!cachedData) {
-            return 'nearshore'; // No data = safe default, frequent fixes
-        }
+        if (!cachedData) return 'nearshore'; // No data = safe default
 
-        // IMMEDIATE CHECK: isLandlocked flag (set by transformers.ts when locationType === 'inland')
-        // This is the most reliable signal — if we know we're on land, use 30s interval
-        if (cachedData?.isLandlocked === true) {
-            return 'nearshore'; // On land = high detail (30s)
-        }
+        // Landlocked = on land = nearshore (30s)
+        if (cachedData?.isLandlocked === true) return 'nearshore';
 
-        // The weather data includes location type classification
         const locationType = cachedData?.locationType;
+        const distKm = cachedData?.distToLandKm;
 
-        // PRIORITY 1: Use locationType classification (most reliable signal)
-        // Check this BEFORE distToLandKm because locationType accounts for
-        // elevation, tides, and wave data — not just raw distance.
-        if (locationType === 'inland') return 'nearshore';   // On land = 30s
-        if (locationType === 'coastal') return 'coastal';    // Near shore = 2min
-        if (locationType === 'offshore') {
-            // Double-check: If we have distToLandKm, use it for zone refinement
-            // within the "offshore" classification (might be just outside 5nm)
-            if (cachedData?.distToLandKm !== undefined && cachedData.distToLandKm !== null) {
-                const distKm = cachedData.distToLandKm;
-                if (distKm <= NEARSHORE_THRESHOLD_KM) return 'nearshore';
-                if (distKm <= COASTAL_THRESHOLD_KM) return 'coastal';
-            }
-            return 'offshore'; // Confirmed offshore = 15min
+        // If we have actual distance to land, use it (most reliable signal)
+        if (distKm !== undefined && distKm !== null && typeof distKm === 'number') {
+            if (distKm <= NEARSHORE_THRESHOLD_KM) return 'nearshore';   // < 1nm
+            if (distKm <= COASTAL_THRESHOLD_KM) return 'coastal';       // < 5nm
+            return 'offshore';                                           // > 5nm — confirmed
         }
 
-        // PRIORITY 2: If locationType is missing but distToLandKm exists, use distance
-        if (cachedData?.distToLandKm !== undefined && cachedData.distToLandKm !== null) {
-            const distKm = cachedData.distToLandKm;
-            if (distKm <= NEARSHORE_THRESHOLD_KM) return 'nearshore';
-            if (distKm <= COASTAL_THRESHOLD_KM) return 'coastal';
-            return 'offshore';
-        }
+        // Fall back to locationType classification
+        if (locationType === 'inland') return 'nearshore';
+        if (locationType === 'coastal') return 'coastal';
+        // NOTE: Do NOT trust locationType === 'offshore' without distance confirmation.
+        // The weather cache might be for a different location (user browsing offshore WPs).
+        // Default to nearshore — rescheduleAdaptiveInterval will refine after next GPS fix.
 
-        // SAFETY FALLBACK: No locationType AND no distToLandKm
-        // Default to nearshore (30s) — safer to log too often than too rarely
-        return 'nearshore';
-    } catch (error) {
-        return 'nearshore'; // Fail safe = frequent fixes
+        return 'nearshore'; // Safe default
+    } catch {
+        return 'nearshore'; // Fail safe
     }
 }
 

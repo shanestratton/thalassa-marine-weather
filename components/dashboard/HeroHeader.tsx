@@ -134,7 +134,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         aria-label="Toggle Mode">
                         {/* Soft press glow — rounded pill shape, no hard edges */}
                         <div className="absolute inset-x-2 inset-y-1 rounded-xl bg-white/0 group-active/toggle:bg-white/10 transition-colors duration-150" />
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none w-full text-center`}>
+                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none w-full text-center`} style={{ paddingLeft: '0.2em' }}>
                             {isLive ? "TODAY" : "FORECAST"}
                         </span>
                         <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-center whitespace-nowrap mt-0.5`}>
@@ -146,16 +146,19 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </span>
                         )}
                         {/* Essential/Full mode toggle indicator */}
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className={`${toggleLabelSize} font-bold uppercase tracking-wider ${isEssentialMode ? 'text-amber-400' : 'text-white/40'}`}>
-                                Basic
-                            </span>
-                            <div className={`w-6 h-3 rounded-full ${isEssentialMode ? 'bg-amber-500/30' : 'bg-white/10'} relative transition-colors`}>
-                                <div className={`absolute top-0.5 w-2 h-2 rounded-full ${isEssentialMode ? 'bg-amber-400 left-0.5' : 'bg-white/60 right-0.5'} transition-all`} />
+                        <div className="flex flex-col items-center gap-0.5 mt-1.5">
+                            <span className={`text-[8px] font-bold uppercase tracking-[0.2em] text-white/25`}>View Mode</span>
+                            <div className="flex items-center gap-1.5">
+                                <span className={`${toggleLabelSize} font-bold uppercase tracking-wider text-amber-400`}>
+                                    Basic
+                                </span>
+                                <div className={`w-6 h-3 rounded-full ${isEssentialMode ? 'bg-amber-500/30' : 'bg-white/10'} relative transition-colors`}>
+                                    <div className={`absolute top-0.5 w-2 h-2 rounded-full ${isEssentialMode ? 'bg-amber-400 left-0.5' : 'bg-white/60 right-0.5'} transition-all`} />
+                                </div>
+                                <span className={`${toggleLabelSize} font-bold uppercase tracking-wider text-sky-400`}>
+                                    Full
+                                </span>
                             </div>
-                            <span className={`${toggleLabelSize} font-bold uppercase tracking-wider ${!isEssentialMode ? 'text-sky-400' : 'text-white/40'}`}>
-                                Full
-                            </span>
                         </div>
                     </button>
 

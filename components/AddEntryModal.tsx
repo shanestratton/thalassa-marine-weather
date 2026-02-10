@@ -42,9 +42,10 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     const currentTime = formatTime24Colon(now);
     const currentWatch = getWatchPeriod(now.getHours());
 
-    if (!isOpen) return null;
-
+    // MUST be called before any early returns (Rules of Hooks)
     const focusTrapRef = useFocusTrap(isOpen);
+
+    if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

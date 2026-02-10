@@ -162,7 +162,8 @@ const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValu
                 <select
                     value={unitType}
                     onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 text-gray-400 text-[10px] font-bold px-2 outline-none border-l border-white/10 hover:text-white hover:bg-white/10 cursor-pointer uppercase transition-colors"
+                    className="bg-white/5 text-gray-300 text-xs font-bold px-3 py-2 outline-none border-l border-white/10 hover:text-white hover:bg-white/10 focus:bg-white/10 cursor-pointer uppercase transition-all appearance-none bg-no-repeat bg-[length:10px_10px] bg-[right_8px_center]"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 10 6%27%3E%3Cpath d=%27M1 1l4 4 4-4%27 stroke=%27%2394a3b8%27 stroke-width=%271.5%27 fill=%27none%27 stroke-linecap=%27round%27/%3E%3C/svg%3E")', paddingRight: '24px' }}
                 >
                     {unitOptions.map((opt: string) => <option key={opt} value={opt} className="bg-slate-900 text-gray-300">{opt}</option>)}
                 </select>
@@ -666,17 +667,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                         <input type="text" value={settings.vessel?.name || ''} onChange={(e) => updateVessel('name', e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium" />
                                     </div>
                                 </Row>
-                                <div className="p-4 grid grid-cols-2 gap-x-6 gap-y-4">
-                                    <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
-                                    <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
-                                    <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
-                                    <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
-                                    <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
-                                    <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
-                                    <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
-                                    <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
-                                </div>
                             </Section>
+
+                            {/* Hull Dimensions */}
+                            <div className="mx-4 mb-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-1 h-4 rounded-full bg-sky-500" />
+                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Hull Dimensions</span>
+                                </div>
+                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                                        <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
+                                        <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
+                                        <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
+                                        <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Performance */}
+                            <div className="mx-4 mb-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-1 h-4 rounded-full bg-emerald-500" />
+                                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Performance</span>
+                                </div>
+                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                                        <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
+                                        <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Capacity */}
+                            <div className="mx-4 mb-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-1 h-4 rounded-full bg-amber-500" />
+                                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Capacity</span>
+                                </div>
+                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                                        <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
+                                        <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
