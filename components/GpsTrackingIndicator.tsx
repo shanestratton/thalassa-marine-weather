@@ -7,9 +7,12 @@
  *   Nearshore   →  "30s"
  *   Coastal     →  "2m"
  *   Offshore    →  "15m"
+ *
+ * Also shows a brief flash when a position check is deduped ("✓ No movement"),
+ * confirming the system is alive even when the vessel is stationary.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 
 /** Convert milliseconds to a human-readable short label */
@@ -21,11 +24,24 @@ function formatIntervalLabel(ms: number): string {
 
 export const GpsTrackingIndicator: React.FC = () => {
     const [status, setStatus] = useState(() => ShipLogService.getTrackingStatus());
+    const [showDedup, setShowDedup] = useState(false);
+    const lastCheckRef = useRef<number | undefined>(undefined);
 
     // Poll tracking status every 1 second so it reacts quickly to mode changes
     useEffect(() => {
         const id = setInterval(() => {
-            setStatus(ShipLogService.getTrackingStatus());
+            const s = ShipLogService.getTrackingStatus();
+            setStatus(s);
+
+            // Detect new dedup event: lastCheckTime changed AND it was deduped
+            if (s.lastCheckTime && s.lastCheckTime !== lastCheckRef.current) {
+                lastCheckRef.current = s.lastCheckTime;
+                if (s.lastCheckDeduped) {
+                    setShowDedup(true);
+                    // Auto-hide after 2.5 seconds
+                    setTimeout(() => setShowDedup(false), 2500);
+                }
+            }
         }, 1000);
         return () => clearInterval(id);
     }, []);
@@ -57,6 +73,7 @@ export const GpsTrackingIndicator: React.FC = () => {
 
     return (
         <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-[950] pointer-events-none">
+            {/* Main badge */}
             <div className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-full ${bgColor} border backdrop-blur-md shadow-lg`}>
                 {/* Pulse ring */}
                 <span className="relative flex h-2.5 w-2.5">
@@ -75,6 +92,23 @@ export const GpsTrackingIndicator: React.FC = () => {
                     {label}
                 </span>
             </div>
+
+            {/* Dedup feedback badge — flashes briefly when position is unchanged */}
+            {showDedup && (
+                <div
+                    className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-700/90 border border-slate-500/30 backdrop-blur-md shadow-sm"
+                    style={{
+                        animation: 'dedupFadeIn 0.3s ease-out, dedupFadeOut 0.5s ease-in 2s forwards',
+                    }}
+                >
+                    <svg className="w-3 h-3 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="text-slate-300 text-[9px] font-medium tracking-wide whitespace-nowrap">
+                        No movement
+                    </span>
+                </div>
+            )}
         </div>
     );
 };
