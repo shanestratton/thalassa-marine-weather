@@ -14,7 +14,7 @@ import { exportVoyageAsGPX } from './gpxService';
 
 // --- TYPES ---
 
-export type TrackCategory = 'anchorage' | 'port_entry' | 'walking' | 'reef_passage' | 'coastal' | 'offshore' | 'bar_crossing' | 'driving';
+export type TrackCategory = 'anchorage' | 'port_entry' | 'walking' | 'reef_passage' | 'coastal' | 'offshore' | 'bar_crossing' | 'driving' | 'pin_repairs' | 'pin_food' | 'pin_fuel' | 'pin_supplies' | 'pin_scenic';
 
 export interface SharedTrack {
     id: string;

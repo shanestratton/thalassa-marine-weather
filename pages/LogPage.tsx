@@ -690,7 +690,7 @@ export const LogPage: React.FC = () => {
             {/* SHARE ACTION SHEET — full screen panel */}
             {actionSheet === 'share' && (
                 <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                                 <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
@@ -698,7 +698,7 @@ export const LogPage: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                     </svg>
                                 </div>
-                                <h2 className="text-lg font-bold text-white">Community Sharing</h2>
+                                <h2 className="text-lg font-bold text-white">Share</h2>
                             </div>
                             <button
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
@@ -709,77 +709,74 @@ export const LogPage: React.FC = () => {
                                 </svg>
                             </button>
                         </div>
-                        <p className="text-sm text-slate-400 mt-2">Share tracks with sailors worldwide</p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto px-4 py-6">
-                        <div className="space-y-6 max-w-lg mx-auto w-full">
-                            {/* Share Track Form */}
-                            <div className="rounded-2xl bg-gradient-to-b from-violet-500/10 to-slate-900/80 border border-violet-500/20 p-5 space-y-5">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
-                                        <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-white font-bold text-base">Share This Track</h3>
-                                        <p className="text-slate-400 text-xs">Upload to the Thalassa community</p>
-                                    </div>
+                    <div className="flex-1 overflow-y-auto px-4 py-3">
+                        <div className="space-y-3 max-w-lg mx-auto w-full">
+
+                            {/* Offline Banner */}
+                            {typeof navigator !== 'undefined' && !navigator.onLine && (
+                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
+                                    <span>📡</span>
+                                    <span>Sharing requires internet. Your tracks are saved locally.</span>
                                 </div>
+                            )}
+
+                            {/* Share Track Form */}
+                            <div className="rounded-2xl bg-gradient-to-b from-violet-500/10 to-slate-900/80 border border-violet-500/20 p-4 space-y-3">
 
                                 {/* Title */}
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Title *</label>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Title *</label>
                                     <input
                                         id="share-title"
                                         type="text"
                                         placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
-                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                     />
                                 </div>
 
                                 {/* Description */}
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Description</label>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Description</label>
                                     <textarea
                                         id="share-description"
-                                        rows={3}
+                                        rows={2}
                                         placeholder="Brief description of the route, conditions, or points of interest..."
-                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
                                     />
                                 </div>
 
-                                {/* Category */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Category</label>
-                                    <select
-                                        id="share-category"
-                                        defaultValue="coastal"
-                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
-                                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
-                                    >
-                                        <option value="anchorage">⚓ Anchorage</option>
-                                        <option value="port_entry">🏗 Port Entry</option>
-                                        <option value="bar_crossing">🌊 Bar Crossing</option>
-                                        <option value="reef_passage">🪸 Reef Passage</option>
-                                        <option value="coastal">🏖 Coastal</option>
-                                        <option value="offshore">🌊 Offshore</option>
-                                        <option value="walking">🚶 Walking</option>
-                                        <option value="driving">🚗 Driving</option>
-                                    </select>
-                                </div>
-
-                                {/* Region */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Region</label>
-                                    <input
-                                        id="share-region"
-                                        type="text"
-                                        defaultValue={shareAutoRegion}
-                                        placeholder='e.g. "Queensland, AU"'
-                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
-                                    />
+                                {/* Category + Region — side by side */}
+                                <div className="flex gap-3">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Category</label>
+                                        <select
+                                            id="share-category"
+                                            defaultValue="coastal"
+                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
+                                            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                                        >
+                                            <option value="anchorage">⚓ Anchorage</option>
+                                            <option value="port_entry">🏗 Port Entry</option>
+                                            <option value="bar_crossing">🌊 Bar Crossing</option>
+                                            <option value="reef_passage">🪸 Reef Passage</option>
+                                            <option value="coastal">🏖 Coastal</option>
+                                            <option value="offshore">🌊 Offshore</option>
+                                            <option value="walking">🚶 Walking</option>
+                                            <option value="driving">🚗 Driving</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Region</label>
+                                        <input
+                                            id="share-region"
+                                            type="text"
+                                            defaultValue={shareAutoRegion}
+                                            placeholder='e.g. "QLD, AU"'
+                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Submit Button */}
@@ -796,27 +793,139 @@ export const LogPage: React.FC = () => {
                                         }
                                         handleShareToCommunity({ title, description, category: category as any, region });
                                     }}
-                                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 active:scale-[0.98] transition-all"
+                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 active:scale-[0.98] transition-all"
                                 >
-                                    Share Track
+                                    🚀 Share Track
                                 </button>
                             </div>
 
-                            {/* Browse Community Card */}
+                            {/* Pin Drop POI Card */}
+                            <div className="rounded-2xl bg-gradient-to-b from-amber-500/10 to-slate-900/80 border border-amber-500/20 p-4 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-lg">📍</span>
+                                    <h3 className="text-white font-bold text-sm">Drop a Pin</h3>
+                                    <span className="text-slate-500 text-xs ml-auto">Share a point of interest</span>
+                                </div>
+
+                                {/* POI Category Quick-Select */}
+                                <div className="flex gap-1.5 flex-wrap">
+                                    {[
+                                        { id: 'pin_repairs', emoji: '🔧', label: 'Repairs' },
+                                        { id: 'pin_food', emoji: '🍴', label: 'Food & Drink' },
+                                        { id: 'pin_fuel', emoji: '⛽', label: 'Fuel' },
+                                        { id: 'pin_supplies', emoji: '🛒', label: 'Supplies' },
+                                        { id: 'pin_scenic', emoji: '📸', label: 'Scenic' },
+                                    ].map(cat => (
+                                        <button
+                                            key={cat.id}
+                                            data-pin-cat={cat.id}
+                                            onClick={(e) => {
+                                                // Toggle selection
+                                                const btn = e.currentTarget;
+                                                const wasActive = btn.getAttribute('data-active') === 'true';
+                                                // Deselect all
+                                                document.querySelectorAll('[data-pin-cat]').forEach(el => {
+                                                    el.setAttribute('data-active', 'false');
+                                                    (el as HTMLElement).style.borderColor = 'rgba(255,255,255,0.1)';
+                                                    (el as HTMLElement).style.background = 'rgba(30,41,59,0.8)';
+                                                });
+                                                if (!wasActive) {
+                                                    btn.setAttribute('data-active', 'true');
+                                                    btn.style.borderColor = 'rgba(245,158,11,0.5)';
+                                                    btn.style.background = 'rgba(245,158,11,0.15)';
+                                                }
+                                            }}
+                                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 bg-slate-800/80 text-xs font-medium text-slate-300 hover:text-white transition-all"
+                                        >
+                                            <span>{cat.emoji}</span>
+                                            <span>{cat.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Pin Name + Notes */}
+                                <input
+                                    id="pin-name"
+                                    type="text"
+                                    placeholder="Name this spot..."
+                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                                />
+                                <textarea
+                                    id="pin-notes"
+                                    rows={2}
+                                    placeholder="Tips, recommendations, hours of operation..."
+                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all resize-none"
+                                />
+
+                                {/* Drop Pin Button */}
+                                <button
+                                    onClick={async () => {
+                                        const selectedCat = document.querySelector('[data-pin-cat][data-active="true"]');
+                                        const category = selectedCat?.getAttribute('data-pin-cat') || 'pin_scenic';
+                                        const name = (document.getElementById('pin-name') as HTMLInputElement)?.value?.trim();
+                                        const notes = (document.getElementById('pin-notes') as HTMLTextAreaElement)?.value?.trim() || '';
+                                        if (!name) {
+                                            (document.getElementById('pin-name') as HTMLInputElement)?.focus();
+                                            return;
+                                        }
+
+                                        // Get current GPS position
+                                        try {
+                                            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+                                                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                                    enableHighAccuracy: true, timeout: 10000, maximumAge: 30000
+                                                });
+                                            });
+                                            const lat = pos.coords.latitude;
+                                            const lon = pos.coords.longitude;
+
+                                            // Create a single-point entry to share as a pin
+                                            const pinEntry: ShipLogEntry = {
+                                                id: `pin_${Date.now()}`,
+                                                userId: '',
+                                                voyageId: `pin_${Date.now()}`,
+                                                timestamp: new Date().toISOString(),
+                                                latitude: lat,
+                                                longitude: lon,
+                                                positionFormatted: `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`,
+                                                entryType: 'waypoint',
+                                                waypointName: name,
+                                                notes: notes,
+                                                source: 'device',
+                                            };
+
+                                            const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
+                                            handleShareToCommunity({
+                                                title: `📍 ${name}`,
+                                                description: notes,
+                                                category: category as any,
+                                                region,
+                                            });
+                                        } catch {
+                                            toast.error('📍 Could not get GPS position');
+                                        }
+                                    }}
+                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
+                                >
+                                    📍 Drop Pin
+                                </button>
+                            </div>
+
+                            {/* Browse Community */}
                             <button
                                 onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
+                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
                             >
-                                <div className="w-14 h-14 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                                     </svg>
                                 </div>
                                 <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Browse Community</div>
-                                    <div className="text-slate-400 text-sm mt-1">Discover anchorages, passages &amp; routes from other sailors</div>
+                                    <div className="text-white font-bold text-sm">Browse Community</div>
+                                    <div className="text-slate-400 text-xs">Discover anchorages, passages &amp; routes</div>
                                 </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                 </svg>
                             </button>
