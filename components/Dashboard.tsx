@@ -10,7 +10,7 @@ import { StatusBadges } from './dashboard/StatusBadges';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { AdviceWidget } from './dashboard/Advice';
 const LogPage = React.lazy(() => import('../pages/LogPage').then(m => ({ default: m.LogPage })));
-import { HeroHeader } from './dashboard/HeroHeader';
+import { HeroHeader, getWeatherBackgroundImage } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { useSettings } from '../context/SettingsContext';
@@ -343,6 +343,23 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
                             <div className="fixed top-[0px] left-0 right-0 bg-black z-[100]" style={{ height: 'calc(max(8px, env(safe-area-inset-top)) + 444px)' }}></div>
+
+                            {/* SHARED WEATHER BACKGROUND - Spans HeroHeader + HeroWidgets */}
+                            <div className="fixed left-0 right-0 z-[109] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 152px)', height: '280px' }}>
+                                <div className="w-full h-full rounded-2xl overflow-hidden">
+                                    <img
+                                        src={getWeatherBackgroundImage(
+                                            (dynamicHeaderEnabled ? activeDayData : current).condition,
+                                            true,
+                                            (dynamicHeaderEnabled ? activeDayData : current).cloudCover,
+                                            (dynamicHeaderEnabled ? activeDayData : current).moonIllumination
+                                        )}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40" />
+                                </div>
+                            </div>
 
                             {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
                             <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 152px)' }}>
