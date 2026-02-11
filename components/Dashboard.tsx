@@ -325,16 +325,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* MAIN CAROUSEL / GRID */}
                     {!isDetailMode && (
                         <div className="absolute inset-0">
-                            {/* App Heading - Thalassa */}
-                            <div className="fixed left-0 right-0 z-[120] pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 8px)' }}>
-                                <div className="text-center">
-                                    <h1 className="text-lg font-bold tracking-widest text-white/90 uppercase" style={{ letterSpacing: '0.2em' }}>Thalassa</h1>
-                                    <p className="text-[9px] tracking-wider text-sky-400/70 uppercase -mt-0.5" style={{ letterSpacing: '0.15em' }}>Officer on Watch Assistant</p>
-                                </div>
-                            </div>
-
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 53px)' }}>
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 81px)' }}>
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
@@ -350,10 +342,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100]" style={{ height: 'calc(max(8px, env(safe-area-inset-top)) + 396px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100]" style={{ height: 'calc(max(8px, env(safe-area-inset-top)) + 424px)' }}></div>
 
                             {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 104px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 132px)' }}>
                                 <HeroHeader
                                     data={dynamicHeaderEnabled ? activeDayData : current}
                                     units={units}
@@ -372,7 +364,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* CURRENT CONDITIONS CARD - Essential mode only, same position as 5x2 HeroWidgets */}
                             {isEssentialMode && (
-                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 226px)' }}>
+                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 254px)' }}>
                                     <CurrentConditionsCard
                                         data={activeDayData || current}
                                         units={units}
@@ -383,7 +375,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* FIXED WIDGETS - Absolutely positioned below header (hidden in Essential mode) */}
                             {!isEssentialMode && (
-                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 226px)' }}>
+                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 254px)' }}>
                                     <HeroWidgets
                                         data={activeDayData}  // Bottom row - updates with scroll
                                         currentData={current}  // Top row - always shows current/live data
@@ -402,7 +394,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
                             {/* HERO CONTAINER - Positioned below fixed headers (same position in both modes) */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 396px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 424px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
