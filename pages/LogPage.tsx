@@ -349,7 +349,7 @@ export const LogPage: React.FC = () => {
                         {/* Maritime watermark — visible when empty, fades as logs fill */}
                         <div
                             className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"
-                            style={{ opacity: Math.max(0, 0.12 - entries.length * 0.012) }}
+                            style={{ opacity: 0.06 }}
                         >
                             <svg viewBox="0 0 200 200" fill="none" className="w-64 h-64 text-white">
                                 {/* Outer rim — thick band with detail */}
