@@ -290,24 +290,8 @@ export const LogPage: React.FC = () => {
                                 )}
                             </div>
 
-                            {/* A/M/W Type Filters */}
+                            {/* M/W Type Filters */}
                             <div className="flex gap-1">
-                                <button
-                                    onClick={() => {
-                                        const newTypes = filters.types.includes('auto')
-                                            ? filters.types.filter(t => t !== 'auto')
-                                            : [...filters.types, 'auto'] as ('auto' | 'manual' | 'waypoint')[];
-                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
-                                    }}
-                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('auto')
-                                        ? 'bg-green-500/30 border-green-500/60 text-green-400'
-                                        : (filters.types.includes('manual') || filters.types.includes('waypoint'))
-                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
-                                        }`}
-                                >
-                                    A
-                                </button>
                                 <button
                                     onClick={() => {
                                         const newTypes = filters.types.includes('manual')
@@ -315,14 +299,12 @@ export const LogPage: React.FC = () => {
                                             : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
                                         dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
                                     }}
-                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
+                                    className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
                                         ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
-                                        : filters.types.includes('auto')
-                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
                                         }`}
                                 >
-                                    M
+                                    Man
                                 </button>
                                 <button
                                     onClick={() => {
@@ -331,14 +313,12 @@ export const LogPage: React.FC = () => {
                                             : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
                                         dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
                                     }}
-                                    className={`min-w-[48px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
+                                    className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
                                         ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
-                                        : filters.types.includes('auto')
-                                            ? 'bg-slate-800/30 border-white/5 text-slate-600 opacity-40'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
                                         }`}
                                 >
-                                    W
+                                    Way
                                 </button>
                             </div>
                         </div>
