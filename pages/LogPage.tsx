@@ -5,7 +5,7 @@
  * This file is ONLY responsible for JSX layout.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
     PlayIcon,
 
@@ -80,6 +80,7 @@ export const LogPage: React.FC = () => {
     } = useLogPageState();
 
     const toast = useToast();
+    const [isExporting, setIsExporting] = useState(false);
 
     // Destructure frequently used state for JSX readability
     const {
@@ -551,9 +552,19 @@ export const LogPage: React.FC = () => {
                         <div className="space-y-4 max-w-lg mx-auto w-full">
                             {/* PDF Card — disabled for imported/community tracks (provenance) */}
                             <button
-                                onClick={() => { if (!hasNonDeviceEntries) { handleShare(); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); } }}
+                                onClick={async () => {
+                                    if (!hasNonDeviceEntries && !isExporting) {
+                                        setIsExporting(true);
+                                        try {
+                                            await handleShare();
+                                        } finally {
+                                            setIsExporting(false);
+                                        }
+                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                                    }
+                                }}
                                 disabled={hasNonDeviceEntries}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${hasNonDeviceEntries || isExporting
                                     ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
                                     : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
                                     }`}
@@ -564,6 +575,14 @@ export const LogPage: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
                                     </svg>
                                 </div>
+                                {isExporting && (
+                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+                                            <span className="text-sky-300 text-sm font-medium">Generating PDF…</span>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex-1 text-left">
                                     <div className="text-white font-bold text-lg">Official Deck Log</div>
                                     {hasNonDeviceEntries ? (
@@ -579,14 +598,34 @@ export const LogPage: React.FC = () => {
 
                             {/* GPX Card */}
                             <button
-                                onClick={() => { handleExportGPX(); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border border-emerald-500/20 hover:border-emerald-400/40 active:scale-[0.98] transition-all"
+                                onClick={async () => {
+                                    if (!isExporting) {
+                                        setIsExporting(true);
+                                        try {
+                                            await handleExportGPX();
+                                        } finally {
+                                            setIsExporting(false);
+                                        }
+                                    }
+                                }}
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isExporting
+                                    ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                    : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
+                                    }`}
                             >
                                 <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
                                     <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                                     </svg>
                                 </div>
+                                {isExporting && (
+                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                                            <span className="text-emerald-300 text-sm font-medium">Exporting GPX…</span>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex-1 text-left">
                                     <div className="text-white font-bold text-lg">GPS Track (GPX)</div>
                                     <div className="text-slate-400 text-sm mt-1">Import into OpenCPN, Navionics, or any chartplotter</div>

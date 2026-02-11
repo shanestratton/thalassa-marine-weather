@@ -493,7 +493,7 @@ export function useLogPageState() {
     }, [state.entries, state.selectedVoyageId]);
 
     const totalDistance = filteredEntries.length > 0
-        ? filteredEntries[0].cumulativeDistanceNM || 0
+        ? Math.max(...filteredEntries.map(e => e.cumulativeDistanceNM || 0))
         : 0;
 
     const avgSpeed = filteredEntries.length > 0
