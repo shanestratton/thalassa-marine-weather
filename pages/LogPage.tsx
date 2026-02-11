@@ -80,7 +80,8 @@ export const LogPage: React.FC = () => {
     } = useLogPageState();
 
     const toast = useToast();
-    const [isExporting, setIsExporting] = useState(false);
+    const [isExportingPDF, setIsExportingPDF] = useState(false);
+    const [isExportingGPX, setIsExportingGPX] = useState(false);
 
     // Destructure frequently used state for JSX readability
     const {
@@ -204,122 +205,124 @@ export const LogPage: React.FC = () => {
 
                     {/* Controls Card — Action Bar + Filters */}
                     <div className="shrink-0 px-4 pt-2 pb-2 z-20">
+                        <div className="rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/10 p-3">
 
-                        {/* Action Bar — 4 buttons */}
-                        <div className="grid grid-cols-4 gap-2 mb-2">
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' })}
-                                disabled={entries.length === 0}
-                                className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                    : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                Export
-                            </button>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
-                                disabled={entries.length === 0}
-                                className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                    : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                </svg>
-                                Share
-                            </button>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' })}
-                                disabled={entries.length === 0}
-                                className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                    : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                Stats
-                            </button>
-                            <button
-                                onClick={() => dispatch({ type: 'SHOW_TRACK_MAP', show: true })}
-                                disabled={entries.length === 0}
-                                className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                    : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                    }`}
-                            >
-                                <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                                </svg>
-                                Map
-                            </button>
-                        </div>
-
-                        {/* Search and Filter Row */}
-                        <div className="flex gap-2 items-center">
-                            {/* Search */}
-                            <div className="relative flex-1 max-w-[160px]">
-                                <input
-                                    type="text"
-                                    placeholder="Search..."
-                                    value={filters.searchQuery}
-                                    onChange={(e) => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: e.target.value } })}
-                                    className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
-                                />
-                                <svg
-                                    className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
+                            {/* Action Bar — 4 buttons */}
+                            <div className="grid grid-cols-4 gap-2 mb-2">
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' })}
+                                    disabled={entries.length === 0}
+                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
+                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
+                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
+                                        }`}
                                 >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                {filters.searchQuery && (
-                                    <button
-                                        onClick={() => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: '' } })}
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                                    >
-                                        ×
-                                    </button>
-                                )}
+                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Export
+                                </button>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
+                                    disabled={entries.length === 0}
+                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
+                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
+                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                    Share
+                                </button>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' })}
+                                    disabled={entries.length === 0}
+                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
+                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
+                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                    Stats
+                                </button>
+                                <button
+                                    onClick={() => dispatch({ type: 'SHOW_TRACK_MAP', show: true })}
+                                    disabled={entries.length === 0}
+                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
+                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
+                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
+                                        }`}
+                                >
+                                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                    </svg>
+                                    Map
+                                </button>
                             </div>
 
-                            {/* M/W Type Filters */}
-                            <div className="flex gap-1">
-                                <button
-                                    onClick={() => {
-                                        const newTypes = filters.types.includes('manual')
-                                            ? filters.types.filter(t => t !== 'manual')
-                                            : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
-                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
-                                    }}
-                                    className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
-                                        ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
-                                        }`}
-                                >
-                                    Man
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const newTypes = filters.types.includes('waypoint')
-                                            ? filters.types.filter(t => t !== 'waypoint')
-                                            : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
-                                        dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
-                                    }}
-                                    className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
-                                        ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
-                                        : 'bg-slate-800/60 border-white/5 text-slate-500'
-                                        }`}
-                                >
-                                    Way
-                                </button>
+                            {/* Search and Filter Row */}
+                            <div className="flex gap-2 items-center">
+                                {/* Search */}
+                                <div className="relative flex-1 max-w-[160px]">
+                                    <input
+                                        type="text"
+                                        placeholder="Search..."
+                                        value={filters.searchQuery}
+                                        onChange={(e) => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: e.target.value } })}
+                                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+                                    />
+                                    <svg
+                                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    {filters.searchQuery && (
+                                        <button
+                                            onClick={() => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: '' } })}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* M/W Type Filters */}
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={() => {
+                                            const newTypes = filters.types.includes('manual')
+                                                ? filters.types.filter(t => t !== 'manual')
+                                                : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
+                                            dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
+                                        }}
+                                        className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
+                                            ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                            }`}
+                                    >
+                                        Man
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const newTypes = filters.types.includes('waypoint')
+                                                ? filters.types.filter(t => t !== 'waypoint')
+                                                : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
+                                            dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
+                                        }}
+                                        className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
+                                            ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
+                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
+                                            }`}
+                                    >
+                                        Way
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -533,18 +536,18 @@ export const LogPage: React.FC = () => {
                             {/* PDF Card — disabled for imported/community tracks (provenance) */}
                             <button
                                 onClick={async () => {
-                                    if (!hasNonDeviceEntries && !isExporting) {
-                                        setIsExporting(true);
+                                    if (!hasNonDeviceEntries && !isExportingPDF) {
+                                        setIsExportingPDF(true);
                                         try {
                                             await handleShare();
                                         } finally {
-                                            setIsExporting(false);
+                                            setIsExportingPDF(false);
                                         }
                                         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
                                     }
                                 }}
                                 disabled={hasNonDeviceEntries}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${hasNonDeviceEntries || isExporting
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${hasNonDeviceEntries || isExportingPDF
                                     ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
                                     : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
                                     }`}
@@ -555,7 +558,7 @@ export const LogPage: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
                                     </svg>
                                 </div>
-                                {isExporting && (
+                                {isExportingPDF && (
                                     <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
                                         <div className="flex items-center gap-3">
                                             <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
@@ -579,16 +582,16 @@ export const LogPage: React.FC = () => {
                             {/* GPX Card */}
                             <button
                                 onClick={async () => {
-                                    if (!isExporting) {
-                                        setIsExporting(true);
+                                    if (!isExportingGPX) {
+                                        setIsExportingGPX(true);
                                         try {
                                             await handleExportGPX();
                                         } finally {
-                                            setIsExporting(false);
+                                            setIsExportingGPX(false);
                                         }
                                     }
                                 }}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isExporting
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isExportingGPX
                                     ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
                                     : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
                                     }`}
@@ -598,7 +601,7 @@ export const LogPage: React.FC = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                                     </svg>
                                 </div>
-                                {isExporting && (
+                                {isExportingGPX && (
                                     <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
                                         <div className="flex items-center gap-3">
                                             <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
