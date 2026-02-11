@@ -325,6 +325,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* MAIN CAROUSEL / GRID */}
                     {!isDetailMode && (
                         <div className="absolute inset-0">
+                            {/* App Heading - Thalassa */}
+                            <div className="fixed left-0 right-0 z-[120] pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 8px)' }}>
+                                <div className="text-center">
+                                    <h1 className="text-lg font-bold tracking-widest text-white/90 uppercase" style={{ letterSpacing: '0.2em' }}>Thalassa</h1>
+                                    <p className="text-[9px] tracking-wider text-sky-400/70 uppercase -mt-0.5" style={{ letterSpacing: '0.15em' }}>Officer on Watch Assistant</p>
+                                </div>
+                            </div>
+
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
                             <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 53px)' }}>
                                 <div className="pointer-events-auto">
