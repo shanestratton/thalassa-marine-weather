@@ -27,6 +27,11 @@ const CATEGORY_LABELS: Record<TrackCategory, string> = {
     offshore: '🌊 Offshore',
     walking: '🚶 Walking',
     driving: '🚗 Driving',
+    pin_repairs: '🔧 Repairs',
+    pin_food: '🍴 Food & Drink',
+    pin_fuel: '⛽ Fuel',
+    pin_supplies: '🛒 Supplies',
+    pin_scenic: '📸 Scenic',
 };
 
 const SORT_OPTIONS = [
