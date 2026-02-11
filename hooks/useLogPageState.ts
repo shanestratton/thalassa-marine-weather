@@ -306,16 +306,22 @@ export function useLogPageState() {
     }, [state.entries, loadData]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
+        // Instant UI response — dispatch first, service call is fire-and-forget
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
-        await ShipLogService.startTracking();
-        await loadData();
+        ShipLogService.startTracking().then(() => loadData()).catch((error: unknown) => {
+            dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+            alert(getErrorMessage(error) || 'Failed to start tracking');
+        });
     }, [loadData]);
 
     const continueLastVoyage = useCallback(async () => {
-        await ShipLogService.startTracking(false, state.lastVoyageId || undefined);
+        // Instant UI response — dispatch first, service call is fire-and-forget
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
-        await loadData();
+        ShipLogService.startTracking(false, state.lastVoyageId || undefined).then(() => loadData()).catch((error: unknown) => {
+            dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+            alert(getErrorMessage(error) || 'Failed to continue tracking');
+        });
     }, [state.lastVoyageId, loadData]);
 
     const handlePauseTracking = useCallback(async () => {
