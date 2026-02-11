@@ -5,7 +5,7 @@ import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, Gaug
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast, UserSettings, SourcedWeatherMetrics } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, convertMetersTo, formatCoordinate } from '../../utils';
-import { ALL_STATIONS } from '../../services/TideService';
+
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { useEnvironment } from '../../context/ThemeContext';
@@ -550,26 +550,8 @@ const HeroSlideComponent = ({
                     unitPref={units}
                     customTime={targetTime || customTime}
                     showAllDayEvents={index > 0 && !targetTime}
-                    /* Logic to resolve Primary vs Secondary */
-                    stationName={(() => {
-                        const sName = guiDetails?.stationName;
-                        if (!sName) return "Local Station";
-                        const sObj = ALL_STATIONS.find(s => s.name === sName);
-                        if (sObj?.referenceStationId) {
-                            const ref = ALL_STATIONS.find(r => r.id === sObj.referenceStationId);
-                            return ref ? ref.name : sName;
-                        }
-                        return sName;
-                    })()}
-                    secondaryStationName={(() => {
-                        const sName = guiDetails?.stationName;
-                        if (!sName) return undefined;
-                        const sObj = ALL_STATIONS.find(s => s.name === sName);
-                        if (sObj?.referenceStationId) {
-                            return sName; // The User's specific location is the Secondary
-                        }
-                        return undefined;
-                    })()}
+                    stationName={guiDetails?.stationName || 'Local Station'}
+                    secondaryStationName={undefined}
                     guiDetails={guiDetails}
                     stationPosition="bottom"
                 />
