@@ -134,7 +134,7 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-2 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? 'fixed top-0 left-0 right-0 z-[105] bg-black' : `${isMobileLandscape ? 'py-1' : 'py-2'} gap-3`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
+                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? 'fixed top-0 left-0 right-0 z-[105] bg-black' : `${isMobileLandscape ? 'py-1' : 'py-2'} gap-3`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
                         style={isDashboard ? { paddingTop: 'max(1rem, env(safe-area-inset-top))', paddingBottom: 0, gap: '8px' } : undefined}
                     >
                         {/* Logo row — same style on all pages */}
