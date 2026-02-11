@@ -5,7 +5,7 @@
  * This file is ONLY responsible for JSX layout.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     PlayIcon,
 
@@ -26,6 +26,8 @@ import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
 import { t } from '../theme';
+import { reverseGeocode } from '../services/weatherService';
+import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -83,6 +85,11 @@ export const LogPage: React.FC = () => {
     const [isExportingPDF, setIsExportingPDF] = useState(false);
     const [isExportingGPX, setIsExportingGPX] = useState(false);
 
+    // Share form auto-fill state
+    const [shareAutoTitle, setShareAutoTitle] = useState('');
+    const [shareAutoRegion, setShareAutoRegion] = useState('');
+    const shareFormResetRef = useRef(0);
+
     // Destructure frequently used state for JSX readability
     const {
         entries, isTracking, isRapidMode, loading,
@@ -91,6 +98,64 @@ export const LogPage: React.FC = () => {
         editEntry, selectedVoyageId, deleteVoyageId, currentVoyageId,
         expandedVoyages, gpsStatus, filters,
     } = state;
+
+    // Auto-fill share form when panel opens
+    useEffect(() => {
+        if (actionSheet !== 'share') {
+            setShareAutoTitle('');
+            setShareAutoRegion('');
+            return;
+        }
+
+        const targetEntries = selectedVoyageId
+            ? entries.filter(e => e.voyageId === selectedVoyageId)
+            : entries;
+
+        if (targetEntries.length === 0) return;
+
+        const sorted = [...targetEntries].sort((a, b) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1];
+        const resetId = ++shareFormResetRef.current;
+
+        // Reverse geocode start and end for title
+        (async () => {
+            try {
+                const [startName, endName] = await Promise.all([
+                    first.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position'
+                        ? Promise.resolve(first.waypointName)
+                        : reverseGeocode(first.latitude, first.longitude),
+                    last.id !== first.id
+                        ? (last.waypointName && last.waypointName !== 'Voyage Start' && last.waypointName !== 'Latest Position'
+                            ? Promise.resolve(last.waypointName)
+                            : reverseGeocode(last.latitude, last.longitude))
+                        : Promise.resolve(null),
+                ]);
+                if (resetId !== shareFormResetRef.current) return; // stale
+                const title = endName && endName !== startName
+                    ? `${startName || 'Unknown'} → ${endName}`
+                    : startName || '';
+                setShareAutoTitle(title);
+            } catch { /* fallback to empty */ }
+        })();
+
+        // Auto-detect region from start location
+        // GeoContext.name is already "City, State, Country" — extract region by dropping city
+        (async () => {
+            try {
+                const ctx = await reverseGeocodeContext(first.latitude, first.longitude);
+                if (resetId !== shareFormResetRef.current) return; // stale
+                if (ctx && ctx.name) {
+                    const parts = ctx.name.split(',').map(p => p.trim());
+                    // Drop the city (first part) to get "State, Country"
+                    const region = parts.length > 1 ? parts.slice(1).join(', ') : parts[0];
+                    setShareAutoRegion(region);
+                }
+            } catch { /* fallback to empty */ }
+        })();
+    }, [actionSheet, selectedVoyageId, entries]);
 
     if (loading) {
         return (
@@ -669,7 +734,7 @@ export const LogPage: React.FC = () => {
                                     <input
                                         id="share-title"
                                         type="text"
-                                        placeholder='e.g. "Moreton Bay Anchorage"'
+                                        placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
                                         className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                     />
                                 </div>
@@ -711,6 +776,7 @@ export const LogPage: React.FC = () => {
                                     <input
                                         id="share-region"
                                         type="text"
+                                        defaultValue={shareAutoRegion}
                                         placeholder='e.g. "Queensland, AU"'
                                         className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                     />
@@ -719,10 +785,11 @@ export const LogPage: React.FC = () => {
                                 {/* Submit Button */}
                                 <button
                                     onClick={() => {
-                                        const title = (document.getElementById('share-title') as HTMLInputElement)?.value?.trim();
+                                        const rawTitle = (document.getElementById('share-title') as HTMLInputElement)?.value?.trim();
+                                        const title = rawTitle || shareAutoTitle; // fallback to auto-fill
                                         const description = (document.getElementById('share-description') as HTMLTextAreaElement)?.value?.trim() || '';
                                         const category = (document.getElementById('share-category') as HTMLSelectElement)?.value || 'coastal';
-                                        const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || '';
+                                        const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
                                         if (!title) {
                                             (document.getElementById('share-title') as HTMLInputElement)?.focus();
                                             return;
