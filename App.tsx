@@ -152,6 +152,13 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         )}
+                        {/* Dashboard heading — centered compact title */}
+                        {isDashboard && (
+                            <div className="text-center pointer-events-none py-0.5">
+                                <h1 className="text-lg font-bold tracking-widest text-white/90 uppercase" style={{ letterSpacing: '0.2em' }}>Thalassa</h1>
+                                <p className="text-[9px] tracking-wider text-sky-400/70 uppercase -mt-0.5" style={{ letterSpacing: '0.15em' }}>Officer on Watch Assistant</p>
+                            </div>
+                        )}
 
                         <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-10'} pointer-events-auto`}>
                             <div className="relative flex-grow md:w-96 group h-full">
