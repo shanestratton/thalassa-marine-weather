@@ -640,6 +640,7 @@ class ShipLogServiceClass {
         const weatherSnapshot = await getWeatherSnapshot();
 
         // Create entry immediately with placeholder position
+        // First entry in a voyage is always a waypoint ('Voyage Start')
         const entry: Partial<ShipLogEntry> = {
             voyageId: effectiveVoyageId,
             timestamp,
@@ -650,7 +651,8 @@ class ShipLogServiceClass {
             cumulativeDistanceNM: 0,
             speedKts: 0,
             ...weatherSnapshot,
-            entryType: 'auto',
+            entryType: 'waypoint',
+            waypointName: 'Voyage Start',
             source: 'device'
         };
 
@@ -799,6 +801,39 @@ class ShipLogServiceClass {
     }
 
     /**
+     * Demote the previous auto-promoted waypoint ('Latest Position') back to 'auto'.
+     * Only demotes entries with waypointName === 'Latest Position' — turn waypoints,
+     * manual entries, and user-placed waypoints are never demoted.
+     */
+    private async demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
+        if (!supabase || !voyageId) return;
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // Find the most recent 'Latest Position' waypoint in this voyage
+            const { data: rows } = await supabase
+                .from(SHIP_LOGS_TABLE)
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('voyage_id', voyageId)
+                .eq('entry_type', 'waypoint')
+                .eq('waypoint_name', 'Latest Position')
+                .order('timestamp', { ascending: false })
+                .limit(1);
+
+            if (rows && rows.length > 0) {
+                await supabase
+                    .from(SHIP_LOGS_TABLE)
+                    .update({ entry_type: 'auto', waypoint_name: null })
+                    .eq('id', rows[0].id);
+            }
+        } catch {
+            // Best effort — demotion is non-critical
+        }
+    }
+
+    /**
      * Capture a single log entry
      * Auto-pause detection: If vessel hasn't moved >0.05nm in 1 hour, pause tracking
      */
@@ -899,6 +934,20 @@ class ShipLogServiceClass {
             }
             // If stationary or no previous position, courseDeg stays undefined
 
+            // ROLLING WAYPOINT LIFECYCLE:
+            // Every new auto entry is promoted to a waypoint ('Latest Position').
+            // The previous auto-promoted waypoint is demoted back to 'auto'.
+            // Turn waypoints, manual entries, and user-placed waypoints are never demoted.
+            const effectiveEntryType = entryType === 'auto' ? 'waypoint' : entryType;
+            const effectiveWaypointName = entryType === 'auto' ? 'Latest Position' : waypointName;
+
+            // Demote previous auto-promoted waypoint (fire-and-forget)
+            if (entryType === 'auto') {
+                this.demotePreviousAutoWaypoint(
+                    voyageId || this.trackingState.currentVoyageId || ''
+                ).catch(() => { /* best effort */ });
+            }
+
             // Create log entry with voyage ID
             const entry: Partial<ShipLogEntry> = {
                 voyageId: voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`,
@@ -911,11 +960,11 @@ class ShipLogServiceClass {
                 speedKts: Math.round(speedKts * 10) / 10,
                 courseDeg,
                 ...weatherSnapshot,
-                entryType,
+                entryType: effectiveEntryType,
                 eventCategory,
                 engineStatus,
                 notes,
-                waypointName
+                waypointName: effectiveWaypointName
             };
 
             // Try to save to Supabase (online)
