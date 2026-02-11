@@ -1,12 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserSettings, LengthUnit, WeightUnit, SpeedUnit, VesselDimensionUnits, DisplayMode, VolumeUnit } from '../types';
+import { UserSettings, LengthUnit } from '../types';
 import {
-    WindIcon, CompassIcon,
-    SailBoatIcon, PowerBoatIcon, BellIcon, ArrowRightIcon,
-    BoatIcon, RainIcon, WaveIcon, StarIcon, SearchIcon, GearIcon, CheckIcon, ThermometerIcon, DropletIcon, MapIcon, ServerIcon,
-    TrashIcon, MapPinIcon, DiamondIcon, BugIcon, PlayIcon, LockIcon, EyeIcon, XIcon, TideCurveIcon, SunIcon, GaugeIcon, ArrowUpIcon, ArrowDownIcon, GripIcon,
-    CloudIcon, AlertTriangleIcon, QuoteIcon
+    CompassIcon, BellIcon, ArrowRightIcon,
+    BoatIcon, StarIcon, GearIcon, MapIcon, ServerIcon,
+    TrashIcon, MapPinIcon, BugIcon, LockIcon, XIcon,
+    CloudIcon, QuoteIcon
 } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { checkStormglassStatus, debugStormglassConnection, isStormglassKeyPresent } from '../services/weather/keys';
@@ -14,10 +13,12 @@ import { AuthModal } from './AuthModal';
 import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';
 import { isGeminiConfigured } from '../services/geminiService';
-import { ALL_HERO_WIDGETS, ALL_DETAIL_WIDGETS, ALL_ROW_WIDGETS } from './WidgetDefinitions';
-import { EnvironmentService } from '../services/EnvironmentService';
-import type { EnvironmentMode } from '../services/EnvironmentService';
+
 import { getErrorMessage } from '../utils/logger';
+import { Section, Row, Toggle } from './settings/SettingsPrimitives';
+import { AlertsTab } from './settings/AlertsTab';
+import { AestheticsTab } from './settings/AestheticsTab';
+import { VesselTab } from './settings/VesselTab';
 
 
 
@@ -79,41 +80,9 @@ const MobileNavTab = React.memo(({ active, onClick, icon, label }: { active: boo
     </button>
 ));
 
-const Toggle = React.memo(({ checked, onChange }: { checked: boolean, onChange: (v: boolean) => void }) => (
-    <div
-        className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
-        onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onChange(!checked);
-        }}
-    >
-        <div className={`w-11 h-6 rounded-full border transition-all duration-300 ease-out pointer-events-none ${checked ? 'bg-gradient-to-r from-sky-500 to-blue-600 border-sky-400/50 shadow-[0_0_15px_rgba(14,165,233,0.4)]' : 'bg-slate-800/80 border-white/10 group-hover:border-white/20'}`}></div>
-        <div className={`absolute top-[10px] left-[10px] bg-white rounded-full h-5 w-5 transition-all duration-300 cubic-bezier(0.175, 0.885, 0.32, 1.275) pointer-events-none shadow-md ${checked ? 'translate-x-full shadow-sky-900/20' : 'translate-x-0'}`}></div>
-    </div>
-));
+// Toggle — imported from ./settings/SettingsPrimitives
 
-const Section = React.memo(({ title, children }: { title: string, children?: React.ReactNode }) => (
-    <div className="space-y-4 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <h3 className="text-[10px] font-black text-sky-200/50 uppercase tracking-[0.2em] px-2 shadow-black drop-shadow-sm flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-            {title}
-        </h3>
-        <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-2xl relative">
-            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
-            {children}
-        </div>
-    </div>
-));
-
-const Row = React.memo(({ children, className = "", onClick }: { children?: React.ReactNode, className?: string, onClick?: () => void }) => (
-    <div
-        className={`p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className} ${onClick ? 'cursor-pointer hover:bg-white/5 transition-colors' : ''}`}
-        onClick={onClick}
-    >
-        {children}
-    </div>
-));
+// Section, Row — imported from ./settings/SettingsPrimitives
 
 const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: { label: string; valInStandard: number; unitType: string; unitOptions: string[]; onChangeValue: (v: number) => void; onChangeUnit: (u: string) => void; placeholder?: string; isEstimated?: boolean }) => {
     const isWeight = unitOptions.includes('lbs');
@@ -182,16 +151,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     const [isRunningDebug, setIsRunningDebug] = useState(false);
 
     // Environment theme state
-    const [envMode, setEnvMode] = useState<EnvironmentMode>(() => EnvironmentService.getState().mode);
-    const [envState, setEnvState] = useState(() => EnvironmentService.getState());
 
-    useEffect(() => {
-        const unsub = EnvironmentService.onStateChange((state) => {
-            setEnvState(state);
-            setEnvMode(state.mode);
-        });
-        return unsub;
-    }, []);
 
 
     useEffect(() => {
@@ -221,35 +181,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         onSave({ units: { ...settings.units, [type]: value } });
     };
 
-    const updateAlert = async (key: keyof typeof settings.notifications, field: 'enabled' | 'threshold', value: boolean | number) => {
-        if (field === 'enabled' && value === true) {
-            if ('Notification' in window && Notification.permission !== 'granted') {
-                try { await Notification.requestPermission(); } catch { /* user denied or API unavailable */ }
-            }
-        }
-        onSave({
-            notifications: {
-                ...settings.notifications,
-                [key]: { ...settings.notifications[key as keyof typeof settings.notifications], [field]: value }
-            }
-        });
-    };
 
-    const updateVessel = (field: string, value: string | number) => {
-        let newEstimatedFields = settings.vessel?.estimatedFields;
-        if (newEstimatedFields && newEstimatedFields.includes(field)) {
-            newEstimatedFields = newEstimatedFields.filter(f => f !== field);
-        }
-        onSave({
-            vessel: {
-                name: 'My Boat', type: 'sail', length: 30, beam: 10, draft: 5, displacement: 10000,
-                maxWaveHeight: 6, cruisingSpeed: 6, fuelCapacity: 0, waterCapacity: 0,
-                ...(settings.vessel || {}),
-                estimatedFields: newEstimatedFields,
-                [field]: value
-            }
-        });
-    }
 
     const handleDetectLocation = () => {
         setDetectingLoc(true);
@@ -652,471 +584,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     )}
 
                     {activeTab === 'vessel' && (
-                        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                            <Section title="Vessel Configuration">
-                                <Row>
-                                    <div><label className="text-sm text-white font-medium block">Vessel Type</label></div>
-                                    <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
-                                        <button onClick={() => updateVessel('type', 'sail')} className={`px-4 py-2 rounded-md text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Sail</button>
-                                        <button onClick={() => updateVessel('type', 'power')} className={`px-4 py-2 rounded-md text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Power</button>
-                                    </div>
-                                </Row>
-                                <Row>
-                                    <div className="w-full">
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Vessel Name</label>
-                                        <input type="text" value={settings.vessel?.name || ''} onChange={(e) => updateVessel('name', e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium" />
-                                    </div>
-                                </Row>
-                            </Section>
-
-                            {/* Hull Dimensions */}
-                            <div className="mx-4 mb-4">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="w-1 h-4 rounded-full bg-sky-500" />
-                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Hull Dimensions</span>
-                                </div>
-                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-                                        <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
-                                        <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
-                                        <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
-                                        <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Performance */}
-                            <div className="mx-4 mb-4">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Performance</span>
-                                </div>
-                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-                                        <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
-                                        <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Capacity */}
-                            <div className="mx-4 mb-4">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="w-1 h-4 rounded-full bg-amber-500" />
-                                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Capacity</span>
-                                </div>
-                                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-                                        <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
-                                        <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <VesselTab settings={settings} onSave={onSave} />
                     )}
 
                     {activeTab === 'alerts' && (
-                        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                            <Section title="Thresholds">
-                                {/* 1. High Wind */}
-                                <Row onClick={() => updateAlert('wind', 'enabled', !settings.notifications.wind.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">High Wind</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sustained Forecast</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.wind.threshold} onChange={(e) => updateAlert('wind', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">kts</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.wind.enabled} onChange={(v) => updateAlert('wind', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 2. Gusts */}
-                                <Row onClick={() => updateAlert('gusts', 'enabled', !settings.notifications.gusts.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-orange-500/20 text-orange-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Gusts</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Peak Gust Forecast</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.gusts.threshold} onChange={(e) => updateAlert('gusts', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">kts</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.gusts.enabled} onChange={(v) => updateAlert('gusts', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 3. High Seas */}
-                                <Row onClick={() => updateAlert('waves', 'enabled', !settings.notifications.waves.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">High Seas</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Significant Wave Hgt</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.waves.threshold} onChange={(e) => updateAlert('waves', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">ft</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.waves.enabled} onChange={(v) => updateAlert('waves', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 4. Long Period (Swell) */}
-                                <Row onClick={() => updateAlert('swellPeriod', 'enabled', !settings.notifications.swellPeriod.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Long Period</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Swell Interval</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.swellPeriod.threshold} onChange={(e) => updateAlert('swellPeriod', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">s</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.swellPeriod.enabled} onChange={(v) => updateAlert('swellPeriod', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 5. Low Vis */}
-                                <Row onClick={() => updateAlert('visibility', 'enabled', !settings.notifications.visibility.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-gray-500/20 text-gray-300 rounded-lg"><EyeIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Low Vis</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Fog / Mist</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <span className="text-xs text-gray-500 mr-1">&lt;</span>
-                                            <input type="number" value={settings.notifications.visibility.threshold} onChange={(e) => updateAlert('visibility', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">nm</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.visibility.enabled} onChange={(v) => updateAlert('visibility', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 6. High UV */}
-                                <Row onClick={() => updateAlert('uv', 'enabled', !settings.notifications.uv.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-yellow-500/20 text-yellow-300 rounded-lg"><SunIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">High UV</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sun Intensity</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.uv.threshold} onChange={(e) => updateAlert('uv', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">idx</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.uv.enabled} onChange={(v) => updateAlert('uv', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 7. Heat Alert */}
-                                <Row onClick={() => updateAlert('tempHigh', 'enabled', !settings.notifications.tempHigh.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-red-500/20 text-red-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Heat Alert</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">High Temp</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <input type="number" value={settings.notifications.tempHigh.threshold} onChange={(e) => updateAlert('tempHigh', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">°</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.tempHigh.enabled} onChange={(v) => updateAlert('tempHigh', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 8. Freeze Alert */}
-                                <Row onClick={() => updateAlert('tempLow', 'enabled', !settings.notifications.tempLow.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-cyan-500/20 text-cyan-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Freeze Alert</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Low Temp</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10" onClick={e => e.stopPropagation()}>
-                                            <span className="text-xs text-gray-500 mr-1">&lt;</span>
-                                            <input type="number" value={settings.notifications.tempLow.threshold} onChange={(e) => updateAlert('tempLow', 'threshold', Number(e.target.value))} className="w-12 bg-transparent text-white text-right outline-none font-bold" />
-                                            <span className="text-xs text-gray-500">°</span>
-                                        </div>
-                                        <Toggle checked={settings.notifications.tempLow.enabled} onChange={(v) => updateAlert('tempLow', 'enabled', v)} />
-                                    </div>
-                                </Row>
-
-                                {/* 9. Precipitation */}
-                                <Row onClick={() => updateAlert('precipitation', 'enabled', !settings.notifications.precipitation.enabled)}>
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><RainIcon className="w-6 h-6" /></div>
-                                        <div>
-                                            <p className="text-white font-bold">Precipitation</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Notify on rain/storm forecast</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <Toggle checked={settings.notifications.precipitation.enabled} onChange={(v) => updateAlert('precipitation', 'enabled', v)} />
-                                    </div>
-                                </Row>
-                            </Section>
-                        </div>
+                        <AlertsTab settings={settings} onSave={onSave} />
                     )}
 
-                    {/* RESTORED AESTHETICS TAB */}
                     {activeTab === 'scenery' && (
-                        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                            {/* Environment Theme */}
-                            <Section title="App Theme">
-                                <div className="p-4">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div>
-                                            <label className="text-sm text-white font-bold block">Environment Mode</label>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                                {envMode === 'auto'
-                                                    ? `Auto-detected: ${envState.current === 'offshore' ? '⚓ Offshore' : '🏖️ Onshore'} (${Math.round(envState.confidence * 100)}% confidence)`
-                                                    : envMode === 'offshore' ? '⚓ Offshore mode (manual)' : '🏖️ Onshore mode (manual)'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {(['auto', 'onshore', 'offshore'] as EnvironmentMode[]).map((mode) => {
-                                            const isActive = envMode === mode;
-                                            const labels: Record<EnvironmentMode, { name: string, desc: string, icon: string, gradient: string }> = {
-                                                auto: { name: 'Auto', desc: 'Detects your location', icon: '🌊', gradient: 'from-sky-500/20 to-blue-600/20 border-sky-500/40 shadow-sky-500/20' },
-                                                onshore: { name: 'Onshore', desc: 'Beautiful & polished', icon: '🏖️', gradient: 'from-emerald-500/20 to-teal-600/20 border-emerald-500/40 shadow-emerald-500/20' },
-                                                offshore: { name: 'Offshore', desc: 'Practical & readable', icon: '⚓', gradient: 'from-indigo-500/20 to-purple-600/20 border-indigo-500/40 shadow-indigo-500/20' },
-                                            };
-                                            const cfg = labels[mode];
-                                            return (
-                                                <button
-                                                    key={mode}
-                                                    onClick={() => {
-                                                        EnvironmentService.setMode(mode);
-                                                        setEnvMode(mode);
-                                                    }}
-                                                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${isActive
-                                                        ? `bg-gradient-to-br ${cfg.gradient} shadow-lg`
-                                                        : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
-                                                        }`}
-                                                >
-                                                    <span className="text-2xl">{cfg.icon}</span>
-                                                    <span className={`text-xs font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}>{cfg.name}</span>
-                                                    <span className={`text-[9px] ${isActive ? 'text-white/70' : 'text-gray-600'}`}>{cfg.desc}</span>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </Section>
-
-                            <Section title="Visual Preferences">
-                                <Row>
-                                    <div className="flex-1">
-                                        <label className="text-sm text-white font-medium block">Display Mode</label>
-                                        <p className="text-xs text-gray-500">Manage contrast and night vision</p>
-                                    </div>
-                                    <select
-                                        value={settings.displayMode}
-                                        onChange={(e) => onSave({ displayMode: e.target.value as DisplayMode })}
-                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-sky-500"
-                                    >
-                                        <option value="auto">Auto (Time based)</option>
-                                        <option value="night">Night Vision (Red)</option>
-                                        <option value="high-contrast">High Contrast</option>
-                                    </select>
-                                </Row>
-
-                                <Row>
-                                    <div className="flex-1">
-                                        <label className="text-sm text-white font-medium block">Always On Display</label>
-                                        <p className="text-xs text-gray-500">Prevent screen from sleeping</p>
-                                    </div>
-                                    <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
-                                </Row>
-
-                                <Row>
-                                    <div className="flex-1">
-                                        <label className="text-sm text-white font-medium block">Dynamic Header Metrics</label>
-                                        <p className="text-xs text-gray-500">Update header values as you scroll hourly forecasts</p>
-                                    </div>
-                                    <Toggle checked={settings.dynamicHeaderMetrics || false} onChange={(v) => onSave({ dynamicHeaderMetrics: v })} />
-                                </Row>
-                            </Section>
-
-                            <Section title="Voyage Tracking">
-                                <Row>
-                                    <div className="flex-1">
-                                        <label className="text-sm text-white font-medium block">Auto-Track on Launch</label>
-                                        <p className="text-xs text-gray-500">Automatically start recording your track when the app opens. GPS intervals adapt to your distance from shore. Duplicate positions within 5m are discarded.</p>
-                                    </div>
-                                    <Toggle checked={settings.autoTrackEnabled || false} onChange={(v) => onSave({ autoTrackEnabled: v })} />
-                                </Row>
-                            </Section>
-
-                            <Section title="Dashboard Layout">
-                                <div className="p-4 space-y-6">
-                                    {/* MAIN LAYOUT ORDER */}
-                                    <div className="mb-8 p-3 rounded-xl bg-white/5 border border-white/5">
-                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Main Layout Order</h4>
-                                        <p className="text-[10px] text-gray-400 mb-3 uppercase font-bold">Use arrows to reorder dashboard sections</p>
-                                        <div className="flex flex-col gap-2">
-                                            {(settings.rowOrder || []).map((id, idx, arr) => {
-                                                const w = ALL_ROW_WIDGETS.find(x => x.id === id);
-                                                if (!w) return null; // Skip unknown widgets (shouldn't happen)
-
-                                                return (
-                                                    <div key={id} className="flex items-center gap-3 p-3 bg-black/20 border border-white/5 rounded-xl">
-                                                        <div className="text-sky-400">{w.icon}</div>
-                                                        <span className="text-xs font-bold text-white flex-1">{w.label}</span>
-
-                                                        {/* Reorder Controls */}
-                                                        <div className="flex gap-1">
-                                                            <button
-                                                                disabled={idx === 0}
-                                                                onClick={() => {
-                                                                    const newOrder = [...arr];
-                                                                    [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
-                                                                    onSave({ rowOrder: newOrder });
-                                                                }}
-                                                                className={`p-1.5 rounded-lg border border-white/5 transition-colors ${idx === 0 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-white/10 text-sky-400'}`}
-                                                            >
-                                                                <ArrowUpIcon className="w-4 h-4" />
-                                                            </button>
-                                                            <button
-                                                                disabled={idx === arr.length - 1}
-                                                                onClick={() => {
-                                                                    const newOrder = [...arr];
-                                                                    [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
-                                                                    onSave({ rowOrder: newOrder });
-                                                                }}
-                                                                className={`p-1.5 rounded-lg border border-white/5 transition-colors ${idx === arr.length - 1 ? 'opacity-20 cursor-not-allowed' : 'hover:bg-white/10 text-sky-400'}`}
-                                                            >
-                                                                <ArrowDownIcon className="w-4 h-4" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* TOP WIDGET SELECTOR */}
-                                    <div className="mb-8 p-3 rounded-xl bg-white/5 border border-white/5">
-                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Top Header Widget</h4>
-                                        <div className="flex gap-2 overflow-x-auto pb-1">
-                                            {ALL_HERO_WIDGETS.map(w => {
-                                                const isActive = (settings.topHeroWidget || 'sunrise') === w.id;
-                                                return (
-                                                    <button
-                                                        key={w.id}
-                                                        onClick={() => onSave({ topHeroWidget: w.id })}
-                                                        className={`flex items-center gap-2 p-2 rounded-lg border transition-all whitespace-nowrap ${isActive ? 'bg-sky-500/10 border-sky-500/50 text-white' : 'bg-black/20 border-transparent text-gray-500 hover:bg-white/5'}`}
-                                                    >
-                                                        <div className={isActive ? 'text-sky-400' : 'text-gray-600'}>{w.icon}</div>
-                                                        <span className="text-[10px] font-bold">{w.label}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Hero Widgets (Carousel) <span className="text-[9px] text-sky-400 ml-2">(MAX 3)</span></h4>
-
-                                        {/* REORDERING SECTION */}
-                                        {(settings.heroWidgets || []).length > 0 && (
-                                            <div className="mb-4 bg-black/20 rounded-xl p-3 border border-white/5">
-                                                <p className="text-[10px] text-gray-400 mb-2 uppercase font-bold">Active Order (Use arrows to move)</p>
-                                                <div className="flex gap-2 overflow-x-auto pb-2">
-                                                    {(settings.heroWidgets || []).map((id, idx, arr) => {
-                                                        const w = ALL_HERO_WIDGETS.find(x => x.id === id);
-                                                        if (!w) return null;
-                                                        return (
-                                                            <div key={id} className="flex flex-col gap-1 items-center bg-sky-500/10 border border-sky-500/30 rounded-lg p-2 min-w-[80px]">
-                                                                <div className="text-sky-400 mb-1">{w.icon}</div>
-                                                                <span className="text-[10px] font-bold text-white mb-1 truncate max-w-full">{w.label}</span>
-                                                                <div className="flex gap-1 mt-auto">
-                                                                    <button
-                                                                        disabled={idx === 0}
-                                                                        onClick={() => {
-                                                                            const newOrder = [...arr];
-                                                                            [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
-                                                                            onSave({ heroWidgets: newOrder });
-                                                                        }}
-                                                                        className={`p-1 rounded hover:bg-white/10 ${idx === 0 ? 'opacity-20' : 'text-sky-300'}`}
-                                                                    >
-                                                                        <div className="rotate-180"><ArrowRightIcon className="w-3 h-3" /></div>
-                                                                    </button>
-                                                                    <button
-                                                                        disabled={idx === arr.length - 1}
-                                                                        onClick={() => {
-                                                                            const newOrder = [...arr];
-                                                                            [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
-                                                                            onSave({ heroWidgets: newOrder });
-                                                                        }}
-                                                                        className={`p-1 rounded hover:bg-white/10 ${idx === arr.length - 1 ? 'opacity-20' : 'text-sky-300'}`}
-                                                                    >
-                                                                        <ArrowRightIcon className="w-3 h-3" />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {ALL_HERO_WIDGETS.map(w => {
-                                                const current = settings.heroWidgets || [];
-                                                const isActive = current.includes(w.id);
-                                                const isMaxed = current.length >= 3;
-                                                const disabled = !isActive && isMaxed;
-
-                                                return (
-                                                    <button
-                                                        key={w.id}
-                                                        disabled={disabled}
-                                                        onClick={() => {
-                                                            const newWidgets = isActive
-                                                                ? current.filter(id => id !== w.id)
-                                                                : [...current, w.id];
-                                                            onSave({ heroWidgets: newWidgets });
-                                                        }}
-                                                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${isActive ? 'bg-sky-500/10 border-sky-500/50 text-white' : 'bg-white/5 border-transparent text-gray-500 hover:bg-white/10'} ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
-                                                    >
-                                                        <div className={isActive ? 'text-sky-400' : 'text-gray-600'}>{w.icon}</div>
-                                                        <span className="text-xs font-bold">{w.label}</span>
-                                                        {isActive && <CheckIcon className="w-3 h-3 ml-auto text-sky-500" />}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-
-                                </div>
-                            </Section>
-                        </div>
+                        <AestheticsTab settings={settings} onSave={onSave} />
                     )}
                 </div>
             </div>
