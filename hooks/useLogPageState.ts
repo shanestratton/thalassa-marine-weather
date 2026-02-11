@@ -286,23 +286,20 @@ export function useLogPageState() {
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
     const handleStartTracking = useCallback(async () => {
-        try {
-            const voyages = groupEntriesByVoyage(state.entries);
-            if (voyages.length > 0) {
-                const recentVoyageId = voyages[0]?.voyageId;
-                if (recentVoyageId) {
-                    dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
-                    return;
-                }
+        const voyages = groupEntriesByVoyage(state.entries);
+        if (voyages.length > 0) {
+            const recentVoyageId = voyages[0]?.voyageId;
+            if (recentVoyageId) {
+                dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
+                return;
             }
-            // Dispatch tracking state FIRST for instant UI response
-            dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
-            await ShipLogService.startTracking();
-            await loadData();
-        } catch (error: unknown) {
+        }
+        // Instant UI response — dispatch first, service call is fire-and-forget
+        dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+        ShipLogService.startTracking().then(() => loadData()).catch((error: unknown) => {
             dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
             alert(getErrorMessage(error) || 'Failed to start tracking');
-        }
+        });
     }, [state.entries, loadData]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
