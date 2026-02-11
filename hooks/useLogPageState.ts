@@ -341,10 +341,9 @@ export function useLogPageState() {
 
     const confirmStopVoyage = useCallback(async () => {
         dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
-        // Dispatch state change FIRST for instant UI response
+        // Instant UI response — dispatch first, service call is fire-and-forget
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-        await ShipLogService.stopTracking();
-        await loadData();
+        ShipLogService.stopTracking().then(() => loadData()).catch(() => { });
     }, [loadData]);
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
@@ -434,7 +433,7 @@ export function useLogPageState() {
         await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
     }, [state.selectedVoyageId, state.entries, settings.vessel?.name]);
 
-    const handleShareToCommunity = useCallback(async () => {
+    const handleShareToCommunity = useCallback(async (shareData: { title: string; description: string; category: TrackCategory; region: string }) => {
         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter(e => e.voyageId === state.selectedVoyageId)
@@ -443,19 +442,14 @@ export function useLogPageState() {
             toast.error('No entries to share');
             return;
         }
-        const title = prompt('Track title (e.g. "Moreton Bay Anchorage")');
-        if (!title) return;
-        const description = prompt('Short description') || '';
-        const category = prompt('Category: anchorage, port_entry, bar_crossing, reef_passage, coastal, offshore, walking, driving') || 'coastal';
-        const region = prompt('Region (e.g. "Queensland, AU")') || '';
 
         try {
             const result = await TrackSharingService.shareTrack(targetEntries, {
-                title,
-                description,
+                title: shareData.title,
+                description: shareData.description,
                 tags: [],
-                category: category as TrackCategory,
-                region,
+                category: shareData.category,
+                region: shareData.region,
             });
             if (result) {
                 toast.success('Track shared to community!');

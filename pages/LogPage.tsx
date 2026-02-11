@@ -647,26 +647,93 @@ export const LogPage: React.FC = () => {
                         <p className="text-sm text-slate-400 mt-2">Share tracks with sailors worldwide</p>
                     </div>
 
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-lg mx-auto w-full">
-                            {/* Share Track Card */}
-                            <button
-                                onClick={handleShareToCommunity}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-violet-500/15 to-violet-600/5 border border-violet-500/20 hover:border-violet-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                    </svg>
+                    <div className="flex-1 overflow-y-auto px-4 py-6">
+                        <div className="space-y-6 max-w-lg mx-auto w-full">
+                            {/* Share Track Form */}
+                            <div className="rounded-2xl bg-gradient-to-b from-violet-500/10 to-slate-900/80 border border-violet-500/20 p-5 space-y-5">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+                                        <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-white font-bold text-base">Share This Track</h3>
+                                        <p className="text-slate-400 text-xs">Upload to the Thalassa community</p>
+                                    </div>
                                 </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Share This Track</div>
-                                    <div className="text-slate-400 text-sm mt-1">Upload to the Thalassa community for others to discover</div>
+
+                                {/* Title */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Title *</label>
+                                    <input
+                                        id="share-title"
+                                        type="text"
+                                        placeholder='e.g. "Moreton Bay Anchorage"'
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                    />
                                 </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
+
+                                {/* Description */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Description</label>
+                                    <textarea
+                                        id="share-description"
+                                        rows={3}
+                                        placeholder="Brief description of the route, conditions, or points of interest..."
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
+                                    />
+                                </div>
+
+                                {/* Category */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Category</label>
+                                    <select
+                                        id="share-category"
+                                        defaultValue="coastal"
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
+                                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 16px center' }}
+                                    >
+                                        <option value="anchorage">⚓ Anchorage</option>
+                                        <option value="port_entry">🏗 Port Entry</option>
+                                        <option value="bar_crossing">🌊 Bar Crossing</option>
+                                        <option value="reef_passage">🪸 Reef Passage</option>
+                                        <option value="coastal">🏖 Coastal</option>
+                                        <option value="offshore">🌊 Offshore</option>
+                                        <option value="walking">🚶 Walking</option>
+                                        <option value="driving">🚗 Driving</option>
+                                    </select>
+                                </div>
+
+                                {/* Region */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Region</label>
+                                    <input
+                                        id="share-region"
+                                        type="text"
+                                        placeholder='e.g. "Queensland, AU"'
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                    />
+                                </div>
+
+                                {/* Submit Button */}
+                                <button
+                                    onClick={() => {
+                                        const title = (document.getElementById('share-title') as HTMLInputElement)?.value?.trim();
+                                        const description = (document.getElementById('share-description') as HTMLTextAreaElement)?.value?.trim() || '';
+                                        const category = (document.getElementById('share-category') as HTMLSelectElement)?.value || 'coastal';
+                                        const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || '';
+                                        if (!title) {
+                                            (document.getElementById('share-title') as HTMLInputElement)?.focus();
+                                            return;
+                                        }
+                                        handleShareToCommunity({ title, description, category: category as any, region });
+                                    }}
+                                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 active:scale-[0.98] transition-all"
+                                >
+                                    Share Track
+                                </button>
+                            </div>
 
                             {/* Browse Community Card */}
                             <button
