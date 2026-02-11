@@ -7,7 +7,7 @@ import { convertTemp } from '../../utils';
 import { generateWeatherNarrative } from './WeatherHelpers';
 
 /** Selects a weather background image based on conditions */
-function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number | null, moonIllumination?: number): string {
+export function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number | null, moonIllumination?: number): string {
     const c = (condition || '').toLowerCase();
 
     // Storm / Thunder always wins
@@ -78,16 +78,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     const bgImage = getWeatherBackgroundImage(data.condition, isDay, data.cloudCover, data.moonIllumination);
 
     return (
-        <div className={`relative w-full rounded-2xl overflow-hidden backdrop-blur-md ${t.border.default} bg-black`}>
-            {/* Dynamic Weather Background Image */}
-            <div className="absolute inset-0 z-0 overflow-hidden bg-black">
-                <img
-                    src={bgImage}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    style={{ minWidth: '100%', minHeight: '100%' }}
-                />
-            </div>
+        <div className={`relative w-full rounded-2xl overflow-hidden backdrop-blur-md ${t.border.default}`}>
+            {/* Background now provided by shared container in Dashboard.tsx */}
             <div className="absolute inset-0 z-[1] bg-black/50" />
             <div className={`relative z-10 rounded-2xl p-0 flex flex-col overflow-hidden border shadow-lg ${isDay ? 'border-sky-400/20 shadow-sky-900/5' : 'border-indigo-400/20 shadow-indigo-900/5'}`}>
                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
