@@ -103,6 +103,7 @@ export const fetchStormGlassWeather = async (
 
                 }
             } catch (e) {
+                // Silently ignored — non-critical failure
 
             }
 
@@ -210,6 +211,7 @@ export const fetchStormGlassWeather = async (
     try {
         nearestBuoy = await findAndFetchNearestBeacon(lat, lon, 10); // 10nm radius
     } catch (e) {
+        // Silently ignored — non-critical failure
     }
 
     // Merge buoy data with StormGlass report to add source tracking
@@ -270,6 +272,7 @@ export const fetchStormGlassWeather = async (
 
 
         } catch (e) {
+            // Silently ignored — non-critical failure
         }
     }
 

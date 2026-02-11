@@ -70,6 +70,7 @@ export const fetchWorldTides = async (
             const nativeData = await nativeRes.json();
             if (nativeData && !nativeData.error) return nativeData as WorldTidesResponse;
         } catch (nativeErr) {
+            // Silently ignored — non-critical failure
         }
         return null;
     }

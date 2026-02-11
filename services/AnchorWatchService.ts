@@ -23,6 +23,9 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('AnchorWatch');
 
 // ------- TYPES -------
 
@@ -75,7 +78,7 @@ export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
 
 // ------- CONSTANTS -------
 
-const TRANSISTOR_LICENSE_KEY = 'a246ce79f5b488b41d12f1c64512e7d795814ba4f9714823d978b7c3c77501b6';
+const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
 const GPS_INTERVAL_MS = 3000;       // High-frequency GPS when watching
 const HISTORY_MAX_POINTS = 500;     // Max position trail points
 const JITTER_WINDOW = 5;            // Moving average window size
@@ -489,6 +492,7 @@ class AnchorWatchServiceClass {
             await BgGeoManager.requestStart();
 
         } catch (error) {
+            log.warn('startGpsMonitoring: failed to start GPS', error);
         }
     }
 
@@ -521,6 +525,7 @@ class AnchorWatchServiceClass {
             await BgGeoManager.removeGeofence(GEOFENCE_ID);
             await BgGeoManager.requestStop();
         } catch (error) {
+            log.warn('stopGpsMonitoring: cleanup failed', error);
         }
     }
 
@@ -670,6 +675,7 @@ class AnchorWatchServiceClass {
                 Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => { });
             }, 2000);
         } catch (e) {
+            log.warn('startAlarmSound: audio init failed', e);
         }
     }
 
@@ -686,6 +692,8 @@ class AnchorWatchServiceClass {
             try {
                 listener(snapshot);
             } catch (e) {
+                // Listener threw — don't crash the notify loop
+                log.warn('notify: listener error', e);
             }
         });
     }

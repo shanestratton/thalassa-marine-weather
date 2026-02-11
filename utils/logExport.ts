@@ -59,6 +59,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
             return feature.text || feature.place_name?.split(',')[0] || `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}`;
         }
     } catch (err) {
+        // Silently ignored — non-critical failure
     }
     // Fallback to coordinates
     return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(2)}°${lon < 0 ? 'W' : 'E'}`;

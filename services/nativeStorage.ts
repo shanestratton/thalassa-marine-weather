@@ -85,6 +85,7 @@ export const loadLargeData = async (key: string) => {
 
             return data;
         } catch (readErr) {
+            // localStorage fallback read failed — return undefined
         }
     }
 

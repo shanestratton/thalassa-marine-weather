@@ -122,6 +122,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         // Enhanced error logging for debugging non-Error objects
         try {
         } catch (e) {
+            // Silently ignored — non-critical failure
         }
 
         // Call optional error callback

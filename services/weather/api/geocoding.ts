@@ -228,6 +228,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 return (data && data.results) || [];
             } catch { return []; }
+                // Silently ignored — non-critical failure
         }
 
         let results = await fetchOpenMeteoGeo(location);
@@ -258,6 +259,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                     }];
                 }
             } catch (e) {
+                // Silently ignored — non-critical failure
             }
         }
 

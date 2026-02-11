@@ -135,6 +135,7 @@ export const useAppController = () => {
                 const name = await reverseGeocode(latitude, longitude);
                 if (name) searchTarget = name;
             } catch (e) {
+                // Silently ignored — non-critical failure
 
             }
             setQuery(searchTarget);

@@ -97,6 +97,7 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
 
         }
     } catch (err) {
+        // Silently ignored — non-critical failure
 
     }
 
