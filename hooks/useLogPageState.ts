@@ -102,7 +102,9 @@ const initialState: LogPageState = {
 function logPageReducer(state: LogPageState, action: LogPageAction): LogPageState {
     switch (action.type) {
         case 'LOAD_DATA': {
-            const expandedVoyages = action.currentVoyageId
+            // Preserve user's expand/collapse state during polls.
+            // Only auto-expand active voyage on FIRST load (when entries are empty).
+            const expandedVoyages = action.currentVoyageId && state.entries.length === 0
                 ? new Set([action.currentVoyageId])
                 : state.expandedVoyages;
             return {
@@ -293,17 +295,19 @@ export function useLogPageState() {
                     return;
                 }
             }
-            await ShipLogService.startTracking();
+            // Dispatch tracking state FIRST for instant UI response
             dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+            await ShipLogService.startTracking();
             await loadData();
         } catch (error: unknown) {
+            dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
             alert(getErrorMessage(error) || 'Failed to start tracking');
         }
     }, [state.entries, loadData]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
-        await ShipLogService.startTracking();
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+        await ShipLogService.startTracking();
         await loadData();
     }, [loadData]);
 
@@ -331,8 +335,9 @@ export function useLogPageState() {
 
     const confirmStopVoyage = useCallback(async () => {
         dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
-        await ShipLogService.stopTracking();
+        // Dispatch state change FIRST for instant UI response
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+        await ShipLogService.stopTracking();
         await loadData();
     }, [loadData]);
 

@@ -77,21 +77,14 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                 {/* Type Pill Filters with Counts */}
                 <div className="flex gap-1" role="group" aria-label="Entry type filters">
                     <FilterPill
-                        label="A"
-                        count={entryCounts?.auto}
-                        active={isTypeActive('auto')}
-                        onClick={() => toggleType('auto')}
-                        color="green"
-                    />
-                    <FilterPill
-                        label="M"
+                        label="Man"
                         count={entryCounts?.manual}
                         active={isTypeActive('manual')}
                         onClick={() => toggleType('manual')}
                         color="purple"
                     />
                     <FilterPill
-                        label="W"
+                        label="Way"
                         count={entryCounts?.waypoint}
                         active={isTypeActive('waypoint')}
                         onClick={() => toggleType('waypoint')}
@@ -133,9 +126,9 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
     return (
         <button
             onClick={onClick}
-            aria-label={`Filter ${label === 'A' ? 'auto' : label === 'M' ? 'manual' : 'waypoint'} entries${count !== undefined ? ` (${count})` : ''}`}
+            aria-label={`Filter ${label === 'Man' ? 'manual' : 'waypoint'} entries${count !== undefined ? ` (${count})` : ''}`}
             aria-pressed={active}
-            className={`min-w-[40px] min-h-[36px] px-2 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
+            className={`min-w-[56px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}
             {count !== undefined && count > 0 && (

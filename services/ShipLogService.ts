@@ -110,6 +110,13 @@ class ShipLogServiceClass {
     private lastBgLocation: CachedPosition | null = null;
     private bgUnsubscribers: (() => void)[] = []; // Cleanup handles for BgGeoManager subscriptions
 
+    // --- AUTO-WAYPOINT ON COURSE CHANGE ---
+    private lastCourseHeading: number | null = null;  // Last confirmed heading (only when moving)
+    private lastAutoWaypointTime: number = 0;          // Cooldown timestamp (ms)
+    private static readonly HEADING_CHANGE_THRESHOLD = 30;  // Degrees
+    private static readonly AUTO_WP_COOLDOWN_MS = 60_000;   // 60s between auto-waypoints
+    private static readonly MIN_SPEED_FOR_HEADING_KTS = 1;  // Ignore heading when drifting
+
     /**
      * Initialize the service and restore state from storage
      */
@@ -384,10 +391,13 @@ class ShipLogServiceClass {
         // The timer decides WHEN to log; onLocation ensures GPS is ALWAYS fresh.
         this.wireGpsSubscriptions();
 
-        // IMMEDIATE ENTRY: Create first entry right now (at actual time, e.g., 07:14)
-        // AWAIT so the entry exists before the UI calls loadData() — fixes "voyage doesn't appear on start"
-        await this.captureImmediateEntry().catch(err => {
-        });
+        // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
+        // so the UI is not blocked by the 3s GPS warm-up loop.
+        this.captureImmediateEntry().catch(() => { });
+
+        // Reset heading tracker for new voyage
+        this.lastCourseHeading = null;
+        this.lastAutoWaypointTime = 0;
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
         // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the
@@ -421,6 +431,9 @@ class ShipLogServiceClass {
             if (pos.altitude !== null && pos.altitude !== undefined) {
                 EnvironmentService.updateFromGPS({ altitude: pos.altitude });
             }
+
+            // --- AUTO-WAYPOINT: Detect significant course changes ---
+            this.checkHeadingChange(pos);
         });
         this.bgUnsubscribers.push(unsubLoc);
 
@@ -453,6 +466,61 @@ class ShipLogServiceClass {
             // happens on the next log entry.
         });
         this.bgUnsubscribers.push(unsubAct);
+    }
+
+    /**
+     * Check if heading has changed significantly and create an auto-waypoint.
+     * Filters out noise: only triggers when speed > 1kt and delta ≥ 30°.
+     * 60s cooldown between auto-waypoints to prevent spam on gradual turns.
+     */
+    private checkHeadingChange(pos: CachedPosition): void {
+        if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+
+        const heading = pos.heading;
+        const speedKts = (pos.speed ?? 0) * 1.94384; // m/s → knots
+
+        // Ignore heading when stationary or drifting
+        if (speedKts < ShipLogServiceClass.MIN_SPEED_FOR_HEADING_KTS) return;
+        // Ignore invalid heading (0 often means "unknown" from GPS)
+        if (heading === null || heading === undefined || heading === 0) return;
+
+        // First valid heading fix — seed it, no waypoint
+        if (this.lastCourseHeading === null) {
+            this.lastCourseHeading = heading;
+            return;
+        }
+
+        // Angular difference that handles 350° → 10° wrapping
+        const delta = Math.min(
+            Math.abs(heading - this.lastCourseHeading),
+            360 - Math.abs(heading - this.lastCourseHeading)
+        );
+
+        if (delta >= ShipLogServiceClass.HEADING_CHANGE_THRESHOLD) {
+            // Cooldown check
+            const now = Date.now();
+            if (now - this.lastAutoWaypointTime < ShipLogServiceClass.AUTO_WP_COOLDOWN_MS) {
+                // Still in cooldown — just update heading baseline
+                this.lastCourseHeading = heading;
+                return;
+            }
+
+            const oldCourse = Math.round(this.lastCourseHeading);
+            const newCourse = Math.round(heading);
+            this.lastAutoWaypointTime = now;
+            this.lastCourseHeading = heading;
+
+            // Fire-and-forget waypoint entry
+            this.captureLogEntry(
+                'waypoint',
+                `Auto: COG Δ${Math.round(delta)}° (${oldCourse}→${newCourse})`,
+                `Turn ${oldCourse}→${newCourse}`,
+                'navigation'
+            ).catch(() => { /* best effort */ });
+        } else {
+            // Small heading change — keep tracking the current course
+            this.lastCourseHeading = heading;
+        }
     }
 
     /**
@@ -537,6 +605,9 @@ class ShipLogServiceClass {
             voyageEndTime: voyageEndTime
         };
         await this.saveTrackingState();
+
+        // Reset heading tracker
+        this.lastCourseHeading = null;
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
