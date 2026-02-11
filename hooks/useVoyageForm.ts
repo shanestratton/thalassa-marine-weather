@@ -132,6 +132,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     }
                 }
             } catch (err) {
+                // Silently ignored — non-critical failure
             }
 
             const { fetchVoyagePlan } = await import('../services/geminiService');

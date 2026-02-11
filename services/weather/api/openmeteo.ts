@@ -134,6 +134,7 @@ export const attemptGridSearch = async (lat: number, lon: number, name: string):
             }
         }
     } catch (e) {
+        // Silently ignored — non-critical failure
 
     }
     return null;
@@ -206,6 +207,7 @@ export const fetchOpenMeteo = async (
 
         }
     } catch (e) {
+        // Silently ignored — non-critical failure
 
     }
 
@@ -374,6 +376,7 @@ export const fetchOpenMeteo = async (
             }
         }
     } catch (e) {
+        // Silently ignored — non-critical failure
     }
 
     // Infer Location Type
@@ -406,6 +409,7 @@ export const fetchOpenMeteo = async (
             }
         }
     } catch (e) {
+        // Silently ignored — non-critical failure
     }
 
     // 2.1 Name Improvement logic:

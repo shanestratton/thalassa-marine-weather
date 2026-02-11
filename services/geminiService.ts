@@ -383,6 +383,7 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
                 }
                 weatherContext = weatherStr;
             } catch (e) {
+                // Silently ignored — non-critical failure
             }
         }
 

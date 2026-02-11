@@ -263,6 +263,7 @@ class AnchorWatchSyncServiceClass {
                         .eq('session_code', this.sessionCode)
                         .eq('device_token', token);
                 } catch (err) {
+                    // Silently ignored — non-critical failure
                 }
             }
         }
@@ -318,6 +319,7 @@ class AnchorWatchSyncServiceClass {
             } else {
             }
         } catch (err) {
+            // Silently ignored — non-critical failure
         }
     }
 
@@ -577,6 +579,7 @@ class AnchorWatchSyncServiceClass {
             } else {
             }
         } catch (err) {
+            // Silently ignored — non-critical failure
         }
     }
 }

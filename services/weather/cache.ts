@@ -25,6 +25,7 @@ export const saveToCache = (locationName: string, data: MarineWeatherReport): vo
         // Also cache generic "last_report" for potential recovery
         localStorage.setItem('last_marine_report', JSON.stringify(data));
     } catch (e) {
+        // Cache parse failed — will refetch on next request
     }
 };
 

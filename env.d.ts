@@ -17,5 +17,7 @@ declare namespace NodeJS {
         // Maps
         MAPBOX_ACCESS_TOKEN?: string;
         WORLD_TIDES_API_KEY?: string;
+        // Background Geolocation
+        VITE_TRANSISTOR_LICENSE_KEY?: string;
     }
 }
