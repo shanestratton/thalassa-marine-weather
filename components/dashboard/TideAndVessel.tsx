@@ -59,8 +59,8 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
 
         // Chart area with margins matching old Recharts layout
         const marginTop = 20;
-        const marginRight = 10;
-        const marginLeft = 10;
+        const marginRight = 0;
+        const marginLeft = 0;
         const marginBottom = 4;
         const plotW = w - marginLeft - marginRight;
         const plotH = h - marginTop - marginBottom;
