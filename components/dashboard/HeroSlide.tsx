@@ -539,7 +539,7 @@ const HeroSlideComponent = ({
         if (!tides || tides.length === 0) return null;
 
         return (
-            <div className="w-full h-28 px-0 pb-0 relative mb-8 transition-all duration-300 ease-in-out">
+            <div className="w-full h-20 px-0 pb-0 relative mb-8 transition-all duration-300 ease-in-out">
                 <TideGraph
                     tides={tides}
                     unit={units.tideHeight || 'm'}
