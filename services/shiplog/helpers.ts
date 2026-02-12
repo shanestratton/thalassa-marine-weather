@@ -138,6 +138,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         speedKts: 'speed_kts',
         courseDeg: 'course_deg',
         windSpeed: 'wind_speed',
+        windGust: 'wind_gust',
         windDirection: 'wind_direction',
         waveHeight: 'wave_height',
         pressure: 'pressure',
@@ -184,6 +185,7 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         speedKts: row.speed_kts,
         courseDeg: row.course_deg,
         windSpeed: row.wind_speed,
+        windGust: row.wind_gust,
         windDirection: row.wind_direction,
         waveHeight: row.wave_height,
         pressure: row.pressure,
@@ -226,6 +228,7 @@ export async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
 
         // Extract base weather values
         const windSpeed = current.windSpeed ?? undefined;
+        const windGust = current.windGust ?? undefined;
         const waveHeight = current.waveHeight ?? undefined;
         const visibility = current.visibility ?? undefined;
 
@@ -235,6 +238,7 @@ export async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
 
         return {
             windSpeed,
+            windGust,
             windDirection: current.windDirectionCardinal || current.windDirection,
             waveHeight,
             pressure: current.pressure,

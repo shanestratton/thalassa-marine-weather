@@ -85,7 +85,7 @@ const App: React.FC = () => {
     }
 
     const showBackgroundImage = effectiveMode === 'standard' && currentView !== 'settings';
-    const showHeader = !['map', 'voyage', 'warnings'].includes(currentView);
+    const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
 
     return (

@@ -8,16 +8,9 @@ import {
 import { WeatherMap } from './WeatherMap';
 import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
+import { t } from '../theme';
 
-// Sea Quotes
-const SEA_QUOTES = [
-    { text: "The pessimist complains about the wind; the optimist expects it to change; the realist adjusts the sails.", author: "William Arthur Ward" },
-    { text: "At sea, I learned how little a person needs, not how much.", author: "Robin Lee Graham" },
-    { text: "The cure for anything is salt water: sweat, tears or the sea.", author: "Isak Dinesen" },
-    { text: "Man cannot discover new oceans unless he has the courage to lose sight of the shore.", author: "André Gide" },
-    { text: "There is nothing - absolutely nothing - half so much worth doing as simply messing about in boats.", author: "Kenneth Grahame" },
-    { text: "The sea, once it casts its spell, holds one in its net of wonder forever.", author: "Jacques Cousteau" }
-];
+
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTriggerUpgrade }) => {
     // Custom Hook
@@ -34,6 +27,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
 
         handleCalculate,
         handleDeepAnalysis,
+        clearVoyagePlan,
         handleOriginLocation,
         handleMapSelect,
         openMap,
@@ -52,14 +46,16 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
         activeChecklistTab, setActiveChecklistTab
     } = useVoyageForm(onTriggerUpgrade);
 
-    const [quote, setQuote] = useState(SEA_QUOTES[0]);
     const [tempMapSelection, setTempMapSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
 
-    useEffect(() => { setQuote(SEA_QUOTES[Math.floor(Math.random() * SEA_QUOTES.length)]); }, []);
-
     return (
-        <div className="w-full max-w-[1600px] mx-auto pb-36 md:pb-40 px-2 md:px-6 flex flex-col min-h-full font-sans">
-
+        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
+            {/* App-wide page heading — matches Log / Anchor Watch */}
+            <div className={t.header.bar}>
+                <div className="flex items-center gap-2.5">
+                    <span className={t.typography.pageTitle}>Passage Planning</span>
+                </div>
+            </div>
 
             {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
             {isMapOpen && createPortal(
@@ -78,16 +74,14 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                             showZoomControl={false}
                             restrictBounds={false}
                             initialLayer={mapSelectionTarget ? 'buoys' : 'wind'}
-                            isConfirmMode={false} // DISABLE INTERNAL BUTTON
+                            isConfirmMode={false}
                             hideLayerControls={false}
                             onLocationSelect={(lat, lon, name) => {
-                                // INTERCEPT: Update local temp state instead of closing
                                 const selectionName = name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                                 setTempMapSelection({ lat, lon, name: selectionName });
                             }}
                         />
 
-                        {/* EXTERNAL OVERLAY BUTTON - FIXED & HIGH Z-INDEX */}
                         {mapSelectionTarget && (
                             <div className="fixed bottom-12 left-0 right-0 z-[11000] px-6 pointer-events-none flex justify-center w-full">
                                 <div className="pointer-events-auto w-full max-w-md">
@@ -100,7 +94,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                                         disabled={!tempMapSelection}
                                         aria-label="Confirm Map Selection"
                                         className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${tempMapSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10'}`}
-                                        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }} // Extra safe area padding
+                                        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
                                     >
                                         <MapPinIcon className={`w-5 h-5 ${tempMapSelection ? 'text-white' : 'text-gray-600'}`} />
                                         {tempMapSelection ? "Confirm Selection" : "Tap Map to Select Point"}
@@ -123,198 +117,138 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                 document.body
             )}
 
-            {/* HEADER: MISSION PARAMETERS */}
-            <div className="relative md:sticky md:top-0 z-40 pt-4 pb-4 -mx-2 md:-mx-6 px-4 md:px-8 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
-                <div className="max-w-7xl mx-auto space-y-4">
-                    <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-sky-500/10 rounded-lg border border-sky-500/20">
-                                {vessel?.type === 'power' ? <PowerBoatIcon className="w-5 h-5 text-sky-400" /> : <SailBoatIcon className="w-5 h-5 text-sky-400" />}
-                            </div>
-                            <div>
-                                <h2 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                                    Passage Plan
-                                </h2>
-                                <p className="text-[10px] text-gray-500 font-mono tracking-wide">
-                                    {vessel?.name.toUpperCase() || "VESSEL"} // {vessel?.length}FT {vessel?.type.toUpperCase()}
-                                </p>
+            {/* Main content — fills between heading and bottom nav */}
+            {voyagePlan ? (
+                /* RESULTS VIEW — scrollable */
+                <div className="flex-1 min-h-0 overflow-auto">
+                    <div className="relative w-full max-w-[1600px] mx-auto pb-36 md:pb-40 px-2 md:px-6 flex flex-col font-sans">
+                        {/* Form header for results view */}
+                        <div className="relative z-40 pt-4 pb-4 px-2 md:px-2 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
+                            <div className="max-w-7xl mx-auto space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-sky-500/10 rounded-lg border border-sky-500/20">
+                                            {vessel?.type === 'power' ? <PowerBoatIcon className="w-5 h-5 text-sky-400" /> : <SailBoatIcon className="w-5 h-5 text-sky-400" />}
+                                        </div>
+                                        <div>
+                                            <h2 className="text-sm font-bold text-white uppercase tracking-widest">Passage Plan</h2>
+                                            <p className="text-[10px] text-gray-500 font-mono tracking-wide">
+                                                {vessel?.name.toUpperCase() || "VESSEL"} // {vessel?.length}FT {vessel?.type.toUpperCase()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {!isPro && (
+                                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-white/10">
+                                                <LockIcon className="w-3 h-3 text-sky-400" />
+                                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium</span>
+                                            </div>
+                                        )}
+                                        <button
+                                            onClick={clearVoyagePlan}
+                                            className="p-2 bg-slate-800/80 hover:bg-red-500/20 border border-white/10 rounded-xl text-gray-400 hover:text-red-400 transition-all"
+                                            aria-label="Close voyage results"
+                                        >
+                                            <XIcon className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        {/* PRO BADGE */}
-                        {!isPro && (
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-white/10">
-                                <LockIcon className="w-3 h-3 text-sky-400" />
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium</span>
+                        {error && (
+                            <div className="max-w-4xl mx-auto mb-8 w-full animate-in fade-in slide-in-from-top-4">
+                                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
+                                    <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
+                                    <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
+                                </div>
                             </div>
                         )}
+
+
+                        <VoyageResults
+                            voyagePlan={voyagePlan}
+                            vessel={vessel || { name: 'Unknown', type: 'sail', length: 30, displacement: 5000, draft: 2, beam: 10, maxWindSpeed: 20, maxWaveHeight: 5, cruisingSpeed: 5 }}
+                            checklistState={checklistState}
+                            toggleCheck={toggleCheck}
+                            deepReport={deepReport}
+                            analyzingDeep={analyzingDeep}
+                            handleDeepAnalysis={handleDeepAnalysis}
+                            activeChecklistTab={activeChecklistTab}
+                            setActiveChecklistTab={setActiveChecklistTab}
+                            setIsMapOpen={setIsMapOpen}
+                            isShortTrip={isShortTrip}
+                        />
                     </div>
-
-                    <form onSubmit={handleCalculate} className="relative">
-                        <div className="space-y-4">
-                            {/* ROW 1: Origin & Destination - Map/GPS Only */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="relative group cursor-pointer" onClick={() => openMap('origin')}>
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                        <MapPinIcon className="w-4 h-4 text-emerald-400" />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={origin}
-                                        placeholder="Tap to Select Start Port"
-                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
-                                    />
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                        {/* GPS Button - Prevent bubbling to map open */}
-                                        <button
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>); }}
-                                            className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg z-10"
-                                            title="Use Current Location"
-                                            aria-label="Use Current Location"
-                                        >
-                                            <CrosshairIcon className="w-5 h-5 text-sky-400" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="relative group cursor-pointer" onClick={() => openMap('destination')}>
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                        <MapPinIcon className="w-4 h-4 text-purple-400" />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={destination}
-                                        placeholder="Tap to Select Destination"
-                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
-                                    />
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
-                                        <MapIcon className="w-4 h-4" />
-                                    </div>
-                                </div>
+                </div>
+            ) : (
+                /* EMPTY STATE — single screen, no scroll */
+                <form onSubmit={handleCalculate} className="flex-1 flex flex-col min-h-0 px-4">
+                    {/* Form inputs at top */}
+                    <div className="pt-4 space-y-3 max-w-xl mx-auto w-full">
+                        {/* Origin */}
+                        <div className="relative group cursor-pointer" onClick={() => openMap('origin')}>
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                <MapPinIcon className="w-4 h-4 text-emerald-400" />
                             </div>
-
-                            {/* ROW 2: Via, Date, Action - Consistent sizing */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-4">
-                                <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                        <RouteIcon className="w-4 h-4 text-sky-400" />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={via}
-                                        placeholder="Add Via Point (Opt)"
-                                        className="w-full h-14 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer"
-                                    />
-                                    {via && (
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); setVia(''); }}
-                                            aria-label="Clear Via Point"
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500"
-                                        >
-                                            <XIcon className="w-4 h-4" />
-                                        </button>
-                                    )}
-                                    {!via && (
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
-                                            <MapIcon className="w-4 h-4" />
-                                        </div>
-                                    )}
-                                </div>
-                                {/* DATE INPUT - RAW CONTROL */}
-                                <div className="relative w-full min-w-0 group">
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
-                                        <CalendarIcon className="w-4 h-4" />
-                                    </div>
-                                    <input
-                                        type="date"
-                                        min={minDate}
-                                        value={departureDate}
-                                        onChange={(e) => {
-                                            const newDate = e.target.value;
-                                            if (!minDate || newDate >= minDate) {
-                                                setDepartureDate(newDate);
-                                            }
-                                        }}
-                                        className="w-full h-14 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-2xl pl-12 pr-4 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
-                                        style={{ WebkitAppearance: 'none' }}
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white shadow-sky-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
-                                >
-                                    {!isPro ? (
-                                        <>
-                                            <LockIcon className="w-4 h-4 text-sky-400" />
-                                            Unlock Route Planning
-                                        </>
-                                    ) : loading ? (
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    ) : (
-                                        "Calculate Route"
-                                    )}
+                            <input type="text" readOnly value={origin} placeholder="Tap to Select Start Port"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>); }}
+                                    className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg z-10" title="Use Current Location" aria-label="Use Current Location">
+                                    <CrosshairIcon className="w-5 h-5 text-sky-400" />
                                 </button>
                             </div>
                         </div>
 
-                        {/* Loading State Overlay */}
-                        {loading && (
-                            <div className="absolute top-full left-0 right-0 mt-4 flex justify-center animate-in fade-in z-50">
-                                <div className="flex items-center gap-3 px-6 py-3 bg-slate-900/90 backdrop-blur-md border border-sky-500/30 rounded-full shadow-[0_0_25px_rgba(14,165,233,0.15)]">
-                                    <span className="text-xs text-sky-300 font-mono tracking-wide">{LOADING_PHASES[loadingStep]}</span>
-                                    <div className="flex gap-1">
-                                        <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                        <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                        <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce"></div>
-                                    </div>
-                                </div>
+                        {/* Destination */}
+                        <div className="relative group cursor-pointer" onClick={() => openMap('destination')}>
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                <MapPinIcon className="w-4 h-4 text-purple-400" />
                             </div>
-                        )}
-                    </form>
-                </div>
-            </div>
-
-            {error && (
-                <div className="max-w-4xl mx-auto mb-8 w-full animate-in fade-in slide-in-from-top-4">
-                    <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
-                        <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
-                        <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
-                    </div>
-                </div>
-            )}
-
-            {/* --- RESULTS DASHBOARD --- */}
-            {voyagePlan ? (
-                <VoyageResults
-                    voyagePlan={voyagePlan}
-                    vessel={vessel || { name: 'Unknown', type: 'sail', length: 30, displacement: 5000, draft: 2, beam: 10, maxWindSpeed: 20, maxWaveHeight: 5, cruisingSpeed: 5 }}
-                    checklistState={checklistState}
-                    toggleCheck={toggleCheck}
-                    deepReport={deepReport}
-                    analyzingDeep={analyzingDeep}
-                    handleDeepAnalysis={handleDeepAnalysis}
-                    activeChecklistTab={activeChecklistTab}
-                    setActiveChecklistTab={setActiveChecklistTab}
-                    setIsMapOpen={setIsMapOpen}
-                    isShortTrip={isShortTrip}
-                />
-            ) : (
-                /* EMPTY STATE HERO */
-                <div className="flex-1 flex items-center justify-center p-8 min-h-[500px]">
-                    <div className="max-w-2xl w-full text-center space-y-8 animate-in fade-in zoom-in-95 duration-700">
-                        <div className="relative w-32 h-32 mx-auto">
-                            <div className="absolute inset-0 bg-sky-500/10 rounded-full animate-ping duration-1000"></div>
-                            <div className="relative bg-gradient-to-br from-sky-600 to-blue-700 w-32 h-32 rounded-full flex items-center justify-center shadow-[0_0_60px_rgba(14,165,233,0.3)] border border-white/10 backdrop-blur-md">
-                                <CompassIcon rotation={45} className="w-16 h-16 text-white opacity-90" />
+                            <input type="text" readOnly value={destination} placeholder="Tap to Select Destination"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                                <MapIcon className="w-4 h-4" />
                             </div>
                         </div>
-                        <div>
-                            <h1 className="text-4xl md:text-6xl font-black text-white tracking-tighter mb-4 drop-shadow-2xl">
+
+                        {/* Via + Date row */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
+                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                    <RouteIcon className="w-4 h-4 text-sky-400" />
+                                </div>
+                                <input type="text" readOnly value={via} placeholder="Via (Opt)"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
+                                {via && (
+                                    <button onClick={(e) => { e.stopPropagation(); setVia(''); }} aria-label="Clear Via Point"
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500">
+                                        <XIcon className="w-4 h-4" />
+                                    </button>
+                                )}
+                                {!via && (
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                                        <MapIcon className="w-4 h-4" />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="relative w-full min-w-0 group">
+                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
+                                    <CalendarIcon className="w-4 h-4" />
+                                </div>
+                                <input type="date" min={minDate} value={departureDate}
+                                    onChange={(e) => { const d = e.target.value; if (!minDate || d >= minDate) setDepartureDate(d); }}
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                    style={{ WebkitAppearance: 'none' }} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Hero text — vertically centered in remaining space */}
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center animate-in fade-in zoom-in-95 duration-700">
+                            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tighter mb-3 drop-shadow-2xl">
                                 {loading ? (
                                     <span className="animate-pulse text-transparent bg-clip-text bg-gradient-to-r from-sky-300 to-white">Plotting Course...</span>
                                 ) : (
@@ -322,19 +256,57 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                                 )}
                             </h1>
                             {!loading && (
-                                <p className="text-lg text-slate-400 max-w-lg mx-auto leading-relaxed">
-                                    Enter your origin and destination above to generate a tactical passage plan using real-time meteorology and AI routing.
+                                <p className="text-base text-slate-400 max-w-sm mx-auto leading-relaxed">
+                                    Enter your origin and destination to generate a tactical passage plan with real-time meteorology.
                                 </p>
                             )}
                         </div>
-
-                        <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full bg-white/5 border border-white/10 text-sm text-gray-400 italic backdrop-blur-sm">
-                            <span className="text-sky-500">“</span>{quote.text}<span className="text-sky-500">”</span>
-                        </div>
                     </div>
-                </div>
-            )
-            }
-        </div >
+
+                    {/* Loading overlay */}
+                    {loading && (
+                        <div className="flex justify-center mb-4 animate-in fade-in z-50">
+                            <div className="flex items-center gap-3 px-6 py-3 bg-slate-900/90 backdrop-blur-md border border-sky-500/30 rounded-full shadow-[0_0_25px_rgba(14,165,233,0.15)]">
+                                <span className="text-xs text-sky-300 font-mono tracking-wide">{LOADING_PHASES[loadingStep]}</span>
+                                <div className="flex gap-1">
+                                    <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                                    <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                                    <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce"></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="max-w-xl mx-auto mb-4 w-full animate-in fade-in slide-in-from-top-4">
+                            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
+                                <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
+                                <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Calculate Route button — pinned 8px above menu bar */}
+                    <div className="pb-[calc(8px+env(safe-area-inset-bottom))] mb-[72px] max-w-xl mx-auto w-full">
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white shadow-sky-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
+                        >
+                            {!isPro ? (
+                                <>
+                                    <LockIcon className="w-4 h-4 text-sky-400" />
+                                    Unlock Route Planning
+                                </>
+                            ) : loading ? (
+                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                "Calculate Route"
+                            )}
+                        </button>
+                    </div>
+                </form>
+            )}
+        </div>
     );
 };

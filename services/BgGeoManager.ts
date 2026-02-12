@@ -29,7 +29,7 @@ export interface CachedPosition {
     longitude: number;
     accuracy: number;
     altitude: number | null;
-    heading: number;
+    heading: number | null;
     speed: number;
     timestamp: number;       // epoch-ms
     receivedAt: number;      // epoch-ms — when WE received it (for staleness checks)
@@ -289,7 +289,7 @@ class BgGeoManagerClass {
             longitude: loc.coords.longitude,
             accuracy: loc.coords.accuracy ?? 99,
             altitude: loc.coords.altitude ?? null,
-            heading: loc.coords.heading ?? 0,
+            heading: loc.coords.heading ?? null,
             speed: loc.coords.speed ?? 0,
             timestamp: loc.timestamp ? new Date(loc.timestamp).getTime() : Date.now(),
             receivedAt: Date.now(),

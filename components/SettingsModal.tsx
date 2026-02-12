@@ -141,9 +141,20 @@ const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValu
     );
 };
 
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout';
+
+const MENU_ITEMS: { id: SettingsTab; label: string; description: string; icon: (cls: string) => React.ReactNode; iconBg: string; iconHoverBg: string }[] = [
+    { id: 'general', label: 'Preferences', description: 'Units, location & AI personality', icon: (c) => <GearIcon className={c} />, iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10', iconHoverBg: 'group-hover:bg-sky-500/25' },
+    { id: 'locations', label: 'Locations', description: 'Saved ports & anchorages', icon: (c) => <MapPinIcon className={c} />, iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10', iconHoverBg: 'group-hover:bg-emerald-500/25' },
+    { id: 'account', label: 'System & Cloud', description: 'Cloud sync, API keys & account', icon: (c) => <ServerIcon className={c} />, iconBg: 'bg-violet-500/15 text-violet-400 shadow-violet-500/10', iconHoverBg: 'group-hover:bg-violet-500/25' },
+    { id: 'vessel', label: 'Vessel Profile', description: 'Boat specs, rig & safety gear', icon: (c) => <BoatIcon className={c} />, iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10', iconHoverBg: 'group-hover:bg-amber-500/25' },
+    { id: 'alerts', label: 'Notifications', description: 'Anchor alarm, weather alerts', icon: (c) => <BellIcon className={c} />, iconBg: 'bg-rose-500/15 text-rose-400 shadow-rose-500/10', iconHoverBg: 'group-hover:bg-rose-500/25' },
+    { id: 'scenery', label: 'Aesthetics', description: 'Theme, colors & environment', icon: (c) => <StarIcon className={c} />, iconBg: 'bg-indigo-500/15 text-indigo-400 shadow-indigo-500/10', iconHoverBg: 'group-hover:bg-indigo-500/25' },
+];
+
 export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, onLocationSelect }) => {
     const { user, logout, resetSettings } = useThalassa();
-    const [activeTab, setActiveTab] = useState<'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout'>('general');
+    const [activeTab, setActiveTab] = useState<SettingsTab | null>(null);
     const [detectingLoc, setDetectingLoc] = useState(false);
     const [authOpen, setAuthOpen] = useState(false);
     const [sgStatus, setSgStatus] = useState<{ status: string, message: string } | null>(null);
@@ -248,6 +259,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                 </div>
             )}
 
+            {/* --- DESKTOP SIDEBAR (unchanged) --- */}
             <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
                 <div className="mb-8 px-2">
                     <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-sm">
@@ -277,18 +289,53 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                 </div>
             </div>
 
-            <div className="md:hidden w-full border-b border-white/5 bg-slate-900/50 backdrop-blur-xl z-20 sticky top-0">
-                <div className="flex overflow-x-auto p-4 gap-3 snap-x scrollbar-hide">
-                    <MobileNavTab active={activeTab === 'general'} onClick={() => setActiveTab('general')} icon={<GearIcon className="w-4 h-4" />} label="Prefs" />
-                    <MobileNavTab active={activeTab === 'account'} onClick={() => setActiveTab('account')} icon={<CloudIcon className="w-4 h-4" />} label="Cloud" />
-                    <MobileNavTab active={activeTab === 'vessel'} onClick={() => setActiveTab('vessel')} icon={<BoatIcon className="w-4 h-4" />} label="Vessel" />
-                    <MobileNavTab active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapPinIcon className="w-4 h-4" />} label="Locs" />
-                    <MobileNavTab active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<BellIcon className="w-4 h-4" />} label="Alerts" />
-                    <MobileNavTab active={activeTab === 'scenery'} onClick={() => setActiveTab('scenery')} icon={<StarIcon className="w-4 h-4" />} label="Theme" />
+            {/* --- MOBILE: Vertical Menu Screen (shown when no tab selected) --- */}
+            {activeTab === null && (
+                <div className="md:hidden flex-1 flex flex-col overflow-y-auto">
+                    <div className="px-6 pt-8 pb-4">
+                        <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
+                            <GearIcon className="w-6 h-6 text-sky-400" />
+                            SETTINGS
+                        </h2>
+                        <p className="text-[10px] text-sky-200/40 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
+                    </div>
+                    <div className="flex-1 px-4 pb-32 space-y-2">
+                        {MENU_ITEMS.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setActiveTab(item.id)}
+                                className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                            >
+                                <div className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}>
+                                    {item.icon('w-6 h-6')}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
+                                    <p className="text-gray-500 text-xs mt-0.5">{item.description}</p>
+                                </div>
+                                <ArrowRightIcon className="w-4 h-4 text-gray-600 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                            </button>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
-            <div className="flex-1 flex flex-col h-full bg-transparent overflow-hidden">
+            <div className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}>
+                {/* Mobile: Section header with X close button */}
+                {activeTab !== null && (
+                    <div className="md:hidden flex items-center justify-between px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 backdrop-blur-xl border-b border-white/5">
+                        <h3 className="text-lg font-black text-white uppercase tracking-wider">
+                            {MENU_ITEMS.find(m => m.id === activeTab)?.label || 'Settings'}
+                        </h3>
+                        <button
+                            onClick={() => setActiveTab(null)}
+                            className="p-2 -mr-1 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            aria-label="Back to settings menu"
+                        >
+                            <XIcon className="w-5 h-5" />
+                        </button>
+                    </div>
+                )}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-32">
 
                     {activeTab === 'locations' && (

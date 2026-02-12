@@ -428,8 +428,8 @@ export function useLogPageState() {
             onProgress: () => { },
             onSuccess: () => { },
             onError: (err) => toast.error(err),
-        }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits });
-    }, [state.selectedVoyageId, state.entries, settings.vessel, settings.vesselUnits, toast]);
+        }, settings.vessel?.name, { vessel: settings.vessel, vesselUnits: settings.vesselUnits, units: settings.units });
+    }, [state.selectedVoyageId, state.entries, settings.vessel, settings.vesselUnits, settings.units, toast]);
 
     const handleExportThenDelete = useCallback(async () => {
         await handleShare();

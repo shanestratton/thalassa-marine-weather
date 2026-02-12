@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
+import { PushNotificationService } from '../services/PushNotificationService';
 
 interface AuthContextType {
     user: User | null;
@@ -16,14 +17,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => {
         if (!supabase) return;
 
+        // Initialize push notification listeners (once, early)
+        PushNotificationService.initialize();
+
         // Check active session
         supabase.auth.getSession().then(({ data: { session } }) => {
-            setUser(session?.user ?? null);
+            const u = session?.user ?? null;
+            setUser(u);
+            if (u) {
+                // User already logged in — register push token
+                PushNotificationService.setUser(u.id);
+                PushNotificationService.requestPermissionAndRegister();
+            }
         });
 
-        // Listen for changes
+        // Listen for auth changes (login/logout)
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
+            const u = session?.user ?? null;
+            setUser(u);
+            if (u) {
+                PushNotificationService.setUser(u.id);
+                PushNotificationService.requestPermissionAndRegister();
+            } else {
+                PushNotificationService.clearUser();
+            }
         });
 
         return () => subscription.unsubscribe();
@@ -31,6 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const logout = async () => {
         if (!supabase) return;
+        await PushNotificationService.clearUser();
         await supabase.auth.signOut();
         setUser(null);
     };

@@ -21,16 +21,6 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
 
     return (
         <div className="space-y-3">
-            {/* Too-short voyage warning */}
-            {stats.durationMinutes < 6 && (
-                <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg px-3 py-2.5 flex items-start gap-2">
-                    <span className="text-amber-400 text-base mt-0.5">⚓</span>
-                    <div>
-                        <p className="text-sm font-bold text-amber-300">Barely left the dock!</p>
-                        <p className="text-sm text-amber-400/80 mt-0.5">Tracks under 6 minutes aren't much of a voyage — consider deleting this one, Captain.</p>
-                    </div>
-                </div>
-            )}
             {/* Primary Stats Row - 4 key metrics */}
             <div className="grid grid-cols-4 gap-2">
                 <CompactStat label="Distance" value={stats.totalDistance.toFixed(1)} unit="NM" />

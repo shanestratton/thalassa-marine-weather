@@ -394,6 +394,7 @@ export interface ShipLogEntry {
 
     // Weather snapshot (at time of entry)
     windSpeed?: number; // Knots
+    windGust?: number; // Knots
     windDirection?: string; // Cardinal or degrees
     waveHeight?: number; // Meters
     pressure?: number; // hPa (barometric)
