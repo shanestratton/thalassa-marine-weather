@@ -23,6 +23,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
+import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('AnchorWatch');
@@ -363,7 +364,7 @@ class AnchorWatchServiceClass {
                 latitude: pos.latitude,
                 longitude: pos.longitude,
                 accuracy: pos.accuracy,
-                heading: pos.heading,
+                heading: pos.heading ?? 0,
                 speed: pos.speed,
                 timestamp: pos.timestamp,
             };
@@ -469,7 +470,7 @@ class AnchorWatchServiceClass {
                     latitude: pos.latitude,
                     longitude: pos.longitude,
                     accuracy: pos.accuracy,
-                    heading: pos.heading,
+                    heading: pos.heading ?? 0,
                     speed: pos.speed,
                     timestamp: pos.timestamp,
                 });
@@ -651,32 +652,15 @@ class AnchorWatchServiceClass {
     }
 
     private startAlarmSound(): void {
-        // Use Web Audio API for alarm tone
-        try {
-            const AudioCtx = window.AudioContext || ('webkitAudioContext' in window ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext : AudioContext);
-            const ctx = new AudioCtx();
-            const playAlarmTone = () => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.frequency.value = 880; // High A
-                osc.type = 'square';
-                gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + 0.5);
-            };
+        // Use native alarm audio that bypasses iOS mute switch
+        AlarmAudioService.startAlarm().catch(err => {
+            log.warn('startAlarmSound: native alarm failed', err);
+        });
 
-            playAlarmTone();
-            this.alarmInterval = setInterval(() => {
-                playAlarmTone();
-                // Also re-trigger haptics
-                Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => { });
-            }, 2000);
-        } catch (e) {
-            log.warn('startAlarmSound: audio init failed', e);
-        }
+        // Also re-trigger haptics every 2 seconds
+        this.alarmInterval = setInterval(() => {
+            Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => { });
+        }, 2000);
     }
 
     private stopAlarm(): void {
@@ -684,6 +668,7 @@ class AnchorWatchServiceClass {
             clearInterval(this.alarmInterval);
             this.alarmInterval = null;
         }
+        AlarmAudioService.stopAlarm().catch(() => { });
     }
 
     private notify(): void {

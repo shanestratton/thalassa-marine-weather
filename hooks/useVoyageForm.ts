@@ -7,6 +7,7 @@ import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
 import { getErrorMessage } from '../utils/logger';
+import { generateSeaRoute } from '../utils/seaRoute';
 
 export const LOADING_PHASES = [
     "Querying Hydrographic Data...",
@@ -34,7 +35,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [origin, setOrigin] = useState('');
     const [destination, setDestination] = useState('');
     const [via, setVia] = useState('');
-    const [departureDate, setDepartureDate] = useState(voyagePlan?.departureDate || new Date().toISOString().split('T')[0]);
+    const [departureDate, setDepartureDate] = useState(voyagePlan?.departureDate || new Date().toLocaleDateString('en-CA'));
 
     // UI State
     const [isMapOpen, setIsMapOpen] = useState(false);
@@ -171,6 +172,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     };
 
     const toggleCheck = (item: string) => setChecklistState(p => ({ ...p, [item]: !p[item] }));
+    const clearVoyagePlan = () => saveVoyagePlan(null as any);
 
     const handleMapSelect = async (lat: number, lon: number, name: string) => {
         // Attempt reverse geocode for a friendly name if only coords provided
@@ -204,15 +206,24 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     // Computed properties
     const routeCoords = useMemo(() => {
         if (!voyagePlan) return [];
-        const coords = [];
-        if (voyagePlan.originCoordinates) coords.push(voyagePlan.originCoordinates);
+        const waypoints: { lat: number; lon: number }[] = [];
+        if (voyagePlan.originCoordinates) waypoints.push(voyagePlan.originCoordinates);
         if (voyagePlan.waypoints && Array.isArray(voyagePlan.waypoints)) {
             voyagePlan.waypoints.forEach(wp => {
-                if (wp && wp.coordinates) coords.push(wp.coordinates);
+                if (wp && wp.coordinates) waypoints.push(wp.coordinates);
             });
         }
-        if (voyagePlan.destinationCoordinates) coords.push(voyagePlan.destinationCoordinates);
-        return coords;
+        if (voyagePlan.destinationCoordinates) waypoints.push(voyagePlan.destinationCoordinates);
+
+        if (waypoints.length < 2) return waypoints;
+
+        // Generate a sea route that avoids land masses
+        try {
+            return generateSeaRoute(waypoints);
+        } catch (err) {
+            console.warn('[SeaRoute] Failed, falling back to direct lines:', err);
+            return waypoints;
+        }
     }, [voyagePlan]);
 
     const distVal = (voyagePlan && typeof voyagePlan.distanceApprox === 'string')
@@ -236,6 +247,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // Handlers
         handleCalculate,
         handleDeepAnalysis,
+        clearVoyagePlan,
         handleOriginLocation,
         handleMapSelect,
         openMap,

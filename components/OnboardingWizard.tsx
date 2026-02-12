@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel } from '../types';
-import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon } from './Icons';
+import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon, AnchorIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
@@ -53,6 +53,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [fuel, setFuel] = useState<string>('');
     const [water, setWater] = useState<string>('');
     const [volUnit, setVolUnit] = useState<VolumeUnit>(defaults.volume || 'gal');
+    const [crewCount, setCrewCount] = useState<string>('2');
 
     const handleNext = () => {
         if (step === 2 && !homePort.trim()) return; // Require location
@@ -233,6 +234,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             cruisingSpeed: finalVesselType === 'sail' ? Math.sqrt(l_ft) * 1.2 : Math.sqrt(l_ft) * 3,
             fuelCapacity: fuel ? parseFloat(fuel) : 0,
             waterCapacity: water ? parseFloat(water) : 0,
+            crewCount: crewCount ? parseInt(crewCount) || 2 : 2,
             estimatedFields: estimatedFields.length > 0 ? estimatedFields : undefined
         };
 
@@ -507,6 +509,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><DropletIcon className="w-3 h-3 text-blue-400" /> Water</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
                                             <input type="number" value={water} onChange={(e) => setWater(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
                                         </div>
+                                    </div>
+
+                                    {/* Crew */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                                            <AnchorIcon className="w-3 h-3 text-cyan-400" /> Crew Aboard (incl. Captain)
+                                        </label>
+                                        <input type="number" min="1" max="99" value={crewCount} onChange={(e) => setCrewCount(e.target.value)} placeholder="2" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
+                                        <p className="text-[10px] text-gray-500 mt-1">Used for provisioning and watch schedules</p>
                                     </div>
                                 </div>
                                 <button onClick={handleNext} className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Next</button>

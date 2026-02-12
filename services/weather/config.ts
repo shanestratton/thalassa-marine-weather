@@ -111,5 +111,151 @@ export const MAJOR_BUOYS: BuoyStation[] = [
 
     // --- SOUTH AMERICA ---
     { id: '31001', name: 'Santos (Brazil)', lat: -25.3, lon: -45.1, type: 'other' },
-    { id: '32012', name: 'Chilean Coast (Humboldt)', lat: -20.5, lon: -72.0, type: 'other' }
+    { id: '32012', name: 'Chilean Coast (Humboldt)', lat: -20.5, lon: -72.0, type: 'other' },
+    { id: '31201', name: 'Rio de Janeiro (Brazil)', lat: -22.9, lon: -42.0, type: 'other' },
+    { id: '31301', name: 'Recife (Brazil)', lat: -8.1, lon: -34.5, type: 'other' },
+    { id: '32001', name: 'Valparaíso (Chile)', lat: -33.0, lon: -71.8, type: 'other' },
+    { id: '32101', name: 'Strait of Magellan', lat: -52.5, lon: -70.0, type: 'other' },
+    { id: '31401', name: 'Montevideo (Uruguay)', lat: -34.9, lon: -56.0, type: 'other' },
+    { id: '31501', name: 'Buenos Aires (Argentina)', lat: -35.5, lon: -56.5, type: 'other' },
+
+    // --- NEW ZEALAND ---
+    { id: 'NZ01', name: 'Auckland Harbour (NZ)', lat: -36.84, lon: 174.77, type: 'other' },
+    { id: 'NZ02', name: 'Hauraki Gulf (NZ)', lat: -36.6, lon: 175.1, type: 'other' },
+    { id: 'NZ03', name: 'Bay of Islands (NZ)', lat: -35.2, lon: 174.2, type: 'other' },
+    { id: 'NZ04', name: 'Wellington Harbour (NZ)', lat: -41.3, lon: 174.8, type: 'other' },
+    { id: 'NZ05', name: 'Cook Strait (NZ)', lat: -41.0, lon: 174.5, type: 'other' },
+    { id: 'NZ06', name: 'Lyttelton (NZ)', lat: -43.6, lon: 172.7, type: 'other' },
+    { id: 'NZ07', name: 'Milford Sound (NZ)', lat: -44.6, lon: 167.9, type: 'other' },
+    { id: 'NZ08', name: 'Tauranga (NZ)', lat: -37.6, lon: 176.2, type: 'other' },
+
+    // --- PACIFIC ISLANDS ---
+    { id: 'FJ01', name: 'Suva (Fiji)', lat: -18.14, lon: 178.44, type: 'other' },
+    { id: 'FJ02', name: 'Nadi (Fiji)', lat: -17.77, lon: 177.44, type: 'other' },
+    { id: 'NC01', name: 'Nouméa (New Caledonia)', lat: -22.28, lon: 166.44, type: 'other' },
+    { id: 'NC02', name: 'Loyalty Islands', lat: -20.7, lon: 167.2, type: 'other' },
+    { id: 'PF01', name: 'Papeete (Tahiti)', lat: -17.53, lon: -149.57, type: 'other' },
+    { id: 'WS01', name: 'Apia (Samoa)', lat: -13.83, lon: -171.76, type: 'other' },
+    { id: 'TO01', name: 'Nukuʻalofa (Tonga)', lat: -21.14, lon: -175.2, type: 'other' },
+    { id: 'VU01', name: 'Port Vila (Vanuatu)', lat: -17.74, lon: 168.32, type: 'other' },
+    { id: 'PG01', name: 'Port Moresby (PNG)', lat: -9.5, lon: 147.1, type: 'other' },
+    { id: 'GU01', name: 'Guam', lat: 13.44, lon: 144.79, type: 'noaa' },
+    { id: 'MH01', name: 'Majuro (Marshall Is)', lat: 7.1, lon: 171.4, type: 'other' },
+
+    // --- AUSTRALIA (West & North Coast) ---
+    { id: 'Fremantle', name: 'Fremantle (WA)', lat: -32.06, lon: 115.74, type: 'bom' },
+    { id: 'Rottnest', name: 'Rottnest Island (WA)', lat: -32.0, lon: 115.5, type: 'bom' },
+    { id: 'Geraldton', name: 'Geraldton (WA)', lat: -28.77, lon: 114.62, type: 'bom' },
+    { id: 'Exmouth', name: 'Exmouth (WA)', lat: -21.93, lon: 114.14, type: 'bom' },
+    { id: 'Broome', name: 'Broome (WA)', lat: -18.0, lon: 122.2, type: 'bom' },
+    { id: 'Darwin', name: 'Darwin (NT)', lat: -12.46, lon: 130.84, type: 'bom' },
+    { id: 'Cairns', name: 'Cairns (QLD)', lat: -16.92, lon: 145.77, type: 'bom' },
+    { id: 'Townsville', name: 'Townsville (QLD)', lat: -19.25, lon: 146.77, type: 'bom' },
+    { id: 'Gladstone', name: 'Gladstone (QLD)', lat: -23.85, lon: 151.27, type: 'bom' },
+    { id: 'Adelaide', name: 'Adelaide (SA)', lat: -34.93, lon: 138.60, type: 'bom' },
+    { id: 'Portland', name: 'Portland (VIC)', lat: -38.34, lon: 141.60, type: 'bom' },
+    { id: 'Hobart', name: 'Hobart (TAS)', lat: -42.88, lon: 147.33, type: 'bom' },
+
+    // --- MEDITERRANEAN ---
+    { id: 'GR01', name: 'Piraeus (Greece)', lat: 37.94, lon: 23.65, type: 'other' },
+    { id: 'GR02', name: 'Crete (Heraklion)', lat: 35.34, lon: 25.13, type: 'other' },
+    { id: 'GR03', name: 'Rhodes (Greece)', lat: 36.44, lon: 28.22, type: 'other' },
+    { id: 'GR04', name: 'Santorini (Greece)', lat: 36.39, lon: 25.46, type: 'other' },
+    { id: 'IT01', name: 'Genoa (Italy)', lat: 44.41, lon: 8.93, type: 'other' },
+    { id: 'IT02', name: 'Naples (Italy)', lat: 40.84, lon: 14.25, type: 'other' },
+    { id: 'IT03', name: 'Strait of Messina', lat: 38.19, lon: 15.56, type: 'other' },
+    { id: 'IT04', name: 'Venice (Italy)', lat: 45.43, lon: 12.33, type: 'other' },
+    { id: 'IT05', name: 'Sardinia (Cagliari)', lat: 39.21, lon: 9.11, type: 'other' },
+    { id: 'ES01', name: 'Barcelona (Spain)', lat: 41.35, lon: 2.16, type: 'other' },
+    { id: 'ES02', name: 'Strait of Gibraltar', lat: 36.0, lon: -5.6, type: 'other' },
+    { id: 'ES03', name: 'Palma de Mallorca', lat: 39.56, lon: 2.63, type: 'other' },
+    { id: 'ES04', name: 'Las Palmas (Canary)', lat: 28.15, lon: -15.41, type: 'other' },
+    { id: 'HR01', name: 'Split (Croatia)', lat: 43.5, lon: 16.44, type: 'other' },
+    { id: 'HR02', name: 'Dubrovnik (Croatia)', lat: 42.65, lon: 18.09, type: 'other' },
+    { id: 'TR01', name: 'İstanbul Strait', lat: 41.01, lon: 29.0, type: 'other' },
+    { id: 'TR02', name: 'İzmir (Turkey)', lat: 38.42, lon: 27.14, type: 'other' },
+    { id: 'TR03', name: 'Antalya (Turkey)', lat: 36.84, lon: 30.63, type: 'other' },
+    { id: 'MT01', name: 'Malta', lat: 35.9, lon: 14.5, type: 'other' },
+    { id: 'CY01', name: 'Limassol (Cyprus)', lat: 34.67, lon: 33.04, type: 'other' },
+
+    // --- SCANDINAVIA & NORTH SEA ---
+    { id: 'NO01', name: 'Oslo Fjord (Norway)', lat: 59.9, lon: 10.7, type: 'other' },
+    { id: 'NO02', name: 'Bergen (Norway)', lat: 60.4, lon: 5.32, type: 'other' },
+    { id: 'NO03', name: 'Stavanger (Norway)', lat: 58.97, lon: 5.73, type: 'other' },
+    { id: 'NO04', name: 'Tromsø (Norway)', lat: 69.65, lon: 18.96, type: 'other' },
+    { id: 'NO05', name: 'Lofoten (Norway)', lat: 68.2, lon: 14.6, type: 'other' },
+    { id: 'DK01', name: 'Copenhagen (Denmark)', lat: 55.68, lon: 12.57, type: 'other' },
+    { id: 'DK02', name: 'Skagerrak (Denmark)', lat: 57.7, lon: 10.2, type: 'other' },
+    { id: 'NL01', name: 'IJmuiden (Netherlands)', lat: 52.46, lon: 4.52, type: 'other' },
+    { id: 'NL02', name: 'Texel (Netherlands)', lat: 53.0, lon: 4.7, type: 'other' },
+    { id: 'DE01', name: 'Helgoland (Germany)', lat: 54.18, lon: 7.89, type: 'other' },
+    { id: 'DE02', name: 'Kiel (Germany)', lat: 54.32, lon: 10.14, type: 'other' },
+    { id: 'SE01', name: 'Gothenburg (Sweden)', lat: 57.7, lon: 11.97, type: 'other' },
+    { id: 'FI01', name: 'Helsinki (Finland)', lat: 60.15, lon: 24.96, type: 'other' },
+    { id: 'IS01', name: 'Reykjavik (Iceland)', lat: 64.15, lon: -21.95, type: 'other' },
+
+    // --- SOUTHEAST ASIA ---
+    { id: 'SG01', name: 'Singapore Strait', lat: 1.26, lon: 103.75, type: 'other' },
+    { id: 'ID01', name: 'Bali Strait (Indonesia)', lat: -8.75, lon: 115.5, type: 'other' },
+    { id: 'ID02', name: 'Jakarta (Indonesia)', lat: -6.1, lon: 106.85, type: 'other' },
+    { id: 'ID03', name: 'Makassar Strait', lat: -2.0, lon: 117.5, type: 'other' },
+    { id: 'PH01', name: 'Manila Bay (Philippines)', lat: 14.5, lon: 120.9, type: 'other' },
+    { id: 'PH02', name: 'Cebu Strait (Philippines)', lat: 10.3, lon: 123.9, type: 'other' },
+    { id: 'TW01', name: 'Kaohsiung (Taiwan)', lat: 22.6, lon: 120.28, type: 'other' },
+    { id: 'TW02', name: 'Keelung (Taiwan)', lat: 25.13, lon: 121.74, type: 'other' },
+    { id: 'VN01', name: 'Vũng Tàu (Vietnam)', lat: 10.35, lon: 107.07, type: 'other' },
+    { id: 'MY01', name: 'Penang (Malaysia)', lat: 5.42, lon: 100.35, type: 'other' },
+    { id: 'MY02', name: 'Langkawi (Malaysia)', lat: 6.38, lon: 99.73, type: 'other' },
+
+    // --- MIDDLE EAST & INDIAN OCEAN ---
+    { id: 'AE01', name: 'Dubai (UAE)', lat: 25.26, lon: 55.3, type: 'other' },
+    { id: 'OM01', name: 'Muscat (Oman)', lat: 23.6, lon: 58.6, type: 'other' },
+    { id: 'IN01', name: 'Mumbai (India)', lat: 18.94, lon: 72.84, type: 'other' },
+    { id: 'IN02', name: 'Chennai (India)', lat: 13.08, lon: 80.29, type: 'other' },
+    { id: 'IN03', name: 'Kochi (India)', lat: 9.97, lon: 76.27, type: 'other' },
+    { id: 'LK01', name: 'Colombo (Sri Lanka)', lat: 6.93, lon: 79.85, type: 'other' },
+    { id: 'MV01', name: 'Malé (Maldives)', lat: 4.17, lon: 73.51, type: 'other' },
+    { id: 'MU01', name: 'Port Louis (Mauritius)', lat: -20.16, lon: 57.5, type: 'other' },
+    { id: 'RE01', name: 'Réunion (France)', lat: -20.88, lon: 55.45, type: 'other' },
+
+    // --- AFRICA ---
+    { id: 'ZA01', name: 'Cape Town (SA)', lat: -33.9, lon: 18.42, type: 'other' },
+    { id: 'ZA02', name: 'Durban (SA)', lat: -29.87, lon: 31.05, type: 'other' },
+    { id: 'ZA03', name: 'Cape Agulhas (SA)', lat: -34.83, lon: 20.0, type: 'other' },
+    { id: 'EG01', name: 'Suez Canal (Egypt)', lat: 30.0, lon: 32.55, type: 'other' },
+    { id: 'EG02', name: 'Alexandria (Egypt)', lat: 31.2, lon: 29.92, type: 'other' },
+    { id: 'KE01', name: 'Mombasa (Kenya)', lat: -4.04, lon: 39.67, type: 'other' },
+    { id: 'SN01', name: 'Dakar (Senegal)', lat: 14.69, lon: -17.44, type: 'other' },
+    { id: 'MG01', name: 'Antananarivo Approach (Madagascar)', lat: -15.75, lon: 46.3, type: 'other' },
+
+    // --- CANADA ---
+    { id: 'CA01', name: 'Halifax (NS)', lat: 44.65, lon: -63.57, type: 'other' },
+    { id: 'CA02', name: 'St. John\'s (NL)', lat: 47.57, lon: -52.71, type: 'other' },
+    { id: 'CA03', name: 'Vancouver (BC)', lat: 49.28, lon: -123.12, type: 'other' },
+    { id: 'CA04', name: 'Victoria (BC)', lat: 48.43, lon: -123.37, type: 'other' },
+    { id: 'CA05', name: 'Prince Rupert (BC)', lat: 54.31, lon: -130.32, type: 'other' },
+    { id: 'CA06', name: 'Churchill (MB)', lat: 58.77, lon: -94.17, type: 'other' },
+
+    // --- CARIBBEAN ---
+    { id: 'JM01', name: 'Kingston (Jamaica)', lat: 17.97, lon: -76.79, type: 'other' },
+    { id: 'TT01', name: 'Port of Spain (Trinidad)', lat: 10.65, lon: -61.5, type: 'other' },
+    { id: 'BB01', name: 'Bridgetown (Barbados)', lat: 13.1, lon: -59.6, type: 'other' },
+    { id: 'AG01', name: 'Antigua', lat: 17.12, lon: -61.85, type: 'other' },
+    { id: 'VI01', name: 'St. Thomas (USVI)', lat: 18.34, lon: -64.93, type: 'noaa' },
+    { id: 'PA01', name: 'Panama Canal (Colón)', lat: 9.36, lon: -79.9, type: 'other' },
+    { id: 'CU01', name: 'Havana (Cuba)', lat: 23.14, lon: -82.36, type: 'other' },
+
+    // --- GULF OF MEXICO ---
+    { id: '42001', name: 'Gulf of Mexico Central', lat: 25.89, lon: -89.66, type: 'noaa' },
+    { id: '42002', name: 'Gulf of Mexico West', lat: 25.79, lon: -93.67, type: 'noaa' },
+    { id: '42003', name: 'Gulf of Mexico East', lat: 25.97, lon: -85.59, type: 'noaa' },
+    { id: '42019', name: 'Freeport (TX)', lat: 27.91, lon: -95.35, type: 'noaa' },
+    { id: '42035', name: 'Galveston (TX)', lat: 29.23, lon: -94.41, type: 'noaa' },
+    { id: '42040', name: 'Luke Island (LA)', lat: 29.21, lon: -88.21, type: 'noaa' },
+    { id: '42036', name: 'West Tampa (FL)', lat: 28.5, lon: -84.52, type: 'noaa' },
+
+    // --- ALASKA ---
+    { id: '46060', name: 'Kodiak Island (AK)', lat: 56.0, lon: -153.9, type: 'noaa' },
+    { id: '46061', name: 'Adak (Aleutians)', lat: 51.87, lon: -176.62, type: 'noaa' },
+    { id: '46072', name: 'Shumagin Islands (AK)', lat: 54.56, lon: -161.78, type: 'noaa' }
 ];

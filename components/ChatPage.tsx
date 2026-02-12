@@ -197,19 +197,48 @@ export const ChatPage: React.FC = () => {
             setKeyboardOffset(0);
             return;
         }
-        const vv = window.visualViewport;
-        if (!vv) return;
-        const handleResize = () => {
-            // When keyboard opens, visualViewport.height shrinks
-            const offset = window.innerHeight - vv.height;
-            setKeyboardOffset(offset > 50 ? offset : 0); // >50px threshold to avoid spurious triggers
-        };
-        vv.addEventListener('resize', handleResize);
-        vv.addEventListener('scroll', handleResize);
-        handleResize(); // Check immediately in case keyboard is already open
+
+        let kbShowHandle: any;
+        let kbHideHandle: any;
+        let usingNativePlugin = false;
+
+        // Try Capacitor Keyboard plugin first (accurate on native iOS)
+        import('@capacitor/keyboard').then(({ Keyboard }) => {
+            usingNativePlugin = true;
+            kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
+                setKeyboardOffset(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+            });
+            kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                setKeyboardOffset(0);
+            });
+        }).catch(() => {
+            // Fallback to visualViewport for web (Capacitor plugin not available)
+            const vv = window.visualViewport;
+            if (!vv) return;
+            const handleResize = () => {
+                const offset = window.innerHeight - vv.height - vv.offsetTop;
+                setKeyboardOffset(offset > 50 ? offset : 0);
+            };
+            vv.addEventListener('resize', handleResize);
+            vv.addEventListener('scroll', handleResize);
+            handleResize();
+            // Store cleanup refs on window for the teardown below
+            (window as any).__chatKbCleanup = () => {
+                vv.removeEventListener('resize', handleResize);
+                vv.removeEventListener('scroll', handleResize);
+            };
+        });
+
         return () => {
-            vv.removeEventListener('resize', handleResize);
-            vv.removeEventListener('scroll', handleResize);
+            if (usingNativePlugin) {
+                kbShowHandle?.then?.((h: any) => h.remove());
+                kbHideHandle?.then?.((h: any) => h.remove());
+                // Also handle if they resolved synchronously
+                if (kbShowHandle?.remove) kbShowHandle.remove();
+                if (kbHideHandle?.remove) kbHideHandle.remove();
+            }
+            (window as any).__chatKbCleanup?.();
+            delete (window as any).__chatKbCleanup;
         };
     }, [view]);
 
@@ -1196,7 +1225,7 @@ export const ChatPage: React.FC = () => {
 
                 {/* ══════ CHANNEL LIST ══════ */}
                 {view === 'channels' && !loading && (
-                    <div className="px-4 py-3 space-y-1.5">
+                    <div className="px-4 py-3 pb-24 space-y-1.5">
                         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-1 mb-2">Channels</p>
                         {channels
                             .filter(ch => ch.name !== 'Lonely Hearts' || profileLookingForLove)

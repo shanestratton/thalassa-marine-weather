@@ -147,6 +147,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                         <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                     </div>
+                    <div className="mt-4">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">Crew Aboard (incl. Captain)</label>
+                        <input type="number" min="1" max="99" value={settings.vessel?.crewCount || 2} onChange={(e) => updateVessel('crewCount', parseInt(e.target.value) || 2)} placeholder="2" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500" />
+                        <p className="text-[10px] text-gray-500 mt-1">Used for provisioning and watch scheduling in passage plans</p>
+                    </div>
                 </div>
             </div>
         </div>

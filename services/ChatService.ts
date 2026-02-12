@@ -236,6 +236,11 @@ class ChatServiceClass {
         const msg = data as ChatMessage;
         moderateMessage(msg.id, text, user.id, channelId).catch(() => { });
 
+        // Fire-and-forget: push notifications for SOS questions
+        if (isQuestion && data?.id) {
+            this.pushSOSNotification(channelId, user.id, displayName, text, data.id).catch(() => { });
+        }
+
         return msg;
     }
 
@@ -398,6 +403,17 @@ class ChatServiceClass {
         // Fire-and-forget Gemini moderation on DMs too
         if (data?.id) {
             moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch(() => { });
+        }
+
+        // Fire-and-forget: push notification to DM recipient
+        if (data?.id) {
+            this.queuePushNotification({
+                recipientUserId: recipientId,
+                type: 'dm',
+                title: `💬 ${displayName}`,
+                body: text.length > 100 ? text.substring(0, 97) + '...' : text,
+                data: { sender_id: user.id, message_id: data.id },
+            }).catch(() => { /* best effort */ });
         }
 
         console.log('[Chat] DM saved successfully, id:', data?.id);
@@ -642,6 +658,68 @@ class ChatServiceClass {
             .delete()
             .eq('id', channelId);
         return !error;
+    }
+
+    // --- PUSH NOTIFICATIONS ---
+
+    private async queuePushNotification(opts: {
+        recipientUserId: string;
+        type: string;
+        title: string;
+        body: string;
+        data?: Record<string, unknown>;
+    }): Promise<void> {
+        if (!supabase) return;
+        try {
+            await supabase.from('push_notification_queue').insert({
+                recipient_user_id: opts.recipientUserId,
+                notification_type: opts.type,
+                title: opts.title,
+                body: opts.body,
+                data: opts.data || {},
+            });
+        } catch {
+            /* Push notification is best-effort — never block message sending */
+        }
+    }
+
+    /** Push notifications to all recent channel participants for an SOS question */
+    private async pushSOSNotification(
+        channelId: string, senderId: string, senderName: string,
+        questionText: string, messageId: string
+    ): Promise<void> {
+        if (!supabase) return;
+        try {
+            // Get unique recent contributors in this channel (last 50 messages)
+            const { data: recentMessages } = await supabase
+                .from(MESSAGES_TABLE)
+                .select('user_id')
+                .eq('channel_id', channelId)
+                .order('created_at', { ascending: false })
+                .limit(50);
+
+            if (!recentMessages) return;
+
+            const uniqueUserIds = [...new Set(recentMessages.map(m => m.user_id))]
+                .filter(id => id !== senderId); // Don't notify sender
+
+            const body = questionText.length > 80 ? questionText.substring(0, 77) + '...' : questionText;
+
+            // Queue a notification for each channel participant
+            const inserts = uniqueUserIds.map(uid => ({
+                recipient_user_id: uid,
+                notification_type: 'sos',
+                title: `🆘 ${senderName} needs help`,
+                body,
+                data: { channel_id: channelId, message_id: messageId, sender_id: senderId },
+            }));
+
+            if (inserts.length > 0) {
+                await supabase.from('push_notification_queue').insert(inserts);
+            }
+        } catch {
+            /* Best effort */
+        }
     }
 
     // --- OFFLINE QUEUE ---

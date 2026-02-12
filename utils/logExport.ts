@@ -3,13 +3,15 @@
  * Generate PDF and CSV exports for legal compliance and analysis
  */
 
-import { ShipLogEntry, VesselProfile, VesselDimensionUnits } from '../types';
+import { ShipLogEntry, VesselProfile, VesselDimensionUnits, UnitPreferences } from '../types';
 import { jsPDF } from 'jspdf';
+import { convertMetersTo } from './units';
 
 // Vessel data interface for PDF export
 interface VesselData {
     vessel?: VesselProfile;
     vesselUnits?: VesselDimensionUnits;
+    units?: UnitPreferences;
 }
 
 const NAVY = '#1a2a3a';
@@ -740,6 +742,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     const departureForHeader = sortedByTimeForWeather[0];
+    const waveUnit = vesselData?.units?.waveHeight || 'ft';
 
     if (departureForHeader && (departureForHeader.windSpeed || departureForHeader.waveHeight || departureForHeader.pressure)) {
         pdf.setFillColor(26, 42, 58); // Navy background
@@ -760,13 +763,15 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         const wxParts: string[] = [];
         if (departureForHeader.windSpeed) {
-            wxParts.push(`Wind: ${departureForHeader.windSpeed}kts ${departureForHeader.windDirection || ''}`);
+            const gustStr = departureForHeader.windGust ? ` G${Math.round(departureForHeader.windGust)}` : '';
+            wxParts.push(`Wind: ${departureForHeader.windSpeed}kts${gustStr} ${departureForHeader.windDirection || ''}`);
         }
         if (departureForHeader.beaufortScale !== undefined) {
             wxParts.push(`Beaufort: F${departureForHeader.beaufortScale}`);
         }
         if (departureForHeader.waveHeight) {
-            wxParts.push(`Waves: ${departureForHeader.waveHeight.toFixed(1)}m`);
+            const waveVal = convertMetersTo(departureForHeader.waveHeight, waveUnit);
+            wxParts.push(`Waves: ${waveVal !== null ? waveVal.toFixed(1) : '?'}${waveUnit}`);
         }
         if (departureForHeader.seaState !== undefined) {
             wxParts.push(`Sea State: ${departureForHeader.seaState}`);
@@ -810,13 +815,15 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         const arrWxParts: string[] = [];
         if (arrivalForHeader.windSpeed) {
-            arrWxParts.push(`Wind: ${arrivalForHeader.windSpeed}kts ${arrivalForHeader.windDirection || ''}`);
+            const gustStr = arrivalForHeader.windGust ? ` G${Math.round(arrivalForHeader.windGust)}` : '';
+            arrWxParts.push(`Wind: ${arrivalForHeader.windSpeed}kts${gustStr} ${arrivalForHeader.windDirection || ''}`);
         }
         if (arrivalForHeader.beaufortScale !== undefined) {
             arrWxParts.push(`Beaufort: F${arrivalForHeader.beaufortScale}`);
         }
         if (arrivalForHeader.waveHeight) {
-            arrWxParts.push(`Waves: ${arrivalForHeader.waveHeight.toFixed(1)}m`);
+            const arrWaveVal = convertMetersTo(arrivalForHeader.waveHeight, waveUnit);
+            arrWxParts.push(`Waves: ${arrWaveVal !== null ? arrWaveVal.toFixed(1) : '?'}${waveUnit}`);
         }
         if (arrivalForHeader.seaState !== undefined) {
             arrWxParts.push(`Sea State: ${arrivalForHeader.seaState}`);
@@ -935,7 +942,14 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.text('Douglas Sea State:', margin + halfWidth + 4, legendY);
     pdf.setFont('helvetica', 'normal');
     pdf.text('0: Calm (glassy)  |  1-2: Smooth  |  3-4: Slight/Moderate  |  5-6: Rough  |  7+: High/Very High', margin + halfWidth + 4, legendY + 4);
-    pdf.text('Wave height: SS3=0.5-1.25m, SS4=1.25-2.5m, SS5=2.5-4m, SS6=4-6m', margin + halfWidth + 4, legendY + 8);
+    // Convert sea state reference heights to user's preferred wave unit
+    const legendWaveUnit = vesselData?.units?.waveHeight || 'ft';
+    const ss3Lo = convertMetersTo(0.5, legendWaveUnit)?.toFixed(1) ?? '?';
+    const ss3Hi = convertMetersTo(1.25, legendWaveUnit)?.toFixed(1) ?? '?';
+    const ss4Hi = convertMetersTo(2.5, legendWaveUnit)?.toFixed(1) ?? '?';
+    const ss5Hi = convertMetersTo(4, legendWaveUnit)?.toFixed(1) ?? '?';
+    const ss6Hi = convertMetersTo(6, legendWaveUnit)?.toFixed(1) ?? '?';
+    pdf.text(`Wave height: SS3=${ss3Lo}-${ss3Hi}${legendWaveUnit}, SS4=${ss3Hi}-${ss4Hi}${legendWaveUnit}, SS5=${ss4Hi}-${ss5Hi}${legendWaveUnit}, SS6=${ss5Hi}-${ss6Hi}${legendWaveUnit}`, margin + halfWidth + 4, legendY + 8);
 
     y += 28;
 
@@ -986,7 +1000,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         x += cols.brg;
         pdf.text('COG/SOG', x, y + 4);
         x += cols.cogSog;
-        pdf.text('WIND/DIR', x, y + 4);
+        pdf.text('WEATHER', x, y + 4);
         x += cols.weather;
         pdf.text('NOTES', x, y + 4);
         y += 7;
@@ -1102,11 +1116,13 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
                     wxX += 18;
                 }
 
-                // Waves
+                // Waves (converted to user's preferred unit)
                 pdf.setFont('helvetica', 'bold');
                 pdf.text('Waves:', wxX, wxY);
                 pdf.setFont('helvetica', 'normal');
-                const waveText = entry.waveHeight ? `${entry.waveHeight.toFixed(1)}m` : 'N/A';
+                const watchWaveUnit = vesselData?.units?.waveHeight || 'ft';
+                const watchWaveVal = entry.waveHeight ? convertMetersTo(entry.waveHeight, watchWaveUnit) : null;
+                const waveText = watchWaveVal !== null ? `${watchWaveVal.toFixed(1)}${watchWaveUnit}` : 'N/A';
                 pdf.text(waveText, wxX + 12, wxY);
                 wxX += 28;
 
@@ -1173,9 +1189,19 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
             pdf.text(`${cog}${sog}`, x, y + 3);
             x += cols.cogSog;
 
-            // Weather
-            const wind = entry.windSpeed ? `${entry.windSpeed}kts ${entry.windDirection || ''}` : '';
-            pdf.text(wind.substring(0, 12), x, y + 3);
+            // Weather: compact format "15kts G22 NW 1.2ft"
+            let wxCell = '';
+            if (entry.windSpeed) {
+                wxCell = `${entry.windSpeed}kts`;
+                if (entry.windGust) wxCell += ` G${Math.round(entry.windGust)}`;
+                if (entry.windDirection) wxCell += ` ${entry.windDirection}`;
+            }
+            if (entry.waveHeight) {
+                const rowWaveUnit = vesselData?.units?.waveHeight || 'ft';
+                const rowWaveVal = convertMetersTo(entry.waveHeight, rowWaveUnit);
+                if (rowWaveVal !== null) wxCell += ` ${rowWaveVal.toFixed(1)}${rowWaveUnit}`;
+            }
+            pdf.text(wxCell.substring(0, 22), x, y + 3);
             x += cols.weather;
 
             // Notes (with wrapping) - decode HTML entities and use clean font

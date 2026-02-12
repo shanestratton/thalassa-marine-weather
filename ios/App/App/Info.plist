@@ -16,6 +16,7 @@
 		<string>fetch</string>
 		<string>remote-notification</string>
 		<string>processing</string>
+		<string>audio</string>
 	</array>
 	<key>TSLocationManagerLicense</key>
 	<string>a246ce79f5b488b41d12f1c64512e7d795814ba4f9714823d978b7c3c77501b6</string>

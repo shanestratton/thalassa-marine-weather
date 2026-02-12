@@ -490,8 +490,8 @@ class ShipLogServiceClass {
 
         // Ignore heading when stationary or drifting
         if (speedKts < ShipLogServiceClass.MIN_SPEED_FOR_HEADING_KTS) return;
-        // Ignore invalid heading (0 often means "unknown" from GPS)
-        if (heading === null || heading === undefined || heading === 0) return;
+        // Ignore invalid heading (null means GPS didn't provide one)
+        if (heading === null || heading === undefined) return;
 
         const newCardinal = ShipLogServiceClass.degreesToCardinal16(heading);
 

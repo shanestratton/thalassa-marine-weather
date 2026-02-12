@@ -12,6 +12,7 @@ import { useWeatherOverlay } from '../hooks/useWeatherOverlay';
 import { useMapMarkers } from '../hooks/useMapMarkers';
 import { fetchActiveBuoys } from '../services/weatherService';
 import { GlobalWindLayer } from './map/GlobalWindLayer';
+import { useWindHeatMap } from '../hooks/useWindHeatMap';
 
 
 
@@ -79,6 +80,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const weatherCanvasRef = useRef<HTMLCanvasElement>(null);
+    const heatMapCanvasRef = useRef<HTMLCanvasElement>(null);
 
     // Add 'buoys' to the activeLayer state
     const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys'>(initialLayer);
@@ -99,7 +101,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     // --- HOOKS ---
     // Enable wrapping ONLY if on Buoys layer (and not specifically restricted for another reason)
-    const enableWrapping = activeLayer === 'buoys' || !restrictBounds;
+    const enableWrapping = activeLayer === 'buoys' || activeLayer === 'global-wind' || !restrictBounds;
     const { mapInstance, mapReady } = useLeafletMap(mapContainerRef, centerLat, centerLon, enableZoom, mapboxToken, showZoomControl, enableWrapping);
 
     // DEBUG LOGGING
@@ -115,6 +117,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     // Global Wind Layer (streamlines)
     const isGlobalWindVisible = activeLayer === 'global-wind';
+
+    // Wind Heat Map (behind particles, only on wind layer)
+    useWindHeatMap(heatMapCanvasRef, mapInstance, activeLayer, activeMetrics, isWeatherVisible);
 
     const { vesselPos, targetPos, routePath, waypointPositions } = useMapMarkers(
         mapInstance,
@@ -260,9 +265,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             bounds = L.latLngBounds(L.latLng(lat - span, lon - span), L.latLng(lat + span, lon + span));
         }
 
-        // Unlocked Mode: Active if on Buoys layer OR explicitly unrestricted
-        if (activeLayer === 'buoys' || !restrictBounds) {
-            // --- UNLOCKED MODE (Global Selection) ---
+        // Unlocked Mode: Active if on Buoys/Global-Wind layer OR explicitly unrestricted
+        if (activeLayer === 'buoys' || activeLayer === 'global-wind' || !restrictBounds) {
+            // --- UNLOCKED MODE (Global Selection / Global Wind) ---
             // Infinite Wrapping: MaxBounds is NULL (disabled)
             map.setMaxBounds(undefined); // Allow infinite scroll
             map.setMinZoom(2);
@@ -282,9 +287,11 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             if (routeCoordinates && routeCoordinates.length > 1 && bounds && bounds.isValid()) {
                 map.fitBounds(bounds, { animate: true, padding: [30, 30] });
             } else if (activeLayer === 'buoys') {
-                // FIX: Start Station Map zoomed out (World View)
-                // Use setView to center on user but at Zoom 2
-                map.setView([centerLat, centerLon], 2, { animate: true });
+                // Stations: Start centered on user at local zoom
+                map.setView([centerLat, centerLon], 10, { animate: true });
+            } else if (activeLayer === 'global-wind') {
+                // Global Wind: Start at synoptic zoom centered on user
+                map.setView([centerLat, centerLon], 4, { animate: true });
             }
 
         } else {
@@ -412,6 +419,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
             <div className="flex-grow relative w-full h-full bg-[#f8fafc]">
                 <div ref={mapContainerRef} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%', filter: 'brightness(1.05) contrast(1.08)' }}></div>
+
+                {/* Wind Heat Map Canvas — behind particles */}
+                <canvas
+                    ref={heatMapCanvasRef}
+                    className="absolute inset-0 z-[5] pointer-events-none"
+                />
 
                 <canvas
                     ref={weatherCanvasRef}
