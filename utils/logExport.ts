@@ -12,11 +12,17 @@ interface VesselData {
     vesselUnits?: VesselDimensionUnits;
 }
 
-// Colors
 const NAVY = '#1a2a3a';
 const GOLD = '#c9a227';
 const GRAY = '#6a7a8a';
 const LIGHT_GRAY = '#e8eef4';
+
+/** 16-point compass rose: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW */
+function degreesToCardinal16(deg: number): string {
+    const cardinals = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const index = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+    return cardinals[index];
+}
 
 // Helper to decode HTML entities (fixes &amp; &#34; etc in notes)
 function decodeHtmlEntities(text: string): string {
@@ -933,13 +939,13 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     y += 28;
 
-    // Table column widths
     const cols = {
         time: 18,
-        position: 45,
-        cogSog: 25,
-        weather: 28,
-        notes: contentWidth - 18 - 45 - 25 - 28
+        position: 40,
+        brg: 12,
+        cogSog: 22,
+        weather: 26,
+        notes: contentWidth - 18 - 40 - 12 - 22 - 26
     };
 
     // Track which watch headers have been rendered to prevent duplicates in rapid mode
@@ -976,6 +982,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         x += cols.time;
         pdf.text('POSITION', x, y + 4);
         x += cols.position;
+        pdf.text('BRG', x, y + 4);
+        x += cols.brg;
         pdf.text('COG/SOG', x, y + 4);
         x += cols.cogSog;
         pdf.text('WIND/DIR', x, y + 4);
@@ -1012,6 +1020,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
                 hx += cols.time;
                 pdf.text('POSITION', hx, y + 4);
                 hx += cols.position;
+                pdf.text('BRG', hx, y + 4);
+                hx += cols.brg;
                 pdf.text('COG/SOG', hx, y + 4);
                 hx += cols.cogSog;
                 pdf.text('WIND/DIR', hx, y + 4);
@@ -1149,8 +1159,13 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
             // Position (truncate if too long)
             const pos = entry.positionFormatted || '';
-            pdf.text(pos.substring(0, 22), x, y + 3);
+            pdf.text(pos.substring(0, 20), x, y + 3);
             x += cols.position;
+
+            // BRG (16-point cardinal)
+            const brg = entry.courseDeg !== undefined ? degreesToCardinal16(entry.courseDeg) : '';
+            pdf.text(brg, x, y + 3);
+            x += cols.brg;
 
             // COG/SOG
             const cog = entry.courseDeg !== undefined ? `${String(entry.courseDeg).padStart(3, '0')}T` : '';

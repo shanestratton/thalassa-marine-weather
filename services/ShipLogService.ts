@@ -110,12 +110,21 @@ class ShipLogServiceClass {
     private lastBgLocation: CachedPosition | null = null;
     private bgUnsubscribers: (() => void)[] = []; // Cleanup handles for BgGeoManager subscriptions
 
-    // --- AUTO-WAYPOINT ON COURSE CHANGE ---
-    private lastCourseHeading: number | null = null;  // Last confirmed heading (only when moving)
+    // --- AUTO-WAYPOINT ON CARDINAL BEARING CHANGE ---
+    private lastCardinal: string | null = null;  // Last confirmed 16-point cardinal (e.g. 'NNE')
     private lastAutoWaypointTime: number = 0;          // Cooldown timestamp (ms)
-    private static readonly HEADING_CHANGE_THRESHOLD = 30;  // Degrees
     private static readonly AUTO_WP_COOLDOWN_MS = 60_000;   // 60s between auto-waypoints
     private static readonly MIN_SPEED_FOR_HEADING_KTS = 1;  // Ignore heading when drifting
+
+    /**
+     * Convert degrees (0-360) to 16-point compass cardinal.
+     * N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW
+     */
+    private static degreesToCardinal16(deg: number): string {
+        const cardinals = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+        const index = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+        return cardinals[index];
+    }
 
     /**
      * Initialize the service and restore state from storage
@@ -395,8 +404,8 @@ class ShipLogServiceClass {
         // so the UI is not blocked by the 3s GPS warm-up loop.
         this.captureImmediateEntry().catch(() => { });
 
-        // Reset heading tracker for new voyage
-        this.lastCourseHeading = null;
+        // Reset cardinal tracker for new voyage
+        this.lastCardinal = null;
         this.lastAutoWaypointTime = 0;
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
@@ -469,9 +478,9 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Check if heading has changed significantly and create an auto-waypoint.
-     * Filters out noise: only triggers when speed > 1kt and delta ≥ 30°.
-     * 60s cooldown between auto-waypoints to prevent spam on gradual turns.
+     * Check if the 16-point cardinal bearing has changed and create an auto-waypoint.
+     * Fires when the compass direction changes (e.g. NE → ENE), not on raw degree delta.
+     * Filters: speed > 1kt, valid heading, 60s cooldown.
      */
     private checkHeadingChange(pos: CachedPosition): void {
         if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
@@ -484,43 +493,36 @@ class ShipLogServiceClass {
         // Ignore invalid heading (0 often means "unknown" from GPS)
         if (heading === null || heading === undefined || heading === 0) return;
 
+        const newCardinal = ShipLogServiceClass.degreesToCardinal16(heading);
+
         // First valid heading fix — seed it, no waypoint
-        if (this.lastCourseHeading === null) {
-            this.lastCourseHeading = heading;
+        if (this.lastCardinal === null) {
+            this.lastCardinal = newCardinal;
             return;
         }
 
-        // Angular difference that handles 350° → 10° wrapping
-        const delta = Math.min(
-            Math.abs(heading - this.lastCourseHeading),
-            360 - Math.abs(heading - this.lastCourseHeading)
-        );
+        // No change in cardinal direction
+        if (newCardinal === this.lastCardinal) return;
 
-        if (delta >= ShipLogServiceClass.HEADING_CHANGE_THRESHOLD) {
-            // Cooldown check
-            const now = Date.now();
-            if (now - this.lastAutoWaypointTime < ShipLogServiceClass.AUTO_WP_COOLDOWN_MS) {
-                // Still in cooldown — just update heading baseline
-                this.lastCourseHeading = heading;
-                return;
-            }
-
-            const oldCourse = Math.round(this.lastCourseHeading);
-            const newCourse = Math.round(heading);
-            this.lastAutoWaypointTime = now;
-            this.lastCourseHeading = heading;
-
-            // Fire-and-forget waypoint entry
-            this.captureLogEntry(
-                'waypoint',
-                `Auto: COG Δ${Math.round(delta)}° (${oldCourse}→${newCourse})`,
-                `Turn ${oldCourse}→${newCourse}`,
-                'navigation'
-            ).catch(() => { /* best effort */ });
-        } else {
-            // Small heading change — keep tracking the current course
-            this.lastCourseHeading = heading;
+        // Cardinal changed — check cooldown
+        const now = Date.now();
+        if (now - this.lastAutoWaypointTime < ShipLogServiceClass.AUTO_WP_COOLDOWN_MS) {
+            // Still in cooldown — update baseline silently
+            this.lastCardinal = newCardinal;
+            return;
         }
+
+        const oldCardinal = this.lastCardinal;
+        this.lastAutoWaypointTime = now;
+        this.lastCardinal = newCardinal;
+
+        // Fire-and-forget waypoint entry
+        this.captureLogEntry(
+            'waypoint',
+            `Auto: COG ${oldCardinal} → ${newCardinal}`,
+            `COG ${oldCardinal} → ${newCardinal}`,
+            'navigation'
+        ).catch(() => { /* best effort */ });
     }
 
     /**
@@ -606,12 +608,12 @@ class ShipLogServiceClass {
         };
         await this.saveTrackingState();
 
-        // Reset heading tracker
-        this.lastCourseHeading = null;
+        // Reset cardinal tracker
+        this.lastCardinal = null;
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
-        await this.captureImmediateEntry(previousVoyageId).catch((err: unknown) => {
+        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err: unknown) => {
         });
 
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
@@ -631,7 +633,7 @@ class ShipLogServiceClass {
      * The entry is created instantly with timestamp, GPS position is fetched async
      * This ensures the card appears in the UI immediately
      */
-    async captureImmediateEntry(voyageId?: string): Promise<ShipLogEntry | null> {
+    async captureImmediateEntry(voyageId?: string, waypointLabel: string = 'Voyage Start'): Promise<ShipLogEntry | null> {
         const timestamp = new Date().toISOString();
         const effectiveVoyageId = voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`;
 
@@ -652,7 +654,7 @@ class ShipLogServiceClass {
             speedKts: 0,
             ...weatherSnapshot,
             entryType: 'waypoint',
-            waypointName: 'Voyage Start',
+            waypointName: waypointLabel,
             source: 'device'
         };
 
@@ -660,10 +662,9 @@ class ShipLogServiceClass {
         let needsGpsRetry = false;
 
         // COLD START WARM-UP: If no cached GPS fix yet, wait briefly for the first one
-        // This handles the common case where tracking just started and GPS hasn't locked yet
-        // Up to 3 attempts (1s each) = 3s max wait, then fallback to placeholder
-        const GPS_WARMUP_ATTEMPTS = 3;
-        const GPS_WARMUP_DELAY_MS = 1000;
+        // Single fast check — background retry handles late fixes
+        const GPS_WARMUP_ATTEMPTS = 1;
+        const GPS_WARMUP_DELAY_MS = 500;
 
         let bestPos = this.lastBgLocation;
         if (!bestPos || (Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS)) {
@@ -905,6 +906,12 @@ class ShipLogServiceClass {
                 const timeDiffMs = new Date(timestamp).getTime() - new Date(lastPos.timestamp).getTime();
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
                 speedKts = timeDiffHours > 0 ? distanceNM / timeDiffHours : 0;
+
+                // SPEED SANITY: Clamp to 80 kn (fastest planing hulls).
+                // GPS teleports after cold start can produce absurd values (e.g. 433 kn).
+                if (speedKts > 80) speedKts = 0;
+                // Ignore speed when previous position was the 0,0 placeholder from captureImmediateEntry
+                if (lastPos.latitude === 0 && lastPos.longitude === 0) speedKts = 0;
 
                 cumulativeDistanceNM = lastPos.cumulativeDistanceNM + distanceNM;
 

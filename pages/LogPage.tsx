@@ -22,12 +22,14 @@ import { TrackMapViewer } from '../components/TrackMapViewer';
 import { VoyageHeader } from '../components/VoyageHeader';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
+import { RegionAutocomplete } from '../components/RegionAutocomplete';
 import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
 import { t } from '../theme';
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
+import { PinService } from '../services/PinService';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -101,7 +103,7 @@ export const LogPage: React.FC = () => {
 
     // Auto-fill share form when panel opens
     useEffect(() => {
-        if (actionSheet !== 'share') {
+        if (actionSheet !== 'share' && actionSheet !== 'share_form') {
             setShareAutoTitle('');
             setShareAutoRegion('');
             return;
@@ -202,7 +204,7 @@ export const LogPage: React.FC = () => {
                         </div>
 
                         {/* Full Voyage Stats */}
-                        <VoyageStatsPanel entries={filteredEntries} />
+                        <VoyageStatsPanel entries={selectedVoyageId ? filteredEntries.filter(e => e.voyageId === selectedVoyageId) : filteredEntries} />
                     </div>
                 </div>
             ) : (
@@ -210,21 +212,24 @@ export const LogPage: React.FC = () => {
                     {/* Page Header — matches Anchor Watch pattern */}
                     <div className={t.header.bar}>
                         <div className="flex justify-between items-center">
-                            <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
-                                <AnchorIcon className="w-6 h-6 text-sky-400" />
-                                Ship's Log
-                                {isTracking && (
-                                    <span
-                                        className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
-                                            ? 'bg-emerald-400 animate-pulse'
-                                            : gpsStatus === 'stale'
-                                                ? 'bg-amber-400 animate-pulse'
-                                                : 'bg-red-500 animate-pulse'
-                                            }`}
-                                        title={gpsStatus === 'locked' ? 'GPS locked' : gpsStatus === 'stale' ? 'GPS stale' : 'No GPS signal'}
-                                    />
-                                )}
-                            </h1>
+                            <div className="flex items-center gap-2.5">
+                                <div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className={t.typography.pageTitle}>Ship's Log</span>
+                                        {isTracking && (
+                                            <span
+                                                className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
+                                                    ? 'bg-emerald-400 animate-pulse'
+                                                    : gpsStatus === 'stale'
+                                                        ? 'bg-amber-400 animate-pulse'
+                                                        : 'bg-red-500 animate-pulse'
+                                                    }`}
+                                                title={gpsStatus === 'locked' ? 'GPS locked' : gpsStatus === 'stale' ? 'GPS stale' : 'No GPS signal'}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
 
                             {/* Tracking Controls */}
                             <div className="flex gap-2">
@@ -687,10 +692,11 @@ export const LogPage: React.FC = () => {
                 </div>
             )}
 
-            {/* SHARE ACTION SHEET — full screen panel */}
+            {/* SHARE ACTION SHEET — card menu matching Export layout */}
             {actionSheet === 'share' && (
                 <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
+                    {/* Header bar */}
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                                 <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
@@ -699,6 +705,84 @@ export const LogPage: React.FC = () => {
                                     </svg>
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Share</h2>
+                            </div>
+                            <button
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-2">
+                            {selectedVoyageId ? 'Share the selected voyage' : 'Share your voyage data with the community'}
+                        </p>
+                    </div>
+
+                    {/* Content — vertically centered */}
+                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                            {/* Community Share Card */}
+                            <button
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' })}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Community Share</div>
+                                    <div className="text-slate-400 text-sm mt-1">Share your track, route, or anchorage with others</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+
+                            {/* Drop a Pin Card */}
+                            <button
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'pin' })}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                                    <span className="text-2xl">📍</span>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Drop a Pin</div>
+                                    <div className="text-slate-400 text-sm mt-1">Mark a point of interest at your current GPS location</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SHARE FORM ACTION SHEET — full screen panel */}
+            {actionSheet === 'share_form' && (
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
+                                    className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                    </svg>
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Community Share</h2>
                             </div>
                             <button
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
@@ -769,12 +853,11 @@ export const LogPage: React.FC = () => {
                                     </div>
                                     <div className="flex-1">
                                         <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Region</label>
-                                        <input
+                                        <RegionAutocomplete
                                             id="share-region"
-                                            type="text"
                                             defaultValue={shareAutoRegion}
-                                            placeholder='e.g. "QLD, AU"'
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                            placeholder='e.g. "QLD, Australia"'
+                                            inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                         />
                                     </div>
                                 </div>
@@ -799,13 +882,56 @@ export const LogPage: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Pin Drop POI Card */}
-                            <div className="rounded-2xl bg-gradient-to-b from-amber-500/10 to-slate-900/80 border border-amber-500/20 p-4 space-y-3">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-lg">📍</span>
-                                    <h3 className="text-white font-bold text-sm">Drop a Pin</h3>
-                                    <span className="text-slate-500 text-xs ml-auto">Share a point of interest</span>
+                            {/* Browse Community */}
+                            <button
+                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                    </svg>
                                 </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-sm">Browse Community</div>
+                                    <div className="text-slate-400 text-xs">Discover anchorages, passages &amp; routes</div>
+                                </div>
+                                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PIN DROP ACTION SHEET — full screen panel */}
+            {actionSheet === 'pin' && (
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                    <span className="text-lg">📍</span>
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Drop a Pin</h2>
+                            </div>
+                            <button
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-4 py-3">
+                        <div className="space-y-3 max-w-lg mx-auto w-full">
+
+                            <div className="rounded-2xl bg-gradient-to-b from-amber-500/10 to-slate-900/80 border border-amber-500/20 p-4 space-y-3">
+                                <p className="text-slate-400 text-xs">Share a point of interest at your current GPS location</p>
 
                                 {/* POI Category Quick-Select */}
                                 <div className="flex gap-1.5 flex-wrap">
@@ -820,10 +946,8 @@ export const LogPage: React.FC = () => {
                                             key={cat.id}
                                             data-pin-cat={cat.id}
                                             onClick={(e) => {
-                                                // Toggle selection
                                                 const btn = e.currentTarget;
                                                 const wasActive = btn.getAttribute('data-active') === 'true';
-                                                // Deselect all
                                                 document.querySelectorAll('[data-pin-cat]').forEach(el => {
                                                     el.setAttribute('data-active', 'false');
                                                     (el as HTMLElement).style.borderColor = 'rgba(255,255,255,0.1)';
@@ -857,6 +981,14 @@ export const LogPage: React.FC = () => {
                                     className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all resize-none"
                                 />
 
+                                {/* Region */}
+                                <RegionAutocomplete
+                                    id="pin-region"
+                                    defaultValue={shareAutoRegion}
+                                    placeholder='Region, e.g. "QLD, Australia"'
+                                    inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                                />
+
                                 {/* Drop Pin Button */}
                                 <button
                                     onClick={async () => {
@@ -869,7 +1001,6 @@ export const LogPage: React.FC = () => {
                                             return;
                                         }
 
-                                        // Get current GPS position
                                         try {
                                             const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
                                                 navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -879,7 +1010,6 @@ export const LogPage: React.FC = () => {
                                             const lat = pos.coords.latitude;
                                             const lon = pos.coords.longitude;
 
-                                            // Create a single-point entry to share as a pin
                                             const pinEntry: ShipLogEntry = {
                                                 id: `pin_${Date.now()}`,
                                                 userId: '',
@@ -894,13 +1024,22 @@ export const LogPage: React.FC = () => {
                                                 source: 'device',
                                             };
 
-                                            const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
+                                            const region = (document.getElementById('pin-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
                                             handleShareToCommunity({
                                                 title: `📍 ${name}`,
                                                 description: notes,
                                                 category: category as any,
                                                 region,
                                             });
+
+                                            // Also save to personal pin history
+                                            PinService.savePin({
+                                                latitude: lat,
+                                                longitude: lon,
+                                                caption: name,
+                                                category: category,
+                                                region: region,
+                                            }).catch(() => { });
                                         } catch {
                                             toast.error('📍 Could not get GPS position');
                                         }
@@ -910,25 +1049,6 @@ export const LogPage: React.FC = () => {
                                     📍 Drop Pin
                                 </button>
                             </div>
-
-                            {/* Browse Community */}
-                            <button
-                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-sm">Browse Community</div>
-                                    <div className="text-slate-400 text-xs">Discover anchorages, passages &amp; routes</div>
-                                </div>
-                                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -963,7 +1083,7 @@ export const LogPage: React.FC = () => {
                         <div className="space-y-4 max-w-lg mx-auto w-full">
                             {/* This Voyage Card */}
                             <button
-                                onClick={() => { dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: currentVoyageId || voyageGroups[0]?.voyageId || null }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
                                 className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
                             >
                                 <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">

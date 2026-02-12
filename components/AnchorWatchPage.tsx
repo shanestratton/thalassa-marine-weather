@@ -588,9 +588,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
             <div ref={keyboardScrollRef} className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`} style={{ overscrollBehaviorY: 'none' }}>
                 {/* Header — compact */}
                 <div className={t.header.bar}>
-                    <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
-                        ⚓ Anchor Watch
-                    </h1>
+                    <div className="flex items-center gap-2.5">
+                        <span className={t.typography.pageTitle}>Anchor Watch</span>
+                    </div>
                 </div>
 
                 {/* Content area — fills available space, no scroll */}

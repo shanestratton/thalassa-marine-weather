@@ -19,13 +19,20 @@ interface VoyageHeaderProps {
     onDelete: () => void;
 }
 
+// Sentinel waypoint names that should NOT be displayed as locations
+const SENTINEL_NAMES = new Set(['Voyage Start', 'Latest Position']);
+const isSentinelName = (name: string | undefined): boolean => !name || SENTINEL_NAMES.has(name);
+
 // Helper to format location as fallback (compact coords)
 const formatLocationFallback = (entry: ShipLogEntry): string => {
-    if (entry.waypointName) return entry.waypointName;
+    // Skip sentinel names — they're placeholders, not real waypoints
+    if (entry.waypointName && !SENTINEL_NAMES.has(entry.waypointName)) return entry.waypointName;
+    if (!entry.latitude && !entry.longitude) return 'Unknown';
     const lat = entry.latitude;
     const lon = entry.longitude;
     const latDir = lat >= 0 ? 'N' : 'S';
-    return `${Math.abs(lat).toFixed(2)}°${latDir}`;
+    const lonDir = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(2)}°${latDir}, ${Math.abs(lon).toFixed(2)}°${lonDir}`;
 };
 
 export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
@@ -54,9 +61,10 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
     const lastEntry = sortedEntries[sortedEntries.length - 1];
 
     // Reverse geocode start and end locations
+    // Trigger geocoding when waypointName is missing OR is a sentinel placeholder
     useEffect(() => {
         const fetchLocationNames = async () => {
-            if (firstEntry && !firstEntry.waypointName) {
+            if (firstEntry && isSentinelName(firstEntry.waypointName) && (firstEntry.latitude || firstEntry.longitude)) {
                 try {
                     const name = await reverseGeocode(firstEntry.latitude, firstEntry.longitude);
                     if (name) setStartLocationName(name);
@@ -64,7 +72,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                     // Fallback to coords
                 }
             }
-            if (lastEntry && !lastEntry.waypointName && lastEntry.id !== firstEntry?.id) {
+            if (lastEntry && isSentinelName(lastEntry.waypointName) && lastEntry.id !== firstEntry?.id && (lastEntry.latitude || lastEntry.longitude)) {
                 try {
                     const name = await reverseGeocode(lastEntry.latitude, lastEntry.longitude);
                     if (name) setEndLocationName(name);
@@ -79,8 +87,11 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
     // Get display name for a location
     const getLocationDisplay = (entry: ShipLogEntry | undefined, resolvedName: string | null): string => {
         if (!entry) return 'Unknown';
-        if (entry.waypointName) return entry.waypointName;
+        // Real waypoint names (not sentinels) take priority
+        if (entry.waypointName && !SENTINEL_NAMES.has(entry.waypointName)) return entry.waypointName;
+        // Reverse-geocoded name
         if (resolvedName) return resolvedName;
+        // Fallback to compact coords
         return formatLocationFallback(entry);
     };
 

@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
+import { BgGeoManager } from '../services/BgGeoManager';
 import { ShipLogEntry } from '../types';
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
@@ -36,7 +37,7 @@ interface LogPageState {
     showStopVoyageDialog: boolean;
     showVoyageChoiceDialog: boolean;
     showCommunityBrowser: boolean;
-    actionSheet: 'export' | 'share' | 'stats' | null;
+    actionSheet: 'export' | 'share' | 'share_form' | 'pin' | 'stats' | null;
 
     // Edit / selection
     editEntry: ShipLogEntry | null;
@@ -66,7 +67,7 @@ type LogPageAction =
     | { type: 'SHOW_STOP_DIALOG'; show: boolean }
     | { type: 'SHOW_VOYAGE_CHOICE'; show: boolean; lastVoyageId?: string | null }
     | { type: 'SHOW_COMMUNITY_BROWSER'; show: boolean }
-    | { type: 'SET_ACTION_SHEET'; sheet: 'export' | 'share' | 'stats' | null }
+    | { type: 'SET_ACTION_SHEET'; sheet: 'export' | 'share' | 'share_form' | 'pin' | 'stats' | null }
     | { type: 'SET_EDIT_ENTRY'; entry: ShipLogEntry | null }
     | { type: 'SET_FILTERS'; filters: LogFilters }
     | { type: 'SELECT_VOYAGE'; voyageId: string | null }
@@ -244,6 +245,8 @@ export function useLogPageState() {
             /* Safety: dismiss spinner after 5s if init hangs (web/no Capacitor) */
             if (mounted) dispatch({ type: 'DONE_LOADING' });
         }, 5000);
+        // Pre-warm GPS plugin on mount — saves 1-2s when user taps Start
+        BgGeoManager.ensureReady().catch(() => { });
         (async () => {
             try {
                 await ShipLogService.initialize();
@@ -272,15 +275,30 @@ export function useLogPageState() {
     }, [state.isTracking]);
 
     // ── Entry Refresh Polling — live updates while tracking ──────────────────
-    // Poll every 5s when tracking so new auto entries appear on screen promptly.
+    // RAPID INITIAL POLL: Poll every 1s for the first 10s after tracking starts
+    // so the first track card appears almost instantly. Then fall back to 5s/3s.
     // This is lightweight — just reads from local DB, no GPS calls.
 
     useEffect(() => {
         if (!state.isTracking) return;
 
-        const pollMs = state.isRapidMode ? 3_000 : 5_000;
-        const id = setInterval(() => { loadData(); }, pollMs);
-        return () => clearInterval(id);
+        const normalPollMs = state.isRapidMode ? 3_000 : 5_000;
+        const BURST_POLL_MS = 1_000;
+        const BURST_DURATION_MS = 10_000;
+
+        // Start with rapid polling
+        let currentId = setInterval(() => { loadData(); }, BURST_POLL_MS);
+
+        // After burst period, switch to normal polling
+        const burstTimeout = setTimeout(() => {
+            clearInterval(currentId);
+            currentId = setInterval(() => { loadData(); }, normalPollMs);
+        }, BURST_DURATION_MS);
+
+        return () => {
+            clearInterval(currentId);
+            clearTimeout(burstTimeout);
+        };
     }, [state.isTracking, state.isRapidMode, loadData]);
 
     // ── Tracking Handlers ───────────────────────────────────────────────────

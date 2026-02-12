@@ -5,7 +5,7 @@ import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, GearIcon, MapIcon, CompassIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon } from './components/Icons';
+import { SearchIcon, WindIcon, GearIcon, MapIcon, CompassIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { ForecastSheet } from './components/ForecastSheet';
 import { IOSInstallPrompt } from './components/IOSInstallPrompt';
@@ -26,6 +26,7 @@ const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(modul
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
 const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
+const ChatPage = React.lazy(() => import('./components/ChatPage').then(module => ({ default: module.ChatPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -139,9 +140,7 @@ const App: React.FC = () => {
                     >
                         {/* Logo row — same style on all pages */}
                         <div className="flex items-center space-x-2 pointer-events-auto">
-                            <div className="bg-sky-500/20 p-2 rounded-lg backdrop-blur-md border border-sky-500/30">
-                                <WindIcon className="w-6 h-6 text-sky-400" />
-                            </div>
+                            <img src="/thalassa-icon.png" alt="" className="w-10 h-10 rounded-lg" />
                             <div>
                                 <div className="flex items-center gap-1">
                                     <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
@@ -193,7 +192,7 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat'}>
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['voyage', 'settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -243,6 +242,8 @@ const App: React.FC = () => {
                                         {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
                                         {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('dashboard')} />}
+
+                                        {currentView === 'chat' && <ChatPage />}
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>
@@ -294,6 +295,7 @@ const App: React.FC = () => {
                             <NavButton icon={<BoatIcon className="w-6 h-6" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
                             <NavButton icon={<AnchorIcon className="w-6 h-6" />} label="Anchor" active={currentView === 'compass'} onClick={() => setPage('compass')} />
+                            <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />
                             <NavButton icon={<GearIcon className="w-6 h-6" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
                         </div>
                     </div>
