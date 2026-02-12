@@ -154,7 +154,14 @@ const MENU_ITEMS: { id: SettingsTab; label: string; description: string; icon: (
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, onLocationSelect }) => {
     const { user, logout, resetSettings } = useThalassa();
-    const [activeTab, setActiveTab] = useState<SettingsTab | null>(null);
+    const [activeTab, setActiveTab] = useState<SettingsTab | null>(() => {
+        // Desktop (md breakpoint): default to 'general' so content area isn't empty
+        // Mobile: default to null to show the vertical menu screen
+        if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+            return 'general';
+        }
+        return null;
+    });
     const [detectingLoc, setDetectingLoc] = useState(false);
     const [authOpen, setAuthOpen] = useState(false);
     const [sgStatus, setSgStatus] = useState<{ status: string, message: string } | null>(null);
@@ -266,7 +273,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                         <GearIcon className="w-6 h-6 text-sky-400" />
                         SETTINGS
                     </h2>
-                    <p className="text-[10px] text-sky-200/40 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
+                    <p className="text-[10px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
                 </div>
 
                 <div className="space-y-1">
@@ -297,7 +304,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
-                        <p className="text-[10px] text-sky-200/40 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
+                        <p className="text-[10px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
                     </div>
                     <div className="flex-1 px-4 pb-32 space-y-2">
                         {MENU_ITEMS.map(item => (

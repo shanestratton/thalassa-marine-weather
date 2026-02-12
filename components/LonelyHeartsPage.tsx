@@ -213,7 +213,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                     <div className="w-10 h-10 mx-auto mb-4 border-2 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
-                    <p className="text-sm text-white/30">Finding crew nearby...</p>
+                    <p className="text-sm text-white/50">Finding crew nearby...</p>
                 </div>
             </div>
         );
@@ -231,7 +231,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     <button
                         key={tab.key}
                         onClick={() => setView(tab.key)}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-teal-400' : 'text-white/30 hover:text-white/50'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-teal-400' : 'text-white/50 hover:text-white/50'}`}
                     >
                         {tab.label}
                         {view === tab.key && (
@@ -253,19 +253,19 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="flex-1 flex bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
                                 <button
                                     onClick={() => { setFilterListingType(''); applyFilters(); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-teal-500/20 text-teal-300' : 'text-white/30'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
                                 >
                                     All
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_crew'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-teal-500/20 text-teal-300' : 'text-white/30'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
                                 >
                                     🚢 Want Crew
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_berth'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-teal-500/20 text-teal-300' : 'text-white/30'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
                                 >
                                     🙋 I am Crew
                                 </button>
@@ -273,7 +273,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all ${showFilters || activeFilterCount > 0 ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/30'}`}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all ${showFilters || activeFilterCount > 0 ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
                             >
                                 🔧
                                 {activeFilterCount > 0 && (
@@ -287,7 +287,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="mb-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-4">
                                 {/* Skills filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 mb-2">Skills</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Skills</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {SKILL_OPTIONS.map(skill => (
                                             <button
@@ -295,7 +295,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 onClick={() => toggleFilterSkill(skill)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterSkills.includes(skill)
                                                     ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
-                                                    : 'bg-white/[0.03] text-white/30 border border-white/[0.04]'
+                                                    : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
                                                     }`}
                                             >
                                                 {skill}
@@ -306,7 +306,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                 {/* Experience filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 mb-2">Experience</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Experience</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {EXPERIENCE_LEVELS.map(level => (
                                             <button
@@ -314,7 +314,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 onClick={() => setFilterExperience(filterExperience === level ? '' : level)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterExperience === level
                                                     ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
-                                                    : 'bg-white/[0.03] text-white/30 border border-white/[0.04]'
+                                                    : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
                                                     }`}
                                             >
                                                 {level}
@@ -325,7 +325,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                 {/* Region filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 mb-2">Region</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Region</p>
                                     <input
                                         value={filterRegion}
                                         onChange={e => setFilterRegion(e.target.value)}
@@ -393,7 +393,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 <div className="flex items-center gap-2 mb-0.5">
                                                     <h4 className="text-base font-bold text-white/85 truncate">{card.display_name}</h4>
                                                     {card.age_range && (
-                                                        <span className="text-xs text-white/30 flex-shrink-0">{card.age_range}</span>
+                                                        <span className="text-xs text-white/50 flex-shrink-0">{card.age_range}</span>
                                                     )}
                                                 </div>
 
@@ -604,7 +604,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Listing Type */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 I Am A...
                             </label>
                             <div className="space-y-2">
@@ -626,7 +626,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Crew Photo — single */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 📸 Your Crew Photo
                             </label>
                             <p className="text-[11px] text-white/15 mb-3">
@@ -673,7 +673,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Gender */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">Gender</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Gender</label>
                             <div className="flex flex-wrap gap-2">
                                 {GENDER_OPTIONS.map(g => (
                                     <button
@@ -692,7 +692,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Age Range */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">Age Range</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Age Range</label>
                             <div className="flex gap-2 flex-wrap">
                                 {AGE_RANGES.map(age => (
                                     <button
@@ -717,7 +717,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Partner */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 👫 Bringing a Partner?
                             </label>
                             <div className="flex gap-2 mb-3">
@@ -753,7 +753,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Skills */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 Skills & Prepared To Do
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -777,7 +777,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Experience */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 Sailing Experience
                             </label>
                             <div className="space-y-2">
@@ -798,7 +798,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Sailing Region */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
                                 📍 Sailing Region / Area
                             </label>
                             <input
@@ -812,7 +812,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Availability */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 📅 Availability
                             </label>
                             <div className="flex gap-3">
@@ -839,7 +839,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Bio */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
                                 About You
                             </label>
                             <textarea
@@ -903,7 +903,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             <p className="text-base font-semibold text-white/80 truncate">
                                                 {match.display_name}
                                             </p>
-                                            <p className="text-xs text-white/30 truncate">
+                                            <p className="text-xs text-white/50 truncate">
                                                 {match.vessel_name ? `⛵ ${match.vessel_name}` : ''}
                                                 {match.vessel_name && match.home_port ? ' • ' : ''}
                                                 {match.home_port ? `📍 ${match.home_port}` : ''}

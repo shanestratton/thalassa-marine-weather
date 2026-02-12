@@ -355,17 +355,17 @@ body,
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px) scale(0.99);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 .page-enter {
-  animation: pageEnter 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: pageEnter 200ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /* ── Leaflet MarkerCluster Overrides ── */
@@ -544,6 +544,28 @@ body,
 
 .skip-nav:focus {
   top: 0;
+}
+
+/* ── Focus-Visible — keyboard accessibility ring ── */
+/* Show a visible ring only for keyboard navigation (not mouse/touch) */
+*:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.8);
+  /* sky-400 */
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Dark background variant — stronger glow */
+.bg-slate-900 *:focus-visible,
+.bg-slate-950 *:focus-visible,
+.bg-black *:focus-visible {
+  outline-color: rgba(56, 189, 248, 0.9);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+}
+
+/* Suppress outline for mouse/touch interactions */
+*:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* Action sheet slide-up animation */

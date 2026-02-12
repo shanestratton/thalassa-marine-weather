@@ -221,7 +221,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                     <div className="w-10 h-10 mx-auto mb-4 border-2 border-pink-500/30 border-t-pink-500 rounded-full animate-spin" />
-                    <p className="text-sm text-white/30">Finding sailors nearby...</p>
+                    <p className="text-sm text-white/50">Finding sailors nearby...</p>
                 </div>
             </div>
         );
@@ -240,7 +240,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                         key={tab.key}
                         onClick={() => setView(tab.key)}
                         className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key || (view === 'match_celebration' && tab.key === 'browse')
-                            ? 'text-pink-400' : 'text-white/30 hover:text-white/50'
+                            ? 'text-pink-400' : 'text-white/50 hover:text-white/50'
                             }`}
                     >
                         {tab.label}
@@ -419,7 +419,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                             <p className="text-base text-white/50 mb-1">
                                 You and <span className="font-bold text-white/70">{getDatingName(newMatch)}</span> liked each other
                             </p>
-                            <p className="text-sm text-white/30">
+                            <p className="text-sm text-white/50">
                                 You can now send them a message 💬
                             </p>
                         </div>
@@ -505,7 +505,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Dating Photos — 6 slots */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 📸 Your Dating Photos
                             </label>
                             <p className="text-[11px] text-white/15 mb-3">
@@ -560,7 +560,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* First name only */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
                                 💕 First Name Only
                             </label>
                             <input
@@ -577,7 +577,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Seeking */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 Looking For
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -598,7 +598,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Age */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">Age Range</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Age Range</label>
                             <div className="flex gap-2 flex-wrap">
                                 {AGE_RANGES.map(age => (
                                     <button
@@ -623,7 +623,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Experience */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 Sailing Experience
                             </label>
                             <div className="space-y-2">
@@ -644,7 +644,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Location */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
                                 📍 General Area (be vague!)
                             </label>
                             <input
@@ -658,7 +658,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Interests */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
                                 Interests & Passions
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -682,7 +682,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Bio */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/30 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
                                 About You
                             </label>
                             <textarea

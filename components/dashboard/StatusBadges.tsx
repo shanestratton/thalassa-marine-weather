@@ -135,13 +135,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                             {beaconName && (
                                 <>
                                     <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
-                                    {(buoyName || hasStormGlass) && <span className="text-white/30">•</span>}
+                                    {(buoyName || hasStormGlass) && <span className="text-white/50">•</span>}
                                 </>
                             )}
                             {buoyName && (
                                 <>
                                     <span className="text-emerald-400 font-bold">{shortenSourceName(buoyName)}</span>
-                                    {hasStormGlass && <span className="text-white/30">•</span>}
+                                    {hasStormGlass && <span className="text-white/50">•</span>}
                                 </>
                             )}
                             {hasStormGlass && (
