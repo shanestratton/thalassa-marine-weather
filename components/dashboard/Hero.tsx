@@ -126,6 +126,19 @@ export const HeroSection = ({
         }
     }, [activeIndex, onDayChange, onHourChange]);
 
+    // Keyboard navigation for vertical day carousel
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (!scrollRef.current) return;
+        const h = scrollRef.current.clientHeight;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            scrollRef.current.scrollBy({ top: h, behavior: 'smooth' });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            scrollRef.current.scrollBy({ top: -h, behavior: 'smooth' });
+        }
+    }, []);
+
     // FIX: Listen for global reset specifically for Vertical Scroll (Back to Today)
     useEffect(() => {
         const handleReset = () => {
@@ -171,7 +184,12 @@ export const HeroSection = ({
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
-                className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar flex flex-col gap-0"
+                onKeyDown={handleKeyDown}
+                tabIndex={0}
+                role="region"
+                aria-roledescription="carousel"
+                aria-label="Daily forecast carousel — use up and down arrow keys to navigate between days"
+                className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar flex flex-col gap-0 focus:outline-none"
             >
                 {/* Show skeleton while data is loading */}
                 {dayRows.length === 0 ? (
