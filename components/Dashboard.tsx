@@ -57,7 +57,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         // Actions
         handleAudioBroadcast,
         shareReport,
-        refreshInterval
+        refreshInterval,
+        settings
     } = useDashboardController(props.viewMode);
 
     if (!data || !current) return null;
@@ -273,7 +274,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Use Global Settings for Units
     // Fallback to defaults only if settings are missing (rare)
-    const { settings } = useDashboardController(props.viewMode);
     const units: UnitPreferences = settings?.units || { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm', tideHeight: 'm' };
 
 

@@ -289,7 +289,7 @@ const App: React.FC = () => {
 
                 {!isMobileLandscape && (
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
-                        <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative">
+                        <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
                             <NavButton icon={<CompassIcon className="w-6 h-6" rotation={0} />} label="Log" active={currentView === 'details'} onClick={handleTabMetrics} />
                             <NavButton icon={<BoatIcon className="w-6 h-6" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
