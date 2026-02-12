@@ -831,6 +831,19 @@ const HeroSlideComponent = ({
         }
     }, [slides, onHourChange, onActiveDataChange, isVisible]);
 
+    // Keyboard navigation for horizontal hour carousel
+    const handleHorizontalKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (!horizontalScrollRef.current) return;
+        const w = horizontalScrollRef.current.clientWidth;
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            horizontalScrollRef.current.scrollBy({ left: w, behavior: 'smooth' });
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            horizontalScrollRef.current.scrollBy({ left: -w, behavior: 'smooth' });
+        }
+    }, []);
+
     // Safety fallback: if data is missing, show loading state
     // This MUST be after all hooks to respect React's Rules of Hooks
     if (!data || slides.length === 0) {
@@ -853,7 +866,12 @@ const HeroSlideComponent = ({
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHorizontalScroll}
-                    className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row"
+                    onKeyDown={handleHorizontalKeyDown}
+                    tabIndex={0}
+                    role="region"
+                    aria-roledescription="carousel"
+                    aria-label="Hourly forecast carousel — use left and right arrow keys to navigate between hours"
+                    className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row focus:outline-none"
                     style={{ willChange: 'scroll-position' }}
                 >
                     {slides.map((slide, slideIdx) => {
