@@ -49,7 +49,7 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
     return Array.from(grouped.entries())
         .map(([date, dateEntries]) => {
             const speeds = dateEntries
-                .filter(e => e.speedKts && e.speedKts > 0)
+                .filter(e => e.speedKts && e.speedKts > 0 && e.speedKts <= 80)
                 .map(e => e.speedKts!);
 
             // Parse date parts for display (local)
@@ -101,7 +101,7 @@ export interface VoyageStats {
 export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | null {
     if (entries.length === 0) return null;
 
-    const speeds = entries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
+    const speeds = entries.filter(e => e.speedKts && e.speedKts > 0 && e.speedKts <= 80).map(e => e.speedKts!);
     const windSpeeds = entries.filter(e => e.windSpeed).map(e => e.windSpeed!);
     const waveHeights = entries.filter(e => e.waveHeight).map(e => e.waveHeight!);
     const airTemps = entries.filter(e => e.airTemp).map(e => e.airTemp!);

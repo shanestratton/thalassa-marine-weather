@@ -91,9 +91,13 @@ class TrackSharingServiceClass {
         const centerLat = entries.reduce((sum, e) => sum + e.latitude, 0) / entries.length;
         const centerLon = entries.reduce((sum, e) => sum + e.longitude, 0) / entries.length;
 
-        // Calculate total distance
+        // Calculate total distance — prefer cumulative, fallback to sum of legs
         const lastEntry = entries[entries.length - 1];
-        const distanceNM = lastEntry.cumulativeDistanceNM || 0;
+        let distanceNM = lastEntry.cumulativeDistanceNM || 0;
+        if (distanceNM === 0) {
+            // Fallback: sum individual distanceNM from each entry
+            distanceNM = entries.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
+        }
 
         const trackData: Record<string, any> = {
             user_id: user.id,
@@ -255,9 +259,6 @@ class TrackSharingServiceClass {
         return ((data || []) as SharedTrack[]).map(({ gpx_data, ...rest }) => rest as SharedTrack);
     }
 
-    /**
-     * Get a single track by ID (with GPX data for Pro users).
-     */
     async getTrackById(trackId: string, includeGPX: boolean = false): Promise<SharedTrack | null> {
         if (!supabase) return null;
 
@@ -276,6 +277,30 @@ class TrackSharingServiceClass {
             delete track.gpx_data;
         }
         return track;
+    }
+
+    /**
+     * Get distinct region values from all shared tracks.
+     * Used to populate the region filter dropdown in the browse UI.
+     */
+    async getDistinctRegions(): Promise<string[]> {
+        if (!supabase) return [];
+
+        const { data, error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .select('region');
+
+        if (error || !data) return [];
+
+        // Extract unique non-empty regions, sorted alphabetically
+        const regions = new Set<string>();
+        (data as { region: string }[]).forEach(row => {
+            if (row.region && row.region.trim()) {
+                regions.add(row.region.trim());
+            }
+        });
+
+        return Array.from(regions).sort((a, b) => a.localeCompare(b));
     }
 }
 

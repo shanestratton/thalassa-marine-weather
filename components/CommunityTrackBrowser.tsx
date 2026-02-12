@@ -52,6 +52,8 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [category, setCategory] = useState<TrackCategory | ''>('');
+    const [regionFilter, setRegionFilter] = useState('');
+    const [availableRegions, setAvailableRegions] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<BrowseFilters['sortBy']>('created_at');
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -71,6 +73,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                 limit: 30,
             };
             if (category) filters.category = category;
+            if (regionFilter) filters.region = regionFilter;
             if (searchQuery || search) filters.search = searchQuery ?? search;
 
             const result = await TrackSharingService.browseSharedTracks(filters);
@@ -81,7 +84,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
         } finally {
             setLoading(false);
         }
-    }, [category, sortBy, search]);
+    }, [category, regionFilter, sortBy, search]);
 
     // Fetch on open and when filters change
     useEffect(() => {
@@ -89,6 +92,13 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             fetchTracks();
         }
     }, [isOpen, fetchTracks]);
+
+    // Fetch available regions once on open
+    useEffect(() => {
+        if (isOpen) {
+            TrackSharingService.getDistinctRegions().then(setAvailableRegions).catch(() => { });
+        }
+    }, [isOpen]);
 
     // Debounced search
     const handleSearchChange = (value: string) => {
@@ -153,6 +163,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             const success = await TrackSharingService.deleteSharedTrack(trackId);
             if (success) {
                 setMyTracks(prev => prev.filter(t => t.id !== trackId));
+                // Also remove from browse list immediately
+                setTracks(prev => prev.filter(t => t.id !== trackId));
+                setTotal(prev => Math.max(0, prev - 1));
                 setImportStatus('✓ Track removed from community');
                 setTimeout(() => setImportStatus(null), 3000);
             } else {
@@ -258,6 +271,17 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                                 <option value="">All Categories</option>
                                 {(Object.keys(CATEGORY_LABELS) as TrackCategory[]).map(cat => (
                                     <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
+                                ))}
+                            </select>
+                            {/* Region filter */}
+                            <select
+                                value={regionFilter}
+                                onChange={(e) => setRegionFilter(e.target.value)}
+                                className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
+                            >
+                                <option value="">All Regions</option>
+                                {availableRegions.map(r => (
+                                    <option key={r} value={r}>{r}</option>
                                 ))}
                             </select>
                             {/* Sort */}
