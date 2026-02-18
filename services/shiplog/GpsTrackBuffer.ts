@@ -30,7 +30,7 @@ const SPEED_CHANGE_THRESHOLD_KTS = 3;
 const GAP_THRESHOLD_MS = 5_000;
 
 /** Minimum distance between kept points (meters) — prevents sub-meter noise */
-const MIN_POINT_SPACING_M = 2;
+const MIN_POINT_SPACING_M = 1;
 
 /** m/s → knots conversion factor */
 const MS_TO_KTS = 1.94384;

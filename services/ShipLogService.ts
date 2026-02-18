@@ -63,7 +63,7 @@ const TRACKING_INTERVAL_MS = 30 * 1000; // 30 seconds (fallback / offshore defau
 const RAPID_INTERVAL_MS = 5 * 1000; // 5 seconds for marina/shore navigation (manual override)
 const STATIONARY_THRESHOLD_NM = 0.05; // Less than 0.05nm movement = anchored
 
-const DEDUP_THRESHOLD_NM = 0.0027; // ~5 meters — discard auto entry if vessel hasn't moved
+const DEDUP_THRESHOLD_NM = 0.00054; // ~1 meter — discard auto entry if vessel hasn't moved
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
 
 // --- STORAGE KEYS ---

@@ -26,6 +26,9 @@ import { RegionAutocomplete } from '../components/RegionAutocomplete';
 import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
+import { ShipLogService } from '../services/ShipLogService';
+import { getLastWaterCheck } from '../services/shiplog/waterDetection';
+import { EnvironmentService } from '../services/EnvironmentService';
 import { t } from '../theme';
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
@@ -285,6 +288,45 @@ export const LogPage: React.FC = () => {
                             </div>
                         </div>
                     </div>
+
+                    {/* ── Water Detection Debug Strip ── */}
+                    {isTracking && (() => {
+                        const wc = getLastWaterCheck();
+                        const ts = ShipLogService.getTrackingStatus();
+                        const env = EnvironmentService.getState();
+                        return (
+                            <div className="shrink-0 px-4 pb-2">
+                                <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <span className="text-[9px] font-bold text-amber-400 uppercase tracking-widest">🔍 Water Detection Debug</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono">
+                                        <div className="text-slate-400">API Feature:</div>
+                                        <div className={wc?.feature === 'LAND' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
+                                            {wc ? wc.feature : '—'}
+                                            {wc?.failedOpen && <span className="text-amber-400 ml-1">(FAIL-OPEN)</span>}
+                                        </div>
+                                        <div className="text-slate-400">isWater:</div>
+                                        <div className={wc?.isWater ? 'text-red-400' : 'text-green-400'}>
+                                            {wc ? String(wc.isWater) : '—'}
+                                        </div>
+                                        <div className="text-slate-400">Checked Coords:</div>
+                                        <div className="text-slate-300">
+                                            {wc ? `${wc.lat.toFixed(4)}, ${wc.lon.toFixed(4)}` : '—'}
+                                        </div>
+                                        <div className="text-slate-400">Environment:</div>
+                                        <div className="text-slate-300">{env.current} ({env.source}, {Math.round(env.confidence * 100)}%)</div>
+                                        <div className="text-slate-400">Zone / Interval:</div>
+                                        <div className="text-slate-300">{ts.loggingZone || '—'} / {ts.currentIntervalMs ? `${ts.currentIntervalMs / 1000}s` : '—'}</div>
+                                        {wc?.error && <>
+                                            <div className="text-slate-400">Error:</div>
+                                            <div className="text-red-400 truncate">{wc.error}</div>
+                                        </>}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* ── Scrollable Voyage List ── */}
                     <div className="flex-1 overflow-y-auto px-4 pb-24">
