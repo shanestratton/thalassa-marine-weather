@@ -46,6 +46,7 @@ import {
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
 } from './shiplog/EntryCrud';
+import { checkIsOnWater } from './shiplog/waterDetection';
 
 const log = createLogger('ShipLog');
 
@@ -698,6 +699,13 @@ class ShipLogServiceClass {
                 timestamp,
                 cumulativeDistanceNM: 0
             });
+
+            // On-water check (fire-and-forget, fail-open)
+            try {
+                entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
+            } catch {
+                entry.isOnWater = true; // Fail open
+            }
         } else {
             // No GPS at all after warm-up — will retry in background
             needsGpsRetry = true;
