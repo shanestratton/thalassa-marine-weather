@@ -260,7 +260,7 @@ export const LogPage: React.FC = () => {
 
                     {/* ── Career Totals Strip ── */}
                     <div className="shrink-0 px-4 pb-3">
-                        <div className="rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/10 p-3">
+                        <div className="rounded-2xl bg-slate-900/40 backdrop-blur-md border border-white/10 p-3">
                             <div className="flex items-center justify-center mb-2">
                                 <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/20 text-[10px] font-bold text-sky-400 uppercase tracking-widest">Career Totals</span>
                             </div>
@@ -1085,9 +1085,9 @@ const VoyageCard: React.FC<{
                 </div>
             </button>
             <div
-                className={`w-full rounded-2xl overflow-hidden transition-all flex relative ${isExpanded
-                    ? 'bg-slate-800/80 border border-sky-500/30'
-                    : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
+                className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isExpanded
+                    ? 'bg-slate-800/50 border border-sky-500/30'
+                    : 'bg-slate-900/40 border border-white/5 hover:border-white/15'
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === deleteThreshold ? 'transform 0.2s ease-out' : 'none' }}
                 onTouchStart={handleSwipeStart}
