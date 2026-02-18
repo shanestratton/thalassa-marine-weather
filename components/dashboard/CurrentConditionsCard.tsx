@@ -54,7 +54,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                         <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">{windDir}</span>
                     </div>
                     <div className="flex items-baseline mt-1">
-                        <span className="text-2xl font-bold text-white tracking-tight">{windSpeed}</span>
+                        <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{windSpeed}</span>
                         <span className="text-[10px] text-white/50 font-medium ml-0.5">{units.speed}</span>
                     </div>
                 </div>
@@ -65,7 +65,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                         <RainIcon className="w-3 h-3 text-teal-400" />
                         <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Rain</span>
                     </div>
-                    <span className="text-2xl font-bold text-white tracking-tight mt-1">{rainChance}</span>
+                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{rainChance}</span>
                 </div>
 
                 {/* UV */}
@@ -74,7 +74,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                         <SunIcon className="w-3 h-3 text-teal-400" />
                         <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">UV</span>
                     </div>
-                    <span className="text-2xl font-bold text-white tracking-tight mt-1">{uvIndex}</span>
+                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{uvIndex}</span>
                 </div>
 
                 {/* Humidity */}
@@ -83,7 +83,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                         <DropletIcon className="w-3 h-3 text-teal-400" />
                         <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Humid</span>
                     </div>
-                    <span className="text-2xl font-bold text-white tracking-tight mt-1">{humidity}</span>
+                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{humidity}</span>
                 </div>
 
                 {/* Dew Point */}
@@ -92,7 +92,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                         <ThermometerIcon className="w-3 h-3 text-teal-400" />
                         <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Dew</span>
                     </div>
-                    <span className="text-2xl font-bold text-white tracking-tight mt-1">{dewPoint}</span>
+                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{dewPoint}</span>
                 </div>
             </div>
         </div>

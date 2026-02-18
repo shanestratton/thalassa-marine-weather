@@ -133,7 +133,7 @@ export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | n
                             <path className="text-black/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
                             <path className={`${config.text} drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]`} strokeDasharray={`${(beaufort.force / 12) * 100}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
                         </svg>
-                        <span className="text-lg font-black text-white">{beaufort.force}</span>
+                        <span className="text-lg font-mono font-bold text-ivory">{beaufort.force}</span>
                     </div>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center gap-1.5 mb-0.5">

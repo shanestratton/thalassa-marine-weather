@@ -11,11 +11,14 @@
    Offshore (default) = cool navy slate (Tailwind defaults)
    Onshore = warm stone/earth tones
 ──────────────────────────────────────────────────────────────── */
-
 /* ── Default: Offshore palette (Tailwind slate defaults — no override needed) ── */
-.theme-offshore {
-  /* Uses Tailwind defaults — no custom properties needed */
+:root {
+  /* Custom Font Families - Available Globally */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
+
+
 
 /* ── Onshore: Warm stone/earth palette ── */
 /* Tailwind v3 uses --tw-<color>-opacity internally for colors.
@@ -40,11 +43,10 @@
   /* bg-slate-500 → stone-500 */
   --tw-slate-500: 120 113 108;
   /* stone-500: #78716c */
-  /* bg-slate-400 → warm-400 (slightly warmer than stone) */
-  --tw-slate-400: 168 162 158;
   /* stone-400: #a8a29e */
   /* bg-slate-300 → stone-300 */
   --tw-slate-300: 214 211 209;
+
   /* stone-300: #d6d3d1 */
   /* bg-slate-200 → stone-200 */
   --tw-slate-200: 231 229 228;
@@ -55,6 +57,20 @@
   /* bg-slate-50 → stone-50 */
   --tw-slate-50: 250 250 249;
   /* stone-50: #fafaf9 */
+}
+
+/* Apply new font stacks to Tailwind utilities */
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Custom Text Colors */
+.text-ivory {
+  color: #FFFFF0;
 }
 
 /* Apply the custom property overrides via Tailwind utility-level CSS.

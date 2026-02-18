@@ -103,7 +103,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
                         return (
                             <span
-                                className={`${sizeClass} font-black tracking-tighter ${getTempColor()} leading-none`}
+                                className={`${sizeClass} font-mono font-medium tracking-tighter ${getTempColor()} leading-none`}
                                 aria-label={`Temperature ${tempStr} degrees`}
                             >
                                 {tempStr}°
@@ -122,7 +122,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                             />
                             <span className="text-xl leading-none">{conditionIcon}</span>
-                            <span className="text-white text-2xl font-black tracking-tight leading-none">
+                            <span className="text-ivory text-2xl font-mono font-medium tracking-tight leading-none">
                                 {oneWordCondition}
                             </span>
                         </div>
@@ -133,7 +133,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </span>
                             <div className="flex items-center gap-2">
                                 <span className="text-lg leading-none">{conditionIcon}</span>
-                                <span className="text-white text-xl font-black tracking-tight leading-none">
+                                <span className="text-ivory text-xl font-mono font-medium tracking-tight leading-none">
                                     {oneWordCondition}
                                 </span>
                             </div>

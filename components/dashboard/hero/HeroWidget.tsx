@@ -82,7 +82,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Wind</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.windSpeed || '--'}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.windSpeed || '--'}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -105,7 +105,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.gusts || '--'}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.gusts || '--'}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">{units?.speed || 'kts'}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -122,7 +122,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">
                                 {values.waveHeight || '--'}
                             </span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">{units?.length || 'm'}</span>
@@ -144,7 +144,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.pressure}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.pressure}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">hPa</span>
                             {renderTrend(trend, false)}
                         </div>
@@ -161,7 +161,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Visibility</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.vis}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.vis}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">{units.visibility}</span>
                             {renderTrend(trend, false)}
                         </div>
@@ -178,7 +178,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.humidity}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.humidity}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">%</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -195,7 +195,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Feels Like</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.feelsLike}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.feelsLike}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">°{units.temp}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -209,7 +209,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-gray-200' : 'text-slate-300'} `}>Cover</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.cloudCover}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.cloudCover}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">%</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -223,7 +223,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.precip}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.precip}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">{units.length === 'm' ? 'mm' : 'in'}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -237,7 +237,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.dewPoint}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.dewPoint}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">°{units.temp}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -251,7 +251,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.uv}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.uv}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">/11</span>
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
@@ -269,7 +269,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Sunrise</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunrise}</span>
+                            <span className="text-xl md:text-4xl font-mono font-medium tracking-tight text-ivory">{values.sunrise}</span>
                         </div>
                     </div>
                 );
@@ -281,7 +281,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Sunset</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-xl md:text-4xl font-black tracking-tighter text-white">{values.sunset}</span>
+                            <span className="text-xl md:text-4xl font-mono font-medium tracking-tight text-ivory">{values.sunset}</span>
                         </div>
                     </div>
                 );
@@ -293,7 +293,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.waterTemperature}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.waterTemperature}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">°{units.temp}</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -310,7 +310,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Drift</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.currentSpeed}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.currentSpeed}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">kts</span>
                             {renderTrend(trend, true)}
                         </div>
@@ -330,7 +330,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
-                            <span className="text-2xl md:text-5xl font-black tracking-tighter text-white">{values.currentDirection}</span>
+                            <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.currentDirection}</span>
                         </div>
                         <div className={`mt-auto pt-1 text-sm md:text-sm text-teal-300 font-bold opacity-70 ${textClass} w-full`}>
                             {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True

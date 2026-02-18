@@ -27,14 +27,14 @@ export { MoonVisual, SolarArc, getMoonPhaseData };
 // Replaces the old Recharts StaticTideBackground + ActiveTideOverlay with a single <canvas>.
 // Canvas eliminates SVG DOM overhead and merges what were two stacked AreaCharts into one draw call.
 
-const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, vesselDraft }: {
+const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: {
     dataPoints: { time: number; height: number }[];
     currentHour: number;
     currentHeight: number;
     minHeight: number;
     maxHeight: number;
     domainBuffer: number;
-    vesselDraft?: number; // Vessel draft in tide display units — triggers danger gradient when tide drops near/below
+
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -148,11 +148,7 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
             const midHeight = (p0.height + p1.height) / 2;
 
             let segColor: string;
-            if (vesselDraft !== undefined && vesselDraft > 0 && midHeight <= vesselDraft) {
-                segColor = 'rgba(239, 68, 68, 0.95)';
-            } else if (vesselDraft !== undefined && vesselDraft > 0 && midHeight <= vesselDraft + vesselDraft * 0.3) {
-                segColor = 'rgba(251, 191, 36, 0.9)';
-            } else {
+            {
                 const c = getHeightColor(midHeight);
                 segColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
             }
@@ -165,31 +161,6 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         }
         ctx.restore();
 
-        // --- DRAFT LINE (crisp dashed horizontal) ---
-        if (vesselDraft !== undefined && vesselDraft > 0) {
-            const draftY = toY(vesselDraft);
-            if (draftY >= marginTop && draftY <= h - marginBottom) {
-                ctx.save();
-                ctx.setLineDash([6, 4]);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(marginLeft, draftY);
-                ctx.lineTo(w - marginRight, draftY);
-                ctx.stroke();
-                ctx.restore();
-
-                // "DRAFT" label
-                ctx.save();
-                ctx.font = 'bold 10px ui-monospace, SFMono-Regular, monospace';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-                ctx.textAlign = 'right';
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                ctx.shadowBlur = 3;
-                ctx.fillText('DRAFT', w - marginRight - 4, draftY - 4);
-                ctx.restore();
-            }
-        }
 
         // --- CURRENT TIME: Hairline vertical + Glow Dot ---
         if (currentHour >= 0 && currentHour <= 24) {
@@ -207,7 +178,7 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
             ctx.restore();
 
             // Determine dot color — red if below draft, else match the curve color
-            const isDanger = vesselDraft !== undefined && vesselDraft > 0 && currentHeight <= vesselDraft;
+            const isDanger = false;
             const dotC = isDanger
                 ? { r: 239, g: 68, b: 68 }
                 : getHeightColor(currentHeight);
@@ -232,7 +203,7 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
             ctx.fillStyle = '#ffffff';
             ctx.fill();
         }
-    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, vesselDraft]);
+    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
 
     useEffect(() => {
         draw();
@@ -255,11 +226,10 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         prev.currentHour === next.currentHour &&
         prev.currentHeight === next.currentHeight &&
         prev.minHeight === next.minHeight &&
-        prev.maxHeight === next.maxHeight &&
-        prev.vesselDraft === next.vesselDraft;
+        prev.maxHeight === next.maxHeight;
 });
 
-export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style, vesselDraft, vesselDraftUnit }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties, vesselDraft?: number, vesselDraftUnit?: string }) => {
+export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
 
@@ -513,22 +483,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         minHeight = 0;
         maxHeight = 2; // Fallback range
     }
-    // Convert vessel draft from stored unit (ALWAYS feet — MetricInput's toStandard) to tide display units
-    const convertedDraft = React.useMemo(() => {
-        if (vesselDraft === undefined || vesselDraft <= 0) return undefined;
-        const tideUnit = unitPref.tideHeight || 'm';
-        // vessel.draft is ALWAYS stored in feet (MetricInput converts to 'ft' standard)
-        const draftInMeters = vesselDraft * 0.3048;
-        // Convert meters to the tide display unit (ft or m)
-        const result = convertMetersTo(draftInMeters, tideUnit);
-        return result || undefined;
-    }, [vesselDraft, unitPref.tideHeight]);
 
-    // Ensure the Y-axis includes the draft line so it's always visible
-    if (convertedDraft !== undefined && convertedDraft > 0) {
-        // Draft line should be visible even if tides never drop that low
-        minHeight = Math.min(minHeight, convertedDraft - 0.3);
-    }
+
+
 
     const domainBuffer = (maxHeight - minHeight) * 0.2;
 
@@ -589,7 +546,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             Current Tide Level
                         </span>
                         <div className={`flex items-baseline gap-1.5 ${trendColor}`}>
-                            <span className="text-2xl font-black tracking-tight">{currentHeight.toFixed(1)}</span>
+                            <span className="text-2xl font-mono font-bold tracking-tight text-ivory">{currentHeight.toFixed(1)}</span>
                             <span className="text-xs font-bold">{unit}</span>
                             <TrendIcon className="w-4 h-4 translate-y-0.5" />
                         </div>
@@ -622,7 +579,6 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     minHeight={minHeight}
                     maxHeight={maxHeight}
                     domainBuffer={domainBuffer}
-                    vesselDraft={convertedDraft}
                 />
                 {/* Station name — bottom left */}
                 {(guiDetails?.stationName || stationName) && (

@@ -194,19 +194,22 @@ const InstrumentCell: React.FC<{
     tealHeading?: boolean;
 }> = ({ label, icon, value, unit, trend, improving, tealHeading = true }) => {
     return (
-        <div className="flex flex-col items-center justify-start pt-2 px-1 h-full">
-            {/* Label with icon */}
-            <div className="flex items-center gap-1">
+        <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
+            {/* Label with icon - Technical Look */}
+            <div className="flex items-center gap-1.5 opacity-90">
                 <span className={`w-3 h-3 ${tealHeading ? 'text-teal-400' : 'text-amber-400'}`}>{icon}</span>
-                <span className={`text-xs font-bold tracking-wider uppercase ${tealHeading ? 'text-teal-400' : 'text-amber-400'}`}>
+                <span className={`text-[10px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-teal-300' : 'text-amber-300'}`}>
                     {label}
                 </span>
                 <TrendArrow trend={trend} improving={improving} />
             </div>
-            {/* Value */}
-            <div className="flex items-baseline mt-auto mb-2">
-                <span className="text-3xl font-normal tracking-tight" style={{ color: '#FFFFF0' }}>{value}</span>
-                {unit && <span className="text-[11px] text-white/60 font-medium ml-0.5">{unit}</span>}
+
+            {/* Value - Mono, Ivory, Precise */}
+            <div className="flex items-baseline mt-auto mb-1">
+                <span className="text-3xl font-mono font-medium tracking-tight text-ivory drop-shadow-md">
+                    {value}
+                </span>
+                {unit && <span className="text-[10px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{unit}</span>}
             </div>
         </div>
     );

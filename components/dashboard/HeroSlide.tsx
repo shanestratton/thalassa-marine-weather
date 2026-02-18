@@ -457,7 +457,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-cyan-200">Humidity</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-black text-white">{displayValues.humidity}</span>
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.humidity}</span>
                             <span className="text-sm text-gray-400 font-medium">%</span>
                         </div>
                     </div>
@@ -469,7 +469,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-emerald-200">Visibility</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-black text-white">{displayValues.vis}</span>
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.vis}</span>
                             <span className="text-sm text-gray-400 font-medium">{units.visibility}</span>
                         </div>
                     </div>
@@ -481,7 +481,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-orange-200">UV Index</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-black text-white">{displayValues.uv}</span>
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.uv}</span>
                         </div>
                     </div>
                 </div>
@@ -499,7 +499,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-blue-200">Water</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-black text-white">
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
                                 {displayValues.waterTemperature}
                             </span>
                             <span className="text-sm text-gray-400 font-medium">°{units.temp}</span>
@@ -513,7 +513,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Drift</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
-                            <span className="text-3xl font-black text-white">{displayValues.currentSpeed}</span>
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.currentSpeed}</span>
                             <span className="text-sm text-gray-400 font-medium">kts</span>
                         </div>
                     </div>
@@ -525,7 +525,7 @@ const HeroSlideComponent = ({
                             <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Set</span>
                         </div>
                         <div className="flex flex-col justify-center">
-                            <span className="text-3xl font-black text-white">
+                            <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
                                 {displayValues.currentDirection}
                             </span>
                         </div>
@@ -558,8 +558,7 @@ const HeroSlideComponent = ({
                     secondaryStationName={undefined}
                     guiDetails={guiDetails}
                     stationPosition="bottom"
-                    vesselDraft={vessel?.draft}
-                    vesselDraftUnit={settings.vesselUnits?.draft || 'ft'}
+
                 />
             </div>
         );
@@ -578,12 +577,12 @@ const HeroSlideComponent = ({
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center justify-between">
                             <span className="text-sm text-orange-300 font-bold uppercase mr-1">Rise</span>
-                            <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunrise}</span>
+                            <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">{displayValues.sunrise}</span>
                         </div>
                         <div className="w-full h-px bg-white/5 my-0.5"></div>
                         <div className="flex items-center justify-between">
                             <span className="text-sm text-purple-300 font-bold uppercase mr-1">Set</span>
-                            <span className="text-base md:text-lg font-black tracking-tighter text-white">{displayValues.sunset}</span>
+                            <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">{displayValues.sunset}</span>
                         </div>
                     </div>
                     <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
@@ -599,7 +598,7 @@ const HeroSlideComponent = ({
                         <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-yellow-200">Boating</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-3xl md:text-5xl font-black tracking-tighter text-white">{score}</span>
+                        <span className="text-3xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{score}</span>
                         <span className="text-sm md:text-sm font-medium text-gray-400">/100</span>
                     </div>
                     <div className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}>
@@ -955,8 +954,7 @@ const HeroSlideComponent = ({
                                                         stationPosition="bottom"
                                                         className="h-full w-full"
                                                         style={{ height: '100%', width: '100%' }}
-                                                        vesselDraft={vessel?.draft}
-                                                        vesselDraftUnit={settings.vesselUnits?.draft || 'ft'}
+
                                                     />
                                                 ) : (
                                                     <div className="h-full w-full" />

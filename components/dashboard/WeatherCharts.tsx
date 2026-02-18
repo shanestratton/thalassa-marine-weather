@@ -199,7 +199,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                 </div>
 
                                 <div className={`px-4 py-1.5 rounded-xl border flex flex-col items-center justify-center min-w-[90px] h-full ${scoreClass}`}>
-                                    <span className="text-2xl font-black leading-none">{score}</span>
+                                    <span className="text-2xl font-mono font-bold leading-none">{score}</span>
                                     <span className="text-[9px] font-bold uppercase tracking-wide leading-none mt-1 text-center">{scoreLabel}</span>
                                     <span className="text-[8px] uppercase tracking-wider opacity-80 mt-0.5 font-bold border-t border-current/20 pt-0.5 w-full text-center">{condText}</span>
                                 </div>
