@@ -115,32 +115,32 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
                                     <ArrowUpIcon className="w-3 h-3 text-orange-400" />
-                                    <span className="text-sm font-mono font-bold text-white leading-none">{cardDisplayValues.highTemp}°</span>
+                                    <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.highTemp}°</span>
                                 </div>
                                 <div className="w-px h-3 bg-white/20" />
                                 <div className="flex items-center gap-0.5 text-gray-300">
                                     <ArrowDownIcon className="w-3 h-3 text-emerald-400" />
-                                    <span className="text-sm font-mono font-bold text-white leading-none">{cardDisplayValues.lowTemp}°</span>
+                                    <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.lowTemp}°</span>
                                 </div>
                             </div>
 
                             {/* 2. Feels Like */}
                             <div className="flex items-center gap-1.5 justify-end">
                                 <span className={`text-sm font-bold uppercase tracking-wider text-slate-400 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>Feels Like</span>
-                                <span className={`text-sm font-mono font-bold text-orange-200 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>
+                                <span className={`text-sm font-bold text-orange-200 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>
                                     {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°<span className="text-sm text-orange-200/50 ml-0.5">{units.temp}</span>
                                 </span>
                             </div>
 
                             {/* 4. Cloud */}
-                            <div className="flex items-center gap-1 text-sm font-mono font-bold text-gray-300 justify-end translate-y-0.5">
+                            <div className="flex items-center gap-1 text-sm font-bold text-gray-300 justify-end translate-y-0.5">
                                 <CloudIcon className="w-2.5 h-2.5" />
                                 {Math.round(cardData.cloudCover || 0)}%
                                 <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">Clouds</span>
                             </div>
 
                             {/* 3. Rain */}
-                            <div className="flex items-center gap-1 text-sm font-mono font-bold text-cyan-300 justify-end">
+                            <div className="flex items-center gap-1 text-sm font-bold text-cyan-300 justify-end">
                                 <RainIcon className="w-2.5 h-2.5" />
                                 {cardData.precipValue || '0.0 mm'}
                             </div>
