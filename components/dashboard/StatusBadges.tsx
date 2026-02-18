@@ -6,6 +6,7 @@ import { RadioTowerIcon } from '../Icons';
 import { Countdown } from './Countdown';
 import { useEnvironment } from '../../context/ThemeContext';
 import { MetricSource } from '../../types';
+import { useWeather } from '../../context/WeatherContext';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -102,6 +103,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
 }) => {
     const [showInfoModal, setShowInfoModal] = useState(false);
     const env = useEnvironment();
+    const { refreshData } = useWeather();
     const badgeTextSize = env === 'onshore' ? 'text-[10px]' : 'text-xs';
 
     const shortenSourceName = (name: string): string => {
@@ -236,10 +238,14 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         </div>
                     </button>
 
-                    {/* Timer Badge */}
-                    <div className={`px-1.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center`}>
+                    {/* Timer Badge — tappable to refresh when overdue/stale */}
+                    <button
+                        onClick={() => refreshData()}
+                        aria-label="Refresh weather data"
+                        className={`px-1.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center cursor-pointer active:scale-[0.95] transition-transform`}
+                    >
                         {nextUpdate ? <Countdown targetTime={nextUpdate} /> : "LIVE"}
-                    </div>
+                    </button>
                 </div>
             </div>
 
