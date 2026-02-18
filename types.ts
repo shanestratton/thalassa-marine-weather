@@ -418,6 +418,7 @@ export interface ShipLogEntry {
     // Tracking metadata
     createdAt?: string;
     isOnWater?: boolean; // True if GPS coordinates were on water at voyage start (ocean, river, lake)
+    archived?: boolean;  // True if voyage has been auto-archived (>30 days old)
 }
 
 export interface DeepAnalysisReport {

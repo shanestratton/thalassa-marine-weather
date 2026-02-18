@@ -202,7 +202,13 @@ export function useLogPageState() {
     const toast = useToast();
     const { settings } = useSettings();
 
+    // ── Archive state (separate from main state to avoid re-renders on every poll) ──
+    const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);
+    const [careerEntries, setCareerEntries] = useState<ShipLogEntry[]>([]);
+
     // ── Initialization ──────────────────────────────────────────────────────
+
+    const ARCHIVE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
     const loadData = useCallback(async () => {
         const status = ShipLogService.getTrackingStatus();
@@ -237,6 +243,27 @@ export function useLogPageState() {
             isRapidMode: status.isRapidMode,
             currentVoyageId: voyageId,
         });
+
+        // Auto-archive voyages > 30 days old (fire-and-forget, non-blocking)
+        const now = Date.now();
+        const voyages = groupEntriesByVoyage(merged);
+        for (const v of voyages) {
+            const lastEntry = [...v.entries].sort((a, b) =>
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            )[0];
+            if (lastEntry && (now - new Date(lastEntry.timestamp).getTime()) > ARCHIVE_AGE_MS) {
+                ShipLogService.archiveVoyage(v.voyageId).catch(() => { });
+            }
+        }
+
+        // Load archived voyages and career entries in parallel (non-blocking)
+        Promise.all([
+            ShipLogService.getArchivedEntries(),
+            ShipLogService.getAllEntriesForCareer(),
+        ]).then(([archived, career]) => {
+            setArchivedVoyages(groupEntriesByVoyage(archived));
+            setCareerEntries(career);
+        }).catch(() => { });
     }, []);
 
     useEffect(() => {
@@ -521,8 +548,11 @@ export function useLogPageState() {
     //   2. Voyage's first entry must not be explicitly marked as land (isOnWater !== false)
 
     const careerTotals = useMemo(() => {
+        // Uses ALL entries (active + archived) from dedicated career query
+        const source = careerEntries.length > 0 ? careerEntries : state.entries;
+
         // Step 1: Filter to device-only entries
-        const ownEntries = state.entries.filter(e =>
+        const ownEntries = source.filter(e =>
             !e.source || e.source === 'device'
         );
 
@@ -530,23 +560,18 @@ export function useLogPageState() {
         const groups = groupEntriesByVoyage(ownEntries);
 
         // Step 3: Filter out land-based voyages
-        // A voyage is land-based if the first entry (voyage start) has isOnWater === false.
-        // Entries without the field (legacy) are treated as maritime (backwards compatible).
         const maritimeGroups = groups.filter(g => {
             const sorted = [...g.entries].sort((a, b) =>
                 new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
             );
             const firstEntry = sorted[0];
-            // Only exclude if explicitly tagged as land (isOnWater === false)
             return firstEntry?.isOnWater !== false;
         });
 
         let distance = 0;
         let timeMs = 0;
         maritimeGroups.forEach(g => {
-            // Max cumulative distance per voyage
             distance += Math.max(0, ...g.entries.map(e => e.cumulativeDistanceNM || 0));
-            // Duration: first to last entry
             if (g.entries.length >= 2) {
                 const sorted = [...g.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
                 timeMs += new Date(sorted[sorted.length - 1].timestamp).getTime() - new Date(sorted[0].timestamp).getTime();
@@ -557,7 +582,19 @@ export function useLogPageState() {
             totalTimeAtSeaHrs: Math.round(timeMs / (1000 * 60 * 60) * 10) / 10,
             totalVoyages: maritimeGroups.length,
         };
-    }, [state.entries]);
+    }, [careerEntries]);
+
+    // ── Archive handlers ─────────────────────────────────────────────────────
+
+    const handleArchiveVoyage = useCallback(async (voyageId: string) => {
+        await ShipLogService.archiveVoyage(voyageId);
+        await loadData();
+    }, [loadData]);
+
+    const handleUnarchiveVoyage = useCallback(async (voyageId: string) => {
+        await ShipLogService.unarchiveVoyage(voyageId);
+        await loadData();
+    }, [loadData]);
 
     // ── Public API ──────────────────────────────────────────────────────────
 
@@ -605,5 +642,10 @@ export function useLogPageState() {
         totalDistance,
         avgSpeed,
         careerTotals,
+
+        // Archive
+        archivedVoyages,
+        handleArchiveVoyage,
+        handleUnarchiveVoyage,
     };
 }
