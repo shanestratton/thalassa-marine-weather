@@ -1140,13 +1140,15 @@ const VoyageCard: React.FC<{
                 </div>
             </button>
             <div
-                className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isImported
-                    ? (isExpanded
-                        ? 'bg-amber-900/30 border border-amber-500/30'
-                        : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25')
-                    : (isExpanded
-                        ? 'bg-slate-800/50 border border-sky-500/30'
-                        : 'bg-slate-900/40 border border-white/5 hover:border-white/15')
+                className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isSelected
+                    ? 'bg-sky-900/30 border-2 border-sky-400/50 shadow-[0_0_12px_rgba(56,189,248,0.15)]'
+                    : isImported
+                        ? (isExpanded
+                            ? 'bg-amber-900/30 border border-amber-500/30'
+                            : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25')
+                        : (isExpanded
+                            ? 'bg-slate-800/50 border border-sky-500/30'
+                            : 'bg-slate-900/40 border border-white/5 hover:border-white/15')
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === deleteThreshold ? 'transform 0.2s ease-out' : 'none' }}
                 onTouchStart={handleSwipeStart}
@@ -1155,12 +1157,15 @@ const VoyageCard: React.FC<{
             >
                 {/* LEFT — route info, expands timeline */}
                 <button
-                    onClick={() => { if (swipeOffset === 0) onToggle(); else setSwipeOffset(0); }}
+                    onClick={() => { if (swipeOffset === 0) { onSelect(); onToggle(); } else setSwipeOffset(0); }}
                     className="flex-1 p-4 text-left min-w-0"
                 >
                     <div className="flex items-start justify-between mb-1">
                         <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">{dateLabel}</div>
                         <div className="flex items-center gap-1.5">
+                            {isSelected && (
+                                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[9px] font-bold text-sky-300 uppercase mr-1">● Selected</span>
+                            )}
                             <span className="text-base font-extrabold text-white">{(dist ?? 0).toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">NM</span></span>
                             <span className="text-[10px] text-slate-600">|</span>
                             <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
