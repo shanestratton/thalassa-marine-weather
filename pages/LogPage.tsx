@@ -1039,6 +1039,17 @@ const VoyageCard: React.FC<{
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
 }> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onShowMap, filteredEntries, onDeleteEntry, onEditEntry }) => {
+    // --- Swipe-to-delete ---
+    const [swipeOffset, setSwipeOffset] = useState(0);
+    const touchStartX = useRef(0);
+    const deleteThreshold = 80;
+    const handleSwipeStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
+    const handleSwipeMove = (e: React.TouchEvent) => {
+        const diff = touchStartX.current - e.touches[0].clientX;
+        setSwipeOffset(Math.max(0, Math.min(diff, deleteThreshold + 20)));
+    };
+    const handleSwipeEnd = () => { setSwipeOffset(s => s >= deleteThreshold ? deleteThreshold : 0); };
+
     const sorted = [...voyage.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const first = sorted[0];
     const last = sorted[sorted.length - 1];
@@ -1060,14 +1071,32 @@ const VoyageCard: React.FC<{
     const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
 
     return (
-        <div className="mb-3">
-            <div className={`w-full rounded-2xl overflow-hidden transition-all flex ${isExpanded
-                ? 'bg-slate-800/80 border border-sky-500/30'
-                : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
-                }`}>
+        <div className="mb-3 relative overflow-hidden rounded-2xl">
+            {/* Delete button revealed on swipe-left */}
+            <button
+                onClick={() => { setSwipeOffset(0); onDelete(); }}
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            >
+                <div className="flex flex-col items-center gap-1">
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span className="text-[10px] font-bold text-white uppercase">Delete</span>
+                </div>
+            </button>
+            <div
+                className={`w-full rounded-2xl overflow-hidden transition-all flex relative ${isExpanded
+                    ? 'bg-slate-800/80 border border-sky-500/30'
+                    : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
+                    }`}
+                style={{ transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === deleteThreshold ? 'transform 0.2s ease-out' : 'none' }}
+                onTouchStart={handleSwipeStart}
+                onTouchMove={handleSwipeMove}
+                onTouchEnd={handleSwipeEnd}
+            >
                 {/* LEFT — route info, expands timeline */}
                 <button
-                    onClick={onToggle}
+                    onClick={() => { if (swipeOffset === 0) onToggle(); else setSwipeOffset(0); }}
                     className="flex-1 p-4 text-left min-w-0"
                 >
                     <div className="flex items-start justify-between mb-1">
@@ -1094,7 +1123,7 @@ const VoyageCard: React.FC<{
 
                 {/* RIGHT — map button */}
                 <button
-                    onClick={onShowMap}
+                    onClick={() => { if (swipeOffset === 0) onShowMap(); else setSwipeOffset(0); }}
                     className="shrink-0 w-14 flex flex-col items-center justify-center border-l border-white/5 hover:bg-white/5 transition-colors text-slate-400 hover:text-sky-400"
                     title="View on map"
                 >
