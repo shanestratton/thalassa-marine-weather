@@ -19,7 +19,6 @@ import { useWeather } from '../../context/WeatherContext';
 import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
-import { RainForecastCard } from './RainForecastCard';
 import { MinutelyRain } from '../../services/weather/api/tomorrowio';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
@@ -860,22 +859,12 @@ const HeroSlideComponent = ({
     }
 
     return (
-        <div className="relative w-full h-full overflow-hidden flex flex-col">
+        <div className="relative w-full h-full overflow-hidden">
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
 
-            {/* ========== STATIC RAIN FORECAST — outside horizontal carousel, Today only ========== */}
-            {index === 0 && minutelyRain && minutelyRain.length > 0 && (
-                <div className="shrink-0 px-0 pb-1">
-                    <RainForecastCard
-                        data={minutelyRain}
-                        timeZone={timeZone}
-                    />
-                </div>
-            )}
-
             {/* ========== SCROLLABLE HORIZONTAL CAROUSEL ========== */}
-            <div className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar">
+            <div className="absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar">
                 <div
                     ref={horizontalScrollRef}
                     onScroll={handleHorizontalScroll}
