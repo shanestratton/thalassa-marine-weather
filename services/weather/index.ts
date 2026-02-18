@@ -344,9 +344,9 @@ export const fetchPrecisionWeather = async (
         lon = coords.lon;
         name = location;
 
-        // RETRY GEOCODING if name is generic (WP ...)
-        // This gives us a second chance to find "Townsville" even if the Context sent us "WP -12, 145"
-        if (!name || name === 'Current Location' || name.startsWith('WP ') || /^-?\d/.test(name)) {
+        // RETRY GEOCODING if name is generic (WP ..., cardinal coords, raw digits)
+        // This gives us a second chance to find "Townsville" even if the Context sent us coordinate-only name
+        if (!name || name === 'Current Location' || name.startsWith('WP ') || /^-?\d/.test(name) || /^\d+\.\d+°[NSEW]/.test(name)) {
             const r = await reverseGeocode(lat, lon);
             if (r) name = r;
         }

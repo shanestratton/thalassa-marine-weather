@@ -1117,6 +1117,9 @@ const VoyageCard: React.FC<{
         ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
         : 0;
 
+    // Detect imported/community tracks (not official device data)
+    const isImported = voyage.entries.some(e => e.source && e.source !== 'device');
+
     const startName = first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' ? first.waypointName : null;
     const endName = last?.waypointName && last.waypointName !== 'Voyage Start' && last.waypointName !== 'Latest Position' ? last.waypointName : null;
 
@@ -1137,9 +1140,13 @@ const VoyageCard: React.FC<{
                 </div>
             </button>
             <div
-                className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isExpanded
-                    ? 'bg-slate-800/50 border border-sky-500/30'
-                    : 'bg-slate-900/40 border border-white/5 hover:border-white/15'
+                className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isImported
+                    ? (isExpanded
+                        ? 'bg-amber-900/30 border border-amber-500/30'
+                        : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25')
+                    : (isExpanded
+                        ? 'bg-slate-800/50 border border-sky-500/30'
+                        : 'bg-slate-900/40 border border-white/5 hover:border-white/15')
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === deleteThreshold ? 'transform 0.2s ease-out' : 'none' }}
                 onTouchStart={handleSwipeStart}
@@ -1170,7 +1177,13 @@ const VoyageCard: React.FC<{
                         {hasManual && (
                             <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[9px] font-bold text-purple-400 uppercase">Manual</span>
                         )}
+                        {isImported && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[9px] font-bold text-amber-400 uppercase">Imported</span>
+                        )}
                     </div>
+                    {isImported && (
+                        <div className="text-[9px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
+                    )}
                 </button>
 
                 {/* RIGHT — map button */}

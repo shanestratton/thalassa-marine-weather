@@ -462,11 +462,15 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     } else {
                         // Fallback: If Geocoding fails (e.g. Deep Ocean), use nice Coordinate string
                         // instead of "Current Location"
-                        resolvedLocation = `WP ${resolvedCoords.lat.toFixed(4)}, ${resolvedCoords.lon.toFixed(4)}`;
+                        const latStr = Math.abs(resolvedCoords.lat).toFixed(2) + '°' + (resolvedCoords.lat >= 0 ? 'N' : 'S');
+                        const lonStr = Math.abs(resolvedCoords.lon).toFixed(2) + '°' + (resolvedCoords.lon >= 0 ? 'E' : 'W');
+                        resolvedLocation = `${latStr}, ${lonStr}`;
                     }
                 } catch (e) {
                     // Fallback on error too
-                    resolvedLocation = `WP ${resolvedCoords.lat.toFixed(4)}, ${resolvedCoords.lon.toFixed(4)}`;
+                    const latStr = Math.abs(resolvedCoords.lat).toFixed(2) + '°' + (resolvedCoords.lat >= 0 ? 'N' : 'S');
+                    const lonStr = Math.abs(resolvedCoords.lon).toFixed(2) + '°' + (resolvedCoords.lon >= 0 ? 'E' : 'W');
+                    resolvedLocation = `${latStr}, ${lonStr}`;
                 }
             }
 
@@ -777,11 +781,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (dist < NAME_CHECK_NM) return; // GPS jitter — discard
 
                 // Reverse geocode the new position
-                let name = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                let name = `${Math.abs(latitude).toFixed(2)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(2)}°${longitude >= 0 ? 'E' : 'W'}`;
                 try {
                     const geo = await reverseGeocode(latitude, longitude);
                     if (geo) name = geo;
-                } catch { /* fallback to WP coords */ }
+                } catch { /* fallback to cardinal coords */ }
 
                 if (dist >= WEATHER_REFRESH_NM) {
                     // TIER 2: Moved ≥5nm — full location + weather update

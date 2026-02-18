@@ -206,7 +206,7 @@ const InstrumentCell: React.FC<{
 
             {/* Value - Mono, Ivory, Precise */}
             <div className="flex items-baseline mt-auto mb-1">
-                <span className="text-3xl font-mono font-medium tracking-tight text-ivory drop-shadow-md">
+                <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md">
                     {value}
                 </span>
                 {unit && <span className="text-[10px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{unit}</span>}
