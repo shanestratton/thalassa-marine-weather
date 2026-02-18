@@ -59,7 +59,7 @@ const log = createLogger('ShipLog');
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
 
 // --- CONSTANTS ---
-const TRACKING_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes (legacy default / offshore)
+const TRACKING_INTERVAL_MS = 30 * 1000; // 30 seconds (fallback / offshore default)
 const RAPID_INTERVAL_MS = 5 * 1000; // 5 seconds for marina/shore navigation (manual override)
 const STATIONARY_THRESHOLD_NM = 0.05; // Less than 0.05nm movement = anchored
 

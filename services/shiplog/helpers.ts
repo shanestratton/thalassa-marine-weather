@@ -22,9 +22,9 @@ const NEARSHORE_THRESHOLD_KM = 1.852;   // < 1nm from shore
 const COASTAL_THRESHOLD_KM = 9.26;      // < 5nm from shore
 
 // Adaptive logging intervals
-export const NEARSHORE_INTERVAL_MS = 30 * 1000;      // 30 seconds (< 1nm from shore / on land)
-export const COASTAL_INTERVAL_MS = 2 * 60 * 1000;    // 2 minutes (1-5nm from shore)
-export const OFFSHORE_INTERVAL_MS = 15 * 60 * 1000;  // 15 minutes (> 5nm offshore)
+export const NEARSHORE_INTERVAL_MS = 5 * 1000;       // 5 seconds (< 1nm from shore / on land)
+export const COASTAL_INTERVAL_MS = 5 * 1000;          // 5 seconds (1-5nm from shore)
+export const OFFSHORE_INTERVAL_MS = 30 * 1000;        // 30 seconds (> 5nm offshore)
 
 export type LoggingZone = 'nearshore' | 'coastal' | 'offshore';
 
@@ -307,9 +307,9 @@ export async function determineLoggingZone(): Promise<LoggingZone> {
  */
 export function getIntervalForZone(zone: LoggingZone): number {
     switch (zone) {
-        case 'nearshore': return NEARSHORE_INTERVAL_MS;   // 30 seconds
-        case 'coastal': return COASTAL_INTERVAL_MS;     // 2 minutes
-        case 'offshore': return OFFSHORE_INTERVAL_MS;    // 15 minutes
+        case 'nearshore': return NEARSHORE_INTERVAL_MS;   // 5 seconds
+        case 'coastal': return COASTAL_INTERVAL_MS;     // 5 seconds
+        case 'offshore': return OFFSHORE_INTERVAL_MS;    // 30 seconds
     }
 }
 
@@ -318,8 +318,8 @@ export function getIntervalForZone(zone: LoggingZone): number {
  */
 export function getZoneLabel(zone: LoggingZone): string {
     switch (zone) {
-        case 'nearshore': return '< 1nm (30s intervals)';
-        case 'coastal': return '1-5nm (2min intervals)';
-        case 'offshore': return '> 5nm (15min intervals)';
+        case 'nearshore': return '< 1nm (5s intervals)';
+        case 'coastal': return '1-5nm (5s intervals)';
+        case 'offshore': return '> 5nm (30s intervals)';
     }
 }
