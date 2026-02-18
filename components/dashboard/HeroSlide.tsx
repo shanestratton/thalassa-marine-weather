@@ -864,8 +864,8 @@ const HeroSlideComponent = ({
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
 
-            {/* ========== STATIC RAIN FORECAST — outside horizontal carousel ========== */}
-            {minutelyRain && minutelyRain.length > 0 && (
+            {/* ========== STATIC RAIN FORECAST — outside horizontal carousel, Today only ========== */}
+            {index === 0 && minutelyRain && minutelyRain.length > 0 && (
                 <div className="shrink-0 px-0 pb-1">
                     <RainForecastCard
                         data={minutelyRain}
