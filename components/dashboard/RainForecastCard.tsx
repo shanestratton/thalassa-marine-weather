@@ -102,12 +102,12 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     border: '1px solid rgba(96, 165, 250, 0.1)',
                 }}
             >
-                <div className="px-3 py-1.5 flex items-center gap-1.5">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
+                <div className="px-4 py-2.5 flex items-center gap-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
                         <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                             fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                     </svg>
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/60">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-blue-300/60">
                         No Rain Expected for the next hour
                     </span>
                 </div>
@@ -116,7 +116,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
     }
 
     return (
-        <div className={`w-full rounded-xl overflow-hidden relative min-h-[80px] ${className}`}
+        <div className={`w-full rounded-xl overflow-hidden relative min-h-[52px] ${className}`}
             style={{
                 background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.5), rgba(15, 23, 42, 0.6), rgba(30, 64, 175, 0.3))',
                 border: '1px solid rgba(96, 165, 250, 0.15)',
@@ -130,28 +130,28 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                 </div>
             )}
 
-            <div className="relative z-10 px-4 py-2.5 h-full flex flex-col justify-between">
+            <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between">
                 {/* Header Row — compact single line */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
                             <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                 fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                         </svg>
-                        <span className="text-xs font-semibold uppercase tracking-wider text-blue-300/90">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/90">
                             {analysis.headline}
                         </span>
                     </div>
 
                     {analysis.hasRain && (
-                        <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
+                        <div className={`px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
                             {analysis.category.label}
                         </div>
                     )}
                 </div>
 
-                {/* Bar Chart */}
-                <div className="flex items-end gap-[1.5px] h-[36px] w-full mt-2">
+                {/* Bar Chart — compact */}
+                <div className="flex items-end gap-[1px] h-[20px] w-full mt-1">
                     {data.map((point, i) => {
                         const normalizedHeight = analysis.maxIntensity > 0
                             ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
