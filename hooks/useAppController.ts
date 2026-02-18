@@ -72,17 +72,18 @@ export const useAppController = () => {
 
             // WAYPOINT LOGIC: Unconditional check for Coordinate-like names
             if (weatherData.coordinates) {
-                // Safe Regex to detect coordinates WITHOUT matching "Newport, 4020"
-                // 1. Starts with "Location", "WP", "Waypoint"
-                // 2. Starts with a Number or Minus (e.g. "-23.5", "23.5")
-                // 3. Contains strict Degree symbol (e.g. "23°S")
-                // 4. Contains Water Body terms (Ocean, Sea, Reef) -> Force WP style
-                const isSafeCoord = /^(Location|WP|waypoint)|^-?[0-9]|[0-9]+°|\b(Ocean|Sea|Reef)\b/i.test(weatherData.locationName);
+                // PRECISE detection — only fires for truly generic names:
+                // 1. Starts with "Location", "WP", "Waypoint" (internal placeholders)
+                // 2. Is a raw decimal coordinate pair: "-27.47, 153.03" (no letters except optional S/N/E/W)
+                // 3. Is purely a water body name: "South Pacific Ocean", "Coral Sea"
+                // DOES NOT match: "Brisbane, QLD", "27.47°S, 153.03°E" (already human-readable)
+                const isPlaceholder = /^(Location|WP\b|Waypoint)/i.test(weatherData.locationName);
+                const isRawDecimal = /^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(weatherData.locationName.trim());
+                const isWaterBody = /^(North|South|East|West|Central|Indian|Arctic|Atlantic|Pacific)?\s*(Ocean|Sea|Reef)$/i.test(weatherData.locationName.trim());
                 const isOceanPoint = weatherData.locationName.includes("Ocean Point");
-                const isOffshore = weatherData.locationType === 'offshore';
+                const isSafeCoord = isPlaceholder || isRawDecimal || isWaterBody;
 
-                // 2. Only force WP naming if it's a raw coordinate or a generic "Ocean" point
-                // REMOVED: || isOffshore (This was too aggressive and overwrote valid island names like "Townsville")
+                // Only force WP naming if it's truly a raw coordinate or generic placeholder
                 if (isSafeCoord || isOceanPoint) {
                     const latStr = formatCoordinate(weatherData.coordinates.lat, 'lat');
                     const lonStr = formatCoordinate(weatherData.coordinates.lon, 'lon');
@@ -172,17 +173,29 @@ export const useAppController = () => {
         updateSettings({ savedLocations: newLocs });
     }, [weatherData, settings.savedLocations, showToast, updateSettings]);
 
-    const handleMapTargetSelect = useCallback((lat: number, lon: number, name?: string) => {
+    const handleMapTargetSelect = useCallback(async (lat: number, lon: number, name?: string) => {
         // Normalize Longitude (-180 to 180)
         // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
         let normalizedLon = lon;
         while (normalizedLon > 180) normalizedLon -= 360;
         while (normalizedLon < -180) normalizedLon += 360;
 
-        const locationQuery = name || `WP ${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
-
-        // Pass normalized coords
         const finalCoords = { lat, lon: normalizedLon };
+
+        // Resolve a human-readable name if the map didn't provide one
+        let locationQuery = name || '';
+        if (!locationQuery || /^-?\d/.test(locationQuery)) {
+            try {
+                const geoName = await reverseGeocode(lat, normalizedLon);
+                if (geoName) locationQuery = geoName;
+            } catch {
+                // Geocode failed — fall through to coordinate fallback
+            }
+        }
+        // Final fallback: WP coordinates
+        if (!locationQuery) {
+            locationQuery = `WP ${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
+        }
 
         setQuery(locationQuery);
         setSheetOpen(false);
