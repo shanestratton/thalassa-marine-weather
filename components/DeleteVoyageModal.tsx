@@ -68,7 +68,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                             </div>
                             <div className="w-px bg-slate-700" />
                             <div>
-                                <div className="text-lg font-bold text-white">{voyageInfo.totalDistance.toFixed(1)}</div>
+                                <div className="text-lg font-bold text-white">{(voyageInfo.totalDistance ?? 0).toFixed(1)}</div>
                                 <div className="text-[10px] text-slate-400 uppercase">NM</div>
                             </div>
                         </div>

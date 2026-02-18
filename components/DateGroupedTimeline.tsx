@@ -228,7 +228,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                 {/* Core Info - Responsive */}
                 <div className="flex-1 flex items-center gap-3 overflow-hidden">
                     {/* Speed */}
-                    {entry.speedKts !== undefined && (
+                    {entry.speedKts != null && (
                         <span className="text-xs">
                             <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>
                             <span className="text-slate-400">kts</span>
@@ -236,7 +236,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     )}
 
                     {/* Course */}
-                    {entry.courseDeg !== undefined && (
+                    {entry.courseDeg != null && (
                         <span className="text-xs flex items-center gap-0.5">
                             <CompassIcon className="w-3 h-3 text-sky-400" rotation={entry.courseDeg} />
                             <span className="text-white font-bold">{formatCourseTrue(entry.courseDeg)}</span>
@@ -244,11 +244,11 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     )}
 
                     {/* Wind */}
-                    {entry.windSpeed !== undefined && (
+                    {entry.windSpeed != null && (
                         <span className="text-xs flex items-center gap-0.5">
                             <WindIcon className="w-3 h-3 text-slate-400" />
                             <span className="text-white font-bold">{entry.windSpeed}</span>
-                            {entry.beaufortScale !== undefined && (
+                            {entry.beaufortScale != null && (
                                 <span className={`${getBfColor(entry.beaufortScale)}`}>F{entry.beaufortScale}</span>
                             )}
                         </span>
@@ -293,19 +293,19 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
 
                     {/* Nav Stats Grid */}
                     <div className="grid grid-cols-3 gap-2 mb-2">
-                        {entry.distanceNM !== undefined && (
+                        {entry.distanceNM != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                 <div className="text-[9px] text-slate-500 uppercase">Dist</div>
                                 <div className="text-xs font-bold text-white">{(entry.distanceNM ?? 0).toFixed(1)} NM</div>
                             </div>
                         )}
-                        {entry.speedKts !== undefined && (
+                        {entry.speedKts != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                 <div className="text-[9px] text-slate-500 uppercase">Speed</div>
                                 <div className="text-xs font-bold text-white">{(entry.speedKts ?? 0).toFixed(1)} kts</div>
                             </div>
                         )}
-                        {entry.courseDeg !== undefined && (
+                        {entry.courseDeg != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
                                 <div className="text-[9px] text-slate-500 uppercase">Course</div>
                                 <div className="text-xs font-bold text-white">{formatCourseTrue(entry.courseDeg)}</div>
@@ -316,25 +316,25 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     {/* Weather Details */}
                     {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
                         <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
-                            {entry.windSpeed !== undefined && (
+                            {entry.windSpeed != null && (
                                 <span className="flex items-center gap-1">
                                     <WindIcon className="w-3 h-3" />
                                     <span className="text-white font-bold">{entry.windSpeed}kts</span>
                                     {entry.windDirection}
-                                    {entry.beaufortScale !== undefined && (
+                                    {entry.beaufortScale != null && (
                                         <span className={getBfColor(entry.beaufortScale)}>
                                             ({getBeaufortDescription(entry.beaufortScale)})
                                         </span>
                                     )}
                                 </span>
                             )}
-                            {entry.waveHeight !== undefined && (
+                            {entry.waveHeight != null && (
                                 <span>
                                     Seas <span className="text-white font-bold">{(entry.waveHeight ?? 0).toFixed(1)}m</span>
                                     {entry.seaState !== undefined && ` (${getSeaStateDescription(entry.seaState)})`}
                                 </span>
                             )}
-                            {entry.pressure !== undefined && (
+                            {entry.pressure != null && (
                                 <span><span className="text-white font-bold">{(entry.pressure ?? 0).toFixed(0)}</span>hPa</span>
                             )}
                         </div>

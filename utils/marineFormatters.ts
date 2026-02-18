@@ -172,7 +172,7 @@ export const getWatchPeriodRange = (period: WatchPeriod): string => {
  * Format course as degrees True: "045°T"
  */
 export const formatCourseTrue = (deg: number): string => {
-    return `${deg.toFixed(0).padStart(3, '0')}°T`;
+    return `${(deg ?? 0).toFixed(0).padStart(3, '0')}°T`;
 };
 
 /**

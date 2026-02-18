@@ -32,7 +32,7 @@ const formatLocationFallback = (entry: ShipLogEntry): string => {
     const lon = entry.longitude;
     const latDir = lat >= 0 ? 'N' : 'S';
     const lonDir = lon >= 0 ? 'E' : 'W';
-    return `${Math.abs(lat).toFixed(2)}°${latDir}, ${Math.abs(lon).toFixed(2)}°${lonDir}`;
+    return `${Math.abs(lat ?? 0).toFixed(2)}°${latDir}, ${Math.abs(lon ?? 0).toFixed(2)}°${lonDir}`;
 };
 
 export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
@@ -249,10 +249,10 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                         {/* Stats bar */}
                         <div className="flex items-center gap-2.5 text-sm">
                             <span className="text-slate-400">
-                                <span className="text-white font-bold">{totalDistance.toFixed(1)}</span> NM
+                                <span className="text-white font-bold">{(totalDistance ?? 0).toFixed(1)}</span> NM
                             </span>
                             <span className="text-slate-400">
-                                <span className="text-white font-bold">{avgSpeed.toFixed(1)}</span> kts avg
+                                <span className="text-white font-bold">{(avgSpeed ?? 0).toFixed(1)}</span> kts avg
                             </span>
                             <span className="text-slate-400">
                                 <span className="text-white font-bold">{totalEntries}</span> entries
