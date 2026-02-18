@@ -115,12 +115,12 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
                                     <ArrowUpIcon className="w-3 h-3 text-orange-400" />
-                                    <span className="text-base font-mono font-bold text-white">{cardDisplayValues.highTemp}°</span>
+                                    <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.highTemp}°</span>
                                 </div>
                                 <div className="w-px h-3 bg-white/20" />
                                 <div className="flex items-center gap-0.5 text-gray-300">
                                     <ArrowDownIcon className="w-3 h-3 text-emerald-400" />
-                                    <span className="text-base font-mono font-bold text-white">{cardDisplayValues.lowTemp}°</span>
+                                    <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.lowTemp}°</span>
                                 </div>
                             </div>
 
