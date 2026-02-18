@@ -43,6 +43,10 @@ import {
 } from './shiplog/OfflineQueue';
 import {
     getLogEntries as _getLogEntries,
+    getArchivedEntries as _getArchivedEntries,
+    getAllEntriesForCareer as _getAllEntriesForCareer,
+    archiveVoyage as _archiveVoyage,
+    unarchiveVoyage as _unarchiveVoyage,
     deleteVoyage as _deleteVoyage,
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
@@ -1328,6 +1332,22 @@ class ShipLogServiceClass {
 
     async importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise<{ voyageId: string; savedCount: number }> {
         return _importGPXVoyage(entries);
+    }
+
+    async getArchivedEntries(limit?: number): Promise<ShipLogEntry[]> {
+        return _getArchivedEntries(limit);
+    }
+
+    async getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
+        return _getAllEntriesForCareer();
+    }
+
+    async archiveVoyage(voyageId: string): Promise<boolean> {
+        return _archiveVoyage(voyageId);
+    }
+
+    async unarchiveVoyage(voyageId: string): Promise<boolean> {
+        return _unarchiveVoyage(voyageId);
     }
 
     // --- PRIVATE METHODS ---

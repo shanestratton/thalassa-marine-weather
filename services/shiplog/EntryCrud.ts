@@ -17,7 +17,7 @@ import {
 const log = createLogger('EntryCrud');
 
 /**
- * Fetch log entries for current user.
+ * Fetch active (non-archived) log entries for current user.
  */
 export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]> {
     if (!supabase) {
@@ -34,6 +34,7 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
         const { data, error } = await supabase
             .from(SHIP_LOGS_TABLE)
             .select('*')
+            .or('archived.is.null,archived.eq.false')  // Exclude archived entries
             .order('timestamp', { ascending: false })
             .limit(limit);
 
@@ -47,6 +48,108 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
         return [];
     }
 }
+
+/**
+ * Fetch archived log entries for current user.
+ */
+export async function getArchivedEntries(limit: number = 500): Promise<ShipLogEntry[]> {
+    if (!supabase) return [];
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+            .from(SHIP_LOGS_TABLE)
+            .select('*')
+            .eq('archived', true)
+            .order('timestamp', { ascending: false })
+            .limit(limit);
+
+        if (error) return [];
+        return (data || []).map(row => fromDbFormat(row));
+    } catch (error) {
+        log.error('getArchivedEntries failed', error);
+        return [];
+    }
+}
+
+/**
+ * Fetch ALL entries (active + archived) for career totals calculation.
+ * Only fetches device-source entries to reduce payload.
+ */
+export async function getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
+    if (!supabase) return [];
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+            .from(SHIP_LOGS_TABLE)
+            .select('voyage_id, timestamp, cumulative_distance_nm, is_on_water, source, archived')
+            .or('source.is.null,source.eq.device')  // Career = device-only
+            .order('timestamp', { ascending: false })
+            .limit(10000);
+
+        if (error) return [];
+        return (data || []).map(row => fromDbFormat(row));
+    } catch (error) {
+        log.error('getAllEntriesForCareer failed', error);
+        return [];
+    }
+}
+
+/**
+ * Archive a voyage — mark all entries as archived.
+ */
+export async function archiveVoyage(voyageId: string): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return false;
+
+        const { error } = await supabase
+            .from(SHIP_LOGS_TABLE)
+            .update({ archived: true })
+            .eq('user_id', user.id)
+            .eq('voyage_id', voyageId);
+
+        if (error) {
+            log.error('archiveVoyage failed', error);
+            return false;
+        }
+        return true;
+    } catch (error) {
+        log.error('archiveVoyage failed', error);
+        return false;
+    }
+}
+
+/**
+ * Unarchive a voyage — restore all entries to active.
+ */
+export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return false;
+
+        const { error } = await supabase
+            .from(SHIP_LOGS_TABLE)
+            .update({ archived: false })
+            .eq('user_id', user.id)
+            .eq('voyage_id', voyageId);
+
+        if (error) {
+            log.error('unarchiveVoyage failed', error);
+            return false;
+        }
+        return true;
+    } catch (error) {
+        log.error('unarchiveVoyage failed', error);
+        return false;
+    }
+}
+
 
 /**
  * Delete a voyage and all its entries (from both DB and offline queue).
