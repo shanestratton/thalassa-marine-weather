@@ -19,7 +19,8 @@ import { useWeather } from '../../context/WeatherContext';
 import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
-import { RainForecastCard } from './RainForecastCard';
+
+
 import { MinutelyRain } from '../../services/weather/api/tomorrowio';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
@@ -920,14 +921,6 @@ const HeroSlideComponent = ({
                                 {showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
                                     <div className="relative w-full h-full flex flex-col gap-3">
-                                        {/* Row 1: Rain Chart OR Wind/Gust/Wave widgets (always visible) */}
-                                        <div className={`px-0 min-h-0 ${minutelyRain && minutelyRain.some((d: any) => d.intensity > 0) ? 'flex-1' : 'shrink-0'}`}>
-                                            <RainForecastCard
-                                                data={minutelyRain || []}
-                                                className="h-full"
-                                                timeZone={timeZone}
-                                            />
-                                        </div>
 
 
                                         {/* Tide Graph Card — 2/3 of space */}

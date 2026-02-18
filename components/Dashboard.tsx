@@ -13,6 +13,7 @@ const LogPage = React.lazy(() => import('../pages/LogPage').then(m => ({ default
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
+import { RainForecastCard } from './dashboard/RainForecastCard';
 import { useSettings } from '../context/SettingsContext';
 import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
 import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
@@ -447,9 +448,25 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
+                            {/* STATIC RAIN FORECAST — outside carousel, always visible */}
+                            {minutelyRain && minutelyRain.length > 0 && (
+                                <div
+                                    className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                    style={{
+                                        top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 388px)' : 'calc(max(8px, env(safe-area-inset-top)) + 308px)',
+                                        opacity: 1,
+                                        pointerEvents: 'auto',
+                                    }}
+                                >
+                                    <RainForecastCard
+                                        data={minutelyRain}
+                                        timeZone={data.timeZone}
+                                    />
+                                </div>
+                            )}
 
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300" style={{ top: isExpanded ? `calc(max(8px, env(safe-area-inset-top)) + ${minutelyRain && minutelyRain.length > 0 ? '420' : '420'}px)` : `calc(max(8px, env(safe-area-inset-top)) + ${minutelyRain && minutelyRain.length > 0 ? '340' : '340'}px)`, bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
