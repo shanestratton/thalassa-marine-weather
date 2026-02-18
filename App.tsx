@@ -156,7 +156,7 @@ const App: React.FC = () => {
                         </div>
 
                         {currentView !== 'details' && (
-                            <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-10'} pointer-events-auto`}>
+                            <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
                                         <input
@@ -164,7 +164,7 @@ const App: React.FC = () => {
                                             value={query}
                                             readOnly
                                             placeholder="Select via Map..."
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-lg md:text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 backdrop-blur-md border border-white/10'}`}
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 backdrop-blur-md border border-white/10'}`}
                                             onClick={() => setPage('map')}
                                         />
                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
