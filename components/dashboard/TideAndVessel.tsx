@@ -172,7 +172,7 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 0.5;
             ctx.beginPath();
-            ctx.moveTo(cx, cy + 12);
+            ctx.moveTo(cx, marginTop);
             ctx.lineTo(cx, h - marginBottom);
             ctx.stroke();
             ctx.restore();
