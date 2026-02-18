@@ -20,12 +20,14 @@ const BUOY_THRESHOLD_NM = 10;  // Maximum distance to use buoy data
  * 
  * Marine-focused color scheme:
  * - Emerald: Buoy data (real ocean measurements)
+ * - Sky: Tomorrow.io (station-blended observations)
  * - Amber: StormGlass (marine forecast models)
  * - White: Fallback/unknown
  */
 function getSourceColor(source: DataSource): SourceColor {
     switch (source) {
         case 'buoy': return 'emerald';
+        case 'tomorrow': return 'sky';
         case 'stormglass': return 'amber';
         default: return 'white';
     }
@@ -356,7 +358,7 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
     }
 
     const beaconMetrics: string[] = [];
-    const airportMetrics: string[] = [];
+    const tomorrowMetrics: string[] = [];
     const stormglassMetrics: string[] = [];
 
     // Group metrics by source
@@ -371,6 +373,9 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
             case 'buoy':
                 beaconMetrics.push(line);
                 break;
+            case 'tomorrow':
+                tomorrowMetrics.push(line);
+                break;
             case 'stormglass':
                 stormglassMetrics.push(line);
                 break;
@@ -384,13 +389,19 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
     if (beaconMetrics.length > 0) {
         const beaconSource = Object.values(current.sources).find(s => s?.source === 'buoy');
         const beaconDist = beaconSource?.distance || 'N/A';
+        lines.push(`🟢 BEACON: ${beaconDist}`);
+        lines.push(...beaconMetrics);
         lines.push('');
     }
 
-
+    if (tomorrowMetrics.length > 0) {
+        lines.push(`🔵 TOMORROW.IO: Station-Blended Observation`);
+        lines.push(...tomorrowMetrics);
+        lines.push('');
+    }
 
     if (stormglassMetrics.length > 0) {
-        lines.push(`🔴 STORMGLASS PRO: Forecast Model`);
+        lines.push(`🟠 STORMGLASS PRO: Forecast Model`);
         lines.push(...stormglassMetrics);
         lines.push('');
     }

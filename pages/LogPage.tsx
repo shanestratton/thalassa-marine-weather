@@ -80,11 +80,13 @@ export const LogPage: React.FC = () => {
         hasNonDeviceEntries,
         totalDistance,
         avgSpeed,
+        careerTotals,
     } = useLogPageState();
 
     const toast = useToast();
     const [isExportingPDF, setIsExportingPDF] = useState(false);
     const [isExportingGPX, setIsExportingGPX] = useState(false);
+    const [showMenu, setShowMenu] = useState(false);
 
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
@@ -171,7 +173,6 @@ export const LogPage: React.FC = () => {
             {/* Fullscreen Statistics View */}
             {showStats ? (
                 <div className="flex flex-col h-full">
-                    {/* Stats Header with Close Button */}
                     <div className="flex items-center justify-between p-4 border-b border-white/10">
                         <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
                         <button
@@ -183,10 +184,7 @@ export const LogPage: React.FC = () => {
                             </svg>
                         </button>
                     </div>
-
-                    {/* Stats Content - centered with flex */}
                     <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col justify-center md:max-w-3xl md:mx-auto">
-                        {/* Key Stats Row — scoped to selected voyage */}
                         {(() => {
                             const scopedEntries = selectedVoyageId
                                 ? filteredEntries.filter(e => e.voyageId === selectedVoyageId)
@@ -200,336 +198,149 @@ export const LogPage: React.FC = () => {
                                 : 0;
                             return (
                                 <div className="grid grid-cols-3 gap-3 mb-4">
-                                    <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 border border-emerald-500/30 rounded-lg p-3 text-center">
-                                        <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Distance</div>
-                                        <div className="text-2xl font-bold text-white">{scopedDistance.toFixed(1)} <span className="text-sm opacity-70">NM</span></div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30 rounded-lg p-3 text-center">
-                                        <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Avg Speed</div>
-                                        <div className="text-2xl font-bold text-white">{scopedAvgSpeed.toFixed(1)} <span className="text-sm opacity-70">kts</span></div>
-                                    </div>
-                                    <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 rounded-lg p-3 text-center">
-                                        <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Entries</div>
-                                        <div className="text-2xl font-bold text-white">{scopedEntries.length}</div>
-                                    </div>
+                                    <StatBox label="Distance" value={`${scopedDistance.toFixed(1)} NM`} />
+                                    <StatBox label="Avg Speed" value={`${scopedAvgSpeed.toFixed(1)} kts`} />
+                                    <StatBox label="Entries" value={scopedEntries.length} />
                                 </div>
                             );
                         })()}
-
-                        {/* Full Voyage Stats */}
                         <VoyageStatsPanel entries={selectedVoyageId ? filteredEntries.filter(e => e.voyageId === selectedVoyageId) : filteredEntries} />
                     </div>
                 </div>
             ) : (
                 <div className="flex flex-col h-full">
-                    {/* Page Header — matches Anchor Watch pattern */}
-                    <div className={t.header.bar}>
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2.5">
-                                <div>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className={t.typography.pageTitle}>Ship's Log</span>
-                                        {isTracking && (
-                                            <span
-                                                className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
-                                                    ? 'bg-emerald-400 animate-pulse'
-                                                    : gpsStatus === 'stale'
-                                                        ? 'bg-amber-400 animate-pulse'
-                                                        : 'bg-red-500 animate-pulse'
-                                                    }`}
-                                                title={gpsStatus === 'locked' ? 'GPS locked' : gpsStatus === 'stale' ? 'GPS stale' : 'No GPS signal'}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Tracking Controls */}
-                            <div className="flex gap-2">
-                                {!isTracking && (
-                                    <button
-                                        onClick={handleStartTracking}
-                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors"
-                                    >
-                                        <PlayIcon className="w-4 h-4" />
-                                        Start
-                                    </button>
-                                )}
-
+                    {/* ── Header: SHIP'S LOG + 3-dot menu ── */}
+                    <div className="shrink-0 px-4 pt-3 pb-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Ship's Log</h1>
                                 {isTracking && (
-                                    <button
-                                        onClick={handleToggleRapidMode}
-                                        className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-all ${isRapidMode
-                                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-lg shadow-red-500/30'
-                                            : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                                    <span
+                                        className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'locked'
+                                            ? 'bg-emerald-400 animate-pulse'
+                                            : gpsStatus === 'stale'
+                                                ? 'bg-amber-400 animate-pulse'
+                                                : 'bg-red-500 animate-pulse'
                                             }`}
-                                        title={isRapidMode ? 'Rapid GPS active (5s) — tap to disable' : 'Enable rapid GPS (5s intervals)'}
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <circle cx="12" cy="12" r="3" strokeWidth={2} />
-                                            <path strokeLinecap="round" strokeWidth={2} d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
-                                        </svg>
-                                        {isRapidMode ? '5s' : 'Rapid'}
-                                    </button>
-                                )}
-
-                                {isTracking && (
-                                    <button
-                                        onClick={handleStopTracking}
-                                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors"
-                                    >
-                                        <StopIcon className="w-4 h-4" />
-                                        Stop
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Controls Card — Action Bar + Filters */}
-                    <div className="shrink-0 px-4 pt-2 pb-2 z-20">
-                        <div className="rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/10 p-3">
-
-                            {/* Action Bar — 4 buttons */}
-                            <div className="grid grid-cols-4 gap-2 mb-2">
-                                <button
-                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' })}
-                                    disabled={entries.length === 0}
-                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    Export
-                                </button>
-                                <button
-                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
-                                    disabled={entries.length === 0}
-                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                    </svg>
-                                    Share
-                                </button>
-                                <button
-                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' })}
-                                    disabled={entries.length === 0}
-                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                    </svg>
-                                    Stats
-                                </button>
-                                <button
-                                    onClick={() => dispatch({ type: 'SHOW_TRACK_MAP', show: true })}
-                                    disabled={entries.length === 0}
-                                    className={`px-2 py-2.5 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${entries.length > 0
-                                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 active:scale-95'
-                                        : 'bg-slate-800/30 text-slate-600 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                                    </svg>
-                                    Map
-                                </button>
-                            </div>
-
-                            {/* Search and Filter Row */}
-                            <div className="flex gap-2 items-center">
-                                {/* Search */}
-                                <div className="relative flex-1 max-w-[160px]">
-                                    <input
-                                        type="text"
-                                        placeholder="Search..."
-                                        value={filters.searchQuery}
-                                        onChange={(e) => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: e.target.value } })}
-                                        className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                                     />
-                                    <svg
-                                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                )}
+                            </div>
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowMenu(!showMenu)}
+                                    className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <circle cx="10" cy="4" r="1.5" />
+                                        <circle cx="10" cy="10" r="1.5" />
+                                        <circle cx="10" cy="16" r="1.5" />
                                     </svg>
-                                    {filters.searchQuery && (
-                                        <button
-                                            onClick={() => dispatch({ type: 'SET_FILTERS', filters: { ...filters, searchQuery: '' } })}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                                        >
-                                            ×
-                                        </button>
-                                    )}
-                                </div>
+                                </button>
+                                {/* Overflow Menu */}
+                                {showMenu && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            {isTracking && (
+                                                <>
+                                                    <MenuBtn icon="⚡" label={isRapidMode ? 'Rapid Mode (ON)' : 'Rapid Mode'} onClick={() => { handleToggleRapidMode(); setShowMenu(false); }} accent={isRapidMode} />
+                                                    <div className="border-t border-white/5" />
+                                                </>
+                                            )}
+                                            <MenuBtn icon="📊" label="Statistics" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' }); setShowMenu(false); }} disabled={entries.length === 0} />
+                                            <MenuBtn icon="🗺" label="Track Map" onClick={() => { dispatch({ type: 'SHOW_TRACK_MAP', show: true }); setShowMenu(false); }} disabled={entries.length === 0} />
+                                            <MenuBtn icon="📤" label="Export" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' }); setShowMenu(false); }} disabled={entries.length === 0} />
+                                            <MenuBtn icon="🔗" label="Share" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' }); setShowMenu(false); }} disabled={entries.length === 0} />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
 
-                                {/* M/W Type Filters */}
-                                <div className="flex gap-1">
-                                    <button
-                                        onClick={() => {
-                                            const newTypes = filters.types.includes('manual')
-                                                ? filters.types.filter(t => t !== 'manual')
-                                                : [...filters.types, 'manual'] as ('auto' | 'manual' | 'waypoint')[];
-                                            dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
-                                        }}
-                                        className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('manual')
-                                            ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
-                                            }`}
-                                    >
-                                        Man
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            const newTypes = filters.types.includes('waypoint')
-                                                ? filters.types.filter(t => t !== 'waypoint')
-                                                : [...filters.types, 'waypoint'] as ('auto' | 'manual' | 'waypoint')[];
-                                            dispatch({ type: 'SET_FILTERS', filters: { ...filters, types: newTypes } });
-                                        }}
-                                        className={`min-w-[64px] min-h-[36px] px-4 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${filters.types.includes('waypoint')
-                                            ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
-                                            : 'bg-slate-800/60 border-white/5 text-slate-500'
-                                            }`}
-                                    >
-                                        Way
-                                    </button>
+                    {/* ── Career Totals Strip ── */}
+                    <div className="shrink-0 px-4 pb-3">
+                        <div className="rounded-2xl bg-slate-900/60 backdrop-blur-md border border-white/10 p-3">
+                            <div className="flex items-center justify-center mb-2">
+                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/20 text-[10px] font-bold text-sky-400 uppercase tracking-widest">Career Totals</span>
+                            </div>
+                            <div className="grid grid-cols-3 divide-x divide-white/10">
+                                <div className="text-center px-2">
+                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalDistance.toFixed(1)}</div>
+                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">NM Sailed</div>
+                                </div>
+                                <div className="text-center px-2">
+                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalTimeAtSeaHrs < 24 ? `${careerTotals.totalTimeAtSeaHrs}h` : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}</div>
+                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">At Sea</div>
+                                </div>
+                                <div className="text-center px-2">
+                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalVoyages}</div>
+                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">Voyages</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Log Entries Timeline - Scrollable area */}
-                    <div className="flex-1 overflow-y-auto relative">
-                        {/* Maritime watermark — visible when empty, fades as logs fill */}
-                        <div
-                            className="absolute inset-0 flex items-center justify-center pointer-events-none z-0"
-                            style={{ opacity: 0.06 }}
-                        >
-                            <svg viewBox="0 0 200 200" fill="none" className="w-64 h-64 text-white">
-                                {/* Outer rim — thick band with detail */}
-                                <circle cx="100" cy="100" r="88" stroke="currentColor" strokeWidth="2" />
-                                <circle cx="100" cy="100" r="82" stroke="currentColor" strokeWidth="4" />
-                                <circle cx="100" cy="100" r="76" stroke="currentColor" strokeWidth="1.5" />
-                                {/* Decorative inner ring */}
-                                <circle cx="100" cy="100" r="50" stroke="currentColor" strokeWidth="1" strokeDasharray="3 5" />
-                                {/* Hub — chunky center boss */}
-                                <circle cx="100" cy="100" r="22" stroke="currentColor" strokeWidth="3" />
-                                <circle cx="100" cy="100" r="16" stroke="currentColor" strokeWidth="1.5" />
-                                <circle cx="100" cy="100" r="7" fill="currentColor" fillOpacity="0.25" />
-                                <circle cx="100" cy="100" r="3" fill="currentColor" fillOpacity="0.4" />
-                                {/* 8 spokes — tapered (wider at hub, narrower at rim) */}
-                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => {
-                                    const rad = (angle - 90) * Math.PI / 180;
-                                    const perpRad = rad + Math.PI / 2;
-                                    const hubR = 22; const rimR = 76;
-                                    const hubW = 4; const rimW = 2.5;
-                                    const hx = 100 + Math.cos(rad) * hubR;
-                                    const hy = 100 + Math.sin(rad) * hubR;
-                                    const rx = 100 + Math.cos(rad) * rimR;
-                                    const ry = 100 + Math.sin(rad) * rimR;
-                                    return (
-                                        <polygon key={angle} fill="currentColor" fillOpacity="0.35" stroke="currentColor" strokeWidth="1"
-                                            points={`${hx + Math.cos(perpRad) * hubW},${hy + Math.sin(perpRad) * hubW} ${rx + Math.cos(perpRad) * rimW},${ry + Math.sin(perpRad) * rimW} ${rx - Math.cos(perpRad) * rimW},${ry - Math.sin(perpRad) * rimW} ${hx - Math.cos(perpRad) * hubW},${hy - Math.sin(perpRad) * hubW}`}
-                                        />
-                                    );
-                                })}
-                                {/* 8 turned handle pegs — classic barrel shape */}
-                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => {
-                                    const rad = (angle - 90) * Math.PI / 180;
-                                    const pegCenter = 92;
-                                    const cx = 100 + Math.cos(rad) * pegCenter;
-                                    const cy = 100 + Math.sin(rad) * pegCenter;
-                                    return (
-                                        <g key={`peg-${angle}`}>
-                                            {/* Peg barrel */}
-                                            <circle cx={cx} cy={cy} r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-                                            {/* Peg detail ring */}
-                                            <circle cx={cx} cy={cy} r="3.5" stroke="currentColor" strokeWidth="0.8" fill="currentColor" fillOpacity="0.1" />
-                                        </g>
-                                    );
-                                })}
-                                {/* Rim detail — decorative dots between handles */}
-                                {[22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5].map(angle => {
-                                    const rad = (angle - 90) * Math.PI / 180;
-                                    const cx = 100 + Math.cos(rad) * 82;
-                                    const cy = 100 + Math.sin(rad) * 82;
-                                    return <circle key={`dot-${angle}`} cx={cx} cy={cy} r="1.5" fill="currentColor" fillOpacity="0.3" />;
-                                })}
-                            </svg>
-                        </div>
-
-                        <div className="p-4 min-h-full flex flex-col relative z-10">
-                            {entries.length === 0 ? (
-                                <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6">
-                                    {/* Compass Rose SVG illustration */}
-                                    <div className="relative w-24 h-24 mb-6">
-                                        <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/40">
-                                            <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
-                                            <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                            <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                            <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                            <path d="M8 48L44 44V52L8 48Z" fill="currentColor" fillOpacity="0.3" />
-                                            <path d="M88 48L52 52V44L88 48Z" fill="currentColor" fillOpacity="0.3" />
-                                        </svg>
-                                        <div className="absolute inset-0 rounded-full bg-sky-500/5 animate-ping" style={{ animationDuration: '3s' }} />
+                    {/* ── Scrollable Voyage List ── */}
+                    <div className="flex-1 overflow-y-auto px-4 pb-24">
+                        {/* Live Recording Card */}
+                        {isTracking && currentVoyageId && (() => {
+                            const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
+                            const dist = activeEntries.length > 0 ? Math.max(0, ...activeEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
+                            const sorted = [...activeEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                            const first = sorted[0];
+                            const last = sorted[sorted.length - 1];
+                            const durationMs = first && last ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime() : 0;
+                            const durationHrs = Math.floor(durationMs / 3600000);
+                            const durationMins = Math.floor((durationMs % 3600000) / 60000);
+                            const speeds = activeEntries.filter(e => e.speedKts && e.speedKts > 0);
+                            const liveAvgSpeed = speeds.length > 0 ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length : 0;
+                            return (
+                                <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                        <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
                                     </div>
-                                    <p className="text-lg font-bold text-white mb-2">Your Voyage Awaits</p>
-                                    <p className="text-sm text-white/60 max-w-[260px] text-center leading-relaxed">
-                                        Start tracking to record GPS positions, waypoints, and voyage data.
-                                    </p>
+                                    {first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' && (
+                                        <div className="text-xs text-slate-400 mb-3">Departed: {first.waypointName}</div>
+                                    )}
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <div className="text-2xl font-extrabold text-emerald-400">{dist.toFixed(1)}</div>
+                                            <div className="text-[10px] text-slate-500 uppercase">NM</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-2xl font-extrabold text-emerald-400">{durationHrs}h {durationMins}m</div>
+                                            <div className="text-[10px] text-slate-500 uppercase">Duration</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-2xl font-extrabold text-emerald-400">{liveAvgSpeed.toFixed(1)}</div>
+                                            <div className="text-[10px] text-slate-500 uppercase">Avg kts</div>
+                                        </div>
+                                    </div>
                                 </div>
-                            ) : (
-                                <>
-                                    {voyageGroups.map((voyage, index) => {
-                                        const isExpanded = expandedVoyages.has(voyage.voyageId);
-                                        const isActive = voyage.voyageId === currentVoyageId;
-                                        const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
+                            );
+                        })()}
 
-                                        if (voyageFilteredEntries.length === 0) return null;
-
-                                        return (
-                                            <div key={voyage.voyageId}>
-                                                <VoyageHeader
-                                                    voyageId={voyage.voyageId}
-                                                    entries={voyageFilteredEntries}
-                                                    isActive={isActive}
-                                                    isSelected={selectedVoyageId === voyage.voyageId || (!selectedVoyageId && index === 0)}
-                                                    isExpanded={isExpanded}
-                                                    onToggle={() => toggleVoyage(voyage.voyageId)}
-                                                    onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })}
-                                                    onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)}
-                                                />
-
-                                                {/* Collapsible date groups within voyage */}
-                                                {isExpanded && (
-                                                    <div className="ml-2 border-l-2 border-slate-700/50 pl-3 mb-4">
-                                                        <DateGroupedTimeline
-                                                            groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
-                                                            onDeleteEntry={handleDeleteEntry}
-                                                            onEditEntry={handleEditEntry}
-                                                            voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
-                                                            voyageLastEntryId={voyage.entries[0]?.id}
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </>
-                            )}
-                        </div>
+                        {/* Past Voyage Cards */}
+                        {voyageGroups.length === 0 && !isTracking ? (
+                            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
+                                <div className="relative w-20 h-20 mb-5">
+                                    <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
+                                        <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                        <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
+                                        <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                        <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
+                                    </svg>
+                                </div>
+                                <p className="text-base font-bold text-white mb-1">Your Voyage Awaits</p>
+                                <p className="text-sm text-white/50 max-w-[240px] text-center">Start tracking to record GPS positions, waypoints, and voyage data.</p>
+                            </div>
+                        ) : (
+                            voyageGroups
+                                .filter(v => !(isTracking && v.voyageId === currentVoyageId))
+                                .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} />)
+                        )}
                     </div>
                 </div>
             )}
@@ -537,19 +348,34 @@ export const LogPage: React.FC = () => {
             {/* Toast Notifications */}
             <toast.ToastContainer />
 
-            {/* Add Manual Entry Button - FIXED at bottom using absolute positioning */}
-            <div className="absolute bottom-0 left-0 right-0 z-20 p-4 pt-2 border-t border-white/10 bg-slate-900">
-                <button
-                    onClick={() => isTracking && dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                    disabled={!isTracking}
-                    className={`w-full px-4 py-3 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 ${isTracking
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                        : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                        }`}
-                >
-                    <PlusIcon className="w-5 h-5" />
-                    {isTracking ? 'Add Manual Entry' : 'Start Tracking to Add Entry'}
-                </button>
+            {/* Start/Stop Tracking + New Entry — fixed above nav bar */}
+            <div className="fixed left-0 right-0 z-[850] px-4 flex gap-2" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                {isTracking ? (
+                    <>
+                        <button
+                            onClick={handleStopTracking}
+                            className="px-4 py-3 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
+                        >
+                            <StopIcon className="w-4 h-4" />
+                            Stop
+                        </button>
+                        <button
+                            onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
+                            className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                        >
+                            <PlusIcon className="w-5 h-5" />
+                            New Log Entry
+                        </button>
+                    </>
+                ) : (
+                    <button
+                        onClick={handleStartTracking}
+                        className="flex-1 px-4 py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
+                    >
+                        <PlayIcon className="w-5 h-5" />
+                        Start Tracking
+                    </button>
+                )}
             </div>
 
             {/* Manual Entry Modal */}
@@ -1168,6 +994,129 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
                     </div>
                 )}
             </div>
+        </div>
+    );
+});
+
+// ── MenuBtn — overflow menu item ──
+
+const MenuBtn: React.FC<{
+    icon: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    danger?: boolean;
+    accent?: boolean;
+}> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
+    <button
+        onClick={onClick}
+        disabled={disabled}
+        className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${disabled
+            ? 'text-slate-600 cursor-not-allowed'
+            : danger
+                ? 'text-red-400 hover:bg-red-500/10'
+                : accent
+                    ? 'text-amber-400 hover:bg-amber-500/10'
+                    : 'text-slate-300 hover:bg-white/5'
+            }`}
+    >
+        <span className="text-base">{icon}</span>
+        {label}
+    </button>
+));
+
+// ── VoyageCard — compact past voyage summary ──
+
+const VoyageCard: React.FC<{
+    voyage: { voyageId: string; entries: ShipLogEntry[] };
+    isSelected: boolean;
+    isExpanded: boolean;
+    onToggle: () => void;
+    onSelect: () => void;
+    onDelete: () => void;
+    onShowMap: () => void;
+    filteredEntries: ShipLogEntry[];
+    onDeleteEntry: (id: string) => void;
+    onEditEntry: (entry: ShipLogEntry) => void;
+}> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onShowMap, filteredEntries, onDeleteEntry, onEditEntry }) => {
+    const sorted = [...voyage.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const dist = Math.max(0, ...voyage.entries.map(e => e.cumulativeDistanceNM || 0));
+    const durationMs = first && last ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime() : 0;
+    const durationHrs = Math.floor(durationMs / 3600000);
+    const durationMins = Math.floor((durationMs % 3600000) / 60000);
+    const durationLabel = durationHrs >= 24 ? `${Math.ceil(durationHrs / 24)}d` : `${durationHrs}h ${durationMins}m`;
+    const dateLabel = first ? new Date(first.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '';
+    const hasManual = voyage.entries.some(e => e.entryType === 'manual');
+    const speedEntries = voyage.entries.filter(e => e.speedKts);
+    const avgSpeed = speedEntries.length > 0
+        ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
+        : 0;
+
+    const startName = first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' ? first.waypointName : null;
+    const endName = last?.waypointName && last.waypointName !== 'Voyage Start' && last.waypointName !== 'Latest Position' ? last.waypointName : null;
+
+    const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
+
+    return (
+        <div className="mb-3">
+            <div className={`w-full rounded-2xl overflow-hidden transition-all flex ${isExpanded
+                    ? 'bg-slate-800/80 border border-sky-500/30'
+                    : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
+                }`}>
+                {/* LEFT — route info, expands timeline */}
+                <button
+                    onClick={onToggle}
+                    className="flex-1 p-4 text-left min-w-0"
+                >
+                    <div className="flex items-start justify-between mb-1">
+                        <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">{dateLabel}</div>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-base font-extrabold text-white">{dist.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">NM</span></span>
+                            <span className="text-[10px] text-slate-600">|</span>
+                            <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
+                        </div>
+                    </div>
+                    {(startName || endName) && (
+                        <div className="text-sm text-slate-300 mb-1 truncate">
+                            {startName || '—'} → {endName || '—'}
+                        </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500">{voyage.entries.length} entries</span>
+                        {avgSpeed > 0 && <span className="text-[10px] text-slate-500">· {avgSpeed.toFixed(1)} kts avg</span>}
+                        {hasManual && (
+                            <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[9px] font-bold text-purple-400 uppercase">Manual</span>
+                        )}
+                    </div>
+                </button>
+
+                {/* RIGHT — map button */}
+                <button
+                    onClick={onShowMap}
+                    className="shrink-0 w-14 flex flex-col items-center justify-center border-l border-white/5 hover:bg-white/5 transition-colors text-slate-400 hover:text-sky-400"
+                    title="View on map"
+                >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                    </svg>
+                    <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">Map</span>
+                </button>
+            </div>
+
+            {/* Expanded: show full timeline */}
+            {isExpanded && (
+                <div className="ml-2 border-l-2 border-sky-500/20 pl-3 mt-1 mb-1">
+                    <DateGroupedTimeline
+                        groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                        onDeleteEntry={onDeleteEntry}
+                        onEditEntry={onEditEntry}
+                        voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
+                        voyageLastEntryId={voyage.entries[0]?.id}
+                    />
+                </div>
+            )}
         </div>
     );
 });

@@ -515,6 +515,28 @@ export function useLogPageState() {
         ? filteredEntries.filter(e => e.speedKts).reduce((sum, e) => sum + (e.speedKts || 0), 0) / filteredEntries.filter(e => e.speedKts).length
         : 0;
 
+    // ── Career Totals ───────────────────────────────────────────────────────
+
+    const careerTotals = useMemo(() => {
+        const groups = groupEntriesByVoyage(state.entries);
+        let distance = 0;
+        let timeMs = 0;
+        groups.forEach(g => {
+            // Max cumulative distance per voyage
+            distance += Math.max(0, ...g.entries.map(e => e.cumulativeDistanceNM || 0));
+            // Duration: first to last entry
+            if (g.entries.length >= 2) {
+                const sorted = [...g.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                timeMs += new Date(sorted[sorted.length - 1].timestamp).getTime() - new Date(sorted[0].timestamp).getTime();
+            }
+        });
+        return {
+            totalDistance: distance,
+            totalTimeAtSeaHrs: Math.round(timeMs / (1000 * 60 * 60) * 10) / 10,
+            totalVoyages: groups.length,
+        };
+    }, [state.entries]);
+
     // ── Public API ──────────────────────────────────────────────────────────
 
     return {
@@ -560,5 +582,6 @@ export function useLogPageState() {
         hasNonDeviceEntries,
         totalDistance,
         avgSpeed,
+        careerTotals,
     };
 }

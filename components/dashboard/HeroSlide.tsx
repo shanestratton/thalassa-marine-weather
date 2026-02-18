@@ -19,6 +19,8 @@ import { useWeather } from '../../context/WeatherContext';
 import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
+import { RainForecastCard } from './RainForecastCard';
+import { MinutelyRain } from '../../services/weather/api/tomorrowio';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
@@ -47,7 +49,8 @@ const HeroSlideComponent = ({
     isVisible = false,
     utcOffset,
     tideHourly,
-    isEssentialMode = false
+    isEssentialMode = false,
+    minutelyRain
 }: {
     data: SourcedWeatherMetrics,
     index: number,
@@ -75,7 +78,8 @@ const HeroSlideComponent = ({
     isVisible?: boolean,
     utcOffset?: number,
     tideHourly?: TidePoint[],
-    isEssentialMode?: boolean
+    isEssentialMode?: boolean,
+    minutelyRain?: MinutelyRain[]
 }) => {
     const { nextUpdate, weatherData } = useWeather();
     const forecast = weatherData?.forecast || [];
@@ -554,6 +558,8 @@ const HeroSlideComponent = ({
                     secondaryStationName={undefined}
                     guiDetails={guiDetails}
                     stationPosition="bottom"
+                    vesselDraft={vessel?.draft}
+                    vesselDraftUnit={settings.vesselUnits?.draft || 'ft'}
                 />
             </div>
         );
@@ -912,77 +918,62 @@ const HeroSlideComponent = ({
                                 key={slideIdx}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                <div className={`relative w-full h-full rounded-2xl overflow-hidden flex flex-col gap-2 border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
-                                    {/* BG Gradient */}
-                                    <div className="absolute inset-0 z-0 pointer-events-none">
-                                        <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
-                                    </div>
+                                {showTideGraph ? (
+                                    /* COASTAL LAYOUT — widgets above card, tide inside card */
+                                    <div className="relative w-full h-full flex flex-col gap-3">
+                                        {/* Row 1: Rain Chart OR Wind/Gust/Wave widgets (always visible) */}
+                                        <div className={`px-0 min-h-0 ${minutelyRain && minutelyRain.some((d: any) => d.intensity > 0) ? 'flex-1' : 'shrink-0'}`}>
+                                            <RainForecastCard
+                                                data={minutelyRain || []}
+                                                className="h-full"
+                                                timeZone={timeZone}
+                                            />
+                                        </div>
 
 
-
-                                    {/* 2. MAIN CONTENT */}
-                                    <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col justify-start">
-                                        {showTideGraph ? (
-                                            <div className="flex flex-col w-full h-full">
-                                                {/* Row 1: Small Widgets (hidden in Essential mode) */}
-                                                {!isEssentialMode && (
-                                                    <div className="px-0 shrink-0 mt-0.5 sm:flex sm:flex-col sm:justify-center">
-                                                        <div className="grid grid-cols-3 gap-2 relative z-10 w-full pb-0">
-                                                            {['wind', 'gust', 'wave'].map((id: string, idx: number) => {
-                                                                const justifyClass = idx === 0 ? 'items-start text-left' : idx === 1 ? 'items-center text-center' : 'items-end text-right';
-                                                                const getTheme = (wid: string) => {
-                                                                    switch (wid) {
-                                                                        case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
-                                                                        case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
-                                                                        case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
-                                                                        default: return 'bg-black/10 border-white/5';
-                                                                    }
-                                                                };
-                                                                const themeClass = getTheme(id);
-                                                                return (
-                                                                    <div
-                                                                        key={id}
-                                                                        className={`rounded-xl p-2 sm:p-3 relative flex flex-col justify-center ${rowHeightClass} shadow-lg border ${themeClass} ${justifyClass}`}
-                                                                    >
-                                                                        {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, idx === 0 ? 'left' : idx === 1 ? 'center' : 'right', isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact)}
-                                                                    </div>
-                                                                )
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Tide Graph: Fills ALL Remaining Space */}
-                                                {/* Only show Tide Graph on Main Card (idx 0) or if we want it everywhere? Usually just Main. 
-                                            Let's show it on all for consistency if data exists, otherwise blank space is weird. */}
-                                                <div className="flex-1 min-h-0 w-full relative transition-all duration-300 ease-in-out">
-                                                    {shouldRenderChart ? (
-                                                        <TideGraph
-                                                            tides={tides || []}
-                                                            unit={units.tideHeight || 'm'}
-                                                            timeZone={timeZone}
-                                                            hourlyTides={[]}
-                                                            tideSeries={tideHourly}
-                                                            modelUsed="WorldTides"
-                                                            unitPref={units}
-                                                            customTime={cardTime}
-                                                            showAllDayEvents={index > 0 && !cardTime}
-                                                            stationName={guiDetails?.stationName || "Local Station"}
-                                                            secondaryStationName={guiDetails?.stationName}
-                                                            guiDetails={guiDetails}
-                                                            stationPosition="bottom"
-                                                            className="h-full w-full"
-                                                            style={{ height: '100%', width: '100%' }}
-                                                        />
-                                                    ) : (
-                                                        <div className="h-full w-full" />
-                                                    )}
-                                                </div>
+                                        {/* Tide Graph Card — 2/3 of space */}
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                            {/* BG Gradient */}
+                                            <div className="absolute inset-0 z-0 pointer-events-none">
+                                                <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
                                             </div>
-                                        ) : (
-                                            /* INLAND / OFFSHORE LAYOUT */
-                                            <div className="w-full max-h-full flex flex-col justify-start gap-1 overflow-y-auto safe-bottom">
-                                                <div className="grid grid-cols-3 gap-2 w-full px-2 auto-rows-min">
+                                            <div className="relative w-full h-full">
+                                                {shouldRenderChart ? (
+                                                    <TideGraph
+                                                        tides={tides || []}
+                                                        unit={units.tideHeight || 'm'}
+                                                        timeZone={timeZone}
+                                                        hourlyTides={[]}
+                                                        tideSeries={tideHourly}
+                                                        modelUsed="WorldTides"
+                                                        unitPref={units}
+                                                        customTime={cardTime}
+                                                        showAllDayEvents={index > 0 && !cardTime}
+                                                        stationName={guiDetails?.stationName || "Local Station"}
+                                                        secondaryStationName={guiDetails?.stationName}
+                                                        guiDetails={guiDetails}
+                                                        stationPosition="bottom"
+                                                        className="h-full w-full"
+                                                        style={{ height: '100%', width: '100%' }}
+                                                        vesselDraft={vessel?.draft}
+                                                        vesselDraftUnit={settings.vesselUnits?.draft || 'ft'}
+                                                    />
+                                                ) : (
+                                                    <div className="h-full w-full" />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* INLAND / OFFSHORE LAYOUT — everything inside a single card */
+                                    <div className={`relative w-full h-full rounded-2xl overflow-hidden flex flex-col border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                        {/* BG Gradient */}
+                                        <div className="absolute inset-0 z-0 pointer-events-none">
+                                            <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
+                                        </div>
+                                        <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col justify-start">
+                                            <div className="w-full max-h-full flex flex-col justify-start gap-3 overflow-y-auto safe-bottom">
+                                                <div className="grid grid-cols-3 gap-3 w-full px-2 pt-3 auto-rows-min">
                                                     {(() => {
                                                         const OFFSHORE_WIDGETS = ['wind', 'gust', 'wave', 'pressure', 'visibility', 'precip', 'waterTemperature', 'currentSpeed', 'currentDirection'];
                                                         const INLAND_WIDGETS = ['wind', 'gust', 'uv', 'pressure', 'humidity', 'precip', 'sunrise', 'sunset', 'moon'];
@@ -1005,12 +996,10 @@ const HeroSlideComponent = ({
                                                     })()}
                                                 </div>
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
-
-
-                                </div>
-                            </div >
+                                )}
+                            </div>
                         );
                     })}
                 </div>

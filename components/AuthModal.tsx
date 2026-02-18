@@ -53,9 +53,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         }
     }, [step]);
 
-    if (!isOpen) return null;
-
     const focusTrapRef = useFocusTrap(isOpen);
+
+    if (!isOpen) return null;
 
     // Format phone number for display
     const formatPhoneInput = (value: string) => {

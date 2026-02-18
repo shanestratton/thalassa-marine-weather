@@ -37,6 +37,13 @@ export const getMapboxKey = () => {
     return null;
 };
 
+export const getTomorrowIoKey = () => {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TOMORROW_IO_API_KEY) {
+        return import.meta.env.VITE_TOMORROW_IO_API_KEY;
+    }
+    return null;
+};
+
 
 export const getApiKeySuffix = () => {
     const key = getApiKey();

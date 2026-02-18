@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 // geminiService dynamically imported to avoid bundling @google/generative-ai (158KB) in main chunk
-import { fetchFastWeather, fetchPrecisionWeather, parseLocation, reverseGeocode } from '../services/weatherService';
+import { fetchFastWeather, fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from '../services/weatherService';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
@@ -40,8 +40,13 @@ const isBadWeather = (weather: MarineWeatherReport): boolean => {
     return hasAlerts || highWind || highWaves || heavyRain || poorVisibility || forecastHighWind;
 };
 
-// Get update interval based on location type and weather
-const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport): number => {
+// Get update interval based on location type, weather, and whether this is the user's current GPS location
+const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport, isCurrentLocation: boolean = true): number => {
+    // 0. Non-current-location override — always hourly regardless of type/weather
+    if (!isCurrentLocation) {
+        return INLAND_INTERVAL; // 60 mins
+    }
+
     // 1. Bad weather override — any location type gets 10m refresh
     if (isBadWeather(weather)) {
         return BAD_WEATHER_INTERVAL;
@@ -465,45 +470,54 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
 
-            // Marine-only data: StormGlass + Buoy/AWS
-
-            // Fetch StormGlass marine data
+            // --- LOCATION-TYPE-AWARE API STRATEGY ---
             let currentReport: MarineWeatherReport | null = null;
 
-            if (useStormglass) {
-                try {
-                    if (!resolvedCoords) {
-                        throw new Error(`Cannot fetch weather for ${resolvedLocation}: Missing Coordinates`);
-                    }
-
-                    const precisionReport = await fetchPrecisionWeather(
-                        resolvedLocation,
-                        resolvedCoords,
-                        false,
-                        undefined
-                    );
-                    incrementQuota();
-
-                    currentReport = precisionReport;
-
-                } catch (e: unknown) {
-                    throw e; // No fallback data available
-                }
-            } else {
-                // No Stormglass Key? User said "No OpenMeteo".
-                // So if no SG key, do we fail?
-                // Or fallback? User said "standard edition later".
-                // I'll assume SG Key is present as this is "Pro".
-                if (!currentReport) setLoadingMessage("Please add StormGlass Key.");
+            if (!resolvedCoords) {
+                throw new Error(`Cannot fetch weather for ${resolvedLocation}: Missing Coordinates`);
             }
 
-            // 2. PRECISION
-            // 3. COORD LOCK & FINAL RENDER (immutable)
+            // Determine location type from previous data or default
+            const existingLocationType = weatherDataRef.current?.locationType;
+            const locationType = existingLocationType || 'coastal';
+
+            try {
+                // Use the new strategy-based orchestrator:
+                // Inland/Coastal: Tomorrow.io live + Open-Meteo forecast
+                // Offshore: StormGlass live + Open-Meteo forecast
+                // Marine forecast: StormGlass (coastal/offshore)
+                currentReport = await fetchWeatherByStrategy(
+                    resolvedCoords.lat,
+                    resolvedCoords.lon,
+                    resolvedLocation,
+                    locationType
+                );
+                incrementQuota();
+            } catch (e: unknown) {
+                // Strategy failed — try legacy StormGlass-only as final fallback
+                if (isStormglassKeyPresent()) {
+                    try {
+                        currentReport = await fetchPrecisionWeather(
+                            resolvedLocation,
+                            resolvedCoords,
+                            false,
+                            locationType
+                        );
+                        incrementQuota();
+                    } catch {
+                        throw e; // Original error if fallback also fails
+                    }
+                } else {
+                    throw e;
+                }
+            }
+
+            // COORD LOCK & FINAL RENDER (immutable)
             if (coords && currentReport) {
                 currentReport = { ...currentReport, coordinates: coords };
             }
 
-            // 4. BEACON ENHANCEMENT & MULTI-SOURCE LOGGING  
+            // BEACON ENHANCEMENT & MULTI-SOURCE LOGGING  
             // Fetch NOAA buoy data (if within 10nm) and log source breakdown
             if (currentReport && currentReport.coordinates) {
                 currentReport = await enhanceWithBeaconData(currentReport, currentReport.coordinates);
@@ -511,7 +525,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             if (currentReport) {
                 setWeatherData(currentReport);
-                // Clean up non-null assertion
                 const validReport = currentReport;
                 setHistoryCache(prev => ({ ...prev, [location]: validReport }));
                 saveLargeData(DATA_CACHE_KEY, validReport);
@@ -520,8 +533,9 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             // 5. CALCULATE NEXT UPDATE TIME using intelligent intervals
             if (currentReport) {
-                const locationType = currentReport.locationType || 'coastal';
-                const interval = getUpdateInterval(locationType, currentReport);
+                const reportLocationType = currentReport.locationType || 'coastal';
+                const isCurrentLoc = locationMode === 'gps';
+                const interval = getUpdateInterval(reportLocationType, currentReport, isCurrentLoc);
                 const nextTs = alignToNextInterval(interval);
 
                 setNextUpdate(nextTs);
@@ -560,11 +574,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         } catch (err: unknown) {
             if (!navigator.onLine && (weatherDataRef.current || historyCacheRef.current[location])) {
-                // OK
+                // OK — offline fallback
             } else {
                 if (!weatherDataRef.current) setError(getErrorMessage(err) || "Weather Unavailable");
             }
             setLoading(false);
+
+            // FIX: ALWAYS reschedule nextUpdate on failure
+            // Without this, the countdown hits 0 → shows "Updating..." → fetch fails → never recovers
+            const retryInterval = 2 * 60 * 1000; // Retry in 2 minutes on failure
+            const retryTs = Date.now() + retryInterval;
+            setNextUpdate(retryTs);
+            localStorage.setItem('thalassa_next_update', retryTs.toString());
         } finally {
             isFetchingRef.current = false; // Release fetch lock
             setBackgroundUpdating(false);
@@ -654,8 +675,9 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // --- WATCHDOG: Ensure nextUpdate is set if data exists ---
     useEffect(() => {
         if (weatherData && !nextUpdate) {
-            const locationType = weatherData.locationType || 'coastal';
-            const interval = getUpdateInterval(locationType, weatherData);
+            const watchdogLocationType = weatherData.locationType || 'coastal';
+            const isCurrentLoc = locationMode === 'gps';
+            const interval = getUpdateInterval(watchdogLocationType, weatherData, isCurrentLoc);
             const gen = new Date(weatherData.generatedAt).getTime();
             const target = gen + interval;
             const now = Date.now();
@@ -668,7 +690,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setNextUpdate(nextTarget);
             }
         }
-    }, [weatherData, nextUpdate]);
+    }, [weatherData, nextUpdate, locationMode]);
 
     // --- SMART REFRESH TIMER ---
     useEffect(() => {
@@ -704,11 +726,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         }
                     );
                 } else {
-                    // Selected Mode: Keep location fixed, don't update GPS
+                    // Selected Mode: Keep location FIXED — never touch GPS, always use stored coords
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
-                    const coords = weatherDataRef.current?.locationName === loc ? weatherDataRef.current?.coordinates : undefined;
-                    if (loc) {
-                        fetchWeather(loc, false, coords, false, true); // Silent refresh
+                    const storedCoords = weatherDataRef.current?.coordinates;
+                    if (loc && storedCoords) {
+                        fetchWeather(loc, false, storedCoords, false, true); // Silent refresh with fixed coords
+                    } else if (loc) {
+                        fetchWeather(loc, false, undefined, false, true); // Resolve from name
                     }
                 }
             }

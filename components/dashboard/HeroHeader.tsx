@@ -1,34 +1,34 @@
 import React, { useMemo, useCallback } from 'react';
 import { useEnvironment } from '../../context/ThemeContext';
-import { t } from '../../theme';
-import { ArrowUpIcon, ArrowDownIcon, SunriseIcon, SunsetIcon } from '../Icons';
+import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
-import { generateWeatherNarrative } from './WeatherHelpers';
 
-/** Selects a weather background image based on conditions */
-function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number | null, moonIllumination?: number): string {
-    const c = (condition || '').toLowerCase();
+/** Chevron-down SVG icon */
+const ChevronIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <polyline points="6 9 12 15 18 9" />
+    </svg>
+);
 
-    // Storm / Thunder always wins
-    if (c.includes('storm') || c.includes('thunder')) return '/weather-bg/storm.png';
-    // Rain / Showers / Drizzle / Pouring
-    if (c.includes('rain') || c.includes('shower') || c.includes('drizzle') || c.includes('pour')) return '/weather-bg/rain.png';
-    // Fog / Mist / Haze
-    if (c.includes('fog') || c.includes('mist') || c.includes('haze')) return '/weather-bg/fog.png';
-
-    // Night scenes
-    if (!isDay) {
-        if (moonIllumination !== undefined && moonIllumination > 0.3) return '/weather-bg/night-moon.png';
-        return '/weather-bg/night-dark.png';
+/** Condition-to-icon emoji (lightweight, no extra SVG assets needed) */
+const getConditionIcon = (condition: string): string => {
+    switch (condition) {
+        case 'Sunny': return '☀️';
+        case 'Clear': return '🌙';
+        case 'Cloudy': return '☁️';
+        case 'Partly': return '⛅';
+        case 'Overcast': return '🌥️';
+        case 'Rain': return '🌧️';
+        case 'Pouring': return '🌊';
+        case 'Storm': return '⛈️';
+        case 'Snow': return '❄️';
+        case 'Fog': return '🌫️';
+        case 'Haze': return '🌫️';
+        case 'Windy': return '💨';
+        default: return '☁️';
     }
-
-    // Day scenes — use cloud cover thresholds
-    const cc = cloudCover ?? 0;
-    if (cc > 70) return '/weather-bg/cloudy.png';
-    if (cc > 30) return '/weather-bg/partly-cloudy.png';
-    return '/weather-bg/sunny.png';
-}
+};
 
 interface HeroHeaderProps {
     data: WeatherMetrics;
@@ -38,9 +38,9 @@ interface HeroHeaderProps {
     dateLabel: string;
     timeLabel: string;
     timeZone?: string;
-    sources?: Record<string, { source: string; sourceColor?: 'emerald' | 'amber' | 'white'; sourceName?: string }>;
-    isEssentialMode?: boolean;
-    onToggleMode?: () => void;
+    sources?: Record<string, { source: string; sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'; sourceName?: string }>;
+    isExpanded?: boolean;
+    onToggleExpand?: () => void;
 }
 
 const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
@@ -52,127 +52,129 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     timeLabel,
     timeZone,
     sources,
-    isEssentialMode = false,
-    onToggleMode
+    isExpanded = true,
+    onToggleExpand
 }) => {
-    const env = useEnvironment();
-    const toggleLabelSize = env === 'onshore' ? 'text-[10px]' : 'text-sm';
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
-        // Forecast data should always be white
         if (!isLive) return 'text-white';
-
-        // Live data shows source colors
         if (!sources || !sources['airTemperature']) return 'text-white';
         const sourceColor = sources['airTemperature']?.sourceColor;
         switch (sourceColor) {
-            case 'emerald': return 'text-emerald-400';  // Buoy data
-            case 'amber': return 'text-amber-400';      // StormGlass data
-            default: return 'text-white';               // Default
+            case 'emerald': return 'text-emerald-400';
+            case 'amber': return 'text-amber-400';
+            default: return 'text-white';
         }
     }, [isLive, sources]);
 
-    // PERF: Memoize weather narrative generation
-    const weatherNarrative = useMemo(() => generateWeatherNarrative(data), [data]);
+    // Map weather condition to single word
+    const oneWordCondition = useMemo(() => {
+        const c = (data.condition || '').toLowerCase();
+        if (c.includes('thunder') || c.includes('storm')) return 'Storm';
+        if (c.includes('pour') || c.includes('heavy rain')) return 'Pouring';
+        if (c.includes('rain') || c.includes('shower') || c.includes('drizzle')) return 'Rain';
+        if (c.includes('snow') || c.includes('sleet') || c.includes('ice')) return 'Snow';
+        if (c.includes('fog') || c.includes('mist')) return 'Fog';
+        if (c.includes('haze')) return 'Haze';
+        if (c.includes('overcast')) return 'Overcast';
+        if (c.includes('cloud') || c.includes('mostly cloudy')) return 'Cloudy';
+        if (c.includes('partly') || c.includes('scattered')) return 'Partly';
+        if (!isDay && (c.includes('clear') || c.includes('sunny') || c === '')) return 'Clear';
+        if (c.includes('clear') || c.includes('sunny') || c === '') return 'Sunny';
+        if (c.includes('wind')) return 'Windy';
+        return 'Cloudy';
+    }, [data.condition, isDay]);
 
-    const bgImage = getWeatherBackgroundImage(data.condition, isDay, data.cloudCover, data.moonIllumination);
+    const conditionIcon = getConditionIcon(oneWordCondition);
 
     return (
-        <div className={`relative w-full rounded-2xl overflow-hidden backdrop-blur-md ${t.border.default} bg-black`}>
-            {/* Dynamic Weather Background Image */}
-            <div className="absolute inset-0 z-0 overflow-hidden bg-black">
-                <img
-                    src={bgImage}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    style={{ minWidth: '100%', minHeight: '100%' }}
-                />
-            </div>
-            <div className="absolute inset-0 z-[1] bg-black/50" />
-            <div className={`relative z-10 rounded-2xl p-0 flex flex-col overflow-hidden border shadow-lg ${isDay ? 'border-sky-400/20 shadow-sky-900/5' : 'border-indigo-400/20 shadow-indigo-900/5'}`}>
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
-                <div className="flex flex-row w-full min-h-[90px]">
-                    {/* Temperature */}
-                    <div className="flex-1 p-2 flex flex-col justify-center items-start min-w-0">
-                        <div className="flex items-start leading-none">
-                            {(() => {
-                                const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
-                                const len = tempStr.length;
-                                const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
-                                return (
-                                    <span
-                                        className={`${sizeClass} font-black tracking-tighter ${getTempColor()} drop-shadow-2xl leading-none`}
-                                        aria-label={`Temperature ${tempStr} degrees`}
-                                    >
-                                        {tempStr}°
-                                    </span>
-                                );
-                            })()}
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                            <div className="flex items-center gap-0.5">
-                                <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
-                                <span className="text-sm font-bold text-white opacity-80">
-                                    {data.highTemp !== undefined ? convertTemp(data.highTemp, units.temp) : '--'}°
-                                </span>
-                            </div>
-                            <div className="w-px h-2.5 bg-white/20"></div>
-                            <div className="flex items-center gap-0.5">
-                                <ArrowDownIcon className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
-                                <span className="text-sm font-bold text-white opacity-80">
-                                    {data.lowTemp !== undefined ? convertTemp(data.lowTemp, units.temp) : '--'}°
-                                </span>
-                            </div>
-                        </div>
-                    </div>
+        <div
+            className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]"
+        >
+            {/* Pulsing dot keyframe — injected once */}
+            <style>{`@keyframes hh-pulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
 
-                    {/* Date/Time - NOW IN CENTER - CLICKABLE TOGGLE */}
-                    <button
-                        onClick={onToggleMode}
-                        className="flex-1 p-2 flex flex-col justify-center items-center min-w-0 cursor-pointer touch-none select-none group/toggle relative"
-                        style={{ WebkitTapHighlightColor: 'transparent' }}
-                        aria-label="Toggle Mode">
-                        {/* Soft press glow — rounded pill shape, no hard edges */}
-                        <div className="absolute inset-x-2 inset-y-1 rounded-xl bg-white/0 group-active/toggle:bg-white/10 transition-colors duration-150" />
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none w-full text-center`} style={{ paddingLeft: '0.2em' }}>
-                            {isLive ? "TODAY" : "FORECAST"}
-                        </span>
-                        <span className={`${isLive ? 'text-emerald-400' : 'text-blue-400'} ${(!isLive && dateLabel !== "TODAY") ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-black tracking-tighter leading-none w-full text-center whitespace-nowrap mt-0.5`}>
-                            {isLive ? "NOW" : dateLabel}
-                        </span>
-                        {timeLabel && (
-                            <span className={`text-sm font-bold ${isLive ? 'text-emerald-400' : 'text-blue-400'} font-mono text-center whitespace-nowrap mt-1`}>
-                                {timeLabel}
+            <div className="flex flex-row w-full items-center min-h-[70px]">
+                {/* LEFT: Temperature only */}
+                <div className="flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0">
+                    {(() => {
+                        const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
+                        const len = tempStr.length;
+                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
+                        return (
+                            <span
+                                className={`${sizeClass} font-black tracking-tighter ${getTempColor()} leading-none`}
+                                aria-label={`Temperature ${tempStr} degrees`}
+                            >
+                                {tempStr}°
                             </span>
-                        )}
-                        {/* Essential/Full mode toggle indicator */}
-                        <div className="flex flex-col items-center gap-0.5 mt-1.5">
-                            <span className={`text-[8px] font-bold uppercase tracking-[0.2em] text-white/25`}>View Mode</span>
-                            <div className="flex items-center gap-1.5">
-                                <span className={`${toggleLabelSize} font-bold uppercase tracking-wider text-amber-400`}>
-                                    Basic
-                                </span>
-                                <div className={`w-6 h-3 rounded-full ${isEssentialMode ? 'bg-amber-500/30' : 'bg-white/10'} relative transition-colors`}>
-                                    <div className={`absolute top-0.5 w-2 h-2 rounded-full ${isEssentialMode ? 'bg-amber-400 left-0.5' : 'bg-white/60 right-0.5'} transition-all`} />
-                                </div>
-                                <span className={`${toggleLabelSize} font-bold uppercase tracking-wider text-sky-400`}>
-                                    Full
+                        );
+                    })()}
+                </div>
+
+                {/* CENTER: Status dot + icon + condition */}
+                <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2">
+                    {isLive ? (
+                        <div className="flex items-center gap-2">
+                            {/* Pulsing green live dot */}
+                            <div
+                                className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
+                                style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
+                            />
+                            <span className="text-xl leading-none">{conditionIcon}</span>
+                            <span className="text-white text-2xl font-black tracking-tight leading-none">
+                                {oneWordCondition}
+                            </span>
+                        </div>
+                    ) : (
+                        <>
+                            <span className="text-blue-400 font-extrabold text-[10px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
+                                {dateLabel}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg leading-none">{conditionIcon}</span>
+                                <span className="text-white text-xl font-black tracking-tight leading-none">
+                                    {oneWordCondition}
                                 </span>
                             </div>
-                        </div>
-                    </button>
+                            {timeLabel && (
+                                <span className="text-blue-400/70 text-[10px] font-bold font-mono leading-none mt-1">
+                                    {timeLabel}
+                                </span>
+                            )}
+                        </>
+                    )}
+                </div>
 
-                    {/* Weather Narrative - NOW ON RIGHT */}
-                    <div className="flex-1 p-3 flex flex-col justify-center items-center min-w-0 overflow-hidden">
-                        <div
-                            className="text-sm md:text-sm font-medium text-left leading-relaxed text-white/90 overflow-y-scroll h-[75px] w-full pr-1 scrollbar-hide"
-                            aria-live="polite"
-                            aria-label="Weather description"
-                        >
-                            {weatherNarrative}
+                {/* RIGHT: Hi/Lo + Chevron */}
+                <button
+                    onClick={onToggleExpand}
+                    className="flex-[1] flex items-center justify-end gap-2 pr-3 cursor-pointer touch-none select-none"
+                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                    aria-label={isExpanded ? 'Collapse instrument grid' : 'Expand instrument grid'}
+                >
+                    {/* Hi/Lo temps stacked */}
+                    <div className="flex flex-col items-end gap-0.5">
+                        <div className="flex items-center gap-0.5">
+                            <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
+                            <span className="text-xs font-bold text-white/80">
+                                {data.highTemp !== undefined ? convertTemp(data.highTemp, units.temp) : '--'}°
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                            <ArrowDownIcon className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
+                            <span className="text-xs font-bold text-white/80">
+                                {data.lowTemp !== undefined ? convertTemp(data.lowTemp, units.temp) : '--'}°
+                            </span>
                         </div>
                     </div>
-                </div>
+                    {/* Ghostly chevron */}
+                    <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
+                        <ChevronIcon
+                            className={`w-3.5 h-3.5 text-white/40 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                    </div>
+                </button>
             </div>
         </div>
     );

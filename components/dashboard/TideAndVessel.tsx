@@ -27,13 +27,14 @@ export { MoonVisual, SolarArc, getMoonPhaseData };
 // Replaces the old Recharts StaticTideBackground + ActiveTideOverlay with a single <canvas>.
 // Canvas eliminates SVG DOM overhead and merges what were two stacked AreaCharts into one draw call.
 
-const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: {
+const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, vesselDraft }: {
     dataPoints: { time: number; height: number }[];
     currentHour: number;
     currentHeight: number;
     minHeight: number;
     maxHeight: number;
     domainBuffer: number;
+    vesselDraft?: number; // Vessel draft in tide display units — triggers danger gradient when tide drops near/below
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -75,68 +76,163 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         // Clear
         ctx.clearRect(0, 0, w, h);
 
-        // --- GRADIENT FILL ---
-        const gradient = ctx.createLinearGradient(0, marginTop, 0, h);
-        gradient.addColorStop(0, 'rgba(14, 165, 233, 0.8)'); // sky-500
-        gradient.addColorStop(1, 'rgba(2, 132, 199, 0.4)');   // sky-600
+        // --- Helper: get interpolated height at any time ---
+        const getHeightAtTime = (t: number): number => {
+            const idx = dataPoints.findIndex(p => p.time >= t);
+            if (idx === -1) return dataPoints[dataPoints.length - 1].height;
+            if (idx === 0) return dataPoints[0].height;
+            const p1 = dataPoints[idx - 1];
+            const p2 = dataPoints[idx];
+            const frac = (t - p1.time) / (p2.time - p1.time);
+            return p1.height + frac * (p2.height - p1.height);
+        };
 
+        // --- Height-to-color helper (neon gradient: cyan at high, orange at low) ---
+        const getHeightColor = (height: number): { r: number; g: number; b: number } => {
+            const t = (height - yMin) / (yMax - yMin); // 0 = bottom, 1 = top
+            // Orange (warm) at low: rgb(251, 146, 60)
+            // Cyan (cool) at high: rgb(34, 211, 238)
+            return {
+                r: Math.round(251 + (34 - 251) * t),
+                g: Math.round(146 + (211 - 146) * t),
+                b: Math.round(60 + (238 - 60) * t),
+            };
+        };
+
+        // --- FILL: Subtle vertical fade under the curve (15% → 0%) ---
+        ctx.save();
         ctx.beginPath();
         ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
         for (let i = 1; i < dataPoints.length; i++) {
             ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
         }
-        // Close path down to bottom for fill
         ctx.lineTo(toX(dataPoints[dataPoints.length - 1].time), h);
         ctx.lineTo(toX(dataPoints[0].time), h);
         ctx.closePath();
-        ctx.fillStyle = gradient;
-        ctx.fill();
 
-        // --- CURVE STROKE with shadow ---
+        const fillGrad = ctx.createLinearGradient(0, marginTop, 0, h);
+        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.15)');  // Cyan at top, 15%
+        fillGrad.addColorStop(0.5, 'rgba(34, 211, 238, 0.06)');
+        fillGrad.addColorStop(1, 'rgba(34, 211, 238, 0.0)');   // Fade to nothing
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+        ctx.restore();
+
+        // --- NEON STROKE (Two-pass for performance) ---
+
+        // Pass 1: Single glow underlay (one stroke call — fast)
         ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetY = 4;
+        ctx.shadowColor = 'rgba(34, 211, 238, 0.4)';
+        ctx.shadowBlur = 12;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.25)';
         ctx.beginPath();
         ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
         for (let i = 1; i < dataPoints.length; i++) {
             ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
         }
-        ctx.strokeStyle = '#38bdf8'; // sky-400
-        ctx.lineWidth = 3;
         ctx.stroke();
         ctx.restore();
 
-        // --- CURRENT TIME REFERENCE LINE (dashed vertical) ---
+        // Pass 2: Per-segment colored stroke (NO shadow — fast)
+        ctx.save();
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        for (let i = 1; i < dataPoints.length; i++) {
+            const p0 = dataPoints[i - 1];
+            const p1 = dataPoints[i];
+            const midHeight = (p0.height + p1.height) / 2;
+
+            let segColor: string;
+            if (vesselDraft !== undefined && vesselDraft > 0 && midHeight <= vesselDraft) {
+                segColor = 'rgba(239, 68, 68, 0.95)';
+            } else if (vesselDraft !== undefined && vesselDraft > 0 && midHeight <= vesselDraft + vesselDraft * 0.3) {
+                segColor = 'rgba(251, 191, 36, 0.9)';
+            } else {
+                const c = getHeightColor(midHeight);
+                segColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(toX(p0.time), toY(p0.height));
+            ctx.lineTo(toX(p1.time), toY(p1.height));
+            ctx.strokeStyle = segColor;
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        // --- DRAFT LINE (crisp dashed horizontal) ---
+        if (vesselDraft !== undefined && vesselDraft > 0) {
+            const draftY = toY(vesselDraft);
+            if (draftY >= marginTop && draftY <= h - marginBottom) {
+                ctx.save();
+                ctx.setLineDash([6, 4]);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(marginLeft, draftY);
+                ctx.lineTo(w - marginRight, draftY);
+                ctx.stroke();
+                ctx.restore();
+
+                // "DRAFT" label
+                ctx.save();
+                ctx.font = 'bold 10px ui-monospace, SFMono-Regular, monospace';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.textAlign = 'right';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 3;
+                ctx.fillText('DRAFT', w - marginRight - 4, draftY - 4);
+                ctx.restore();
+            }
+        }
+
+        // --- CURRENT TIME: Hairline vertical + Glow Dot ---
         if (currentHour >= 0 && currentHour <= 24) {
             const cx = toX(currentHour);
+            const cy = toY(currentHeight);
+
+            // Hairline vertical line (30% opacity)
             ctx.save();
-            ctx.setLineDash([3, 3]);
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 0.5;
             ctx.beginPath();
-            ctx.moveTo(cx, marginTop);
+            ctx.moveTo(cx, cy + 12);
             ctx.lineTo(cx, h - marginBottom);
             ctx.stroke();
             ctx.restore();
-        }
 
-        // --- CURRENT POSITION DOT ---
-        if (currentHour >= 0 && currentHour <= 24) {
-            const dotX = toX(currentHour);
-            const dotY = toY(currentHeight);
-            // White stroke
+            // Determine dot color — red if below draft, else match the curve color
+            const isDanger = vesselDraft !== undefined && vesselDraft > 0 && currentHeight <= vesselDraft;
+            const dotC = isDanger
+                ? { r: 239, g: 68, b: 68 }
+                : getHeightColor(currentHeight);
+
+            // Outer halo glow (semi-transparent colored ring)
+            ctx.save();
             ctx.beginPath();
-            ctx.arc(dotX, dotY, 7, 0, Math.PI * 2);
+            ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.2)`;
+            ctx.fill();
+            ctx.restore();
+
+            // Mid ring
+            ctx.beginPath();
+            ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.35)`;
+            ctx.fill();
+
+            // Solid white center (4px)
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
             ctx.fillStyle = '#ffffff';
             ctx.fill();
-            // Yellow fill
-            ctx.beginPath();
-            ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
-            ctx.fillStyle = '#facc15'; // yellow-400
-            ctx.fill();
         }
-    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
+    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer, vesselDraft]);
 
     useEffect(() => {
         draw();
@@ -154,15 +250,16 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         </div>
     );
 }, (prev, next) => {
-    // Re-render when data, time position, or scale changes
+    // Re-render when data, time position, scale, or draft changes
     return prev.dataPoints === next.dataPoints &&
         prev.currentHour === next.currentHour &&
         prev.currentHeight === next.currentHeight &&
         prev.minHeight === next.minHeight &&
-        prev.maxHeight === next.maxHeight;
+        prev.maxHeight === next.maxHeight &&
+        prev.vesselDraft === next.vesselDraft;
 });
 
-export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
+export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style, vesselDraft, vesselDraftUnit }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties, vesselDraft?: number, vesselDraftUnit?: string }) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
 
@@ -416,9 +513,24 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         minHeight = 0;
         maxHeight = 2; // Fallback range
     }
+    // Convert vessel draft from stored unit (ALWAYS feet — MetricInput's toStandard) to tide display units
+    const convertedDraft = React.useMemo(() => {
+        if (vesselDraft === undefined || vesselDraft <= 0) return undefined;
+        const tideUnit = unitPref.tideHeight || 'm';
+        // vessel.draft is ALWAYS stored in feet (MetricInput converts to 'ft' standard)
+        const draftInMeters = vesselDraft * 0.3048;
+        // Convert meters to the tide display unit (ft or m)
+        const result = convertMetersTo(draftInMeters, tideUnit);
+        return result || undefined;
+    }, [vesselDraft, unitPref.tideHeight]);
+
+    // Ensure the Y-axis includes the draft line so it's always visible
+    if (convertedDraft !== undefined && convertedDraft > 0) {
+        // Draft line should be visible even if tides never drop that low
+        minHeight = Math.min(minHeight, convertedDraft - 0.3);
+    }
+
     const domainBuffer = (maxHeight - minHeight) * 0.2;
-
-
 
     // Find next high and low for Hero Mode (using ALL markers)
     const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
@@ -432,13 +544,13 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             {/* INTUITIVE HEADER OVERLAYS */}
             {stationPosition === 'bottom' ? (
                 /* HERO MODE (Clean, Single Line) */
-                <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline px-2 pt-6 pointer-events-none">
+                <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-baseline px-2 pt-1.5 pointer-events-none">
                     {/* LEFT: Height (Only if NOT showing all day events) */}
                     {!showAllDayEvents ? (
                         <div className="flex items-baseline gap-1.5 pointer-events-auto">
                             <span className={heroLabelClass}>Height</span>
                             <div className="flex items-baseline gap-0.5">
-                                <span className="text-sm font-bold text-white tracking-tight leading-none">{currentHeight.toFixed(1)}</span>
+                                <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">{currentHeight.toFixed(1)}</span>
                                 <span className="text-[10px] text-blue-200 font-medium">{unit}</span>
                             </div>
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
@@ -453,14 +565,14 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             <div key={idx} className="flex items-start gap-1.5">
                                 <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
                                 <div className="flex flex-col items-end">
-                                    <span className="text-sm font-bold text-white tracking-tight leading-none">
+                                    <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
                                         {(() => {
                                             const h = Math.floor(event!.time) % 24; // Modulo 24 for tomorrow times
                                             const m = Math.round((event!.time - Math.floor(event!.time)) * 60);
                                             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                         })()}
                                     </span>
-                                    <span className="text-sm font-medium text-blue-200/80 leading-none mt-1">
+                                    <span className="text-sm font-medium text-blue-200/80 leading-none mt-1 font-mono">
                                         {event!.height.toFixed(1)} {unit}
                                     </span>
                                 </div>
@@ -510,10 +622,11 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     minHeight={minHeight}
                     maxHeight={maxHeight}
                     domainBuffer={domainBuffer}
+                    vesselDraft={convertedDraft}
                 />
                 {/* Station name — bottom left */}
                 {(guiDetails?.stationName || stationName) && (
-                    <span className="absolute bottom-1.5 left-2 text-[9px] font-medium text-white/25 tracking-wide pointer-events-none select-none">
+                    <span className="absolute bottom-1.5 left-2 text-[9px] font-semibold text-white/50 tracking-wide pointer-events-none select-none">
                         {guiDetails?.stationName || stationName}
                     </span>
                 )}
