@@ -198,8 +198,8 @@ export const LogPage: React.FC = () => {
                                 : 0;
                             return (
                                 <div className="grid grid-cols-3 gap-3 mb-4">
-                                    <StatBox label="Distance" value={`${scopedDistance.toFixed(1)} NM`} />
-                                    <StatBox label="Avg Speed" value={`${scopedAvgSpeed.toFixed(1)} kts`} />
+                                    <StatBox label="Distance" value={`${(scopedDistance ?? 0).toFixed(1)} NM`} />
+                                    <StatBox label="Avg Speed" value={`${(scopedAvgSpeed ?? 0).toFixed(1)} kts`} />
                                     <StatBox label="Entries" value={scopedEntries.length} />
                                 </div>
                             );
@@ -266,7 +266,7 @@ export const LogPage: React.FC = () => {
                             </div>
                             <div className="grid grid-cols-3 divide-x divide-white/10">
                                 <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalDistance.toFixed(1)}</div>
+                                    <div className="text-lg font-extrabold text-white">{(careerTotals.totalDistance ?? 0).toFixed(1)}</div>
                                     <div className="text-[10px] text-slate-500 uppercase tracking-wider">NM Sailed</div>
                                 </div>
                                 <div className="text-center px-2">
@@ -306,7 +306,7 @@ export const LogPage: React.FC = () => {
                                     )}
                                     <div className="grid grid-cols-3 gap-3">
                                         <div>
-                                            <div className="text-2xl font-extrabold text-emerald-400">{dist.toFixed(1)}</div>
+                                            <div className="text-2xl font-extrabold text-emerald-400">{(dist ?? 0).toFixed(1)}</div>
                                             <div className="text-[10px] text-slate-500 uppercase">NM</div>
                                         </div>
                                         <div>
@@ -314,7 +314,7 @@ export const LogPage: React.FC = () => {
                                             <div className="text-[10px] text-slate-500 uppercase">Duration</div>
                                         </div>
                                         <div>
-                                            <div className="text-2xl font-extrabold text-emerald-400">{liveAvgSpeed.toFixed(1)}</div>
+                                            <div className="text-2xl font-extrabold text-emerald-400">{(liveAvgSpeed ?? 0).toFixed(1)}</div>
                                             <div className="text-[10px] text-slate-500 uppercase">Avg kts</div>
                                         </div>
                                     </div>
@@ -917,7 +917,7 @@ export const LogPage: React.FC = () => {
                 const formatLoc = (e: ShipLogEntry | undefined) => {
                     if (!e) return 'Unknown';
                     if (e.waypointName) return e.waypointName;
-                    return `${Math.abs(e.latitude).toFixed(2)}°${e.latitude >= 0 ? 'N' : 'S'}`;
+                    return `${Math.abs(e.latitude ?? 0).toFixed(2)}°${(e.latitude ?? 0) >= 0 ? 'N' : 'S'}`;
                 };
 
                 return (
@@ -1062,8 +1062,8 @@ const VoyageCard: React.FC<{
     return (
         <div className="mb-3">
             <div className={`w-full rounded-2xl overflow-hidden transition-all flex ${isExpanded
-                    ? 'bg-slate-800/80 border border-sky-500/30'
-                    : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
+                ? 'bg-slate-800/80 border border-sky-500/30'
+                : 'bg-slate-900/60 border border-white/5 hover:border-white/15'
                 }`}>
                 {/* LEFT — route info, expands timeline */}
                 <button
@@ -1073,7 +1073,7 @@ const VoyageCard: React.FC<{
                     <div className="flex items-start justify-between mb-1">
                         <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">{dateLabel}</div>
                         <div className="flex items-center gap-1.5">
-                            <span className="text-base font-extrabold text-white">{dist.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">NM</span></span>
+                            <span className="text-base font-extrabold text-white">{(dist ?? 0).toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">NM</span></span>
                             <span className="text-[10px] text-slate-600">|</span>
                             <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
                         </div>
@@ -1085,7 +1085,7 @@ const VoyageCard: React.FC<{
                     )}
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] text-slate-500">{voyage.entries.length} entries</span>
-                        {avgSpeed > 0 && <span className="text-[10px] text-slate-500">· {avgSpeed.toFixed(1)} kts avg</span>}
+                        {avgSpeed > 0 && <span className="text-[10px] text-slate-500">· {(avgSpeed ?? 0).toFixed(1)} kts avg</span>}
                         {hasManual && (
                             <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[9px] font-bold text-purple-400 uppercase">Manual</span>
                         )}
