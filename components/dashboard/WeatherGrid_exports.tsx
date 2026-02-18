@@ -37,7 +37,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
                     Warnings Active
                 </span>
             </div>
-            <div className="bg-white text-red-600 font-black text-sm w-6 h-6 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
+            <div className="bg-white text-red-600 font-bold text-sm w-6 h-6 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
                 {alerts.length}
             </div>
         </button>
@@ -51,7 +51,7 @@ export const MetricsWidget = ({ current, units, displayValues }: { current: Weat
         <div className="grid grid-cols-3 gap-4">
             <Card className={`col-span-1 border transition-colors ${isSensorLocked ? 'border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-white/10'}`}>
                 <div className="absolute top-2 right-2 flex gap-1">
-                    {isSensorLocked && <span className="text-[7px] font-black bg-emerald-500 text-white px-1 py-0.5 rounded leading-none uppercase tracking-tighter">Verified</span>}
+                    {isSensorLocked && <span className="text-[7px] font-bold bg-emerald-500 text-white px-1 py-0.5 rounded leading-none uppercase tracking-tighter">Verified</span>}
                 </div>
                 <Metric icon={<WindIcon className="w-6 h-6" />} label={`Wind (${units.speed})`} value={`${displayValues.windSpeed}`} subValue={<span className="text-orange-300 font-medium">Gusting: {displayValues.gusts}</span>} isEstimated={current.isEstimated} />
             </Card>

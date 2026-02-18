@@ -261,7 +261,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 backdrop-blur-xl z-10">
                             <div className="flex items-center gap-2">
                                 <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
-                                <h2 className="text-base font-black text-white tracking-tight">Data Sources</h2>
+                                <h2 className="text-base font-bold text-white tracking-tight">Data Sources</h2>
                                 {!isLive && (
                                     <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-md uppercase">Forecast</span>
                                 )}

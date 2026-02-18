@@ -92,7 +92,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
 
                                     return (
-                                        <span className={`${sizeClass} font-black tracking-tighter text-white drop-shadow-2xl leading-none transition-all duration-300`}>
+                                        <span className={`${sizeClass} font-mono font-bold tracking-tighter text-ivory drop-shadow-2xl leading-none transition-all duration-300`}>
                                             {cardDisplayValues.airTemp}°
                                         </span>
                                     )
@@ -115,12 +115,12 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
                                     <ArrowUpIcon className="w-3 h-3 text-orange-400" />
-                                    <span className="text-base font-black">{cardDisplayValues.highTemp}°</span>
+                                    <span className="text-base font-mono font-bold text-ivory">{cardDisplayValues.highTemp}°</span>
                                 </div>
                                 <div className="w-px h-3 bg-white/20" />
                                 <div className="flex items-center gap-0.5 text-gray-300">
                                     <ArrowDownIcon className="w-3 h-3 text-emerald-400" />
-                                    <span className="text-base font-black">{cardDisplayValues.lowTemp}°</span>
+                                    <span className="text-base font-mono font-bold text-ivory">{cardDisplayValues.lowTemp}°</span>
                                 </div>
                             </div>
 
@@ -157,7 +157,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             </span>
                         </div>
                         {/* MIDDLE: Now - large text like temp */}
-                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-black tracking-tighter leading-none whitespace-nowrap`}>
+                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-mono font-bold tracking-tighter leading-none whitespace-nowrap`}>
                             {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
                         </span>
                         {/* BOTTOM: Hours - matches condition position */}

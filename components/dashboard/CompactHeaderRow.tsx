@@ -40,7 +40,7 @@ export const CompactHeaderRow = ({
                         <span className="text-white font-bold uppercase tracking-wider text-sm">
                             Warnings
                         </span>
-                        <div className="bg-white text-red-600 font-black text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
+                        <div className="bg-white text-red-600 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
                             {alerts.length}
                         </div>
                     </>
