@@ -99,7 +99,9 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
             };
         };
 
-        // --- FILL: Subtle vertical fade under the curve (15% → 0%) ---
+        // --- FILL: Professional area shading under the curve ---
+        // Uses a smooth vertical gradient that's visible but not overpowering.
+        // Blends cyan/teal to match the neon stroke palette.
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
@@ -111,9 +113,10 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         ctx.closePath();
 
         const fillGrad = ctx.createLinearGradient(0, marginTop, 0, h);
-        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.15)');  // Cyan at top, 15%
-        fillGrad.addColorStop(0.5, 'rgba(34, 211, 238, 0.06)');
-        fillGrad.addColorStop(1, 'rgba(34, 211, 238, 0.0)');   // Fade to nothing
+        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.25)');   // Cyan at peaks — 25%
+        fillGrad.addColorStop(0.3, 'rgba(20, 184, 166, 0.18)');   // Teal blend
+        fillGrad.addColorStop(0.6, 'rgba(20, 184, 166, 0.08)');   // Gentle fade
+        fillGrad.addColorStop(1, 'rgba(20, 184, 166, 0.0)');    // Transparent at bottom
         ctx.fillStyle = fillGrad;
         ctx.fill();
         ctx.restore();
