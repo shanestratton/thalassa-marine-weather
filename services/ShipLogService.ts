@@ -32,6 +32,7 @@ import {
     SHIP_LOGS_TABLE, NEARSHORE_INTERVAL_MS, COASTAL_INTERVAL_MS, OFFSHORE_INTERVAL_MS,
     type LoggingZone,
 } from './shiplog/helpers';
+import { GpsTrackBuffer, thinTrack } from './shiplog/GpsTrackBuffer';
 import {
     queueOfflineEntry as _queueOfflineEntry,
     syncOfflineQueue as _syncOfflineQueue,
@@ -111,10 +112,15 @@ class ShipLogServiceClass {
     private lastBgLocation: CachedPosition | null = null;
     private bgUnsubscribers: (() => void)[] = []; // Cleanup handles for BgGeoManager subscriptions
 
+    // --- HIGH-FREQUENCY GPS BUFFER ---
+    // Captures every GPS fix at device rate (1–10 Hz). On each interval tick,
+    // the buffer is drained and RDP-thinned to keep only significant points.
+    private trackBuffer = new GpsTrackBuffer();
+
     // --- AUTO-WAYPOINT ON CARDINAL BEARING CHANGE ---
     private lastCardinal: string | null = null;  // Last confirmed 16-point cardinal (e.g. 'NNE')
     private lastAutoWaypointTime: number = 0;          // Cooldown timestamp (ms)
-    private static readonly AUTO_WP_COOLDOWN_MS = 60_000;   // 60s between auto-waypoints
+    private static readonly AUTO_WP_COOLDOWN_MS = 15_000;   // 15s between auto-waypoints (was 60s — tighter for harbor turns)
     private static readonly MIN_SPEED_FOR_HEADING_KTS = 1;  // Ignore heading when drifting
 
     /**
@@ -337,13 +343,13 @@ class ShipLogServiceClass {
 
         // Wait until the next clock-aligned mark, then fire
         this.quarterTimeoutId = setTimeout(() => {
-            this.captureLogEntry().then(entry => {
+            this.flushBufferedTrack().then(() => {
             }).catch(err => {
             });
 
             // Now setInterval for every subsequent mark
             this.intervalId = setInterval(() => {
-                this.captureLogEntry().then(entry => {
+                this.flushBufferedTrack().then(() => {
                 }).catch(err => {
                 });
             }, intervalMs);
@@ -433,9 +439,14 @@ class ShipLogServiceClass {
         // Cleanup any stale subscriptions first
         this.cleanupGpsSubscriptions();
 
-        // 1. LOCATION STREAM — Cache every GPS fix. Feed altitude to EnvironmentService.
+        // 1. LOCATION STREAM — Cache every GPS fix + buffer for track thinning.
         const unsubLoc = BgGeoManager.subscribeLocation((pos) => {
             this.lastBgLocation = pos;
+
+            // Buffer every fix for high-fidelity track thinning
+            if (this.trackingState.isTracking && !this.trackingState.isPaused) {
+                this.trackBuffer.push(pos);
+            }
 
             // Feed altitude to EnvironmentService for on-water/on-land detection
             if (pos.altitude !== null && pos.altitude !== undefined) {
@@ -459,8 +470,8 @@ class ShipLogServiceClass {
                 const elapsed = Date.now() - new Date(lastEntry).getTime();
                 const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
                 if (elapsed >= currentInterval) {
-                    // We missed a scheduled entry (timer was suspended) — capture now
-                    this.captureLogEntry().catch(() => { });
+                    // We missed a scheduled entry (timer was suspended) — flush buffer now
+                    this.flushBufferedTrack().catch(() => { });
                 }
             }
         });
@@ -577,6 +588,9 @@ class ShipLogServiceClass {
     async pauseTracking(): Promise<void> {
         this.clearAllTimers();
 
+        // Clear GPS buffer — no points to log while paused
+        this.trackBuffer.clear();
+
         // Clean up GPS subscriptions to save battery while paused
         this.cleanupGpsSubscriptions();
 
@@ -593,6 +607,9 @@ class ShipLogServiceClass {
     async stopTracking(): Promise<void> {
         this.clearAllTimers();
 
+        // Flush any remaining buffered GPS points before stopping
+        try { await this.flushBufferedTrack(); } catch { /* best effort */ }
+        this.trackBuffer.clear();
         // Update state immediately so UI responds instantly
         // IMPORTANT: Store end time now (before async ops) to ensure it's always recorded
         const previousVoyageId = this.trackingState.currentVoyageId;
@@ -1045,6 +1062,46 @@ class ShipLogServiceClass {
         } catch (error) {
             log.error('captureLogEntry failed', error);
             return null;
+        }
+    }
+
+    /**
+     * Flush the high-frequency GPS buffer.
+     *
+     * Called on every interval tick instead of captureLogEntry().
+     * Drains all buffered GPS fixes, runs RDP thinning to extract only
+     * significant positions (turns ≥22.5°, speed changes, signal recovery),
+     * then creates a log entry for each kept point.
+     *
+     * Falls back to standard captureLogEntry() when the buffer is empty
+     * (e.g., heartbeat catch-up when backgrounded).
+     */
+    private async flushBufferedTrack(): Promise<void> {
+        if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+
+        const rawPoints = this.trackBuffer.drain();
+
+        // If buffer is empty (GPS was quiet), fall back to single-point capture
+        if (rawPoints.length === 0) {
+            await this.captureLogEntry();
+            return;
+        }
+
+        // Thin the track — RDP + force-keep turns/speed changes/gaps
+        const significant = thinTrack(rawPoints);
+
+        // If thinning produced nothing (all noise), use the latest raw point
+        if (significant.length === 0) {
+            this.lastBgLocation = rawPoints[rawPoints.length - 1];
+            await this.captureLogEntry();
+            return;
+        }
+
+        // Log each significant point sequentially, accumulating distance correctly.
+        // Override the cached position so captureLogEntry() picks it up via getBestPosition().
+        for (const pos of significant) {
+            this.lastBgLocation = pos;
+            await this.captureLogEntry();
         }
     }
 

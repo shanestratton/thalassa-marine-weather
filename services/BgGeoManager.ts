@@ -188,7 +188,7 @@ class BgGeoManagerClass {
             await BackgroundGeolocation.ready({
                 // Geolocation — high accuracy for marine navigation
                 desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-                distanceFilter: 5,               // Record every 5m of movement
+                distanceFilter: 1,               // 1m — capture fine-grained positions for track buffer (RDP handles dedup)
                 locationUpdateInterval: 3000,     // 3s preferred (Android)
                 fastestLocationUpdateInterval: 1000,
 
