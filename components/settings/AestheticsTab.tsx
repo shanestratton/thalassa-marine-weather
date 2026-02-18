@@ -93,13 +93,6 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                     <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
                 </Row>
 
-                <Row>
-                    <div className="flex-1">
-                        <label className="text-sm text-white font-medium block">Dynamic Header Metrics</label>
-                        <p className="text-xs text-gray-500">Update header values as you scroll hourly forecasts</p>
-                    </div>
-                    <Toggle checked={settings.dynamicHeaderMetrics || false} onChange={(v) => onSave({ dynamicHeaderMetrics: v })} />
-                </Row>
             </Section>
 
             <Section title="Voyage Tracking">

@@ -1,9 +1,11 @@
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { t } from '../../theme';
 import { RadioTowerIcon } from '../Icons';
 import { Countdown } from './Countdown';
 import { useEnvironment } from '../../context/ThemeContext';
+import { MetricSource } from '../../types';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -15,8 +17,10 @@ interface StatusBadgesProps {
     locationType?: 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
     buoyName?: string;
+    // Dynamic source data
+    sources?: Record<string, MetricSource>;
     // Data source modal props
-    current?: {
+    activeData?: {
         windSpeed?: number | null;
         windGust?: number | null;
         windDirection?: string | number | null;
@@ -30,11 +34,54 @@ interface StatusBadgesProps {
         visibility?: number | null;
         humidity?: number | null;
         cloudCover?: number | null;
+        temperature?: number | null;
     };
+    isLive?: boolean;
     modelUsed?: string;
     generatedAt?: string;
     coordinates?: { lat: number; lon: number };
 }
+
+// Source display config — abbreviation, color, label
+const SOURCE_CONFIG: Record<string, { abbr: string; color: string; label: string }> = {
+    buoy: { abbr: '', color: 'text-emerald-400', label: 'BUOY' },       // Name used instead of abbr
+    beacon: { abbr: '', color: 'text-emerald-400', label: 'BEACON' },   // Name used instead of abbr
+    stormglass: { abbr: 'SG', color: 'text-amber-400', label: 'StormGlass API' },
+    openmeteo: { abbr: 'OM', color: 'text-blue-400', label: 'Open-Meteo' },
+    tomorrow: { abbr: 'T.io', color: 'text-sky-400', label: 'Tomorrow.io' },
+};
+
+const SOURCE_DOT_COLORS: Record<string, string> = {
+    buoy: 'bg-emerald-400',
+    beacon: 'bg-emerald-400',
+    stormglass: 'bg-amber-400',
+    openmeteo: 'bg-blue-400',
+    tomorrow: 'bg-sky-400',
+};
+
+// Metric display names for the provenance table
+const METRIC_LABELS: Record<string, string> = {
+    windSpeed: 'Wind Speed',
+    windGust: 'Wind Gust',
+    windDirection: 'Wind Dir',
+    windDegree: 'Wind Deg',
+    waveHeight: 'Wave Height',
+    swellPeriod: 'Swell Period',
+    swellHeight: 'Swell Height',
+    temperature: 'Air Temp',
+    waterTemperature: 'Sea Temp',
+    pressure: 'Pressure',
+    visibility: 'Visibility',
+    humidity: 'Humidity',
+    cloudCover: 'Cloud Cover',
+    uvIndex: 'UV Index',
+    precipitation: 'Rain %',
+    dewPoint: 'Dew Point',
+    feelsLike: 'Feels Like',
+    condition: 'Conditions',
+    sunrise: 'Sunrise',
+    sunset: 'Sunset',
+};
 
 export const StatusBadges: React.FC<StatusBadgesProps> = ({
     isLandlocked,
@@ -46,7 +93,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     locationType,
     beaconName,
     buoyName,
-    current,
+    sources,
+    activeData,
+    isLive = true,
     modelUsed,
     generatedAt,
     coordinates
@@ -56,9 +105,6 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     const badgeTextSize = env === 'onshore' ? 'text-[10px]' : 'text-xs';
 
     const shortenSourceName = (name: string): string => {
-        // Abbreviate common words
-
-        // Abbreviate common words
         name = name.replace(/Brisbane/i, 'Bris');
         name = name.replace(/Moreton Bay/i, 'MB');
         name = name.replace(/Central/i, 'Ctr');
@@ -71,23 +117,54 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
         name = name.replace(/South/i, 'S');
         name = name.replace(/East/i, 'E');
         name = name.replace(/West/i, 'W');
-
-        // Replace full 'BUOY' with abbreviation
         name = name.replace(/BUOY/i, 'BY');
-
-        // If still too long (>12 chars), truncate more aggressively
         if (name.length > 12) {
             name = name.substring(0, 10) + '..';
         }
-
         return name;
     };
+
+    // Derive unique active sources from the sources map
+    const activeSources = useMemo(() => {
+        const sourceSet = new Map<string, { source: string; sourceName: string; metrics: string[] }>();
+
+        if (sources) {
+            Object.entries(sources).forEach(([metricKey, ms]) => {
+                if (!ms?.source) return;
+                const key = ms.source;
+                if (!sourceSet.has(key)) {
+                    sourceSet.set(key, { source: key, sourceName: ms.sourceName || key, metrics: [] });
+                }
+                sourceSet.get(key)!.metrics.push(metricKey);
+            });
+        }
+
+        // Always show Open-Meteo as base layer (provides hourly forecasts)
+        if (!sourceSet.has('openmeteo')) {
+            sourceSet.set('openmeteo', { source: 'openmeteo', sourceName: 'Open-Meteo', metrics: [] });
+        }
+
+        return Array.from(sourceSet.values());
+    }, [sources]);
+
+    // Per-metric provenance list for the modal
+    const metricProvenance = useMemo(() => {
+        if (!sources) return [];
+        return Object.entries(sources)
+            .filter(([_, ms]) => ms?.source)
+            .map(([metricKey, ms]) => ({
+                metric: METRIC_LABELS[metricKey] || metricKey,
+                source: ms.source,
+                sourceName: ms.sourceName,
+                sourceColor: SOURCE_DOT_COLORS[ms.source] || 'bg-white',
+            }))
+            .sort((a, b) => a.metric.localeCompare(b.metric));
+    }, [sources]);
 
     // BADGES Logic
     let statusBadgeLabel = "OFFSHORE";
     let statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
 
-    // Priority: Explicit Location Type
     if (locationType === 'offshore') {
         statusBadgeLabel = "OFFSHORE";
         statusBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
@@ -95,14 +172,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
         statusBadgeLabel = "INLAND";
         statusBadgeColor = "bg-amber-500/20 text-amber-300 border-amber-500/30";
     } else {
-        // Default / Coastal
         statusBadgeLabel = "COASTAL";
         statusBadgeColor = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
     }
 
-    let timerBadgeColor = "bg-blue-500/20 text-blue-300 border-blue-500/30";
-
-    const hasStormGlass = true; // Always present as fallback
+    const timerBadgeColor = "bg-blue-500/20 text-blue-300 border-blue-500/30";
 
     // Format helpers for the info modal
     const fmt = (v: number | null | undefined, unit: string, decimals = 1) => {
@@ -124,7 +198,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         {statusBadgeLabel}
                     </div>
 
-                    {/* Multi-Source Badge — tappable */}
+                    {/* Multi-Source Badge — tappable, dynamically populated */}
                     <button
                         onClick={() => setShowInfoModal(true)}
                         aria-label="View data sources"
@@ -132,21 +206,33 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                     >
                         <RadioTowerIcon className="w-2.5 h-2.5 shrink-0 text-white/70" />
                         <div className="flex items-center gap-1.5 truncate">
+                            {/* Beacon name (if present) */}
                             {beaconName && (
                                 <>
                                     <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
-                                    {(buoyName || hasStormGlass) && <span className="text-white/50">•</span>}
+                                    <span className="text-white/50">•</span>
                                 </>
                             )}
+                            {/* Buoy name (if present) */}
                             {buoyName && (
                                 <>
                                     <span className="text-emerald-400 font-bold">{shortenSourceName(buoyName)}</span>
-                                    {hasStormGlass && <span className="text-white/50">•</span>}
+                                    <span className="text-white/50">•</span>
                                 </>
                             )}
-                            {hasStormGlass && (
-                                <span className="text-amber-400 font-bold">SG</span>
-                            )}
+                            {/* Dynamic API sources — derived from sources map */}
+                            {activeSources
+                                .filter(s => s.source !== 'buoy' && s.source !== 'beacon')
+                                .map((s, i, arr) => {
+                                    const cfg = SOURCE_CONFIG[s.source];
+                                    if (!cfg) return null;
+                                    return (
+                                        <span key={s.source}>
+                                            <span className={cfg.color + ' font-bold'}>{cfg.abbr}</span>
+                                            {i < arr.length - 1 && <span className="text-white/50"> • </span>}
+                                        </span>
+                                    );
+                                })}
                         </div>
                     </button>
 
@@ -157,24 +243,28 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                 </div>
             </div>
 
-            {/* Data Source Info Modal */}
-            {showInfoModal && (
+            {/* Data Source Info Modal — portalled to document root to escape z-index stacking */}
+            {showInfoModal && createPortal(
                 <div
-                    className="fixed inset-0 z-[9999] flex items-center justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md p-4"
+                    className="fixed inset-0 z-[9999] flex items-end justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md"
                     onClick={() => setShowInfoModal(false)}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Data sources details"
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)', paddingTop: 'env(safe-area-inset-top)' }}
                 >
                     <div
-                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl overflow-hidden"
+                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl max-h-[60dvh] overflow-y-auto mx-4"
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                        <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 backdrop-blur-xl z-10">
                             <div className="flex items-center gap-2">
                                 <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
                                 <h2 className="text-base font-black text-white tracking-tight">Data Sources</h2>
+                                {!isLive && (
+                                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-md uppercase">Forecast</span>
+                                )}
                             </div>
                             <button
                                 onClick={() => setShowInfoModal(false)}
@@ -189,87 +279,104 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
 
                         {/* Content */}
                         <div className="px-5 pb-5 space-y-4">
-                            {/* Active Sources */}
+                            {/* Active Sources — dynamically derived */}
                             <div className="space-y-2">
-                                {beaconName && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                                        <span className="text-emerald-400 font-bold text-sm">{beaconName}</span>
-                                        <span className="text-slate-500 text-sm ml-auto">BEACON</span>
-                                    </div>
-                                )}
-                                {buoyName && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                                        <span className="text-emerald-400 font-bold text-sm">{buoyName}</span>
-                                        <span className="text-slate-500 text-sm ml-auto">BUOY</span>
-                                    </div>
-                                )}
-                                <div className="flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                                    <span className="text-amber-400 font-bold text-sm">StormGlass API</span>
-                                    <span className="text-slate-500 text-sm ml-auto">MODEL</span>
-                                </div>
+                                {activeSources.map(s => {
+                                    const cfg = SOURCE_CONFIG[s.source] || { abbr: s.source, color: 'text-white', label: s.source };
+                                    const dotColor = SOURCE_DOT_COLORS[s.source] || 'bg-white';
+                                    const displayName = (s.source === 'buoy' || s.source === 'beacon')
+                                        ? s.sourceName
+                                        : cfg.label;
+                                    const metricCount = s.metrics.length;
+
+                                    return (
+                                        <div key={s.source} className="flex items-center gap-2">
+                                            <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
+                                            <span className={`${cfg.color} font-bold text-sm`}>{displayName}</span>
+                                            {metricCount > 0 && (
+                                                <span className="text-slate-600 text-[10px] font-medium ml-1">
+                                                    {metricCount} metric{metricCount > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                            <span className="text-slate-500 text-sm ml-auto uppercase text-[10px] font-bold tracking-wider">{cfg.label === displayName ? '' : cfg.label}</span>
+                                        </div>
+                                    );
+                                })}
                             </div>
 
                             {/* Divider */}
                             <div className="border-t border-white/5" />
 
-                            {/* Now Totals */}
-                            {current && (
+                            {/* Per-Metric Provenance */}
+                            {metricProvenance.length > 0 && (
                                 <div>
-                                    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">Current Conditions</p>
+                                    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                        Metric Sources {!isLive && <span className="text-amber-400 normal-case text-[10px]">(forecast hour)</span>}
+                                    </p>
+                                    <div className="space-y-1.5">
+                                        {metricProvenance.map((mp, i) => (
+                                            <div key={i} className="flex items-center gap-2 text-sm">
+                                                <span className={`w-1.5 h-1.5 rounded-full ${mp.sourceColor} shrink-0`} />
+                                                <span className="text-slate-400 flex-1">{mp.metric}</span>
+                                                <span className="text-white/70 font-medium text-[11px]">{mp.sourceName}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Divider */}
+                            <div className="border-t border-white/5" />
+
+                            {/* Conditions at a glance */}
+                            {activeData && (
+                                <div>
+                                    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                        {isLive ? 'Current Conditions' : 'Forecast Conditions'}
+                                    </p>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Wind</span>
-                                            <span className="text-white font-bold">{fmt(current.windSpeed, 'kts')} {typeof current.windDirection === 'string' ? current.windDirection : fmtDir(current.windDirection)}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.windSpeed, 'kts')} {typeof activeData.windDirection === 'string' ? activeData.windDirection : fmtDir(activeData.windDirection)}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Gust</span>
-                                            <span className="text-white font-bold">{fmt(current.windGust, 'kts')}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.windGust, 'kts')}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Waves</span>
-                                            <span className="text-white font-bold">{current.waveHeight != null ? `${(current.waveHeight / 3.28084).toFixed(1)} m` : '—'}</span>
+                                            <span className="text-white font-bold">{activeData.waveHeight != null ? `${(activeData.waveHeight / 3.28084).toFixed(1)} m` : '—'}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Period</span>
-                                            <span className="text-white font-bold">{fmt(current.wavePeriod, 's', 0)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-400">Swell</span>
-                                            <span className="text-white font-bold">{current.swellHeight != null ? `${(current.swellHeight / 3.28084).toFixed(1)} m` : '—'}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-400">Swell Pd</span>
-                                            <span className="text-white font-bold">{fmt(current.swellPeriod, 's', 0)}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.wavePeriod, 's', 0)}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Air Temp</span>
-                                            <span className="text-white font-bold">{fmt(current.airTemperature, '°')}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.temperature ?? activeData.airTemperature, '°')}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Water</span>
-                                            <span className="text-white font-bold">{fmt(current.waterTemperature, '°')}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.waterTemperature, '°')}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Pressure</span>
-                                            <span className="text-white font-bold">{fmt(current.pressure, 'hPa', 0)}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.pressure, 'hPa', 0)}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Visibility</span>
-                                            <span className="text-white font-bold">{fmt(current.visibility, 'km', 0)}</span>
+                                            <span className="text-white font-bold">{fmt(activeData.visibility, 'nm', 0)}</span>
                                         </div>
-                                        {current.humidity != null && (
+                                        {activeData.humidity != null && (
                                             <div className="flex justify-between">
                                                 <span className="text-slate-400">Humidity</span>
-                                                <span className="text-white font-bold">{fmt(current.humidity, '%', 0)}</span>
+                                                <span className="text-white font-bold">{fmt(activeData.humidity, '%', 0)}</span>
                                             </div>
                                         )}
-                                        {current.cloudCover != null && (
+                                        {activeData.cloudCover != null && (
                                             <div className="flex justify-between">
                                                 <span className="text-slate-400">Cloud</span>
-                                                <span className="text-white font-bold">{fmt(current.cloudCover, '%', 0)}</span>
+                                                <span className="text-white font-bold">{fmt(activeData.cloudCover, '%', 0)}</span>
                                             </div>
                                         )}
                                     </div>
@@ -314,7 +421,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         </div>
                     </div>
                 </div>
-            )}
+                , document.body)}
         </>
     );
 };

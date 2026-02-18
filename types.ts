@@ -53,8 +53,8 @@ export interface BeaconObservation {
     currentDegree?: number | null;
 }
 
-export type DataSource = 'buoy' | 'stormglass';
-export type SourceColor = 'emerald' | 'amber' | 'white';
+export type DataSource = 'buoy' | 'stormglass' | 'tomorrow';
+export type SourceColor = 'emerald' | 'amber' | 'sky' | 'white';
 
 export interface MetricSource {
     value: any;

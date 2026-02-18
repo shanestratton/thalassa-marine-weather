@@ -370,9 +370,10 @@ export const renderHeroWidget = (
 export const STATIC_WIDGET_CLASS = "flex-1 min-w-[32%] md:min-w-[30%] bg-white/[0.06] backdrop-blur-sm border border-white/10 rounded-xl p-2 md:p-4 relative flex flex-col justify-center min-h-[90px] md:min-h-[100px] shrink-0";
 
 // --- SOURCE COLOR HELPER ---
-export const getSourceIndicatorColor = (sourceColor?: 'emerald' | 'amber' | 'white'): string => {
+export const getSourceIndicatorColor = (sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'): string => {
     switch (sourceColor) {
         case 'emerald': return 'bg-emerald-500';  // Buoy
+        case 'sky': return 'bg-sky-500';          // Tomorrow.io
         case 'amber': return 'bg-amber-500';      // StormGlass
         default: return 'bg-gray-500';            // Fallback
     }

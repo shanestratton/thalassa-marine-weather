@@ -1,5 +1,5 @@
 
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
@@ -27,12 +27,15 @@ const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard'
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
 const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
 const ChatPage = React.lazy(() => import('./components/ChatPage').then(module => ({ default: module.ChatPage })));
+const LogPage = React.lazy(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline } = useUI();
+    const [watchMenuOpen, setWatchMenuOpen] = useState(false);
+    const isWatchView = currentView === 'details' || currentView === 'voyage' || currentView === 'compass';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -152,38 +155,40 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-10'} pointer-events-auto`}>
-                            <div className="relative flex-grow md:w-96 group h-full">
-                                <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
-                                    <input
-                                        type="text"
-                                        value={query}
-                                        readOnly
-                                        placeholder="Select via Map..."
-                                        className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-lg md:text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 backdrop-blur-md border border-white/10'}`}
-                                        onClick={() => setPage('map')}
-                                    />
-                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
-                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                        <button
-                                            type="button"
-                                            onClick={toggleFavorite}
-                                            className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
-                                        >
-                                            <StarIcon className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`} filled={isFavorite} />
-                                        </button>
-                                        <div className="w-px h-4 bg-white/20 mx-1"></div>
-                                        <button
-                                            type="button"
+                        {currentView !== 'details' && (
+                            <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-10'} pointer-events-auto`}>
+                                <div className="relative flex-grow md:w-96 group h-full">
+                                    <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
+                                        <input
+                                            type="text"
+                                            value={query}
+                                            readOnly
+                                            placeholder="Select via Map..."
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-lg md:text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 backdrop-blur-md border border-white/10'}`}
                                             onClick={() => setPage('map')}
-                                            className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
-                                        >
-                                            <MapIcon className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </form>
+                                        />
+                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={toggleFavorite}
+                                                className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
+                                            >
+                                                <StarIcon className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`} filled={isFavorite} />
+                                            </button>
+                                            <div className="w-px h-4 bg-white/20 mx-1"></div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPage('map')}
+                                                className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
+                                            >
+                                                <MapIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </header>
                 )}
 
@@ -197,7 +202,7 @@ const App: React.FC = () => {
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
                                     <div key={currentView} className="page-enter contents">
-                                        {(currentView === 'dashboard' || currentView === 'details') && (
+                                        {currentView === 'dashboard' && (
                                             <>
                                                 {error ? (
                                                     <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
@@ -206,7 +211,6 @@ const App: React.FC = () => {
                                                         <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
                                                     </div>
                                                 ) : (!weatherData) ? (
-                                                    // USER REQUEST: "Just have the message" (Clean Overlay vs Skeleton)
                                                     <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
                                                         <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
                                                     </div>
@@ -223,11 +227,13 @@ const App: React.FC = () => {
                                                         isRefreshing={loading}
                                                         isNightMode={effectiveMode === 'night'}
                                                         isMobileLandscape={isMobileLandscape}
-                                                        viewMode={currentView === 'dashboard' ? 'overview' : 'details'}
+                                                        viewMode={'overview'}
                                                     />
                                                 )}
                                             </>
                                         )}
+
+                                        {currentView === 'details' && <LogPage />}
 
                                         {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
 
@@ -291,10 +297,31 @@ const App: React.FC = () => {
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
                         <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<CompassIcon className="w-6 h-6" rotation={0} />} label="Log" active={currentView === 'details'} onClick={handleTabMetrics} />
-                            <NavButton icon={<BoatIcon className="w-6 h-6" />} label="Passage" active={currentView === 'voyage'} onClick={handleTabPassage} />
+
+                            {/* Watch — with submenu */}
+                            <div className="relative">
+                                <NavButton icon={<CompassIcon className="w-6 h-6" rotation={0} />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
+                                {watchMenuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setWatchMenuOpen(false)} />
+                                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                                <span className="text-base">📒</span> Log
+                                            </button>
+                                            <div className="border-t border-white/5" />
+                                            <button onClick={() => { handleTabPassage(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'voyage' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                                <span className="text-base">⛵</span> Passage
+                                            </button>
+                                            <div className="border-t border-white/5" />
+                                            <button onClick={() => { setPage('compass'); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'compass' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                                <span className="text-base">⚓</span> Anchor
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
-                            <NavButton icon={<AnchorIcon className="w-6 h-6" />} label="Anchor" active={currentView === 'compass'} onClick={() => setPage('compass')} />
                             <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />
                             <NavButton icon={<GearIcon className="w-6 h-6" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
                         </div>

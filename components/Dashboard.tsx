@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
 import { ClockIcon } from './Icons';
@@ -17,8 +17,9 @@ import { useSettings } from '../context/SettingsContext';
 import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
 import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 
-import { DashboardWidgetContext } from './WidgetRenderer';
+import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, WeatherMetrics, SourcedWeatherMetrics } from '../types';
+import { fetchMinutelyRain, MinutelyRain } from '../services/weather/api/tomorrowio';
 
 interface DashboardProps {
     onOpenMap: () => void;
@@ -61,12 +62,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         settings
     } = useDashboardController(props.viewMode);
 
-    if (!data || !current) return null;
-
-    // Settings for dynamic header metrics
+    // Settings
     const { settings: userSettings, updateSettings } = useSettings();
-    const dynamicHeaderEnabled = userSettings.dynamicHeaderMetrics === true;
-    const isEssentialMode = userSettings.dashboardMode === 'essential';
+    const isExpanded = userSettings.dashboardMode !== 'essential';
 
     // Onboarding tutorial for first-time users
     const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
@@ -79,11 +77,32 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Refs hold the latest value instantly (no re-render). State triggers the UI update.
     const [activeDay, setActiveDay] = useState(0);
     const [activeHour, setActiveHour] = useState(0);
-    const [activeDayData, setActiveDayData] = useState(current);
+    const [activeDayData, setActiveDayData] = useState<SourcedWeatherMetrics | null>(null);
     const activeDayRef = useRef(0);
     const activeHourRef = useRef(0);
-    const activeDayDataRef = useRef(current);
+    const activeDayDataRef = useRef<SourcedWeatherMetrics | null>(null);
     const rafIdRef = useRef<number | null>(null);
+
+    // Sync activeDayData ref & state with current when current first loads
+    useEffect(() => {
+        if (current && !activeDayDataRef.current) {
+            activeDayDataRef.current = current;
+            setActiveDayData(current);
+        }
+    }, [current]);
+
+    // Minutely rain data from Tomorrow.io
+    const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
+
+    useEffect(() => {
+        if (!data?.coordinates) return;
+        const { lat, lon } = data.coordinates;
+        let cancelled = false;
+        fetchMinutelyRain(lat, lon).then(result => {
+            if (!cancelled) setMinutelyRain(result);
+        }).catch(() => { /* silently ignore */ });
+        return () => { cancelled = true; };
+    }, [data?.coordinates?.lat, data?.coordinates?.lon]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {
@@ -132,20 +151,50 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         if (activeDay === 0) {
             return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + activeHour).getTime();
         } else {
-            const forecast = data.forecast[activeDay];
+            const forecast = data?.forecast?.[activeDay];
             if (forecast?.isoDate) {
                 const [y, m, d] = forecast.isoDate.split('-').map(Number);
                 return new Date(y, m - 1, d, activeHour).getTime();
             }
         }
         return Date.now();
-    }, [activeDay, activeHour, data.forecast]);
+    }, [activeDay, activeHour, data?.forecast]);
+
+    const safeActive = activeDayData || current;
 
     const widgetSources = useMemo(() => {
-        return (activeDay === 0 && activeHour === 0) ? current.sources : activeDayData.sources;
-    }, [activeDay, activeHour, current, activeDayData]);
+        return (activeDay === 0 && activeHour === 0) ? current?.sources : safeActive?.sources;
+    }, [activeDay, activeHour, current, safeActive]);
 
-    const currentSources = useMemo(() => current.sources, [current]);
+    // Compute day/night for the active card time (fixes "Sunny" at midnight)
+    const isActiveDay = useMemo(() => {
+        const activeData = safeActive;
+        if (!activeData) {
+            const h = new Date(widgetCardTime).getHours();
+            return h >= 6 && h < 18;
+        }
+        const sRise = activeData.sunrise;
+        const sSet = activeData.sunset;
+        if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') {
+            const h = new Date(widgetCardTime).getHours();
+            return h >= 6 && h < 18;
+        }
+        try {
+            const [rH, rM] = sRise.replace(/[^0-9:]/g, '').split(':').map(Number);
+            const [sH, sM] = sSet.replace(/[^0-9:]/g, '').split(':').map(Number);
+            if (isNaN(rH) || isNaN(sH)) {
+                const h = new Date(widgetCardTime).getHours();
+                return h >= 6 && h < 18;
+            }
+            const d = new Date(widgetCardTime);
+            const rise = new Date(d); rise.setHours(rH, rM, 0, 0);
+            const set = new Date(d); set.setHours(sH, sM, 0, 0);
+            return d >= rise && d < set;
+        } catch {
+            const h = new Date(widgetCardTime).getHours();
+            return h >= 6 && h < 18;
+        }
+    }, [safeActive, widgetCardTime]);
 
     // Memoize nextUpdate — compute the next scheduled wall-clock refresh time
     const nextUpdateTime = useMemo(() => {
@@ -155,13 +204,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         // Compute next aligned time based on interval
         if (intervalMin >= 60) {
-            // On the hour
             const next = new Date(now);
             next.setMinutes(0, 0, 0);
             next.setHours(next.getHours() + 1);
             return next.getTime();
         } else if (intervalMin === 30) {
-            // On the half hour
             const next = new Date(now);
             const currentMin = next.getMinutes();
             if (currentMin < 30) {
@@ -172,10 +219,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }
             return next.getTime();
         } else {
-            // Every N minutes from last update (bad weather 10m)
+            if (!data?.generatedAt) return Date.now() + intervalMs;
             const next = new Date(data.generatedAt);
             next.setMinutes(next.getMinutes() + intervalMin);
-            // If already passed, schedule from now
             if (next.getTime() <= now.getTime()) {
                 const nextFromNow = new Date(now);
                 const currentMin = nextFromNow.getMinutes();
@@ -188,14 +234,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }
             return next.getTime();
         }
-    }, [data.generatedAt, refreshInterval]);
+    }, [data?.generatedAt, refreshInterval]);
 
-    // Extract beacon and buoy names from current sources for StatusBadges
+    // Extract beacon and buoy names from live sources for StatusBadges
     const { beaconName, buoyName } = useMemo(() => {
         let beacon = '';
         let buoy = '';
-        if (currentSources) {
-            Object.values(currentSources).forEach((src) => {
+        const liveSources = current?.sources;
+        if (liveSources) {
+            Object.values(liveSources).forEach((src) => {
                 const s = src as { source?: string; sourceName?: string };
                 if (s?.source === 'beacon' && s?.sourceName && !beacon) {
                     beacon = s.sourceName;
@@ -205,10 +252,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             });
         }
         return { beaconName: beacon, buoyName: buoy };
-    }, [currentSources]);
+    }, [current]);
 
     const widgetTrends = useMemo(() => {
-        if (!hourly || hourly.length < 2) return undefined;
+        if (!hourly || hourly.length < 2 || !safeActive) return undefined;
         const nextHour = hourly[1];
         const trends: Record<string, 'up' | 'down' | 'stable'> = {};
 
@@ -219,21 +266,21 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             return diff > 0 ? 'up' : 'down';
         };
 
-        trends['windSpeed'] = compare(activeDayData.windSpeed, nextHour.windSpeed, 2);
-        trends['windGust'] = compare(activeDayData.windGust, nextHour.windGust, 2);
-        trends['waveHeight'] = compare(activeDayData.waveHeight, nextHour.waveHeight, 0.3);
-        trends['waterTemperature'] = compare(activeDayData.waterTemperature, nextHour.waterTemperature, 0.5);
-        trends['pressure'] = compare(activeDayData.pressure, nextHour.pressure, 1);
-        trends['visibility'] = compare(activeDayData.visibility, nextHour.visibility, 1);
+        trends['windSpeed'] = compare(safeActive.windSpeed, nextHour.windSpeed, 0.5);
+        trends['windGust'] = compare(safeActive.windGust, nextHour.windGust, 0.5);
+        trends['waveHeight'] = compare(safeActive.waveHeight, nextHour.waveHeight, 0.1);
+        trends['waterTemperature'] = compare(safeActive.waterTemperature, nextHour.waterTemperature, 0.2);
+        trends['pressure'] = compare(safeActive.pressure, nextHour.pressure, 0.3);
+        trends['visibility'] = compare(safeActive.visibility, nextHour.visibility, 0.5);
 
         return trends;
-    }, [hourly, activeDayData]);
+    }, [hourly, safeActive]);
 
     // Helper to generate proper date labels
     const getDateLabel = (dayIndex: number): string => {
         if (dayIndex === 0) return "TODAY";
 
-        const forecast = data.forecast[dayIndex];
+        const forecast = data?.forecast?.[dayIndex];
         if (forecast?.isoDate) {
             const [y, m, day] = forecast.isoDate.split('-').map(Number);
             const d = new Date(y, m - 1, day, 12, 0, 0);
@@ -276,19 +323,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Fallback to defaults only if settings are missing (rare)
     const units: UnitPreferences = settings?.units || { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm', tideHeight: 'm' };
 
-
-
     const contextValue = React.useMemo(() => ({
         current,
-        forecast: data.forecast,
+        forecast: data?.forecast,
         hourly,
-        tides: data.tides || [],
-        tideHourly: data.tideHourly || [],
+        tides: data?.tides || [],
+        tideHourly: data?.tideHourly || [],
         boatingAdvice: boatingAdvice || "",
         lockerItems: lockerItems,
-        locationName: data.locationName,
-        timeZone: data.timeZone,
-        modelUsed: data.modelUsed,
+        locationName: data?.locationName,
+        timeZone: data?.timeZone,
+        modelUsed: data?.modelUsed,
         isLandlocked: isLandlocked,
         isPro: isPro,
 
@@ -307,16 +352,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         settings: {},
         weatherData: data,
-        tideGUIDetails: data.tideGUIDetails,
+        tideGUIDetails: data?.tideGUIDetails,
     }), [
-        current, data.forecast, hourly, data.tides, data.tideHourly, boatingAdvice, lockerItems,
-        data.locationName, data.timeZone, data.modelUsed, isLandlocked, isPro, units,
+        current, data, hourly, boatingAdvice, lockerItems,
+        isLandlocked, isPro, units,
         props.isNightMode, props.isRefreshing, isPlaying, handleAudioBroadcast, shareReport,
-        props.onTriggerUpgrade, props.onOpenMap, data.tideGUIDetails, data
+        props.onTriggerUpgrade, props.onOpenMap
     ]);
 
+    // GUARD: All hooks above, early return here is safe
+    if (!data || !current || !safeActive) return null;
+
     return (
-        <DashboardWidgetContext.Provider value={contextValue}>
+        <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black"> {/* Flex Root */}
 
                 {/* 2. Main Content Area */}
@@ -326,13 +374,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {!isDetailMode && (
                         <div className="absolute inset-0">
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 104px)' }}>
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)' }}>
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
-                                        sunrise={current?.sunrise}
-                                        sunset={current?.sunset}
-                                        moonPhase={current?.moonPhase ? getMoonPhase(new Date()).emoji : undefined}
+                                        sunrise={activeDayData?.sunrise || current?.sunrise}
+                                        sunset={activeDayData?.sunset || current?.sunset}
+                                        moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
                                         dashboardMode={userSettings.dashboardMode || 'full'}
                                         onToggleDashboardMode={() => updateSettings({
                                             dashboardMode: userSettings.dashboardMode === 'essential' ? 'full' : 'essential'
@@ -342,59 +390,66 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100]" style={{ height: 'calc(max(8px, env(safe-area-inset-top)) + 444px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)' }}></div>
 
                             {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 152px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 162px)' }}>
                                 <HeroHeader
-                                    data={dynamicHeaderEnabled ? activeDayData : current}
+                                    data={safeActive}
                                     units={units}
                                     isLive={activeDay === 0 && activeHour === 0}
-                                    isDay={true}
+                                    isDay={isActiveDay}
                                     dateLabel={getDateLabel(activeDay)}
                                     timeLabel={getTimeLabel()}
                                     timeZone={data.timeZone}
-                                    sources={(dynamicHeaderEnabled ? activeDayData : current).sources}
-                                    isEssentialMode={isEssentialMode}
-                                    onToggleMode={() => updateSettings({ dashboardMode: isEssentialMode ? 'full' : 'essential' })}
+                                    sources={safeActive.sources}
+                                    isExpanded={isExpanded}
+                                    onToggleExpand={() => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
                                 />
                             </div>
 
 
 
-                            {/* CURRENT CONDITIONS CARD - Essential mode only, same position as 5x2 HeroWidgets */}
-                            {isEssentialMode && (
-                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 274px)' }}>
-                                    <CurrentConditionsCard
-                                        data={activeDayData || current}
-                                        units={units}
-                                        timeZone={data.timeZone}
-                                    />
-                                </div>
-                            )}
+                            {/* CURRENT CONDITIONS CARD - Collapsed mode only */}
+                            <div
+                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                style={{
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 248px)',
+                                    opacity: !isExpanded ? 1 : 0,
+                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    pointerEvents: !isExpanded ? 'auto' : 'none',
+                                }}
+                            >
+                                <CurrentConditionsCard
+                                    data={activeDayData || current}
+                                    units={units}
+                                    timeZone={data.timeZone}
+                                />
+                            </div>
 
-                            {/* FIXED WIDGETS - Absolutely positioned below header (hidden in Essential mode) */}
-                            {!isEssentialMode && (
-                                <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 274px)' }}>
-                                    <HeroWidgets
-                                        data={activeDayData}  // Bottom row - updates with scroll
-                                        currentData={current}  // Top row - always shows current/live data
-                                        units={units}
-                                        cardTime={widgetCardTime}  // PERF: Memoized
-                                        // CRITICAL FIX: Bottom row sources should use currentSources when showing current hour
-                                        // activeDayData.sources doesn't exist, only current.sources does
-                                        sources={widgetSources}  // PERF: Memoized
-                                        currentSources={currentSources}  // PERF: Memoized
-                                        trends={widgetTrends}  // PERF: Memoized
-                                        isLive={activeDay === 0 && activeHour === 0}
-                                        topRowIsLive={true}
-                                    />
-                                </div>
-                            )}
+                            {/* FIXED WIDGETS - Slide down when expanded */}
+                            <div
+                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                style={{
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 248px)',
+                                    opacity: isExpanded ? 1 : 0,
+                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    pointerEvents: isExpanded ? 'auto' : 'none',
+                                }}
+                            >
+                                <HeroWidgets
+                                    data={safeActive}
+                                    units={units}
+                                    cardTime={widgetCardTime}
+                                    sources={widgetSources}
+                                    trends={widgetTrends}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                />
+                            </div>
 
 
-                            {/* HERO CONTAINER - Positioned below fixed headers (same position in both modes) */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 444px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
@@ -415,18 +470,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     onDayChange={handleDayChange}
                                     onHourChange={handleHourChange}
                                     onActiveDataChange={handleActiveDataChange}
-                                    isEssentialMode={isEssentialMode}
+                                    isEssentialMode={!isExpanded}
+                                    vessel={userSettings.vessel}
+                                    minutelyRain={minutelyRain}
                                 />
                             </div>
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll */}
                             <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 118px)' }}>
-                                <div className="flex gap-[3px] px-4 py-1">
+                                <div className="flex gap-[2px] px-4 py-1">
                                     {Array.from({ length: 24 }).map((_, i) => (
                                         <div
                                             key={i}
-                                            className={`w-1.5 h-1.5 rounded-full transition-all duration-150 ${i === activeHour
-                                                ? 'bg-sky-400 shadow-[0_0_4px_rgba(56,189,248,0.6)]'
+                                            className={`w-1 h-1 rounded-full transition-all duration-150 ${i === activeHour
+                                                ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
                                                 : 'bg-white/20'
                                                 }`}
                                         />
@@ -447,7 +504,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         locationType={data.locationType}
                                         beaconName={beaconName}
                                         buoyName={buoyName}
-                                        current={current}
+                                        sources={widgetSources}
+                                        activeData={safeActive}
+                                        isLive={activeDay === 0 && activeHour === 0}
                                         modelUsed={data.modelUsed}
                                         generatedAt={data.generatedAt}
                                         coordinates={data.coordinates}

@@ -50,14 +50,14 @@ function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValu
                 {label}
                 {isEstimated && <span className="text-amber-400/70 ml-1 text-[9px]">(est.)</span>}
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
                 <input
                     type="number"
                     value={localVal}
                     onChange={handleChange}
                     onBlur={handleBlur}
                     placeholder={placeholder}
-                    className={`flex-1 bg-white/5 border rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
+                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
                 <select
                     value={unitType}
@@ -89,7 +89,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     };
 
     return (
-        <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="w-full max-w-2xl mx-auto overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
             <Section title="Vessel Configuration">
                 <Row>
                     <div><label className="text-sm text-white font-medium block">Vessel Type</label></div>

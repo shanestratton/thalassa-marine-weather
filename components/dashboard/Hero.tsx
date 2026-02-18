@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { HeroSlide } from './HeroSlide';
 import { HeroSlideSkeleton } from './Skeletons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
+import { MinutelyRain } from '../../services/weather/api/tomorrowio';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
 
@@ -30,7 +31,8 @@ export const HeroSection = ({
     onDayChange,
     onHourChange,
     onActiveDataChange,
-    isEssentialMode
+    isEssentialMode,
+    minutelyRain
 }: {
     current: WeatherMetrics,
     forecasts: ForecastDay[],
@@ -51,12 +53,13 @@ export const HeroSection = ({
     coordinates?: { lat: number, lon: number },
     locationType?: 'coastal' | 'offshore' | 'inland',
     onTimeSelect?: (time: number | undefined) => void,
-    customTime?: number, // Received from Dashboard state
+    customTime?: number,
     utcOffset?: number,
     onDayChange?: (day: number) => void,
     onHourChange?: (hour: number) => void,
     onActiveDataChange?: (data: WeatherMetrics) => void,
-    isEssentialMode?: boolean
+    isEssentialMode?: boolean,
+    minutelyRain?: MinutelyRain[]
 }) => {
 
     const { settings, updateSettings } = useSettings();
@@ -237,6 +240,7 @@ export const HeroSection = ({
                                 tideHourly={tideHourly}
                                 onActiveDataChange={onActiveDataChange}
                                 isEssentialMode={isEssentialMode}
+                                minutelyRain={minutelyRain}
                             />
                         </div>
                     ))
