@@ -64,7 +64,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
         const isUp = t === 'rising';
         return (
             <div className={`flex items-center ml-1.5 opacity-80 ${isUp ? '-mt-1' : '-mt-1'}`}>
-                {isUp ? <ArrowUpIcon className="w-2.5 h-2.5" /> : <ArrowDownIcon className="w-2.5 h-2.5" />}
+                {isUp ? <ArrowUpIcon className="w-4 h-4" /> : <ArrowDownIcon className="w-4 h-4" />}
             </div>
         );
     };
