@@ -417,6 +417,7 @@ export interface ShipLogEntry {
 
     // Tracking metadata
     createdAt?: string;
+    isOnWater?: boolean; // True if GPS coordinates were on water at voyage start (ocean, river, lake)
 }
 
 export interface DeepAnalysisReport {

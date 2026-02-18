@@ -154,7 +154,8 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         notes: 'notes',
         waypointName: 'waypoint_name',
         watchPeriod: 'watch_period',
-        createdAt: 'created_at'
+        createdAt: 'created_at',
+        isOnWater: 'is_on_water'
     };
 
     const dbEntry: Record<string, any> = {};
@@ -201,7 +202,8 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         notes: row.notes,
         waypointName: row.waypoint_name,
         watchPeriod: row.watch_period,
-        createdAt: row.created_at
+        createdAt: row.created_at,
+        isOnWater: row.is_on_water
     };
 }
 

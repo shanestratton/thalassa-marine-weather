@@ -516,12 +516,34 @@ export function useLogPageState() {
         : 0;
 
     // ── Career Totals ───────────────────────────────────────────────────────
+    // Only counts the user's own maritime voyages:
+    //   1. Source must be 'device' (or undefined for legacy entries) — excludes imports & community
+    //   2. Voyage's first entry must not be explicitly marked as land (isOnWater !== false)
 
     const careerTotals = useMemo(() => {
-        const groups = groupEntriesByVoyage(state.entries);
+        // Step 1: Filter to device-only entries
+        const ownEntries = state.entries.filter(e =>
+            !e.source || e.source === 'device'
+        );
+
+        // Step 2: Group into voyages
+        const groups = groupEntriesByVoyage(ownEntries);
+
+        // Step 3: Filter out land-based voyages
+        // A voyage is land-based if the first entry (voyage start) has isOnWater === false.
+        // Entries without the field (legacy) are treated as maritime (backwards compatible).
+        const maritimeGroups = groups.filter(g => {
+            const sorted = [...g.entries].sort((a, b) =>
+                new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+            const firstEntry = sorted[0];
+            // Only exclude if explicitly tagged as land (isOnWater === false)
+            return firstEntry?.isOnWater !== false;
+        });
+
         let distance = 0;
         let timeMs = 0;
-        groups.forEach(g => {
+        maritimeGroups.forEach(g => {
             // Max cumulative distance per voyage
             distance += Math.max(0, ...g.entries.map(e => e.cumulativeDistanceNM || 0));
             // Duration: first to last entry
@@ -533,7 +555,7 @@ export function useLogPageState() {
         return {
             totalDistance: distance,
             totalTimeAtSeaHrs: Math.round(timeMs / (1000 * 60 * 60) * 10) / 10,
-            totalVoyages: groups.length,
+            totalVoyages: maritimeGroups.length,
         };
     }, [state.entries]);
 
