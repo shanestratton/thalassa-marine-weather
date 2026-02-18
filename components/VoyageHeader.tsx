@@ -164,9 +164,16 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                 onTouchEnd={handleTouchEnd}
             >
                 <div
-                    onClick={() => {
-                        if (swipeOffset === 0) {
-                            onSelect(); // Select this voyage for export on any click
+                    onClick={(e) => {
+                        if (swipeOffset !== 0) return;
+                        // Left third of the row → expand/collapse + select
+                        // Middle/right → select only (for export targets)
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const isLeftThird = clickX < rect.width / 3;
+                        onSelect();
+                        if (isLeftThird) {
+                            onToggle();
                         }
                     }}
                     className={`w-full text-left rounded-xl border transition-colors cursor-pointer ${isActive
