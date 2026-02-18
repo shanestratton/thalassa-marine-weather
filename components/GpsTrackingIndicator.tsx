@@ -4,9 +4,9 @@
  *
  * Shows the current GPS capture interval:
  *   Rapid mode  →  "5s"
- *   Nearshore   →  "30s"
- *   Coastal     →  "2m"
- *   Offshore    →  "15m"
+ *   Nearshore   →  "5s"
+ *   Coastal     →  "5s"
+ *   Offshore    →  "30s"
  *
  * Also shows a brief flash when a position check is deduped ("✓ No movement"),
  * confirming the system is alive even when the vessel is stationary.
