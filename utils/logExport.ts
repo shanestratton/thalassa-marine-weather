@@ -580,6 +580,116 @@ function drawCompassRoseWatermark(pdf: jsPDF, pageWidth: number, pageHeight: num
 }
 
 /**
+ * Thin high-frequency log entries for PDF export.
+ * With 5s capture intervals, a 1-hour trip can generate 720+ entries.
+ * A deck log PDF should show the "story" of the voyage, not every fix.
+ *
+ * ALWAYS KEPT (never thinned):
+ *   - First and last entry overall
+ *   - Manual entries, waypoints, events (anything the user explicitly logged)
+ *   - Entries with significant course change (>15°) or speed change (>2 kts)
+ *
+ * TIME-SAMPLED (auto entries in dense segments):
+ *   - If >30 entries/hour detected → keep one per 2 minutes
+ *   - If 6-30 entries/hour → keep one per 5 minutes
+ *   - If ≤6 entries/hour → keep everything (already sparse = offshore)
+ *
+ * This handles mixed coastal→offshore→coastal passages naturally.
+ */
+function thinEntriesForPDF(entries: ShipLogEntry[]): ShipLogEntry[] {
+    if (entries.length <= 30) return entries; // Already small enough
+
+    // Sort chronologically
+    const sorted = [...entries].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    // Calculate overall density (entries per hour)
+    const firstTime = new Date(sorted[0].timestamp).getTime();
+    const lastTime = new Date(sorted[sorted.length - 1].timestamp).getTime();
+    const durationHrs = (lastTime - firstTime) / (1000 * 60 * 60);
+    const entriesPerHour = durationHrs > 0 ? sorted.length / durationHrs : sorted.length;
+
+    // If already sparse (≤6/hr), keep everything
+    if (entriesPerHour <= 6) return entries;
+
+    // Determine sampling interval based on density
+    const samplingMs = entriesPerHour > 30
+        ? 2 * 60 * 1000   // >30/hr (5s intervals) → keep one per 2 min
+        : 5 * 60 * 1000;  // 6-30/hr → keep one per 5 min
+
+    const kept: ShipLogEntry[] = [];
+    let lastKeptTime = 0;
+    let lastCourse: number | undefined;
+    let lastSpeed: number | undefined;
+
+    sorted.forEach((entry, idx) => {
+        const entryTime = new Date(entry.timestamp).getTime();
+
+        // RULE 1: Always keep first and last
+        if (idx === 0 || idx === sorted.length - 1) {
+            kept.push(entry);
+            lastKeptTime = entryTime;
+            lastCourse = entry.courseDeg;
+            lastSpeed = entry.speedKts;
+            return;
+        }
+
+        // RULE 2: Always keep non-auto entries (manual, waypoint, events)
+        if (entry.entryType !== 'auto') {
+            kept.push(entry);
+            lastKeptTime = entryTime;
+            lastCourse = entry.courseDeg;
+            lastSpeed = entry.speedKts;
+            return;
+        }
+
+        // RULE 3: Always keep significant course changes (>15°)
+        if (entry.courseDeg !== undefined && lastCourse !== undefined) {
+            let courseDelta = Math.abs(entry.courseDeg - lastCourse);
+            if (courseDelta > 180) courseDelta = 360 - courseDelta;
+            if (courseDelta > 15) {
+                kept.push(entry);
+                lastKeptTime = entryTime;
+                lastCourse = entry.courseDeg;
+                lastSpeed = entry.speedKts;
+                return;
+            }
+        }
+
+        // RULE 4: Always keep significant speed changes (>2 kts)
+        if (entry.speedKts !== undefined && lastSpeed !== undefined) {
+            if (Math.abs(entry.speedKts - lastSpeed) > 2) {
+                kept.push(entry);
+                lastKeptTime = entryTime;
+                lastCourse = entry.courseDeg;
+                lastSpeed = entry.speedKts;
+                return;
+            }
+        }
+
+        // RULE 5: Always keep entries with notes
+        if (entry.notes && entry.notes.trim().length > 0) {
+            kept.push(entry);
+            lastKeptTime = entryTime;
+            lastCourse = entry.courseDeg;
+            lastSpeed = entry.speedKts;
+            return;
+        }
+
+        // RULE 6: Time-sample — keep if enough time has elapsed
+        if (entryTime - lastKeptTime >= samplingMs) {
+            kept.push(entry);
+            lastKeptTime = entryTime;
+            lastCourse = entry.courseDeg;
+            lastSpeed = entry.speedKts;
+        }
+    });
+
+    return kept;
+}
+
+/**
  * Generate the Deck Log PDF using jsPDF
  */
 async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, vesselData?: VesselData): Promise<jsPDF> {
@@ -660,7 +770,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     // Group entries by date
     const entriesByDate = new Map<string, ShipLogEntry[]>();
-    const chronoEntries = [...sortedEntries].reverse();
+    // Thin entries for PDF — high-frequency (5s) captures produce too many rows.
+    // Statistics above are computed from ALL entries for accuracy.
+    // The table below uses the thinned subset for readability.
+    const thinnedEntries = thinEntriesForPDF([...sortedEntries].reverse());
+    const chronoEntries = thinnedEntries;
 
     chronoEntries.forEach(entry => {
         const d = new Date(entry.timestamp);
