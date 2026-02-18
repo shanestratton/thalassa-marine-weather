@@ -63,21 +63,22 @@ const App: React.FC = () => {
     const containerClasses = effectiveMode === 'night' ? 'bg-black text-red-600' : effectiveMode === 'high-contrast' ? 'bg-black text-white' : 'bg-slate-900 text-white';
 
     // Header Title Logic
-    // Fix: If Offshore and name is coords, prepend "WP"
+    // Show the location name as-is when it's a real place name.
+    // Only prepend "WP" for raw decimal coordinates (e.g. "-27.47, 153.03").
+    // Cardinal formats (e.g. "27.47°S, 153.03°E") are already human-readable — leave them.
     const rawTitle = weatherData ? weatherData.locationName : (query || settings.defaultLocation || "Select Location");
     let displayTitle = rawTitle;
 
-    // Safe Regex approach matching controller logic (unconditional check)
-    // 1. Starts with "Location", "WP", "Waypoint"
-    // 2. Starts with a Number or Minus (e.g. "-23.5", "23.5")
-    // 3. Contains strict Degree symbol (e.g. "23°S")
-    const isCoordinateName = /^(Location|WP|waypoint)|^-?[0-9]|\b\d+°/i.test(rawTitle);
+    // Only catch truly raw/generic names:
+    // 1. Starts with "Location" (generic placeholder)
+    // 2. Starts with a raw decimal coordinate (digit or minus, NOT followed by degree symbol)
+    //    e.g. "-27.47, 153.03" or "27.4700" but NOT "27.47°S" (already formatted)
+    const isRawCoordinate = /^-?\d+\.?\d*\s*,\s*-?\d/.test(rawTitle);
+    const isGenericName = /^(Location|Waypoint)\b/i.test(rawTitle);
+    const needsWpPrefix = (isRawCoordinate || isGenericName) && !rawTitle.startsWith("WP");
 
-    // Logic: If it looks like a coordinate/generic name, AND doesn't already have "WP", add it.
-    // This applies to Inland AND Offshore (User request: "Inland locations have WP... Offshore do not... correct this").
-    // We want uniform "WP 34.12, -118.12" style for nameless points.
-    if (isCoordinateName && !rawTitle.startsWith("WP")) {
-        // Reconstruct WP Name if we have coordinates
+    if (needsWpPrefix) {
+        // Reconstruct as cardinal coordinate WP name
         if (weatherData?.coordinates) {
             const latStr = Math.abs(weatherData.coordinates.lat).toFixed(4) + (weatherData.coordinates.lat >= 0 ? "°N" : "°S");
             const lonStr = Math.abs(weatherData.coordinates.lon).toFixed(4) + (weatherData.coordinates.lon >= 0 ? "°E" : "°W");
