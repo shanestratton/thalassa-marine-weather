@@ -873,7 +873,8 @@ class ShipLogServiceClass {
         waypointName?: string,
         eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
         engineStatus?: 'running' | 'stopped' | 'maneuvering',
-        voyageId?: string
+        voyageId?: string,
+        skipDedup?: boolean
     ): Promise<ShipLogEntry | null> {
         try {
 
@@ -925,7 +926,9 @@ class ShipLogServiceClass {
                 // DEDUP FILTER: If this is an auto entry and the vessel hasn't moved
                 // more than ~5 meters, discard it to avoid cluttering the logbook.
                 // Record the check so the UI can show "Position unchanged" feedback.
-                if (entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
+                // SKIP when called from flushBufferedTrack — the RDP thinning already
+                // provides superior context-aware filtering (turns, speed, gaps).
+                if (!skipDedup && entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
                     this.trackingState.lastCheckTime = Date.now();
                     this.trackingState.lastCheckDeduped = true;
                     return null;
@@ -1103,9 +1106,11 @@ class ShipLogServiceClass {
 
         // Log each significant point sequentially, accumulating distance correctly.
         // Override the cached position so captureLogEntry() picks it up via getBestPosition().
+        // skipDedup=true: RDP thinning already filtered noise — don't re-apply the
+        // blunt 5m dedup which would silently drop valid turn/speed-change points.
         for (const pos of significant) {
             this.lastBgLocation = pos;
-            await this.captureLogEntry();
+            await this.captureLogEntry('auto', undefined, undefined, undefined, undefined, undefined, true);
         }
     }
 
