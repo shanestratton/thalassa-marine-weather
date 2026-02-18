@@ -1199,7 +1199,16 @@ const VoyageCard: React.FC<{
             >
                 {/* LEFT — route info, expands timeline */}
                 <button
-                    onClick={() => { if (swipeOffset === 0) { onSelect(); onToggle(); } else setSwipeOffset(0); }}
+                    onClick={(e) => {
+                        if (swipeOffset !== 0) { setSwipeOffset(0); return; }
+                        // Left third → select + expand; rest → select only
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        onSelect();
+                        if (clickX < rect.width / 3) {
+                            onToggle();
+                        }
+                    }}
                     className="flex-1 p-4 text-left min-w-0"
                 >
                     <div className="flex items-start justify-between mb-1">
