@@ -48,7 +48,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         let subline = '';
 
         if (!hasRain) {
-            headline = 'No Rain Expected';
+            headline = 'No Rain Expected for the next hour';
             subline = 'Next 60 minutes';
         } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
             headline = `Rain stopping in ${firstDryAfterRain} min`;
@@ -108,7 +108,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                             fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                     </svg>
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/60">
-                        No Rain Expected
+                        No Rain Expected for the next hour
                     </span>
                 </div>
             </div>
