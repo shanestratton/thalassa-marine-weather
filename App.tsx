@@ -275,8 +275,8 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* BOTTOM FADE */}
-                {((currentView === 'details') || currentView === 'voyage') && !isMobileLandscape && (
+                {/* BOTTOM FADE — dashboard only (not Log page, it obscures Start Tracking) */}
+                {currentView === 'details' && !isMobileLandscape && (
                     <div className={`fixed bottom-0 left-0 right-0 h-40 z-[850] pointer-events-none bg-gradient-to-t ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'from-black via-black/95 to-transparent' : 'from-[#0f172a] via-[#0f172a] to-transparent'}`} />
                 )}
 
