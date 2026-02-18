@@ -17,9 +17,9 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         const mapboxKey = getMapboxKey();
         if (mapboxKey) {
 
-            // Enhanced types: natural_feature (Bays/Beaches), place (Cities), locality (Suburbs)
-            // Removed 'poi' to prevent "Mickey Mouse" business names (e.g. "Joe's Fish Shack")
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district&limit=1&access_token=${mapboxKey}`;
+            // Enhanced types: natural_feature (Bays/Headlands/Islands), place (Cities), locality (Suburbs)
+            // natural_feature is critical for marine/coastal locations where there's no "place"
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=natural_feature,place,locality,neighborhood,district&limit=3&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
                 url,
                 headers: {
@@ -40,7 +40,11 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             }
 
             if (data && data.features && data.features.length > 0) {
-                const place = data.features[0];
+                // Prefer place/locality over natural_feature (e.g. prefer "Redcliffe" over "Moreton Bay")
+                // But fall back to natural_feature for genuinely offshore points
+                const preferredTypes = ['place', 'locality', 'neighborhood', 'district'];
+                const place = data.features.find((f: any) => preferredTypes.includes(f.place_type?.[0]))
+                    || data.features[0];
                 // Mapbox Context: find country and region
                 const context = place.context || [];
                 const countryCtx = context.find((c: { id: string; text?: string; short_code?: string }) => c.id.startsWith('country'));
@@ -228,7 +232,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 return (data && data.results) || [];
             } catch { return []; }
-                // Silently ignored — non-critical failure
+            // Silently ignored — non-critical failure
         }
 
         let results = await fetchOpenMeteoGeo(location);
