@@ -320,8 +320,8 @@ const App: React.FC = () => {
                 {/* Watch submenu — rendered OUTSIDE nav bar to escape backdrop-blur stacking context */}
                 {!isMobileLandscape && watchMenuOpen && (
                     <>
-                        <div className="fixed inset-0 z-[950]" onClick={() => setWatchMenuOpen(false)} />
-                        <div className="fixed z-[960] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', left: '50%', transform: 'translateX(-70%)' }}>
+                        <div className="fixed inset-0 z-[9400]" onClick={() => setWatchMenuOpen(false)} />
+                        <div className="fixed z-[9500] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', left: '50%', transform: 'translateX(-70%)' }}>
                             <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
                                 <span className="text-base">📒</span> Log
                             </button>
