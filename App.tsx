@@ -309,35 +309,32 @@ const App: React.FC = () => {
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
                         <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-
-                            {/* Watch — with submenu */}
-                            <div className="relative">
-                                <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
-                                {watchMenuOpen && (
-                                    <>
-                                        <div className="fixed inset-0 z-[950]" onClick={() => setWatchMenuOpen(false)} />
-                                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[960] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                                <span className="text-base">📒</span> Log
-                                            </button>
-                                            <div className="border-t border-white/5" />
-                                            <button onClick={() => { handleTabPassage(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'voyage' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                                <span className="text-base">⛵</span> Passage
-                                            </button>
-                                            <div className="border-t border-white/5" />
-                                            <button onClick={() => { setPage('compass'); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'compass' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                                <span className="text-base">⚓</span> Anchor
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
+                            <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
                             <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />
                             <NavButton icon={<GearIcon className="w-6 h-6" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
                         </div>
                     </div>
+                )}
+
+                {/* Watch submenu — rendered OUTSIDE nav bar to escape backdrop-blur stacking context */}
+                {!isMobileLandscape && watchMenuOpen && (
+                    <>
+                        <div className="fixed inset-0 z-[950]" onClick={() => setWatchMenuOpen(false)} />
+                        <div className="fixed z-[960] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', left: '50%', transform: 'translateX(-70%)' }}>
+                            <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                <span className="text-base">📒</span> Log
+                            </button>
+                            <div className="border-t border-white/5" />
+                            <button onClick={() => { handleTabPassage(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'voyage' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                <span className="text-base">⛵</span> Passage
+                            </button>
+                            <div className="border-t border-white/5" />
+                            <button onClick={() => { setPage('compass'); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'compass' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
+                                <span className="text-base">⚓</span> Anchor
+                            </button>
+                        </div>
+                    </>
                 )}
 
             </div>
