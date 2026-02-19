@@ -184,7 +184,7 @@ export const useAppController = () => {
 
         // Resolve a human-readable name if the map didn't provide one
         let locationQuery = name || '';
-        if (!locationQuery || /^-?\d/.test(locationQuery)) {
+        if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
             try {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
