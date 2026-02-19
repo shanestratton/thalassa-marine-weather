@@ -496,11 +496,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             }}
                                         >
                                             <div className="px-4 py-2.5 flex items-center justify-center gap-2">
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/40 shrink-0">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
                                                     <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                                         fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                                                 </svg>
-                                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-300/40">
+                                                <span className="text-xs font-semibold uppercase tracking-wider text-ivory">
                                                     {rainStatus === 'loading' ? 'Checking rain forecast…' : 'Rain data unavailable'}
                                                 </span>
                                             </div>
