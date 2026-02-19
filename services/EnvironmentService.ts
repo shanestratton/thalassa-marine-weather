@@ -33,7 +33,7 @@ export interface EnvironmentState {
     /** 0–1 confidence in detection (1 = definitive, 0 = guessing) */
     confidence: number;
     /** Source that determined the detection */
-    source: 'weather_type' | 'landlocked' | 'elevation' | 'persisted' | 'default';
+    source: 'weather_type' | 'landlocked' | 'elevation' | 'water_api' | 'persisted' | 'default';
 }
 
 interface PersistedEnvironment {
@@ -96,6 +96,16 @@ class EnvironmentServiceClass {
         // Push current state immediately
         cb(this.getState());
         return () => this.listeners.delete(cb);
+    }
+
+    /**
+     * Feed water/land status from the is-on-water API.
+     * Called every 60s by ShipLogService's environment polling.
+     * Highest confidence source — the API is authoritative.
+     */
+    updateWaterStatus(isOnWater: boolean): void {
+        const newDetected: Environment = isOnWater ? 'offshore' : 'onshore';
+        this.applyDetection(newDetected, 0.95, 'water_api');
     }
 
     /**

@@ -15,7 +15,6 @@ interface CommunityTrackBrowserProps {
     isOpen: boolean;
     onClose: () => void;
     onImportComplete: () => void;
-    onLocalImport: () => void; // Fallback to local file import
 }
 
 const CATEGORY_LABELS: Record<TrackCategory, string> = {
@@ -44,7 +43,6 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     isOpen,
     onClose,
     onImportComplete,
-    onLocalImport,
 }) => {
     const [tracks, setTracks] = useState<SharedTrack[]>([]);
     const [total, setTotal] = useState(0);
@@ -113,6 +111,17 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
         setDownloadingId(track.id);
         setImportStatus(null);
         try {
+            // ── Duplicate-import guard ──
+            // Check if we already have entries from this community track
+            const existingEntries = await ShipLogService.getLogEntries();
+            const alreadyImported = existingEntries.some((e: { source?: string; voyageId?: string }) =>
+                e.source === 'community_download' && e.voyageId?.includes(track.id.slice(0, 8))
+            );
+            if (alreadyImported) {
+                setImportStatus('⚠️ Already imported — delete the existing copy first to re-download');
+                return;
+            }
+
             // Download GPX data (Pro check happens server-side)
             const gpxData = await TrackSharingService.downloadTrack(track.id, true);
             if (!gpxData) {
@@ -199,17 +208,6 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                         <h2 className="text-lg font-bold text-white">Community Tracks</h2>
                     </div>
                     <div className="flex items-center gap-2">
-                        {/* Local file import button */}
-                        <button
-                            onClick={onLocalImport}
-                            className={`px-3 py-1.5 bg-slate-800/50 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-bold transition-colors ${t.border.default} flex items-center gap-1`}
-                            title="Import from device files"
-                            aria-label="Local Import">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            File
-                        </button>
                         <button
                             onClick={onClose}
                             className="p-2 text-slate-400 hover:text-white transition-colors"

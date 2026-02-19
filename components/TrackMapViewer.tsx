@@ -1,9 +1,13 @@
 /**
  * Track Map Viewer
  * Full-screen voyage track visualization using the map API
+ * 
+ * FIX: Map is created ONCE on open, layers updated separately.
+ * Previously, the useEffect destroyed & recreated the entire map on every
+ * entries change, causing flash and zoom snap-back.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -17,15 +21,59 @@ interface TrackMapViewerProps {
 export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose, entries }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
+    const layerGroupRef = useRef<L.LayerGroup | null>(null);
+    const hasFitBoundsRef = useRef(false);
 
+    // Create map ONCE when opened
     useEffect(() => {
-        if (!isOpen || !mapRef.current || entries.length < 2) return;
+        if (!isOpen || !mapRef.current) return;
 
-        // Clean up existing map
+        // Don't recreate if map already exists
         if (mapInstanceRef.current) {
-            mapInstanceRef.current.remove();
-            mapInstanceRef.current = null;
+            // Just invalidate size in case container resized
+            setTimeout(() => mapInstanceRef.current?.invalidateSize(), 100);
+            return;
         }
+
+        const map = L.map(mapRef.current, {
+            zoomControl: true,
+            attributionControl: false,
+            // Prevent zoom animation flash
+            zoomAnimation: true,
+            fadeAnimation: true,
+        });
+
+        // Dark nautical tile layer
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+        }).addTo(map);
+
+        // Layer group for track data (updated separately)
+        const layerGroup = L.layerGroup().addTo(map);
+        layerGroupRef.current = layerGroup;
+        mapInstanceRef.current = map;
+
+        // Invalidate size after DOM settles
+        setTimeout(() => map.invalidateSize(), 200);
+
+        return () => {
+            if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
+                layerGroupRef.current = null;
+                hasFitBoundsRef.current = false;
+            }
+        };
+    }, [isOpen]);
+
+    // Update track layers when entries change (WITHOUT recreating the map)
+    const updateTrackLayers = useCallback(() => {
+        const map = mapInstanceRef.current;
+        const layerGroup = layerGroupRef.current;
+        if (!map || !layerGroup) return;
+
+        // Clear existing track layers
+        layerGroup.clearLayers();
 
         // Filter entries with valid coordinates
         const validEntries = entries.filter(e => e.latitude && e.longitude);
@@ -36,55 +84,60 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
 
-        // Calculate bounds
-        const lats = sortedEntries.map(e => e.latitude!);
-        const lons = sortedEntries.map(e => e.longitude!);
-        const bounds = L.latLngBounds([
-            [Math.min(...lats) - 0.01, Math.min(...lons) - 0.01],
-            [Math.max(...lats) + 0.01, Math.max(...lons) + 0.01]
-        ]);
-
-        // Initialize map
-        const map = L.map(mapRef.current, {
-            zoomControl: true,
-            attributionControl: false
-        });
-
-        // Dark nautical tile layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19
-        }).addTo(map);
-
-        // Fit to bounds
-        map.fitBounds(bounds, { padding: [40, 40] });
-
-        // Track polyline with glow effect
+        // Build track segments colored by water/land status
         const trackCoords = sortedEntries.map(e => [e.latitude!, e.longitude!] as [number, number]);
 
-        // Glow layer
-        L.polyline(trackCoords, {
-            color: '#38bdf8',
-            weight: 8,
-            opacity: 0.3,
-            lineCap: 'round',
-            lineJoin: 'round'
-        }).addTo(map);
+        // Build color-segmented polylines (land=green, water=blue)
+        let currentSegment: [number, number][] = [];
+        let currentIsWater = sortedEntries[0].isOnWater ?? true;
 
-        // Main track line
-        L.polyline(trackCoords, {
-            color: '#38bdf8',
-            weight: 3,
-            opacity: 1,
-            lineCap: 'round',
-            lineJoin: 'round'
-        }).addTo(map);
+        const addSegment = (coords: [number, number][], isWater: boolean) => {
+            if (coords.length < 2) return;
+            const color = isWater ? '#38bdf8' : '#34d399';
 
-        // Start marker
+            // Glow layer
+            L.polyline(coords, {
+                color,
+                weight: 8,
+                opacity: 0.2,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
+
+            // Main track line
+            L.polyline(coords, {
+                color,
+                weight: 3,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(layerGroup);
+        };
+
+        sortedEntries.forEach((entry, i) => {
+            const isWater = entry.isOnWater ?? true;
+            const coord: [number, number] = [entry.latitude!, entry.longitude!];
+
+            if (isWater !== currentIsWater && currentSegment.length > 0) {
+                // Finish current segment (include this point for continuity)
+                currentSegment.push(coord);
+                addSegment(currentSegment, currentIsWater);
+                // Start new segment from this point
+                currentSegment = [coord];
+                currentIsWater = isWater;
+            } else {
+                currentSegment.push(coord);
+            }
+        });
+        // Flush final segment
+        addSegment(currentSegment, currentIsWater);
+
+        // Start marker (green dot)
         const startIcon = L.divIcon({
             html: `<div style="
                 width: 24px;
                 height: 24px;
-                background: #22c55e;
+                background: #34d399;
                 border: 3px solid white;
                 border-radius: 50%;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.4);
@@ -95,14 +148,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         });
 
         L.marker([sortedEntries[0].latitude!, sortedEntries[0].longitude!], { icon: startIcon })
-            .addTo(map)
+            .addTo(layerGroup)
             .bindPopup(`<div style="font-size: 12px;">
-                <strong style="color: #22c55e;">START</strong><br/>
+                <strong style="color: #34d399;">START</strong><br/>
                 ${new Date(sortedEntries[0].timestamp).toLocaleString()}<br/>
                 ${sortedEntries[0].positionFormatted || ''}
             </div>`);
 
-        // End marker
+        // End marker (red dot)
         const endIcon = L.divIcon({
             html: `<div style="
                 width: 24px;
@@ -119,14 +172,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         const lastEntry = sortedEntries[sortedEntries.length - 1];
         L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon })
-            .addTo(map)
+            .addTo(layerGroup)
             .bindPopup(`<div style="font-size: 12px;">
                 <strong style="color: #ef4444;">END</strong><br/>
                 ${new Date(lastEntry.timestamp).toLocaleString()}<br/>
                 ${lastEntry.positionFormatted || ''}
             </div>`);
 
-        // Waypoint markers
+        // Waypoint markers (amber dots)
         sortedEntries
             .filter(e => e.entryType === 'waypoint')
             .forEach(entry => {
@@ -145,7 +198,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 });
 
                 L.marker([entry.latitude!, entry.longitude!], { icon: wpIcon })
-                    .addTo(map)
+                    .addTo(layerGroup)
                     .bindPopup(`<div style="font-size: 12px;">
                         <strong style="color: #f59e0b;">${entry.waypointName || 'Waypoint'}</strong><br/>
                         ${new Date(entry.timestamp).toLocaleString()}<br/>
@@ -153,15 +206,32 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     </div>`);
             });
 
-        mapInstanceRef.current = map;
+        // GPS position dots — show ALL individual coords as tiny dots
+        sortedEntries.forEach(entry => {
+            if (entry.entryType === 'waypoint') return; // Already has marker
+            L.circleMarker([entry.latitude!, entry.longitude!], {
+                radius: 2,
+                fillColor: entry.isOnWater ? '#38bdf8' : '#34d399',
+                fillOpacity: 0.6,
+                stroke: false,
+            }).addTo(layerGroup);
+        });
 
-        return () => {
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                mapInstanceRef.current = null;
-            }
-        };
-    }, [isOpen, entries]);
+        // Fit bounds ONLY on first load — don't snap zoom when entries update during tracking
+        if (!hasFitBoundsRef.current) {
+            const bounds = L.latLngBounds(trackCoords);
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: false });
+            hasFitBoundsRef.current = true;
+        }
+    }, [entries]);
+
+    // Trigger layer update when entries change or map is ready
+    useEffect(() => {
+        if (!isOpen) return;
+        // Small delay to ensure map is initialized
+        const timer = setTimeout(updateTrackLayers, 300);
+        return () => clearTimeout(timer);
+    }, [isOpen, updateTrackLayers]);
 
     if (!isOpen) return null;
 
@@ -218,7 +288,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 </div>
                 <div className="flex items-center gap-2">
                     <div className="w-6 h-0.5 bg-sky-400 rounded"></div>
-                    <span className="text-slate-300">Track</span>
+                    <span className="text-slate-300">Water</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="w-6 h-0.5 bg-emerald-400 rounded"></div>
+                    <span className="text-slate-300">Land</span>
                 </div>
             </div>
         </div>

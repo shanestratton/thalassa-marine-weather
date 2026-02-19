@@ -84,6 +84,21 @@ class TrackSharingServiceClass {
             throw new Error('No entries to share');
         }
 
+        // ── Provenance guard: only first-party device tracks can be shared ──
+        // Prevents laundering imported GPX or community-downloaded tracks back
+        // into the community pool under a different user's name.
+        const nonDeviceEntries = entries.filter(e => e.source && e.source !== 'device');
+        if (nonDeviceEntries.length > 0) {
+            const source = nonDeviceEntries[0].source;
+            if (source === 'community_download') {
+                throw new Error('Cannot re-share a community-downloaded track — only your own recorded voyages can be shared');
+            }
+            if (source === 'gpx_import') {
+                throw new Error('Cannot share imported GPX tracks — only your own recorded voyages can be shared');
+            }
+            throw new Error('Cannot share tracks from external sources — only your own recorded voyages can be shared');
+        }
+
         // Generate GPX (uses voyage name, no vessel info for privacy)
         const gpxData = exportVoyageAsGPX(entries, metadata.title);
 
@@ -195,15 +210,21 @@ class TrackSharingServiceClass {
             throw new Error('Pro subscription required to download community tracks');
         }
 
-        // Fetch GPX data
+        // Fetch track metadata + GPX data
         const { data, error } = await supabase
             .from(SHARED_TRACKS_TABLE)
-            .select('gpx_data')
+            .select('gpx_data, user_id')
             .eq('id', trackId)
             .single();
 
         if (error || !data) {
             return null;
+        }
+
+        // ── Self-import guard: can't download your own track ──
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && data.user_id === user.id) {
+            throw new Error('Cannot download your own shared track — you already have this data');
         }
 
         // Increment download counter (fire-and-forget)

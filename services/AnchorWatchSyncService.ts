@@ -178,6 +178,11 @@ class AnchorWatchSyncServiceClass {
                 return false;
             }
 
+            // Seed peer update time so the 30s timeout can detect absent peers.
+            // Without this, lastPeerUpdate stays null after restore and the
+            // timeout never fires — leaving shore stuck showing "Vessel Connected".
+            this.lastPeerUpdate = Date.now();
+
             // Re-register push token for shore devices
             if (this.role === 'shore') {
                 this.registerPushToken(persisted.sessionCode);

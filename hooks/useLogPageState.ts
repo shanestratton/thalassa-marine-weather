@@ -16,7 +16,7 @@ import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { exportToCSV, sharePDF } from '../utils/logExport';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
-import { exportVoyageAsGPX, shareGPXFile } from '../services/gpxService';
+import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
 import { LogFilters } from '../components/LogFilterToolbar';
 import { getErrorMessage } from '../utils/logger';
@@ -37,7 +37,7 @@ interface LogPageState {
     showStopVoyageDialog: boolean;
     showVoyageChoiceDialog: boolean;
     showCommunityBrowser: boolean;
-    actionSheet: 'export' | 'share' | 'share_form' | 'pin' | 'stats' | null;
+    actionSheet: 'export' | 'import' | 'share' | 'share_form' | 'pin' | 'stats' | null;
 
     // Edit / selection
     editEntry: ShipLogEntry | null;
@@ -67,7 +67,7 @@ type LogPageAction =
     | { type: 'SHOW_STOP_DIALOG'; show: boolean }
     | { type: 'SHOW_VOYAGE_CHOICE'; show: boolean; lastVoyageId?: string | null }
     | { type: 'SHOW_COMMUNITY_BROWSER'; show: boolean }
-    | { type: 'SET_ACTION_SHEET'; sheet: 'export' | 'share' | 'share_form' | 'pin' | 'stats' | null }
+    | { type: 'SET_ACTION_SHEET'; sheet: 'export' | 'import' | 'share' | 'share_form' | 'pin' | 'stats' | null }
     | { type: 'SET_EDIT_ENTRY'; entry: ShipLogEntry | null }
     | { type: 'SET_FILTERS'; filters: LogFilters }
     | { type: 'SELECT_VOYAGE'; voyageId: string | null }
@@ -217,7 +217,7 @@ export function useLogPageState() {
         // Fetch from BOTH sources and merge — ensures entries are visible
         // whether they're synced to Supabase or still in the offline queue.
         const [dbEntries, offlineEntries] = await Promise.all([
-            ShipLogService.getLogEntries(100),
+            ShipLogService.getLogEntries(10_000_000),
             ShipLogService.getOfflineEntries(),
         ]);
 
@@ -257,6 +257,11 @@ export function useLogPageState() {
         }
 
         // Load archived voyages and career entries in parallel (non-blocking)
+        reloadCareerData();
+    }, []);
+
+    // Reusable career + archive data refresh
+    const reloadCareerData = useCallback(() => {
         Promise.all([
             ShipLogService.getArchivedEntries(),
             ShipLogService.getAllEntriesForCareer(),
@@ -428,11 +433,12 @@ export function useLogPageState() {
         const success = await ShipLogService.deleteVoyage(state.deleteVoyageId);
         if (success) {
             dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== state.deleteVoyageId) });
+            reloadCareerData(); // Refresh career totals immediately
         } else {
             toast.error('Failed to delete voyage');
         }
         dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
-    }, [state.deleteVoyageId, toast]);
+    }, [state.deleteVoyageId, toast, reloadCareerData]);
 
     // ── Export / Share ───────────────────────────────────────────────────────
 
@@ -474,6 +480,24 @@ export function useLogPageState() {
         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
         await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
     }, [state.selectedVoyageId, state.entries, settings.vessel?.name]);
+
+    const handleImportGPXFile = useCallback(async (file: File) => {
+        try {
+            const gpxXml = await readGPXFile(file);
+            const entries = importGPXToEntries(gpxXml);
+            if (entries.length === 0) {
+                toast.error('No valid track points found in file');
+                return;
+            }
+            // Stamp with provenance
+            entries.forEach(e => { (e as any).source = 'gpx_import'; });
+            const { savedCount } = await ShipLogService.importGPXVoyage(entries);
+            toast.success(`Imported ${savedCount} entries from ${file.name}`);
+            await loadData();
+        } catch (err: unknown) {
+            toast.error(getErrorMessage(err) || 'Failed to import GPX file');
+        }
+    }, [toast, loadData]);
 
     const handleShareToCommunity = useCallback(async (shareData: { title: string; description: string; category: TrackCategory; region: string }) => {
         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
@@ -559,13 +583,14 @@ export function useLogPageState() {
         // Step 2: Group into voyages
         const groups = groupEntriesByVoyage(ownEntries);
 
-        // Step 3: Filter out land-based voyages
+        // Step 3: Filter out land-based voyages (majority vote)
+        // If ≥60% of entries with water data are on land, classify as land track.
+        // This prevents coastal GPS jitter from misclassifying car drives as maritime.
         const maritimeGroups = groups.filter(g => {
-            const sorted = [...g.entries].sort((a, b) =>
-                new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-            );
-            const firstEntry = sorted[0];
-            return firstEntry?.isOnWater !== false;
+            const withWaterData = g.entries.filter(e => e.isOnWater !== undefined);
+            if (withWaterData.length === 0) return true; // No data → assume water (fail-open)
+            const landCount = withWaterData.filter(e => e.isOnWater === false).length;
+            return landCount / withWaterData.length < 0.6; // ≥60% land → land track
         });
 
         let distance = 0;
@@ -589,12 +614,14 @@ export function useLogPageState() {
     const handleArchiveVoyage = useCallback(async (voyageId: string) => {
         await ShipLogService.archiveVoyage(voyageId);
         await loadData();
-    }, [loadData]);
+        reloadCareerData();
+    }, [loadData, reloadCareerData]);
 
     const handleUnarchiveVoyage = useCallback(async (voyageId: string) => {
         await ShipLogService.unarchiveVoyage(voyageId);
         await loadData();
-    }, [loadData]);
+        reloadCareerData();
+    }, [loadData, reloadCareerData]);
 
     // ── Public API ──────────────────────────────────────────────────────────
 
@@ -631,6 +658,7 @@ export function useLogPageState() {
         handleShare,
         handleExportThenDelete,
         handleExportGPX,
+        handleImportGPXFile,
         handleShareToCommunity,
 
         // Derived state

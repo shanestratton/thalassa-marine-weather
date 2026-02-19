@@ -80,7 +80,7 @@ function perpendicularDistanceMeters(
 }
 
 /** Bearing in degrees from point A to point B */
-function bearing(
+export function bearing(
     lat1: number, lon1: number,
     lat2: number, lon2: number
 ): number {
@@ -95,7 +95,7 @@ function bearing(
  * Angular difference between two bearings (0–180°).
  * Handles wrap-around correctly (e.g., 350° → 10° = 20°, not 340°).
  */
-function headingDelta(a: number, b: number): number {
+export function headingDelta(a: number, b: number): number {
     let d = Math.abs(a - b) % 360;
     if (d > 180) d = 360 - d;
     return d;
@@ -180,7 +180,7 @@ function rdpSimplify(points: CachedPosition[], epsilon: number): Set<number> {
  * 5. Merge all kept indices
  * 6. Remove points too close together (< 2m) except force-kept
  */
-export function thinTrack(points: CachedPosition[]): CachedPosition[] {
+export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 1.0): CachedPosition[] {
     if (points.length <= 2) return [...points];
 
     // --- Pass 1: Identify force-keep indices ---
@@ -234,7 +234,7 @@ export function thinTrack(points: CachedPosition[]): CachedPosition[] {
     // --- Pass 2: RDP simplification with speed-adaptive epsilon ---
     // Calculate average speed across the buffer
     const avgSpeedKts = points.reduce((s, p) => s + (p.speed ?? 0), 0) / points.length * MS_TO_KTS;
-    const epsilon = getEpsilonForSpeed(avgSpeedKts);
+    const epsilon = getEpsilonForSpeed(avgSpeedKts) * epsilonMultiplier;
 
     const rdpKeep = rdpSimplify(points, epsilon);
 

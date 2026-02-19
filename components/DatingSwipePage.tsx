@@ -1,13 +1,13 @@
 /**
- * DatingSwipePage — Tinder-style Sailor Dating
+ * DatingSwipePage — "First Mates" Sailor Dating
  * 
- * Privacy-first swipe cards for the Lonely Hearts channel:
+ * Privacy-first swipe cards for the First Mates channel:
  * - First name only (no last names, no emails)
- * - Separate dating photos (NOT the main pirate profile photo)
+ * - Separate dating photos (NOT the main sailing profile photo)
  * - Swipe right = Like, left = Pass
  * - Mutual match celebration
  * - DM only for mutual matches (safety)
- * - Profile editing with first name, bio, interests, photos
+ * - Profile editing with first name, role, bio, interests, photos
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -26,6 +26,27 @@ interface DatingSwipePageProps {
 }
 
 type DatingView = 'browse' | 'matches' | 'edit_profile' | 'match_celebration';
+
+// Sunset Coral palette — replaces hot pink for a sophisticated maritime feel
+const CORAL = {
+    text: 'text-[#FF7F50]',
+    textMuted: 'text-[#E9967A]',
+    textFaded: 'text-[#E9967A]/60',
+    border: 'border-[#FF7F50]/25',
+    borderFaded: 'border-[#E9967A]/15',
+    bgFill: 'bg-[#FF7F50]',
+    bgSubtle: 'bg-[#FF7F50]/15',
+    bgFaint: 'bg-[#FF7F50]/5',
+    gradActive: 'bg-gradient-to-r from-[#FF7F50]/25 to-[#E9967A]/25',
+    gradButton: 'bg-gradient-to-r from-[#FF7F50] to-[#E9967A]',
+    gradHover: 'bg-gradient-to-r from-[#FF7F50]/90 to-[#E9967A]/90',
+    shadow: 'shadow-[#FF7F50]/15',
+    shadowStrong: 'shadow-[#FF7F50]/20',
+} as const;
+
+// Role options for the identity selector
+const ROLE_OPTIONS = ['Captain', 'First Mate', 'Crew', 'Mermaid'] as const;
+type MaritimeRole = typeof ROLE_OPTIONS[number];
 
 export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) => {
     const [view, setView] = useState<DatingView>('browse');
@@ -49,6 +70,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
     // Edit profile
     const [editFirstName, setEditFirstName] = useState('');
+    const [editRole, setEditRole] = useState<MaritimeRole | ''>('');
     const [editBio, setEditBio] = useState('');
     const [editInterests, setEditInterests] = useState<string[]>([]);
     const [editAge, setEditAge] = useState('');
@@ -96,6 +118,9 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
             setEditSeeking(dp.seeking || '');
             setEditLocation(dp.location_text || '');
             setEditPhotos(dp.photos?.filter((p: string) => p) || []);
+            // Restore role from interests if saved there
+            const savedRole = ROLE_OPTIONS.find(r => (dp.interests || []).includes(`role:${r}`));
+            if (savedRole) setEditRole(savedRole);
         }
     };
 
@@ -195,10 +220,13 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
     // --- SAVE PROFILE ---
     const handleSaveProfile = async () => {
         setSaving(true);
+        // Encode role as a tagged interest so it persists without schema change
+        const roleInterests = editRole ? [`role:${editRole}`] : [];
+        const cleanInterests = editInterests.filter(i => !i.startsWith('role:'));
         await LonelyHeartsService.updateDatingProfile({
             first_name: editFirstName.trim() || null,
             bio: sanitizeText(editBio.trim()) || null,
-            interests: editInterests,
+            interests: [...cleanInterests, ...roleInterests],
             age_range: editAge || null,
             seeking: editSeeking || null,
             sailing_experience: editExperience || null,
@@ -220,7 +248,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
         return (
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                    <div className="w-10 h-10 mx-auto mb-4 border-2 border-pink-500/30 border-t-pink-500 rounded-full animate-spin" />
+                    <div className="w-10 h-10 mx-auto mb-4 border-2 border-[#FF7F50]/30 border-t-[#FF7F50] rounded-full animate-spin" />
                     <p className="text-sm text-white/50">Finding sailors nearby...</p>
                 </div>
             </div>
@@ -240,12 +268,12 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                         key={tab.key}
                         onClick={() => setView(tab.key)}
                         className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key || (view === 'match_celebration' && tab.key === 'browse')
-                            ? 'text-pink-400' : 'text-white/50 hover:text-white/50'
+                            ? 'text-[#FF7F50]' : 'text-white/50 hover:text-white/50'
                             }`}
                     >
                         {tab.label}
                         {(view === tab.key || (view === 'match_celebration' && tab.key === 'browse')) && (
-                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-pink-500 to-rose-500 rounded-full" />
+                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-[#FF7F50] to-[#E9967A] rounded-full" />
                         )}
                     </button>
                 ))}
@@ -267,7 +295,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 </p>
                                 <button
                                     onClick={() => { setLoading(true); loadCards().then(() => setLoading(false)); }}
-                                    className="mt-6 px-6 py-3 rounded-2xl bg-pink-500/15 text-pink-300 text-sm font-semibold border border-pink-400/20 transition-all active:scale-95"
+                                    className="mt-6 px-6 py-3 rounded-2xl bg-[#FF7F50]/15 text-[#E9967A] text-sm font-semibold border border-[#FF7F50]/20 transition-all active:scale-95"
                                 >
                                     ♻️ Refresh
                                 </button>
@@ -298,7 +326,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                     )}
 
                                     {/* Photo gallery / Avatar header */}
-                                    <div className="h-64 bg-gradient-to-br from-pink-500/15 via-purple-500/10 to-blue-500/15 flex items-center justify-center relative">
+                                    <div className="h-64 bg-gradient-to-br from-[#FF7F50]/15 via-purple-500/10 to-blue-500/15 flex items-center justify-center relative">
                                         {currentPhotos.length > 0 ? (
                                             <>
                                                 <img
@@ -355,7 +383,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         </div>
 
                                         {currentCard.seeking && (
-                                            <p className="text-xs text-pink-300/60">
+                                            <p className="text-xs text-[#E9967A]/60">
                                                 Looking for: <span className="font-semibold">{currentCard.seeking}</span>
                                             </p>
                                         )}
@@ -370,13 +398,13 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         {/* Interests */}
                                         {currentCard.interests.length > 0 && (
                                             <div className="flex flex-wrap gap-1.5">
-                                                {currentCard.interests.slice(0, 6).map(tag => (
-                                                    <span key={tag} className="px-2.5 py-1 rounded-full bg-pink-500/10 text-[11px] text-pink-200/60 border border-pink-400/10">
+                                                {currentCard.interests.filter(t => !t.startsWith('role:')).slice(0, 6).map(tag => (
+                                                    <span key={tag} className="px-2.5 py-1 rounded-full bg-[#FF7F50]/10 text-[11px] text-[#E9967A]/60 border border-[#FF7F50]/10">
                                                         {tag}
                                                     </span>
                                                 ))}
-                                                {currentCard.interests.length > 6 && (
-                                                    <span className="text-[10px] text-white/20">+{currentCard.interests.length - 6}</span>
+                                                {currentCard.interests.filter(t => !t.startsWith('role:')).length > 6 && (
+                                                    <span className="text-[10px] text-white/20">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
                                                 )}
                                             </div>
                                         )}
@@ -393,7 +421,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                     </button>
                                     <button
                                         onClick={() => handleSwipeAction(true)}
-                                        className="w-20 h-20 rounded-full bg-gradient-to-br from-pink-500/20 to-rose-500/20 border-2 border-pink-400/30 flex items-center justify-center text-4xl transition-all active:scale-90 hover:border-pink-400/50 shadow-xl shadow-pink-500/10"
+                                        className="w-20 h-20 rounded-full bg-gradient-to-br from-[#FF7F50]/20 to-[#E9967A]/20 border-2 border-[#FF7F50]/30 flex items-center justify-center text-4xl transition-all active:scale-90 hover:border-[#FF7F50]/50 shadow-xl shadow-[#FF7F50]/10"
                                     >
                                         💚
                                     </button>
@@ -413,7 +441,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                     <div className="flex flex-col items-center justify-center h-full px-6">
                         <div className="text-center animate-bounce">
                             <span className="text-6xl block mb-4">🎉</span>
-                            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-rose-400 mb-2">
+                            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#FF7F50] to-[#E9967A] mb-2">
                                 It's a Match!
                             </h2>
                             <p className="text-base text-white/50 mb-1">
@@ -427,7 +455,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                         <div className="flex gap-4 mt-8">
                             <button
                                 onClick={() => onOpenDM(newMatch.user_id, getDatingName(newMatch))}
-                                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white font-bold text-base transition-all active:scale-95 shadow-xl shadow-pink-500/20"
+                                className={`px-8 py-4 rounded-2xl ${CORAL.gradButton} hover:opacity-90 text-white font-bold text-base transition-all active:scale-95 shadow-xl ${CORAL.shadowStrong}`}
                             >
                                 💬 Send Message
                             </button>
@@ -465,13 +493,13 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         <button
                                             key={match.user_id}
                                             onClick={() => onOpenDM(match.user_id, matchName)}
-                                            className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-pink-400/10 transition-all active:scale-[0.98]"
+                                            className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-[#FF7F50]/10 transition-all active:scale-[0.98]"
                                         >
-                                            <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-pink-400/20 flex-shrink-0">
+                                            <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-[#FF7F50]/20 flex-shrink-0">
                                                 {matchPhoto ? (
                                                     <img src={matchPhoto} alt="" className="w-full h-full object-cover" />
                                                 ) : (
-                                                    <div className="w-full h-full bg-gradient-to-br from-pink-500/10 to-rose-500/10 flex items-center justify-center">
+                                                    <div className="w-full h-full bg-gradient-to-br from-[#FF7F50]/10 to-[#E9967A]/10 flex items-center justify-center">
                                                         <span className="text-xl">⛵</span>
                                                     </div>
                                                 )}
@@ -480,11 +508,11 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                 <p className="text-base font-semibold text-white/80 truncate">
                                                     {matchName}
                                                 </p>
-                                                <p className="text-xs text-pink-400/50 mt-0.5">
+                                                <p className="text-xs text-[#FF7F50]/50 mt-0.5">
                                                     Matched {new Date(match.matched_at).toLocaleDateString()}
                                                 </p>
                                             </div>
-                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-pink-500/20 to-rose-500/20 flex items-center justify-center flex-shrink-0">
+                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-[#FF7F50]/20 to-[#E9967A]/20 flex items-center justify-center flex-shrink-0">
                                                 <span className="text-sm">💬</span>
                                             </div>
                                         </button>
@@ -499,8 +527,8 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                 {view === 'edit_profile' && (
                     <div className="px-5 py-6 pb-32 space-y-5">
                         <div className="text-center mb-2">
-                            <span className="text-3xl block mb-1">💕</span>
-                            <p className="text-xs text-white/25">Your dating profile is separate from your pirate profile</p>
+                            <span className="text-3xl block mb-1">⚓</span>
+                            <p className="text-xs text-white/25">Your dating profile is separate from your professional sailing profile.</p>
                         </div>
 
                         {/* Dating Photos — 6 slots */}
@@ -515,8 +543,8 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 {Array.from({ length: 6 }).map((_, idx) => (
                                     <div key={idx} className="aspect-square rounded-2xl border border-white/[0.06] overflow-hidden relative group">
                                         {uploadingPhoto === idx ? (
-                                            <div className="w-full h-full bg-pink-500/5 flex items-center justify-center">
-                                                <div className="w-6 h-6 border-2 border-pink-500/30 border-t-pink-500 rounded-full animate-spin" />
+                                            <div className="w-full h-full bg-[#FF7F50]/5 flex items-center justify-center">
+                                                <div className="w-6 h-6 border-2 border-[#FF7F50]/30 border-t-[#FF7F50] rounded-full animate-spin" />
                                             </div>
                                         ) : editPhotos[idx] ? (
                                             <>
@@ -528,7 +556,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                     ✕
                                                 </button>
                                                 {idx === 0 && (
-                                                    <span className="absolute bottom-1 left-1 text-[8px] font-bold bg-pink-500/80 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Main</span>
+                                                    <span className="absolute bottom-1 left-1 text-[8px] font-bold bg-[#FF7F50]/80 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Main</span>
                                                 )}
                                             </>
                                         ) : (
@@ -567,12 +595,37 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 value={editFirstName}
                                 onChange={e => setEditFirstName(e.target.value.replace(/\s+/g, ' '))}
                                 placeholder="Just your first name"
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-pink-500/30 transition-colors"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-[#FF7F50]/30 transition-colors"
                                 maxLength={20}
                             />
                             <p className="text-[11px] text-white/15 mt-1">
                                 ⚠️ No last names, emails, or handles — protect your privacy
                             </p>
+                        </div>
+
+                        {/* Role Identity Selector */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                                🧭 Your Role
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                                {ROLE_OPTIONS.map(role => (
+                                    <button
+                                        key={role}
+                                        onClick={() => setEditRole(editRole === role ? '' : role)}
+                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 ${editRole === role
+                                            ? `${CORAL.gradActive} text-[#FF7F50] border ${CORAL.border}`
+                                            : 'bg-white/[0.03] text-white/35 border border-white/[0.05] hover:bg-white/[0.05]'
+                                            }`}
+                                    >
+                                        {role === 'Captain' && '🎖️ '}
+                                        {role === 'First Mate' && '⚓ '}
+                                        {role === 'Crew' && '⛵ '}
+                                        {role === 'Mermaid' && '🧜 '}
+                                        {role}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         {/* Seeking */}
@@ -586,7 +639,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         key={opt}
                                         onClick={() => setEditSeeking(editSeeking === opt ? '' : opt)}
                                         className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editSeeking === opt
-                                            ? 'bg-gradient-to-r from-pink-500/25 to-rose-500/25 text-pink-200 border border-pink-400/25'
+                                            ? `${CORAL.gradActive} text-[#E9967A] border ${CORAL.border}`
                                             : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                             }`}
                                     >
@@ -611,7 +664,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                             setEditAge(next.join(', '));
                                         }}
                                         className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editAge.split(', ').includes(age)
-                                            ? 'bg-gradient-to-r from-pink-500/25 to-rose-500/25 text-pink-200 border border-pink-400/25'
+                                            ? `${CORAL.gradActive} text-[#E9967A] border ${CORAL.border}`
                                             : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                             }`}
                                     >
@@ -632,7 +685,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         key={level}
                                         onClick={() => setEditExperience(editExperience === level ? '' : level)}
                                         className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${editExperience === level
-                                            ? 'bg-gradient-to-r from-pink-500/15 to-rose-500/15 text-pink-200 border border-pink-400/15'
+                                            ? `bg-gradient-to-r from-[#FF7F50]/15 to-[#E9967A]/15 text-[#E9967A] border ${CORAL.borderFaded}`
                                             : 'bg-white/[0.02] text-white/35 border border-white/[0.04] hover:bg-white/[0.04]'
                                             }`}
                                     >
@@ -651,7 +704,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 value={editLocation}
                                 onChange={e => setEditLocation(e.target.value)}
                                 placeholder="East Coast, Med, Caribbean..."
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-pink-500/30 transition-colors"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-[#FF7F50]/30 transition-colors"
                                 maxLength={60}
                             />
                         </div>
@@ -669,7 +722,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                             key={interest}
                                             onClick={() => toggleInterest(interest)}
                                             className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${selected
-                                                ? 'bg-gradient-to-r from-pink-500/25 to-rose-500/25 text-pink-200 border border-pink-400/25'
+                                                ? `${CORAL.gradActive} text-[#E9967A] border ${CORAL.border}`
                                                 : 'bg-white/[0.03] text-white/35 border border-white/[0.05] hover:bg-white/[0.05]'
                                                 }`}
                                         >
@@ -689,7 +742,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 value={editBio}
                                 onChange={e => setEditBio(e.target.value)}
                                 placeholder="Tell other sailors about yourself..."
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-pink-500/30 transition-colors resize-none"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-[#FF7F50]/30 transition-colors resize-none"
                                 rows={4}
                                 maxLength={300}
                             />
@@ -700,14 +753,14 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                         <button
                             onClick={handleSaveProfile}
                             disabled={saving}
-                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-base text-white font-bold transition-all disabled:opacity-30 active:scale-[0.98] shadow-xl shadow-pink-500/15"
+                            className={`w-full py-4 rounded-2xl ${CORAL.gradButton} hover:opacity-90 text-base text-white font-bold transition-all disabled:opacity-30 active:scale-[0.98] shadow-xl ${CORAL.shadow}`}
                         >
-                            {saved ? '✓ Profile Saved!' : saving ? 'Saving...' : '💕 Save Profile'}
+                            {saved ? '✓ Profile Saved!' : saving ? 'Saving...' : '⚓ Save Profile'}
                         </button>
 
                         <p className="text-[10px] text-white/15 text-center">
-                            Your dating profile is only visible to other opted-in Lonely Hearts members.
-                            Your main pirate profile photo is never shown here.
+                            Your dating profile is only visible to other opted-in First Mates members.
+                            Your main sailing profile photo is never shown here.
                         </p>
                     </div>
                 )}
