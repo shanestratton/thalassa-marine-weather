@@ -415,7 +415,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 411px)' : 'calc(max(8px, env(safe-area-inset-top)) + 331px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 412px)' : 'calc(max(8px, env(safe-area-inset-top)) + 332px)' }}></div>
 
                             {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (118 + 40 + 7 = 165) */}
                             <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 165px)' }}>
@@ -475,10 +475,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
                             {/* MATH: 
-                                Expanded Top: 243 (widgets) + 160 (height) + 8 (gap) = 411px
-                                Collapsed Top: 243 (conditions card) + 80 (height) + 8 (gap) = 331px
+                                Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
+                                Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 411px)' : 'calc(max(8px, env(safe-area-inset-top)) + 331px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 412px)' : 'calc(max(8px, env(safe-area-inset-top)) + 332px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
                                 {minutelyRain && minutelyRain.length > 0 ? (
                                     <div className="shrink-0 px-4">
