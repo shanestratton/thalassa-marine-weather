@@ -549,11 +549,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
-                            {/* Height is ~42px. Bottom is 70px. Top of badges is 70+42 = 112px.
+                            {/* Height is ~42px. Bottom is 72px. Top of badges is 72+42 = 114px.
                                 Hero container bottom is 120px. 
-                                Gap = 120 - 112 = 8px. PERFECT MATCH.
+                                Gap = 120 - 114 = 6px. (Adjusted per user request to be 2px tighter)
                             */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 70px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 72px)' }}>
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}
