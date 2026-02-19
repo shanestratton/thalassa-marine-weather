@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
     MapPinIcon, MapIcon, RouteIcon, CalendarIcon,
     CrosshairIcon, XIcon, ClockIcon, LockIcon, BugIcon, CompassIcon,
-    PowerBoatIcon, SailBoatIcon
+    PowerBoatIcon, SailBoatIcon, AnchorIcon
 } from './Icons';
 import { WeatherMap } from './WeatherMap';
 import { VoyageResults } from './VoyageResults';
@@ -47,11 +47,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
     } = useVoyageForm(onTriggerUpgrade);
 
     const [tempMapSelection, setTempMapSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
+    const [departureTime, setDepartureTime] = useState('06:00');
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            {/* App-wide page heading — matches Log / Anchor Watch */}
-            <div className={t.header.bar}>
+            {/* Page heading — transparent, sits on deep navy */}
+            <div className="px-4 py-2 shrink-0">
                 <div className="flex items-center gap-2.5">
                     <span className={t.typography.pageTitle}>Passage Planning</span>
                 </div>
@@ -213,33 +214,44 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                             </div>
                         </div>
 
-                        {/* Via + Date row */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
-                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                    <RouteIcon className="w-4 h-4 text-sky-400" />
-                                </div>
-                                <input type="text" readOnly value={via} placeholder="Via (Opt)"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
-                                {via && (
-                                    <button onClick={(e) => { e.stopPropagation(); setVia(''); }} aria-label="Clear Via Point"
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500">
-                                        <XIcon className="w-4 h-4" />
-                                    </button>
-                                )}
-                                {!via && (
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
-                                        <MapIcon className="w-4 h-4" />
-                                    </div>
-                                )}
+                        {/* Via */}
+                        <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
+                                <RouteIcon className="w-4 h-4 text-sky-400" />
                             </div>
+                            <input type="text" readOnly value={via} placeholder="Via (Opt)"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
+                            {via && (
+                                <button onClick={(e) => { e.stopPropagation(); setVia(''); }} aria-label="Clear Via Point"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500">
+                                    <XIcon className="w-4 h-4" />
+                                </button>
+                            )}
+                            {!via && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                                    <MapIcon className="w-4 h-4" />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Date & Time row */}
+                        <div className="grid grid-cols-2 gap-3">
                             <div className="relative w-full min-w-0 group">
                                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
                                     <CalendarIcon className="w-4 h-4" />
                                 </div>
                                 <input type="date" min={minDate} value={departureDate}
                                     onChange={(e) => { const d = e.target.value; if (!minDate || d >= minDate) setDepartureDate(d); }}
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                    style={{ WebkitAppearance: 'none' }} />
+                            </div>
+                            <div className="relative w-full min-w-0 group">
+                                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-teal-400 transition-colors">
+                                    <ClockIcon className="w-4 h-4" />
+                                </div>
+                                <input type="time" value={departureTime}
+                                    onChange={(e) => setDepartureTime(e.target.value)}
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-teal-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                     style={{ WebkitAppearance: 'none' }} />
                             </div>
                         </div>
@@ -250,9 +262,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                         <div className="text-center animate-in fade-in zoom-in-95 duration-700">
                             <h1 className="text-3xl md:text-5xl font-black text-white tracking-tighter mb-3 drop-shadow-2xl">
                                 {loading ? (
-                                    <span className="animate-pulse text-transparent bg-clip-text bg-gradient-to-r from-sky-300 to-white">Plotting Course...</span>
+                                    <span className="animate-pulse text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-white">Plotting Course...</span>
                                 ) : (
-                                    <>Chart Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-cyan-200">Odyssey</span></>
+                                    <>Plot Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-cyan-200">Passage</span></>
                                 )}
                             </h1>
                             {!loading && (
@@ -286,16 +298,26 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                         </div>
                     )}
 
+                    {/* Active vessel indicator */}
+                    {vessel && (
+                        <div className="max-w-xl mx-auto w-full flex items-center justify-center gap-2 mb-2 opacity-60">
+                            {vessel.type === 'power' ? <PowerBoatIcon className="w-3.5 h-3.5 text-slate-500" /> : <SailBoatIcon className="w-3.5 h-3.5 text-slate-500" />}
+                            <span className="text-[11px] font-mono text-slate-500 tracking-wide">
+                                Active Vessel: {vessel.name}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Calculate Route button — pinned 8px above menu bar */}
                     <div className="pb-[calc(8px+env(safe-area-inset-bottom))] mb-[72px] max-w-xl mx-auto w-full">
                         <button
                             type="submit"
                             disabled={loading}
-                            className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white shadow-sky-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
+                            className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-teal-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
                         >
                             {!isPro ? (
                                 <>
-                                    <LockIcon className="w-4 h-4 text-sky-400" />
+                                    <LockIcon className="w-4 h-4 text-teal-400" />
                                     Unlock Route Planning
                                 </>
                             ) : loading ? (

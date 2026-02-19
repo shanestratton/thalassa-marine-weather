@@ -94,23 +94,35 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Minutely rain data from Tomorrow.io
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
+    const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
     useEffect(() => {
         if (!data?.coordinates) return;
         const { lat, lon } = data.coordinates;
         let cancelled = false;
+        setRainStatus('loading');
 
         // Initial fetch
         fetchMinutelyRain(lat, lon).then(result => {
-            if (!cancelled) setMinutelyRain(result);
-        }).catch(() => { /* silently ignore */ });
+            if (!cancelled) {
+                setMinutelyRain(result);
+                setRainStatus(result.length > 0 ? 'loaded' : 'error');
+            }
+        }).catch(() => {
+            if (!cancelled) setRainStatus('error');
+        });
 
         // Live refresh every 5 minutes (Tomorrow.io has 10min internal cache)
         const rainTimer = setInterval(() => {
             if (!navigator.onLine) return;
             fetchMinutelyRain(lat, lon).then(result => {
-                if (!cancelled) setMinutelyRain(result);
-            }).catch(() => { /* silently ignore */ });
+                if (!cancelled) {
+                    setMinutelyRain(result);
+                    setRainStatus(result.length > 0 ? 'loaded' : 'error');
+                }
+            }).catch(() => {
+                if (!cancelled) setRainStatus('error');
+            });
         }, 5 * 60 * 1000);
 
         return () => { cancelled = true; clearInterval(rainTimer); };
@@ -461,14 +473,33 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-4 pt-4" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
-                                {minutelyRain && minutelyRain.length > 0 && (
-                                    <div className="shrink-0 px-4 pb-1">
+                                {minutelyRain && minutelyRain.length > 0 ? (
+                                    <div className="shrink-0 px-4">
                                         <RainForecastCard
                                             data={minutelyRain}
                                             timeZone={data.timeZone}
                                         />
+                                    </div>
+                                ) : (
+                                    <div className="shrink-0 px-4">
+                                        <div className="w-full rounded-xl overflow-hidden"
+                                            style={{
+                                                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
+                                                border: '1px solid rgba(96, 165, 250, 0.1)',
+                                            }}
+                                        >
+                                            <div className="px-4 py-2.5 flex items-center gap-2">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/40 shrink-0">
+                                                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                                        fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
+                                                </svg>
+                                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-300/40">
+                                                    {rainStatus === 'loading' ? 'Checking rain forecast…' : 'Rain data unavailable'}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                                 <HeroSection

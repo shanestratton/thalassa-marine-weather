@@ -183,6 +183,28 @@ const CompassWidget: React.FC<{ degrees: number; direction: string }> = ({ degre
     );
 };
 
+// --- Cardinal → Degrees helper ---
+const cardinalToDeg = (dir?: string): number | null => {
+    if (!dir) return null;
+    const map: Record<string, number> = {
+        N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5,
+        S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5
+    };
+    return map[dir.toUpperCase()] ?? null;
+};
+
+// --- Small directional arrow (for WAVE/SWELL cells) ---
+const DirectionArrow: React.FC<{ degrees: number | null; size?: number }> = ({ degrees, size = 14 }) => {
+    if (degrees === null) return null;
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" className="shrink-0 opacity-70"
+            style={{ transform: `rotate(${degrees}deg)`, transition: 'transform 1s ease' }}>
+            <path d="M12 2L8 14h8L12 2Z" fill="rgba(94,234,212,0.7)" />
+            <path d="M12 22L8 14h8L12 22Z" fill="rgba(148,163,184,0.25)" />
+        </svg>
+    );
+};
+
 // --- Instrument Cell (reusable for both rows) ---
 const InstrumentCell: React.FC<{
     label: string;
@@ -190,12 +212,13 @@ const InstrumentCell: React.FC<{
     value: string | number;
     unit?: string;
     trend?: 'up' | 'down' | 'stable';
-    improving?: boolean; // Whether "up" is good (e.g., visibility up = good) or bad (e.g., wind up = bad)
+    improving?: boolean;
     tealHeading?: boolean;
-}> = ({ label, icon, value, unit, trend, improving, tealHeading = true }) => {
+    dirDeg?: number | null; // Optional directional arrow
+}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg }) => {
     return (
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
-            {/* Label with icon - Technical Look */}
+            {/* Label with icon */}
             <div className="flex items-center gap-1.5 opacity-90">
                 <span className={`w-3 h-3 ${tealHeading ? 'text-teal-400' : 'text-amber-400'}`}>{icon}</span>
                 <span className={`text-[10px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-teal-300' : 'text-amber-300'}`}>
@@ -205,11 +228,59 @@ const InstrumentCell: React.FC<{
             </div>
 
             {/* Value - Mono, Ivory, Precise */}
-            <div className="flex items-baseline mt-auto mb-1">
-                <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md">
+            <div className="flex items-baseline mt-auto mb-1 gap-0.5">
+                {dirDeg !== undefined && dirDeg !== null && <DirectionArrow degrees={dirDeg} size={12} />}
+                <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
                     {value}
                 </span>
                 {unit && <span className="text-[10px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{unit}</span>}
+            </div>
+        </div>
+    );
+};
+
+// --- Barometer Cell (HPA — trend inline with value) ---
+const BarometerCell: React.FC<{
+    pressure: string | number;
+    trend?: 'up' | 'down' | 'stable';
+}> = ({ pressure, trend }) => {
+    const isRising = trend === 'up';
+    const isFalling = trend === 'down';
+    const isStable = trend === 'stable';
+
+    // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
+    const arrowColor = isStable ? 'text-white/30' : isRising ? 'text-emerald-400' : 'text-red-400';
+
+    return (
+        <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
+            {/* Label — no trend arrow here (moved to value line) */}
+            <div className="flex items-center gap-1.5 opacity-90">
+                <span className="w-3 h-3 text-teal-400"><GaugeIcon className="w-3 h-3" /></span>
+                <span className="text-[10px] font-sans font-bold tracking-widest uppercase text-teal-300">HPA</span>
+            </div>
+
+            {/* Value with inline trend arrow */}
+            <div className="flex items-baseline mt-auto mb-1 gap-0.5">
+                <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
+                    {pressure}
+                </span>
+                {trend && (
+                    <span className={`inline-flex items-center ml-0.5 ${arrowColor}`}>
+                        {isStable ? (
+                            <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
+                                <line x1="1" y1="4" x2="7" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                        ) : isRising ? (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 2L9 7H3L6 2Z" fill="currentColor" />
+                            </svg>
+                        ) : (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 10L3 5H9L6 10Z" fill="currentColor" />
+                            </svg>
+                        )}
+                    </span>
+                )}
             </div>
         </div>
     );
@@ -240,6 +311,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         ? Math.round(topRowData.swellPeriod) : '--';
     const windDir = topRowData.windDirection || '--';
     const windDeg = topRowData.windDegree || 0;
+    const swellDirDeg = cardinalToDeg(topRowData.swellDirection || undefined);
 
     const uvVal = data.uvIndex !== null && data.uvIndex !== undefined ? Math.ceil(data.uvIndex) : '--';
     const visVal = data.visibility !== null && data.visibility !== undefined ? Math.round(data.visibility) : '--';
@@ -280,12 +352,23 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     improving={isWindImproving}
                 />
 
-                {/* Direction — 16-point cardinal */}
-                <InstrumentCell
-                    label="DIR"
-                    icon={<CompassIcon className="w-3 h-3" rotation={0} />}
-                    value={windDir}
-                />
+                {/* Direction — Compass + Cardinal */}
+                <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
+                    {/* Heading */}
+                    <div className="flex items-center gap-1.5 opacity-90">
+                        <span className="w-3 h-3 text-teal-400"><CompassIcon className="w-3 h-3" rotation={0} /></span>
+                        <span className="text-[10px] font-sans font-bold tracking-widest uppercase text-teal-300">DIR</span>
+                    </div>
+                    {/* Compass + Cardinal side by side */}
+                    <div className="flex items-center gap-1 mt-auto mb-1">
+                        <div className="scale-[0.7] origin-center -mx-2">
+                            <CompassWidget degrees={windDeg} direction="" />
+                        </div>
+                        <span className="text-[18px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
+                            {windDir}
+                        </span>
+                    </div>
+                </div>
 
                 {/* Gusts */}
                 <InstrumentCell
@@ -297,7 +380,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     improving={isGustImproving}
                 />
 
-                {/* Wave Height */}
+                {/* Wave Height — with directional arrow */}
                 <InstrumentCell
                     label="WAVE"
                     icon={<WaveIcon className="w-3 h-3" />}
@@ -305,14 +388,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit={waveUnit}
                     trend={trends?.waveHeight}
                     improving={isWaveImproving}
+                    dirDeg={swellDirDeg}
                 />
 
-                {/* Swell Period */}
+                {/* Swell Period — with directional arrow */}
                 <InstrumentCell
                     label="SWELL"
                     icon={<WaveIcon className="w-3 h-3" />}
                     value={wavePeriod}
                     unit="s"
+                    dirDeg={swellDirDeg}
                 />
             </div>
 
@@ -339,13 +424,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     improving={isVisImproving}
                 />
 
-                {/* Pressure */}
-                <InstrumentCell
-                    label="HPA"
-                    icon={<GaugeIcon className="w-3 h-3" />}
-                    value={pressureVal}
+                {/* Pressure — custom barometer cell with inline trend */}
+                <BarometerCell
+                    pressure={pressureVal}
                     trend={trends?.pressure}
-                    improving={isPressureImproving}
                 />
 
                 {/* Sea Temp */}

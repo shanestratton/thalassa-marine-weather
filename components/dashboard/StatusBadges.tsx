@@ -196,33 +196,31 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
             <div className="px-0 shrink-0 relative z-20">
                 <div className="flex items-center justify-between gap-2 w-full mb-0">
                     {/* Coastal / Offshore Badge */}
-                    <div className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40`}>
+                    <div className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center`}>
                         {statusBadgeLabel}
                     </div>
 
-                    {/* Multi-Source Badge — tappable, dynamically populated */}
-                    <button
+                    {/* AI Blend Telemetry — read-only HUD status (tap for details) */}
+                    <div
                         onClick={() => setShowInfoModal(true)}
-                        aria-label="View data sources"
-                        className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider bg-black/40 border-white/20 flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer active:scale-[0.97] transition-transform`}
+                        role="status"
+                        aria-label="AI data blend status"
+                        className="flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer px-1"
                     >
-                        <RadioTowerIcon className="w-2.5 h-2.5 shrink-0 text-white/70" />
-                        <div className="flex items-center gap-1.5 truncate">
-                            {/* Beacon name (if present) */}
+                        {/* Pulsing live dot */}
+                        <span className="relative shrink-0 flex items-center justify-center w-2 h-2">
+                            <span className="absolute inset-0 rounded-full bg-teal-400/40 animate-ping" />
+                            <span className="relative w-1.5 h-1.5 rounded-full bg-teal-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
+                        </span>
+                        {/* Telemetry string */}
+                        <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase truncate">
+                            <span className="text-teal-400/70 font-bold mr-1">AI BLEND:</span>
                             {beaconName && (
-                                <>
-                                    <span className="text-emerald-400 font-bold">{shortenSourceName(beaconName)}</span>
-                                    <span className="text-white/50">•</span>
-                                </>
+                                <><span className="text-slate-400">{shortenSourceName(beaconName)}</span><span className="text-slate-600 mx-0.5">•</span></>
                             )}
-                            {/* Buoy name (if present) */}
                             {buoyName && (
-                                <>
-                                    <span className="text-emerald-400 font-bold">{shortenSourceName(buoyName)}</span>
-                                    <span className="text-white/50">•</span>
-                                </>
+                                <><span className="text-slate-400">{shortenSourceName(buoyName)}</span><span className="text-slate-600 mx-0.5">•</span></>
                             )}
-                            {/* Dynamic API sources — derived from sources map */}
                             {activeSources
                                 .filter(s => s.source !== 'buoy' && s.source !== 'beacon')
                                 .map((s, i, arr) => {
@@ -230,19 +228,19 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                     if (!cfg) return null;
                                     return (
                                         <span key={s.source}>
-                                            <span className={cfg.color + ' font-bold'}>{cfg.abbr}</span>
-                                            {i < arr.length - 1 && <span className="text-white/50"> • </span>}
+                                            <span className="text-slate-400">{cfg.abbr}</span>
+                                            {i < arr.length - 1 && <span className="text-slate-600 mx-0.5">•</span>}
                                         </span>
                                     );
                                 })}
-                        </div>
-                    </button>
+                        </span>
+                    </div>
 
                     {/* Timer Badge — tappable to refresh when overdue/stale */}
                     <button
                         onClick={() => refreshData()}
                         aria-label="Refresh weather data"
-                        className={`px-1.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 min-w-[60px] justify-center cursor-pointer active:scale-[0.95] transition-transform`}
+                        className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[78px]`}
                     >
                         {nextUpdate ? <Countdown targetTime={nextUpdate} /> : "LIVE"}
                     </button>
