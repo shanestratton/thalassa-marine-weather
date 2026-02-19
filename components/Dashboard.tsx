@@ -534,7 +534,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll */}
-                            <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 123px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
                                 <div className="flex gap-[3px] px-4 py-1">
                                     {Array.from({ length: 24 }).map((_, i) => (
                                         <div
