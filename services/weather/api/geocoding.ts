@@ -19,7 +19,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
             // Enhanced types: place (Cities), locality (Suburbs), poi (Points of Interest for marine features)
             // Note: Mapbox doesn't support 'natural_feature' as a type in the Places API.
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&limit=3&access_token=${mapboxKey}`;
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
                 url,
                 headers: {
@@ -63,20 +63,17 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
                 const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : "";
 
-                // Allow "NSW", "CA" etc...
                 let state = "";
                 if (regionCtx) {
                     const regCode = regionCtx.short_code
                         ? regionCtx.short_code.replace(/^[A-Z]{2}-/i, "").toUpperCase()
                         : "";
                     const regText = regionCtx.text;
-                    // Only use code if it's standard (e.g. US-CA -> CA, AU-QLD -> QLD, GB-ENG -> ENG)
                     if (regCode && regCode.length <= 3) state = regCode;
                     else if (STATE_ABBREVIATIONS[regText]) state = STATE_ABBREVIATIONS[regText];
-                    else if (regText && regText.length < 20) state = regText; // Fallback to full name if reasonable
+                    else if (regText && regText.length < 20) state = regText;
                 }
 
-                // Coordinates of the found place (center)
                 const featureLat = place.center[1];
                 const featureLon = place.center[0];
 
@@ -84,12 +81,9 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
                 return { name, lat: featureLat, lon: featureLon };
             }
-        } else {
         }
 
-
-        // Fallback to Nominatim (OpenSource)
-
+        // Fallback to Nominatim if Mapbox failed or returned no features
         const res = await CapacitorHttp.get({
             url: `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
             headers: { 'User-Agent': 'ThalassaMarine/1.0' }
@@ -111,56 +105,33 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         }
 
         const addr = data.address;
-
-
-
-        if (!addr) {
-            return null;
-        }
-
-        // Expanded Locality Search for International Support
         const locality = addr.suburb || addr.town || addr.city_district || addr.village || addr.city || addr.hamlet || addr.island || addr.municipality || addr.county;
-
         const stateFull = addr.state || addr.province || addr.region || "";
-        const state = abbreviate(stateFull) || stateFull; // Use transformer abbreviate, but fallback to full
+        const state = abbreviate(stateFull) || stateFull;
         const country = addr.country_code ? addr.country_code.toUpperCase() : "";
-
-        const parts = [locality, state, country].filter(part => part && part.trim().length > 0);
-
-        // PREFER Display Name First Component ONLY if it matches a broad region type
-        // The previous logic blindly took display_name[0], which often resulted in "123" (House Number) or "Smith St".
-        // We want to force Suburb/Town level.
 
         let finalName = locality;
 
-        // Fallback if locality is missing but we have a display name
         if (!finalName && data.display_name) {
             const parts = data.display_name.split(',').map((p: string) => p.trim());
-            // Filter out things that look like numbers or streets if possible, but Nominatim doesn't guarantee type in string.
-            // Safest is to just take the first part if we have NOTHING else.
             finalName = parts[0];
         }
 
-        // If we have a structured locality, prefer it over the raw display name to avoid "12 Smith St"
         const name = [finalName, state, country].filter(p => p && p.trim().length > 0).join(", ");
 
-        // FILTER: Ignore GENERIC "Ocean" or "Sea" results (e.g. "Pacific Ocean")
-        // BUT Allow specific places like "Ocean City", "Seaside", "Ocean Grove"
         const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(name);
 
         if (isGenericWater) {
             return null;
         }
 
-        // Nominatim returns lat/lon of the result
         const resLat = parseFloat(data.lat);
         const resLon = parseFloat(data.lon);
-
 
         return { name, lat: resLat, lon: resLon };
 
     } catch (err) {
-        return null; // Return null on error
+        return null;
     }
 }
 
