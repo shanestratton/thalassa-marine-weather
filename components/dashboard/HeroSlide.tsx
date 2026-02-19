@@ -916,7 +916,7 @@ const HeroSlideComponent = ({
                             >
                                 {showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
-                                    <div className="relative w-full h-full flex flex-col gap-3">
+                                    <div className="relative w-full h-full flex flex-col gap-2">
 
 
                                         {/* Tide Graph Card — 2/3 of space */}

@@ -360,8 +360,8 @@ export const ChatPage: React.FC = () => {
 
     // --- CHANNEL ACTIONS ---
     const openChannel = async (channel: ChatChannel) => {
-        // Lonely Hearts gets its own dedicated page
-        if (channel.name === 'Lonely Hearts') {
+        // First Mates (legacy DB name: 'Lonely Hearts') gets its own dedicated page
+        if (channel.name === 'First Mates' || channel.name === 'Lonely Hearts') {
             setView('lonely_hearts');
             return;
         }
@@ -622,9 +622,12 @@ export const ChatPage: React.FC = () => {
         setTrackLoadingVoyages(true);
         try {
             const entries = await ShipLogService.getLogEntries(500);
+            // ── Provenance filter: only show device-recorded voyages ──
+            // Imported/community tracks cannot be re-shared
+            const deviceEntries = entries.filter((e: ShipLogEntry) => !e.source || e.source === 'device');
             // Group by voyageId
             const grouped = new Map<string, ShipLogEntry[]>();
-            for (const e of entries) {
+            for (const e of deviceEntries) {
                 if (!e.voyageId) continue;
                 const arr = grouped.get(e.voyageId) || [];
                 arr.push(e);
@@ -986,8 +989,8 @@ export const ChatPage: React.FC = () => {
                                 {view === 'dm_inbox' && '✉️ Messages'}
                                 {view === 'dm_thread' && `${dmPartner?.name || 'DM'}`}
                                 {view === 'profile' && '⚓ Sailor Profile'}
-                                {view === 'lonely_hearts' && '💕 Lonely Hearts'}
-                                {view === 'find_crew' && '🧭 Find Crew'}
+                                {view === 'lonely_hearts' && <><span className="text-[#FF7F50]">♥</span> First Mates</>}
+                                {view === 'find_crew' && '👥 Find Crew'}
                             </h1>
                         )}
                         {view === 'messages' && activeChannel && (
@@ -1000,21 +1003,21 @@ export const ChatPage: React.FC = () => {
                                 {/* Profile photo button */}
                                 <button
                                     onClick={() => setView('profile')}
-                                    className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.08] hover:border-white/[0.15] transition-all active:scale-95"
+                                    className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
                                 >
                                     {myAvatarUrl ? (
                                         <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
                                     ) : (
                                         <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
-                                            <span className="text-white/20 text-sm">🏴‍☠️</span>
+                                            <span className="text-xl">⚓</span>
                                         </div>
                                     )}
                                 </button>
                                 <button
                                     onClick={openDMInbox}
-                                    className="relative px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-all active:scale-95"
+                                    className="relative w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
                                 >
-                                    <span className="text-lg">✉️</span>
+                                    <span className="text-xl">✉️</span>
                                     {unreadDMs > 0 && (
                                         <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-gradient-to-r from-red-500 to-rose-500 rounded-full text-[10px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
                                             {unreadDMs > 9 ? '9+' : unreadDMs}
@@ -1097,7 +1100,7 @@ export const ChatPage: React.FC = () => {
                         <span className="text-[13px] text-white/40">{loadingStatus}</span>
                     </div>
                 )}
-                {/* ══════ LONELY HEARTS ══════ */}
+                {/* ══════ FIRST MATES ══════ */}
                 {view === 'lonely_hearts' && !loading && (
                     <DatingSwipePage
                         onOpenDM={(userId, name) => {
@@ -1134,7 +1137,7 @@ export const ChatPage: React.FC = () => {
                                     disabled={!!uploadProgress}
                                     className="text-sm text-violet-400 hover:text-violet-300 font-medium transition-colors"
                                 >
-                                    {myAvatarUrl ? '🔄 Change Photo' : '🏴‍☠️ Upload Photo'}
+                                    {myAvatarUrl ? '🔄 Change Photo' : '📷 Upload Photo'}
                                 </button>
                                 {myAvatarUrl && (
                                     <button
@@ -1197,7 +1200,7 @@ export const ChatPage: React.FC = () => {
                                 <span className="text-2xl">❤️</span>
                                 <div>
                                     <p className="text-base font-semibold text-white/80">Looking for Love</p>
-                                    <p className="text-xs text-white/50">Show the Lonely Hearts channel</p>
+                                    <p className="text-xs text-white/50">Show the First Mates channel</p>
                                 </div>
                             </div>
                             <button
@@ -1206,7 +1209,7 @@ export const ChatPage: React.FC = () => {
                                     setProfileLookingForLove(newVal);
                                     updateProfile({ looking_for_love: newVal });
                                 }}
-                                className={`relative w-14 h-8 rounded-full transition-colors duration-200 ${profileLookingForLove ? 'bg-gradient-to-r from-pink-500 to-rose-500' : 'bg-white/[0.08]'}`}
+                                className={`relative w-14 h-8 rounded-full transition-colors duration-200 ${profileLookingForLove ? 'bg-gradient-to-r from-[#FF7F50] to-[#E9967A]' : 'bg-white/[0.08]'}`}
                             >
                                 <div className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-200 ${profileLookingForLove ? 'translate-x-6' : 'translate-x-0'}`} />
                             </button>
@@ -1224,67 +1227,84 @@ export const ChatPage: React.FC = () => {
                 )}
 
                 {/* ══════ CHANNEL LIST ══════ */}
-                {view === 'channels' && !loading && (
-                    <div className="px-4 py-3 pb-24 space-y-1.5">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-1 mb-2">Channels</p>
-                        {channels
-                            .filter(ch => ch.name !== 'Lonely Hearts' || profileLookingForLove)
-                            .sort((a, b) => {
-                                const priority: Record<string, number> = { 'Lonely Hearts': 0, 'Find Crew': 1, 'General': 2 };
-                                return (priority[a.name] ?? 99) - (priority[b.name] ?? 99);
-                            })
-                            .map((ch, i) => (
-                                <button
-                                    key={ch.id}
-                                    onClick={() => openChannel(ch)}
-                                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98]"
-                                    style={{ animationDelay: `${i * 40}ms` }}
-                                >
-                                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                                        {ch.icon}
-                                    </div>
-                                    <div className="text-left flex-1 min-w-0">
-                                        <p className="text-[17px] font-semibold text-white/85 group-hover:text-white transition-colors">{ch.name}</p>
-                                        <p className="text-[14px] text-white/50 truncate mt-0.5">{ch.description}</p>
-                                    </div>
-                                    <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                                        <span className="text-white/15 group-hover:text-white/40 text-xs transition-colors">›</span>
-                                    </div>
-                                </button>
-                            ))}
+                {view === 'channels' && !loading && (() => {
+                    // Client-side icon overrides — fix duplicate wave icon and compass icon
+                    const ICON_OVERRIDES: Record<string, string> = {
+                        'SOLAS': '🛟',
+                        'Safety': '🛟',
+                        'Find Crew': '👥',
+                        'Lonely Hearts': '💕',
+                    };
+                    const NAME_OVERRIDES: Record<string, string> = {
+                        'Lonely Hearts': 'First Mates',
+                    };
+                    const getChannelIcon = (ch: { name: string; icon: string }) =>
+                        ICON_OVERRIDES[ch.name] ?? ch.icon;
+                    const getChannelName = (ch: { name: string }) =>
+                        NAME_OVERRIDES[ch.name] ?? ch.name;
 
-                        {/* Mod: Propose channel */}
-                        {isMod && (
-                            <div className="mt-4">
-                                {!showProposalForm ? (
+                    return (
+                        <div className="px-4 py-3 pb-24 space-y-1.5">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-1 mb-2">Channels</p>
+                            {channels
+                                .filter(ch => (ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts') || profileLookingForLove)
+                                .sort((a, b) => {
+                                    const priority: Record<string, number> = { 'First Mates': 0, 'Lonely Hearts': 0, 'Find Crew': 1, 'General': 2 };
+                                    return (priority[a.name] ?? 99) - (priority[b.name] ?? 99);
+                                })
+                                .map((ch, i) => (
                                     <button
-                                        onClick={() => setShowProposalForm(true)}
-                                        className="w-full p-3 rounded-2xl border border-dashed border-white/[0.06] hover:border-sky-500/20 hover:bg-sky-500/[0.03] text-center transition-all duration-200 active:scale-[0.98]"
+                                        key={ch.id}
+                                        onClick={() => openChannel(ch)}
+                                        className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98]"
+                                        style={{ animationDelay: `${i * 40}ms` }}
                                     >
-                                        <span className="text-[11px] text-white/25">➕ Propose a new channel</span>
+                                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
+                                            {getChannelIcon(ch)}
+                                        </div>
+                                        <div className="text-left flex-1 min-w-0">
+                                            <p className="text-[17px] font-semibold text-white/85 group-hover:text-white transition-colors">{getChannelName(ch)}</p>
+                                            <p className="text-[14px] text-white/50 truncate mt-0.5">{ch.description}</p>
+                                        </div>
+                                        <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
+                                            <span className="text-white/15 group-hover:text-white/40 text-xs transition-colors">›</span>
+                                        </div>
                                     </button>
-                                ) : (
-                                    <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 fade-slide-down">
-                                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-sky-400/50">📋 Channel Proposal</p>
-                                        <p className="text-[10px] text-white/25">Submitted to admins for approval</p>
-                                        <div className="flex gap-2">
-                                            <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏝️" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-center text-lg" maxLength={2} />
-                                            <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
-                                        </div>
-                                        <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
-                                        <div className="flex gap-2">
-                                            <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                                            <button onClick={handleProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
-                                                {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                                ))}
 
-                    </div>
-                )}
+                            {/* Mod: Propose channel */}
+                            {isMod && (
+                                <div className="mt-4">
+                                    {!showProposalForm ? (
+                                        <button
+                                            onClick={() => setShowProposalForm(true)}
+                                            className="w-full p-3 rounded-2xl border border-dashed border-white/[0.06] hover:border-sky-500/20 hover:bg-sky-500/[0.03] text-center transition-all duration-200 active:scale-[0.98]"
+                                        >
+                                            <span className="text-[11px] text-white/25">➕ Propose a new channel</span>
+                                        </button>
+                                    ) : (
+                                        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 fade-slide-down">
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-sky-400/50">📋 Channel Proposal</p>
+                                            <p className="text-[10px] text-white/25">Submitted to admins for approval</p>
+                                            <div className="flex gap-2">
+                                                <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏝️" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-center text-lg" maxLength={2} />
+                                                <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                                            </div>
+                                            <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
+                                                <button onClick={handleProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
+                                                    {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                        </div>
+                    );
+                })()}
 
                 {/* ══════ MESSAGE VIEW ══════ */}
                 {view === 'messages' && !loading && (
@@ -1327,7 +1347,7 @@ export const ChatPage: React.FC = () => {
                                         {/* Question header */}
                                         {msg.is_question && !isDeleted && (
                                             <div className="flex items-center gap-1.5 mb-2">
-                                                <span className="text-[14px] font-bold text-amber-400/80 uppercase tracking-[0.15em]">🆘 Question</span>
+                                                <span className="text-[14px] font-bold text-amber-400/80 uppercase tracking-[0.15em]">📢 Question</span>
                                                 {msg.helpful_count > 0 && (
                                                     <span className="text-[14px] text-emerald-400/50 ml-auto">{msg.helpful_count} found this helpful</span>
                                                 )}
@@ -1885,7 +1905,7 @@ export const ChatPage: React.FC = () => {
                                         }`}
                                     title="Mark as question — questions get priority"
                                 >
-                                    🆘
+                                    📢
                                 </button>
                                 <div className="flex-1 relative">
                                     <input

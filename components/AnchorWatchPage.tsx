@@ -179,6 +179,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         return () => { unsubState(); unsubBroadcast(); };
     }, []);
 
+    // Shore stale data timeout — if no vessel data arrives within 60s, auto-leave
+    useEffect(() => {
+        if (viewMode !== 'shore' || shoreData) return;
+        const timeout = setTimeout(async () => {
+            // Still no data after 60s — stale/orphaned session
+            if (!shoreData) {
+                await AnchorWatchSyncService.leaveSession();
+                setViewMode('setup');
+                setShoreData(null);
+            }
+        }, 60_000);
+        return () => clearTimeout(timeout);
+    }, [viewMode, shoreData]);
+
     // Elapsed time ticker (once per minute)
     useEffect(() => {
         if (viewMode === 'watching' || viewMode === 'shore') {
@@ -582,190 +596,343 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         );
     }
 
-    // ---- RENDER: SETUP (IDLE) ----
+    // ---- RENDER: SETUP (IDLE) — Instrument-Grade Dashboard ----
+
+    // Derived values for the scope radar (UI only — no new math)
+    const scopeRatio = rodeLength / Math.max(waterDepth, 0.1);
+    const swingRadiusPreview =
+        Math.sqrt(Math.max(0, rodeLength * rodeLength - waterDepth * waterDepth)) *
+        (rodeType === 'chain' ? 0.85 : rodeType === 'rope' ? 0.95 : 0.90) +
+        safetyMargin;
+    const scopeQuality: 'excellent' | 'adequate' | 'poor' =
+        scopeRatio >= 7 ? 'excellent' : scopeRatio >= 5 ? 'adequate' : 'poor';
+    const scopeColor =
+        scopeQuality === 'excellent' ? '#34d399' : scopeQuality === 'adequate' ? '#fbbf24' : '#f87171';
+
+    // Slide-to-confirm state
+    const slideTrackRef = useRef<HTMLDivElement>(null);
+    const [slideX, setSlideX] = useState(0);
+    const [isDragging, setIsDragging] = useState(false);
+    const slideThreshold = 0.85; // 85% to trigger
+
+    const handleSlideStart = useCallback((clientX: number) => {
+        if (isSettingAnchor) return;
+        setIsDragging(true);
+    }, [isSettingAnchor]);
+
+    const handleSlideMove = useCallback((clientX: number) => {
+        if (!isDragging || !slideTrackRef.current) return;
+        const rect = slideTrackRef.current.getBoundingClientRect();
+        const thumbWidth = 56;
+        const maxTravel = rect.width - thumbWidth;
+        const offset = clientX - rect.left - thumbWidth / 2;
+        setSlideX(Math.max(0, Math.min(offset, maxTravel)));
+    }, [isDragging]);
+
+    const handleSlideEnd = useCallback(() => {
+        if (!isDragging || !slideTrackRef.current) return;
+        setIsDragging(false);
+        const rect = slideTrackRef.current.getBoundingClientRect();
+        const thumbWidth = 56;
+        const maxTravel = rect.width - thumbWidth;
+        const ratio = slideX / maxTravel;
+        if (ratio >= slideThreshold) {
+            handleSetAnchor();
+        }
+        setSlideX(0);
+    }, [isDragging, slideX, handleSetAnchor]);
+
+    // Reset slide position when not dragging
+    useEffect(() => {
+        if (!isDragging) setSlideX(0);
+    }, [isDragging]);
+
     if (viewMode === 'setup') {
+        // Radar ring sizes — normalized to a 200-unit viewbox
+        const maxRode = 100;
+        const radarScale = Math.min(1, rodeLength / (maxRode * 0.6));
+        const outerR = 60 + radarScale * 20; // 60–80 range
+        const safeR = outerR * 0.85;
+        const dangerR = outerR * 1.15;
+
         return (
             <div ref={keyboardScrollRef} className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`} style={{ overscrollBehaviorY: 'none' }}>
-                {/* Header — compact */}
-                <div className={t.header.bar}>
-                    <div className="flex items-center gap-2.5">
-                        <span className={t.typography.pageTitle}>Anchor Watch</span>
+                {/* ── Header — compact with segmented toggle ── */}
+                <div className="shrink-0 px-4 py-2 flex items-center justify-between" style={{ background: 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.8) 100%)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div className="flex items-center gap-2">
+                        <span className="text-amber-400 text-lg">⚓</span>
+                        <span className="text-base font-black text-white tracking-tight">Anchor Watch</span>
+                    </div>
+                    {/* Segmented toggle: Anchor | Shore */}
+                    <div className="flex bg-slate-800/60 rounded-lg p-0.5 border border-white/[0.06]">
+                        <button className="px-3 py-1 rounded-md text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            Anchor
+                        </button>
+                        <button
+                            onClick={() => setShowShoreModal(true)}
+                            className="px-3 py-1 rounded-md text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                            Shore
+                        </button>
                     </div>
                 </div>
 
-                {/* Content area — fills available space, no scroll */}
-                <div className="flex-1 min-h-0 flex flex-col p-3 pb-[113px] gap-2">
-                    {/* Shore Watch Button — full width, outside card */}
-                    <button
-                        onClick={() => setShowShoreModal(true)}
-                        className={`w-full py-3 ${t.colors.accent.sky.bg} backdrop-blur border ${t.colors.accent.sky.border} rounded-lg ${t.colors.accent.sky.text} text-sm font-bold flex items-center justify-center gap-2 transition-all ${t.animation.press} hover:bg-sky-500/20`}
-                    >
-                        <span>📱</span> Shore Watch
-                    </button>
+                {/* ── Content — single screen, no scroll ── */}
+                <div className="flex-1 min-h-0 flex flex-col pb-[98px]">
 
-                    {/* Ground Tackle Configuration */}
-                    <div className={t.card.base}>
-                        <h3 className={`${t.typography.sectionTitle} mb-1.5 flex items-center gap-1.5`}>
-                            <span className="text-amber-400">⛓</span>
-                            Ground Tackle
-                        </h3>
+                    {/* ── Hero: Scope Radar ── */}
+                    <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
+                        <svg viewBox="0 0 200 200" className="w-full h-full max-w-[320px] max-h-[320px]" style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.3))' }}>
+                            {/* Ocean depth background */}
+                            <defs>
+                                <radialGradient id="ocean-bg" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stopColor="rgba(8,47,73,0.3)" />
+                                    <stop offset="70%" stopColor="rgba(7,33,54,0.15)" />
+                                    <stop offset="100%" stopColor="rgba(2,6,23,0.05)" />
+                                </radialGradient>
+                                <radialGradient id="safe-zone" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stopColor={`${scopeColor}06`} />
+                                    <stop offset="70%" stopColor={`${scopeColor}12`} />
+                                    <stop offset="100%" stopColor={`${scopeColor}18`} />
+                                </radialGradient>
+                            </defs>
 
-                        {/* Rode Type */}
-                        <div className="mb-2">
-                            <div className="flex gap-1.5">
-                                {(['chain', 'rope', 'mixed'] as const).map(type => (
-                                    <button
-                                        key={type}
-                                        onClick={() => setRodeType(type)}
-                                        className={`flex-1 py-1.5 rounded-lg text-sm font-bold capitalize transition-all ${rodeType === type
-                                            ? 'bg-amber-500/30 border border-amber-500/60 text-amber-400'
-                                            : `bg-slate-800/60 ${t.border.subtle} text-slate-500`
-                                            }`}
-                                    >
-                                        {type === 'chain' ? '⛓ Chain' : type === 'rope' ? '🪢 Rope' : '🔗 Mixed'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+                            {/* Background fill */}
+                            <circle cx="100" cy="100" r="95" fill="url(#ocean-bg)" />
 
-                        {/* Rode Length */}
-                        <div className="mb-2">
-                            <div className="flex justify-between items-center mb-0.5">
-                                <label className="text-sm text-slate-400">Rode Deployed</label>
-                                <span className="text-sm font-black text-white font-mono">{rodeLength}m</span>
-                            </div>
-                            <input
-                                type="range"
-                                min={5}
-                                max={100}
-                                step={1}
-                                value={rodeLength}
-                                onChange={e => setRodeLength(Number(e.target.value))}
-                                className="w-full h-1.5 bg-slate-800/50 rounded-full accent-amber-500 appearance-none cursor-pointer"
-                                style={{ touchAction: 'none' }}
-                            />
-                            {/* Recommended scope notches */}
-                            <div className="relative w-full h-3 mt-0.5">
-                                <span
-                                    className="absolute text-sm text-amber-500/60 -translate-x-1/2"
-                                    style={{ left: `${((waterDepth * 5 - 5) / 95) * 100}%` }}
-                                >
-                                    ▲ 5:1
-                                </span>
-                                <span
-                                    className="absolute text-sm text-emerald-500/60 -translate-x-1/2"
-                                    style={{ left: `${Math.min(100, ((waterDepth * 7 - 5) / 95) * 100)}%` }}
-                                >
-                                    ▲ 7:1
-                                </span>
-                            </div>
-                        </div>
+                            {/* Danger zone halo (red, beyond swing radius) */}
+                            <circle cx="100" cy="100" r={dangerR} fill="none"
+                                stroke="rgba(239,68,68,0.06)" strokeWidth={dangerR - outerR} />
 
-                        {/* Water Depth */}
-                        <div className="mb-2">
-                            <div className="flex justify-between items-center mb-0.5">
-                                <label className="text-sm text-slate-400">Water Depth</label>
-                                <span className="text-sm font-black text-white font-mono">{waterDepth}m</span>
-                            </div>
-                            <input
-                                type="range"
-                                min={1}
-                                max={30}
-                                step={0.5}
-                                value={waterDepth}
-                                onChange={e => setWaterDepth(Number(e.target.value))}
-                                className="w-full h-1.5 bg-slate-800/50 rounded-full accent-sky-500 appearance-none cursor-pointer"
-                                style={{ touchAction: 'none' }}
-                            />
-                        </div>
+                            {/* Amber caution band (85%–100%) */}
+                            <circle cx="100" cy="100" r={(safeR + outerR) / 2} fill="none"
+                                stroke="rgba(245,158,11,0.08)" strokeWidth={outerR - safeR}
+                                style={{ transition: 'all 0.3s ease' }} />
 
-                        {/* Scope & Radius Preview — pushed to bottom of card */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className={t.card.inset}>
-                                <div className="text-sm text-slate-400 uppercase">Scope</div>
-                                <div className="text-base font-black text-white">{(rodeLength / Math.max(waterDepth, 0.1)).toFixed(1)}:1</div>
-                                <div className={`text-sm font-bold ${rodeLength / waterDepth >= 7 ? 'text-emerald-400' : rodeLength / waterDepth >= 5 ? 'text-amber-400' : 'text-red-400'}`}>
-                                    {rodeLength / waterDepth >= 7 ? 'Excellent' : rodeLength / waterDepth >= 5 ? 'Adequate' : 'Poor'}
-                                </div>
-                            </div>
-                            <div className={t.card.inset}>
-                                <div className="text-sm text-slate-400 uppercase">Swing Radius</div>
-                                <div className="text-base font-black text-sky-400">
-                                    {formatDistance(
-                                        Math.sqrt(Math.max(0, rodeLength * rodeLength - waterDepth * waterDepth)) *
-                                        (rodeType === 'chain' ? 0.85 : rodeType === 'rope' ? 0.95 : 0.90) +
-                                        safetyMargin
-                                    )}
-                                </div>
-                                <div className="text-sm text-slate-400">alarm boundary</div>
-                            </div>
-                        </div>
+                            {/* Green/amber/red safe zone fill */}
+                            <circle cx="100" cy="100" r={safeR} fill="url(#safe-zone)"
+                                style={{ transition: 'r 0.3s ease' }} />
+
+                            {/* Safe zone border */}
+                            <circle cx="100" cy="100" r={safeR} fill="none"
+                                stroke={`${scopeColor}33`} strokeWidth="0.5"
+                                style={{ transition: 'all 0.3s ease' }} />
+
+                            {/* Swing radius boundary ring */}
+                            <circle cx="100" cy="100" r={outerR} fill="none"
+                                stroke={`${scopeColor}66`} strokeWidth="1.5"
+                                style={{ transition: 'all 0.3s ease' }} />
+
+                            {/* 50% reference ring */}
+                            <circle cx="100" cy="100" r={outerR * 0.5} fill="none"
+                                stroke="rgba(71,85,105,0.15)" strokeWidth="0.3"
+                                strokeDasharray="1.5 3"
+                                style={{ transition: 'r 0.3s ease' }} />
+
+                            {/* Compass tick marks */}
+                            {Array.from({ length: 36 }, (_, i) => {
+                                const angle = (i * 10 - 90) * Math.PI / 180;
+                                const isMajor = i % 9 === 0;
+                                const isMinor = i % 3 === 0;
+                                const inner = outerR + (isMajor ? 4 : isMinor ? 6 : 7);
+                                const outer = outerR + 9;
+                                return (
+                                    <line key={i}
+                                        x1={100 + Math.cos(angle) * inner}
+                                        y1={100 + Math.sin(angle) * inner}
+                                        x2={100 + Math.cos(angle) * outer}
+                                        y2={100 + Math.sin(angle) * outer}
+                                        stroke={isMajor ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.15)'}
+                                        strokeWidth={isMajor ? 1 : 0.3}
+                                    />
+                                );
+                            })}
+
+                            {/* Cardinal labels */}
+                            {[
+                                { label: 'N', x: 100, y: 100 - outerR - 14, color: 'rgba(248,113,113,0.8)' },
+                                { label: 'E', x: 100 + outerR + 14, y: 101, color: 'rgba(148,163,184,0.5)' },
+                                { label: 'S', x: 100, y: 100 + outerR + 16, color: 'rgba(148,163,184,0.5)' },
+                                { label: 'W', x: 100 - outerR - 14, y: 101, color: 'rgba(148,163,184,0.5)' },
+                            ].map(({ label, x, y, color }) => (
+                                <text key={label} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
+                                    fill={color} fontSize="7" fontWeight="bold" fontFamily="system-ui"
+                                >{label}</text>
+                            ))}
+
+                            {/* Anchor icon at center */}
+                            <text x="100" y="88" textAnchor="middle" dominantBaseline="middle"
+                                fontSize="14" fill="rgba(245,158,11,0.85)">⚓</text>
+
+                            {/* Scope ratio — large bold center text */}
+                            <text x="100" y="106" textAnchor="middle" dominantBaseline="middle"
+                                fontSize="18" fontWeight="900" fontFamily="ui-monospace, monospace"
+                                fill="white" style={{ textShadow: '0 0 10px rgba(255,255,255,0.15)' }}
+                            >{scopeRatio.toFixed(1)}:1</text>
+
+                            {/* Scope quality label below ratio */}
+                            <text x="100" y="118" textAnchor="middle" dominantBaseline="middle"
+                                fontSize="6" fontWeight="700" fontFamily="system-ui"
+                                fill={scopeColor}
+                                letterSpacing="0.1em"
+                            >{scopeQuality === 'excellent' ? 'EXCELLENT' : scopeQuality === 'adequate' ? 'ADEQUATE' : 'POOR'}</text>
+
+                            {/* Swing radius readout */}
+                            <text x="100" y="128" textAnchor="middle" dominantBaseline="middle"
+                                fontSize="5" fill="rgba(148,163,184,0.6)" fontFamily="system-ui"
+                            >{formatDistance(swingRadiusPreview)} swing radius</text>
+                        </svg>
                     </div>
 
-                    {/* Weather Recommends Card — fixed height */}
-                    {weatherData?.current && (
-                        <div className={`shrink-0 bg-slate-900/70 rounded-xl border p-2 ${wxRecommendation.severity === 'red' ? 'border-red-500/30' :
-                            wxRecommendation.severity === 'amber' ? 'border-amber-500/20' :
-                                wxRecommendation.severity === 'sky' ? 'border-sky-500/20' :
-                                    'border-emerald-500/20'
-                            }`}>
-                            <h3 className={`${t.typography.sectionTitle} mb-1 flex items-center gap-1.5`}>
-                                <span>{wxRecommendation.icon}</span>
-                                Weather Recommends
-                                <span className={`ml-auto text-sm font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${wxRecommendation.severity === 'red' ? 'bg-red-500/20 text-red-400' :
-                                    wxRecommendation.severity === 'amber' ? 'bg-amber-500/20 text-amber-400' :
-                                        wxRecommendation.severity === 'sky' ? 'bg-sky-500/20 text-sky-400' :
-                                            'bg-emerald-500/20 text-emerald-400'
-                                    }`}>{wxRecommendation.label}</span>
-                            </h3>
+                    {/* ── Controls Section ── */}
+                    <div className="shrink-0 px-4 space-y-3">
+                        {/* Tackle Type — compact segmented row */}
+                        <div className="flex gap-1.5">
+                            {(['chain', 'rope', 'mixed'] as const).map(type => (
+                                <button
+                                    key={type}
+                                    onClick={() => setRodeType(type)}
+                                    className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${rodeType === type
+                                        ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
+                                        : 'bg-slate-800/40 border border-white/[0.06] text-slate-500 hover:text-slate-400'
+                                        }`}
+                                >
+                                    {type === 'chain' ? '⛓' : type === 'rope' ? '🪢' : '🔗'}
+                                    <span className="ml-1 hidden min-[380px]:inline capitalize">{type}</span>
+                                </button>
+                            ))}
+                        </div>
 
-                            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
-                                <div className={t.card.inset}>
-                                    <div className={`${t.typography.labelSm}`}>Wind</div>
-                                    <div className={`${t.typography.dataSm}`}>{wxRecommendation.wind.toFixed(0)}<span className={t.typography.unit}>kts</span></div>
+                        {/* Sliders */}
+                        <div className="space-y-2.5">
+                            {/* Water Depth */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">Water Depth</label>
+                                    <span className="text-sm font-black text-sky-400 font-mono tabular-nums">{waterDepth}m</span>
                                 </div>
-                                <div className={t.card.inset}>
-                                    <div className={`${t.typography.labelSm}`}>Gusts</div>
-                                    <div className={`${t.typography.dataSm}`}>{wxRecommendation.gust.toFixed(0)}<span className={t.typography.unit}>kts</span></div>
-                                </div>
-                                <div className={t.card.inset}>
-                                    <div className={`${t.typography.labelSm}`}>Waves</div>
-                                    <div className={`${t.typography.dataSm}`}>{wxRecommendation.wave.toFixed(1)}<span className={t.typography.unit}>ft</span></div>
-                                </div>
+                                <input
+                                    type="range" min={1} max={30} step={0.5}
+                                    value={waterDepth}
+                                    onChange={e => setWaterDepth(Number(e.target.value))}
+                                    className="w-full h-2 bg-slate-800/60 rounded-full accent-sky-500 appearance-none cursor-pointer"
+                                    style={{ touchAction: 'none' }}
+                                />
                             </div>
 
+                            {/* Rode Deployed */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">Rode Deployed</label>
+                                    <span className="text-sm font-black text-amber-400 font-mono tabular-nums">{rodeLength}m</span>
+                                </div>
+                                <input
+                                    type="range" min={5} max={100} step={1}
+                                    value={rodeLength}
+                                    onChange={e => setRodeLength(Number(e.target.value))}
+                                    className="w-full h-2 bg-slate-800/60 rounded-full accent-amber-500 appearance-none cursor-pointer"
+                                    style={{ touchAction: 'none' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* ── Context Strip — weather + safety ── */}
+                        <div className="flex items-center gap-2 bg-slate-800/30 backdrop-blur border border-white/[0.04] rounded-xl px-3 py-2">
+                            {/* Weather left */}
                             <button
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
-                                className={`w-full py-3 rounded-lg text-sm font-bold transition-all active:scale-[0.97] flex items-center justify-center gap-2 ${rodeLength === wxRecommendation.rode
-                                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
-                                    : `bg-white/5 ${t.border.default} text-white hover:bg-white/10`
-                                    }`}
+                                className="flex-1 flex items-center gap-1.5 text-left group"
+                                title={`Tap to set rode to ${wxRecommendation.rode}m (${wxRecommendation.scope}:1)`}
                             >
-                                {rodeLength === wxRecommendation.rode ? (
-                                    <>✓ Rode set to {wxRecommendation.rode}m ({wxRecommendation.scope}:1 scope)</>
-                                ) : (
-                                    <>Set Rode to {wxRecommendation.rode}m — {wxRecommendation.scope}:1 scope</>
-                                )}
+                                <span className="text-base">{wxRecommendation.icon}</span>
+                                <div className="min-w-0">
+                                    <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
+                                        {wxRecommendation.label} · {wxRecommendation.wind.toFixed(0)}kts
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">
+                                        {rodeLength === wxRecommendation.rode
+                                            ? `✓ ${wxRecommendation.scope}:1 set`
+                                            : `Tap → ${wxRecommendation.rode}m`}
+                                    </div>
+                                </div>
                             </button>
-                        </div>
-                    )}
 
-                    {/* Drop Anchor Button — pushed to bottom */}
-                    <div className="mt-auto pt-2">
-                        <button
-                            onClick={handleSetAnchor}
-                            disabled={isSettingAnchor}
-                            className={t.button.primary}
-                            aria-label="Set Anchor">
+                            {/* Divider */}
+                            <div className="w-px h-6 bg-white/[0.06]" />
+
+                            {/* Safety status right */}
+                            <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${scopeQuality === 'excellent' ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]' :
+                                    scopeQuality === 'adequate' ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]' :
+                                        'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.5)] animate-pulse'
+                                    }`} />
+                                <span className={`text-xs font-bold ${scopeQuality === 'excellent' ? 'text-emerald-400' :
+                                    scopeQuality === 'adequate' ? 'text-amber-400' :
+                                        'text-red-400'
+                                    }`}>
+                                    {scopeQuality === 'excellent' ? 'Safe' : scopeQuality === 'adequate' ? 'OK' : 'Poor'} {scopeRatio.toFixed(0)}:1
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* ── Slide to Confirm — safety orange ── */}
+                        <div className="pt-1 pb-2">
                             {isSettingAnchor ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-sm">{gpsStatus}</span>
-                                </>
+                                /* Loading state */
+                                <div className="w-full h-14 rounded-full flex items-center justify-center gap-3"
+                                    style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(217,119,6,0.1) 100%)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                                    <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-sm text-amber-300 font-bold">{gpsStatus}</span>
+                                </div>
                             ) : (
-                                <>⚓ Drop Anchor</>
+                                /* Slide track */
+                                <div
+                                    ref={slideTrackRef}
+                                    className="relative w-full h-14 rounded-full overflow-hidden select-none"
+                                    style={{
+                                        background: 'linear-gradient(135deg, rgba(234,88,12,0.25) 0%, rgba(194,65,12,0.2) 100%)',
+                                        border: '1px solid rgba(251,146,60,0.25)',
+                                        touchAction: 'none',
+                                    }}
+                                    onMouseDown={e => handleSlideStart(e.clientX)}
+                                    onMouseMove={e => handleSlideMove(e.clientX)}
+                                    onMouseUp={handleSlideEnd}
+                                    onMouseLeave={handleSlideEnd}
+                                    onTouchStart={e => handleSlideStart(e.touches[0].clientX)}
+                                    onTouchMove={e => handleSlideMove(e.touches[0].clientX)}
+                                    onTouchEnd={handleSlideEnd}
+                                >
+                                    {/* Shimmer animation */}
+                                    <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
+                                        <div className="absolute inset-0" style={{
+                                            background: 'linear-gradient(90deg, transparent 0%, rgba(251,146,60,0.08) 30%, rgba(251,146,60,0.15) 50%, rgba(251,146,60,0.08) 70%, transparent 100%)',
+                                            animation: 'shimmer 2.5s ease-in-out infinite',
+                                        }} />
+                                    </div>
+
+                                    {/* Label text */}
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                                        style={{ opacity: 1 - (slideX / ((slideTrackRef.current?.getBoundingClientRect().width ?? 300) - 56)) }}>
+                                        <span className="text-sm font-bold text-orange-300/70 tracking-wider uppercase">
+                                            Slide to Drop Anchor
+                                        </span>
+                                    </div>
+
+                                    {/* Draggable thumb */}
+                                    <div
+                                        className="absolute top-1 left-1 w-12 h-12 rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing transition-shadow"
+                                        style={{
+                                            transform: `translateX(${slideX}px)`,
+                                            background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                                            boxShadow: '0 4px 16px rgba(249,115,22,0.4), 0 0 20px rgba(249,115,22,0.15)',
+                                            transition: isDragging ? 'none' : 'transform 0.3s ease',
+                                        }}
+                                    >
+                                        <span className="text-lg">⚓</span>
+                                    </div>
+                                </div>
                             )}
-                        </button>
+                        </div>
                     </div>
                 </div>
 
@@ -855,7 +1022,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                     </div>,
                     document.body
                 )}
-            </div >
+
+                {/* Shimmer keyframe */}
+                <style>{`
+                    @keyframes shimmer {
+                        0%, 100% { transform: translateX(-100%); }
+                        50% { transform: translateX(100%); }
+                    }
+                `}</style>
+            </div>
         );
     }
 

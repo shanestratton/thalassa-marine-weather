@@ -32,7 +32,8 @@ import {
     SHIP_LOGS_TABLE, NEARSHORE_INTERVAL_MS, COASTAL_INTERVAL_MS, OFFSHORE_INTERVAL_MS,
     type LoggingZone,
 } from './shiplog/helpers';
-import { GpsTrackBuffer, thinTrack } from './shiplog/GpsTrackBuffer';
+import { GpsTrackBuffer, thinTrack, bearing, headingDelta } from './shiplog/GpsTrackBuffer';
+import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import {
     queueOfflineEntry as _queueOfflineEntry,
     syncOfflineQueue as _syncOfflineQueue,
@@ -107,6 +108,7 @@ class ShipLogServiceClass {
     private quarterTimeoutId?: NodeJS.Timeout; // For initial quarter-hour alignment
     private syncIntervalId?: NodeJS.Timeout;
     private rapidModeTimeoutId?: NodeJS.Timeout; // 15-minute auto-disable for rapid mode
+    private envCheckIntervalId?: NodeJS.Timeout; // 60s environment polling (water/land + zone)
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
 
     // --- BATTLE-HARDENED GPS STREAMING ---
@@ -121,11 +123,15 @@ class ShipLogServiceClass {
     // the buffer is drained and RDP-thinned to keep only significant points.
     private trackBuffer = new GpsTrackBuffer();
 
-    // --- AUTO-WAYPOINT ON CARDINAL BEARING CHANGE ---
-    private lastCardinal: string | null = null;  // Last confirmed 16-point cardinal (e.g. 'NNE')
-    private lastAutoWaypointTime: number = 0;          // Cooldown timestamp (ms)
-    private static readonly AUTO_WP_COOLDOWN_MS = 15_000;   // 15s between auto-waypoints (was 60s — tighter for harbor turns)
-    private static readonly MIN_SPEED_FOR_HEADING_KTS = 1;  // Ignore heading when drifting
+    // --- POSITION-BASED COURSE CHANGE DETECTION ---
+    // Instead of reading GPS heading (unreliable at low speed), we calculate
+    // bearing from actual lat/lon positions every 15 seconds.
+    private courseCheckIntervalId?: NodeJS.Timeout;
+    private lastBearingCheckPos: { lat: number; lon: number } | null = null;
+    private lastComputedBearing: number | null = null;
+    private static readonly COURSE_CHECK_INTERVAL_MS = 15_000; // Check every 15 seconds
+    private static readonly COURSE_CHANGE_THRESHOLD_DEG = 22.5; // One compass point
+    // MIN_MOVEMENT_M is now adaptive via GpsPrecision.getAdaptedThresholds()
 
     /**
      * Convert degrees (0-360) to 16-point compass cardinal.
@@ -269,6 +275,14 @@ class ShipLogServiceClass {
         if (this.quarterTimeoutId) {
             clearTimeout(this.quarterTimeoutId);
             this.quarterTimeoutId = undefined;
+        }
+        if (this.envCheckIntervalId) {
+            clearInterval(this.envCheckIntervalId);
+            this.envCheckIntervalId = undefined;
+        }
+        if (this.courseCheckIntervalId) {
+            clearInterval(this.courseCheckIntervalId);
+            this.courseCheckIntervalId = undefined;
         }
     }
 
@@ -415,9 +429,10 @@ class ShipLogServiceClass {
         // so the UI is not blocked by the 3s GPS warm-up loop.
         this.captureImmediateEntry().catch(() => { });
 
-        // Reset cardinal tracker for new voyage
-        this.lastCardinal = null;
-        this.lastAutoWaypointTime = 0;
+        // Reset position-based bearing tracker for new voyage
+        this.lastBearingCheckPos = null;
+        this.lastComputedBearing = null;
+        this.startCourseChangeDetection();
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
         // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the
@@ -433,6 +448,42 @@ class ShipLogServiceClass {
 
         // Kick off async zone refinement in the background — won't block UI
         this.rescheduleAdaptiveInterval().catch(() => { });
+
+        // --- 60-SECOND ENVIRONMENT POLLING ---
+        // Checks water/land status and re-evaluates logging zone every minute.
+        // This lets GPS interval adapt faster when transitioning environments
+        // (e.g. leaving marina → offshore, or driving from land to coast).
+        this.startEnvironmentPolling();
+    }
+
+    /**
+     * Start 60-second environment polling.
+     * Checks water/land status and updates the logging zone adaptively.
+     */
+    private startEnvironmentPolling(): void {
+        // Clear any existing timer
+        if (this.envCheckIntervalId) {
+            clearInterval(this.envCheckIntervalId);
+        }
+
+        this.envCheckIntervalId = setInterval(async () => {
+            if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+
+            const pos = this.lastBgLocation;
+            if (!pos) return;
+
+            try {
+                // 1. Water/Land check
+                const isWater = await checkIsOnWater(pos.latitude, pos.longitude);
+                // Update EnvironmentService for UI consumers
+                EnvironmentService.updateWaterStatus(isWater);
+
+                // 2. Re-evaluate logging zone (nearshore/coastal/offshore)
+                await this.rescheduleAdaptiveInterval();
+            } catch {
+                // Best effort — don't crash tracking
+            }
+        }, 60_000); // Every 60 seconds
     }
 
     /**
@@ -447,6 +498,9 @@ class ShipLogServiceClass {
         const unsubLoc = BgGeoManager.subscribeLocation((pos) => {
             this.lastBgLocation = pos;
 
+            // Feed accuracy into precision tracker (detects Bad Elf Pro+ etc.)
+            GpsPrecision.feed(pos.accuracy);
+
             // Buffer every fix for high-fidelity track thinning
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
                 this.trackBuffer.push(pos);
@@ -456,9 +510,6 @@ class ShipLogServiceClass {
             if (pos.altitude !== null && pos.altitude !== undefined) {
                 EnvironmentService.updateFromGPS({ altitude: pos.altitude });
             }
-
-            // --- AUTO-WAYPOINT: Detect significant course changes ---
-            this.checkHeadingChange(pos);
         });
         this.bgUnsubscribers.push(unsubLoc);
 
@@ -494,51 +545,88 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Check if the 16-point cardinal bearing has changed and create an auto-waypoint.
-     * Fires when the compass direction changes (e.g. NE → ENE), not on raw degree delta.
-     * Filters: speed > 1kt, valid heading, 60s cooldown.
+     * Start position-based course change detection.
+     * Every 15 seconds, computes bearing from actual lat/lon positions.
+     * If bearing changes >22.5° (one compass point), records a waypoint.
+     *
+     * This is 100% reliable because it uses position (accurate to ~5m)
+     * instead of GPS heading (unreliable at low speeds).
      */
-    private checkHeadingChange(pos: CachedPosition): void {
-        if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
-
-        const heading = pos.heading;
-        const speedKts = (pos.speed ?? 0) * 1.94384; // m/s → knots
-
-        // Ignore heading when stationary or drifting
-        if (speedKts < ShipLogServiceClass.MIN_SPEED_FOR_HEADING_KTS) return;
-        // Ignore invalid heading (null means GPS didn't provide one)
-        if (heading === null || heading === undefined) return;
-
-        const newCardinal = ShipLogServiceClass.degreesToCardinal16(heading);
-
-        // First valid heading fix — seed it, no waypoint
-        if (this.lastCardinal === null) {
-            this.lastCardinal = newCardinal;
-            return;
+    private startCourseChangeDetection(): void {
+        // Clear any existing timer
+        if (this.courseCheckIntervalId) {
+            clearInterval(this.courseCheckIntervalId);
         }
 
-        // No change in cardinal direction
-        if (newCardinal === this.lastCardinal) return;
+        this.courseCheckIntervalId = setInterval(() => {
+            if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
 
-        // Cardinal changed — check cooldown
-        const now = Date.now();
-        if (now - this.lastAutoWaypointTime < ShipLogServiceClass.AUTO_WP_COOLDOWN_MS) {
-            // Still in cooldown — update baseline silently
-            this.lastCardinal = newCardinal;
-            return;
-        }
+            const pos = this.lastBgLocation;
+            if (!pos) return;
 
-        const oldCardinal = this.lastCardinal;
-        this.lastAutoWaypointTime = now;
-        this.lastCardinal = newCardinal;
+            const currentPos = { lat: pos.latitude, lon: pos.longitude };
 
-        // Fire-and-forget waypoint entry
-        this.captureLogEntry(
-            'waypoint',
-            `Auto: COG ${oldCardinal} → ${newCardinal}`,
-            `COG ${oldCardinal} → ${newCardinal}`,
-            'navigation'
-        ).catch(() => { /* best effort */ });
+            // First fix — seed the position
+            if (!this.lastBearingCheckPos) {
+                this.lastBearingCheckPos = currentPos;
+                return;
+            }
+
+            // Calculate distance moved since last check
+            const R = 6371000; // Earth radius in meters
+            const dLat = (currentPos.lat - this.lastBearingCheckPos.lat) * Math.PI / 180;
+            const dLon = (currentPos.lon - this.lastBearingCheckPos.lon) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(this.lastBearingCheckPos.lat * Math.PI / 180) *
+                Math.cos(currentPos.lat * Math.PI / 180) *
+                Math.sin(dLon / 2) ** 2;
+            const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            // Haven't moved enough — skip (filters GPS jitter when stationary)
+            // Threshold adapts: 5m with precision GPS, 10m standard, 20m degraded
+            const minMovement = GpsPrecision.getAdaptedThresholds().courseChangeMinMovementM;
+            if (distM < minMovement) return;
+
+            // Calculate bearing from last position to current position
+            const currentBearing = bearing(
+                this.lastBearingCheckPos.lat, this.lastBearingCheckPos.lon,
+                currentPos.lat, currentPos.lon
+            );
+
+            // DON'T update lastBearingCheckPos here — let bearing accumulate
+            // relative to the last committed turn position. This ensures gradual
+            // turns (e.g. 90° over 2 minutes) correctly trigger the threshold
+            // instead of resetting every 15s tick.
+
+            // First bearing — seed it, no waypoint
+            if (this.lastComputedBearing === null) {
+                this.lastComputedBearing = currentBearing;
+                return;
+            }
+
+            // Check if bearing changed significantly
+            const delta = headingDelta(this.lastComputedBearing, currentBearing);
+
+            if (delta >= ShipLogServiceClass.COURSE_CHANGE_THRESHOLD_DEG) {
+                const oldCardinal = ShipLogServiceClass.degreesToCardinal16(this.lastComputedBearing);
+                const newCardinal = ShipLogServiceClass.degreesToCardinal16(currentBearing);
+
+                // NOW reset both position and bearing — committed turn
+                this.lastBearingCheckPos = currentPos;
+                this.lastComputedBearing = currentBearing;
+
+                log.info(`Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°)`);
+
+                // Fire-and-forget waypoint entry
+                this.captureLogEntry(
+                    'waypoint',
+                    `Auto: COG ${oldCardinal} → ${newCardinal}`,
+                    `COG ${oldCardinal} → ${newCardinal}`,
+                    'navigation'
+                ).catch(() => { /* best effort */ });
+            }
+            // No else — bearing baseline stays at last committed turn
+        }, ShipLogServiceClass.COURSE_CHECK_INTERVAL_MS);
     }
 
     /**
@@ -630,8 +718,16 @@ class ShipLogServiceClass {
         };
         await this.saveTrackingState();
 
-        // Reset cardinal tracker
-        this.lastCardinal = null;
+        // Reset course change detection
+        this.lastBearingCheckPos = null;
+        this.lastComputedBearing = null;
+        if (this.courseCheckIntervalId) {
+            clearInterval(this.courseCheckIntervalId);
+            this.courseCheckIntervalId = undefined;
+        }
+
+        // Reset precision GPS tracker for next voyage
+        GpsPrecision.reset();
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
@@ -1095,7 +1191,8 @@ class ShipLogServiceClass {
         }
 
         // Thin the track — RDP + force-keep turns/speed changes/gaps
-        const significant = thinTrack(rawPoints);
+        const epsilonMult = GpsPrecision.getAdaptedThresholds().trackThinningMultiplier;
+        const significant = thinTrack(rawPoints, epsilonMult);
 
         // If thinning produced nothing (all noise), use the latest raw point
         if (significant.length === 0) {

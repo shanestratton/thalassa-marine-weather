@@ -398,7 +398,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {!isDetailMode && (
                         <div className="absolute inset-0">
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-2 space-y-4 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)' }}>
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)' }}>
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
@@ -414,10 +414,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)' }}></div>
 
                             {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 162px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 160px)' }}>
                                 <HeroHeader
                                     data={safeActive}
                                     units={units}
@@ -438,7 +438,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             <div
                                 className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
                                 style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 248px)',
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
                                     opacity: !isExpanded ? 1 : 0,
                                     transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: !isExpanded ? 'auto' : 'none',
@@ -455,7 +455,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             <div
                                 className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
                                 style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 248px)',
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
                                     opacity: isExpanded ? 1 : 0,
                                     transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: isExpanded ? 'auto' : 'none',
@@ -473,7 +473,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-4 pt-4" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
                                 {minutelyRain && minutelyRain.length > 0 ? (
                                     <div className="shrink-0 px-4">
@@ -490,7 +490,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                 border: '1px solid rgba(96, 165, 250, 0.1)',
                                             }}
                                         >
-                                            <div className="px-4 py-2.5 flex items-center gap-2">
+                                            <div className="px-4 py-2.5 flex items-center justify-center gap-2">
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/40 shrink-0">
                                                     <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                                         fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />

@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import { t } from '../../theme';
 import { useEnvironment } from '../../context/ThemeContext';
 import {
@@ -215,9 +215,10 @@ const InstrumentCell: React.FC<{
     improving?: boolean;
     tealHeading?: boolean;
     dirDeg?: number | null; // Optional directional arrow
-}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg }) => {
+    onClick?: () => void;
+}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick }) => {
     return (
-        <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
+        <div className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`} onClick={onClick}>
             {/* Label with icon */}
             <div className="flex items-center gap-1.5 opacity-90">
                 <span className={`w-3 h-3 ${tealHeading ? 'text-teal-400' : 'text-amber-400'}`}>{icon}</span>
@@ -333,6 +334,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const isVisImproving = trends?.visibility === 'up';
     const isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
 
+    const [showCompass, setShowCompass] = useState(false);
+
     return (
         <div
             className="w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl"
@@ -352,23 +355,13 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     improving={isWindImproving}
                 />
 
-                {/* Direction — Compass + Cardinal */}
-                <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
-                    {/* Heading */}
-                    <div className="flex items-center gap-1.5 opacity-90">
-                        <span className="w-3 h-3 text-teal-400"><CompassIcon className="w-3 h-3" rotation={0} /></span>
-                        <span className="text-[10px] font-sans font-bold tracking-widest uppercase text-teal-300">DIR</span>
-                    </div>
-                    {/* Compass + Cardinal side by side */}
-                    <div className="flex items-center gap-1 mt-auto mb-1">
-                        <div className="scale-[0.7] origin-center -mx-2">
-                            <CompassWidget degrees={windDeg} direction="" />
-                        </div>
-                        <span className="text-[18px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
-                            {windDir}
-                        </span>
-                    </div>
-                </div>
+                {/* Direction — standard cell, tap for compass overlay */}
+                <InstrumentCell
+                    label="DIR"
+                    icon={<CompassIcon className="w-3 h-3" rotation={0} />}
+                    value={windDir}
+                    onClick={() => setShowCompass(true)}
+                />
 
                 {/* Gusts */}
                 <InstrumentCell
@@ -445,6 +438,49 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit="%"
                 />
             </div>
+
+            {/* Compass Overlay Modal */}
+            {showCompass && (
+                <div
+                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+                    onClick={() => setShowCompass(false)}
+                >
+                    <div
+                        className="relative flex flex-col items-center gap-6 p-8 rounded-3xl bg-slate-900/95 border border-white/10 shadow-2xl max-w-xs w-full mx-4"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Close button */}
+                        <button
+                            onClick={() => setShowCompass(false)}
+                            className="absolute top-3 right-3 p-2 rounded-full bg-white/10 text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                            aria-label="Close compass"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+                                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                        </button>
+
+                        {/* Title */}
+                        <div className="flex items-center gap-2">
+                            <CompassIcon className="w-4 h-4 text-teal-400" rotation={0} />
+                            <span className="text-sm font-bold text-teal-300 uppercase tracking-widest">Wind Direction</span>
+                        </div>
+
+                        {/* Large Compass */}
+                        <div className="transform scale-[3] my-12">
+                            <CompassWidget degrees={windDeg} direction={windDir} />
+                        </div>
+
+                        {/* Metadata */}
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-mono font-medium text-white" style={{ fontFeatureSettings: '"tnum"' }}>
+                                {windDeg}°
+                            </span>
+                            <span className="text-lg font-mono text-slate-400">{windDir}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

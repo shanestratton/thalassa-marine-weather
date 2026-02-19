@@ -25,6 +25,7 @@ import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
+import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 
 const log = createLogger('AnchorWatch');
 
@@ -73,6 +74,8 @@ export interface AnchorWatchSnapshot {
     alarmTriggeredAt: number | null;
     watchStartedAt: number | null;
     gpsAccuracy: number;
+    gpsQuality: 'precision' | 'standard' | 'degraded';
+    gpsQualityLabel: string;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -82,7 +85,7 @@ export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
 const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
 const GPS_INTERVAL_MS = 3000;       // High-frequency GPS when watching
 const HISTORY_MAX_POINTS = 500;     // Max position trail points
-const JITTER_WINDOW = 5;            // Moving average window size
+const JITTER_WINDOW = 5;            // Default moving average window (adaptive via GpsPrecision)
 const ALARM_CONFIRM_COUNT = 3;      // # consecutive readings outside circle before alarm
 const MIN_GPS_ACCURACY = 50;        // Ignore readings worse than 50m accuracy
 const GEOFENCE_ID = 'anchor-swing-radius';
@@ -220,6 +223,8 @@ class AnchorWatchServiceClass {
             alarmTriggeredAt: this.alarmTriggeredAt,
             watchStartedAt: this.watchStartedAt,
             gpsAccuracy: this.gpsAccuracy,
+            gpsQuality: GpsPrecision.getQuality(),
+            gpsQualityLabel: GpsPrecision.getAdaptedThresholds().qualityLabel,
         };
     }
 
@@ -380,6 +385,9 @@ class AnchorWatchServiceClass {
      * Returns true if a watch session was restored.
      */
     async restoreWatchState(): Promise<boolean> {
+        // Already active — nothing to restore (idempotent for dual-call from App + AnchorWatchPage)
+        if (this.state === 'watching' || this.state === 'alarm') return true;
+
         try {
             const raw = localStorage.getItem(ANCHOR_WATCH_KEY);
             if (!raw) return false;
@@ -544,9 +552,15 @@ class AnchorWatchServiceClass {
 
         this.gpsAccuracy = position.accuracy;
 
+        // Feed accuracy into precision tracker
+        GpsPrecision.feed(position.accuracy);
+
+        // Adaptive jitter filter window: tighter with precision GPS
+        const jitterWindow = GpsPrecision.getAdaptedThresholds().jitterFilterWindow;
+
         // Apply jitter filter (moving average)
         this.jitterBuffer.push({ lat: position.latitude, lon: position.longitude });
-        if (this.jitterBuffer.length > JITTER_WINDOW) {
+        if (this.jitterBuffer.length > jitterWindow) {
             this.jitterBuffer.shift();
         }
 
@@ -628,6 +642,9 @@ class AnchorWatchServiceClass {
 
         this.state = 'alarm';
         this.alarmTriggeredAt = Date.now();
+
+        // Persist alarm state — crash during alarm should restore to alarm, not watching
+        this.persistWatchState();
 
         // Haptic burst
         try {

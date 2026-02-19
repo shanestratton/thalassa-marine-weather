@@ -205,6 +205,15 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         } catch { return iso; }
     };
 
+    /** Detect sentinel end dates (2038+) that mean "open-ended" */
+    const isOpenEnded = (iso: string | null) => {
+        if (!iso) return true;
+        try { return new Date(iso).getFullYear() >= 2038; } catch { return false; }
+    };
+
+    /** Get the current user's ID from the service (for own-card detection) */
+    const currentUserId = (LonelyHeartsService as any).currentUserId as string | null;
+
     const activeFilterCount = (filterListingType ? 1 : 0) + (filterSkills.length > 0 ? 1 : 0) + (filterExperience ? 1 : 0) + (filterRegion ? 1 : 0);
 
     // --- LOADING ---
@@ -273,9 +282,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all ${showFilters || activeFilterCount > 0 ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all relative ${showFilters || activeFilterCount > 0 ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
                             >
-                                🔧
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                    <line x1="4" y1="6" x2="20" y2="6" />
+                                    <line x1="7" y1="12" x2="17" y2="12" />
+                                    <line x1="10" y1="18" x2="14" y2="18" />
+                                </svg>
                                 {activeFilterCount > 0 && (
                                     <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-teal-500 text-[9px] text-white font-bold flex items-center justify-center">{activeFilterCount}</span>
                                 )}
@@ -352,6 +365,44 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         )}
 
+                        {/* Own listing preview — pinned at top */}
+                        {profile?.user_id && (
+                            <div className="mb-3 rounded-2xl bg-teal-500/[0.04] border border-teal-400/15 overflow-hidden relative">
+                                <div className="flex gap-3.5 p-4">
+                                    <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-teal-400/20 flex-shrink-0">
+                                        {editPhoto ? (
+                                            <img src={editPhoto} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full bg-gradient-to-br from-teal-500/10 to-cyan-500/10 flex items-center justify-center">
+                                                <span className="text-xl">{editListingType === 'seeking_crew' ? '🚢' : '⛵'}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[10px] font-bold uppercase tracking-wider text-teal-400/50 mb-0.5">Your Listing</p>
+                                        <h4 className="text-sm font-bold text-white/80 truncate">{profile.first_name || 'You'}</h4>
+                                        {editListingType && (
+                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mt-0.5 ${editListingType === 'seeking_crew'
+                                                ? 'bg-teal-500/15 text-teal-300/80'
+                                                : 'bg-amber-500/15 text-amber-300/80'
+                                                }`}>
+                                                {editListingType === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setView('my_profile')}
+                                    className="absolute top-3 right-3 w-8 h-8 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-400/20 flex items-center justify-center transition-all active:scale-90"
+                                    title="Edit listing"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-teal-300">
+                                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+
                         {/* Listings */}
                         {listings.length === 0 ? (
                             <div className="text-center py-16">
@@ -391,58 +442,67 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             {/* Info */}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5">
-                                                    <h4 className="text-base font-bold text-white/85 truncate">{card.display_name}</h4>
+                                                    <h4 className="text-[17px] font-bold text-white/90 truncate">{card.display_name}</h4>
                                                     {card.age_range && (
-                                                        <span className="text-xs text-white/50 flex-shrink-0">{card.age_range}</span>
+                                                        <span className="text-[11px] text-white/35 bg-white/[0.04] px-1.5 py-0.5 rounded-md flex-shrink-0">{card.age_range}</span>
                                                     )}
                                                 </div>
 
                                                 {/* Type badge */}
                                                 {card.listing_type && (
                                                     <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider mb-1.5 ${card.listing_type === 'seeking_crew'
-                                                        ? 'bg-blue-500/15 text-blue-300/80'
+                                                        ? 'bg-teal-500/15 text-teal-300/80'
                                                         : 'bg-amber-500/15 text-amber-300/80'
                                                         }`}>
                                                         {card.listing_type === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
                                                     </span>
                                                 )}
 
-                                                {/* Meta row */}
-                                                <div className="flex items-center gap-2 text-xs text-white/35 mb-1.5">
-                                                    {card.vessel_name && <span>⛵ {card.vessel_name}</span>}
-                                                    {card.sailing_region && <span>📍 {card.sailing_region}</span>}
-                                                    {card.sailing_experience && <span>🧭 {card.sailing_experience}</span>}
+                                                {/* Meta row — vessel promoted */}
+                                                <div className="flex items-center gap-2 text-xs mb-1.5">
+                                                    {card.vessel_name && <span className="text-white/55 font-medium">⛵ {card.vessel_name}</span>}
+                                                    {card.sailing_region && <span className="text-white/35">📍 {card.sailing_region}</span>}
+                                                    {card.sailing_experience && <span className="text-white/35">🧭 {card.sailing_experience}</span>}
                                                 </div>
 
-                                                {/* Skills preview */}
+                                                {/* Skills preview — with SEEKING label */}
                                                 {card.skills.length > 0 && (
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {card.skills.slice(0, 4).map(skill => (
-                                                            <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[10px] text-white/40">{skill}</span>
-                                                        ))}
-                                                        {card.skills.length > 4 && (
-                                                            <span className="text-[10px] text-white/25">+{card.skills.length - 4}</span>
-                                                        )}
+                                                    <div>
+                                                        <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20 mb-0.5">Seeking:</p>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {card.skills.slice(0, 4).map(skill => (
+                                                                <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[10px] text-white/40">{skill}</span>
+                                                            ))}
+                                                            {card.skills.length > 4 && (
+                                                                <span className="text-[10px] text-white/25">+{card.skills.length - 4}</span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 )}
 
                                                 {/* Bio preview */}
                                                 {card.bio && (
-                                                    <p className="text-[13px] text-white/25 line-clamp-2 leading-relaxed">
+                                                    <p className="text-[13px] text-white/25 line-clamp-2 leading-relaxed mt-1">
                                                         {card.bio}
                                                     </p>
                                                 )}
                                             </div>
                                         </div>
 
-                                        {/* Availability bar */}
-                                        {(card.available_from || card.available_to) && (
+                                        {/* Availability bar — smart date display */}
+                                        {(card.available_from || (card.available_to && !isOpenEnded(card.available_to))) && (
                                             <div className="px-4 pb-3">
                                                 <div className="flex items-center gap-1.5 text-[10px] text-teal-400/60">
                                                     <span>📅</span>
-                                                    {card.available_from && <span>From {formatDate(card.available_from)}</span>}
-                                                    {card.available_from && card.available_to && <span>—</span>}
-                                                    {card.available_to && <span>{formatDate(card.available_to)}</span>}
+                                                    {card.available_from && isOpenEnded(card.available_to) ? (
+                                                        <span>Starts {formatDate(card.available_from)}</span>
+                                                    ) : (
+                                                        <>
+                                                            {card.available_from && <span>From {formatDate(card.available_from)}</span>}
+                                                            {card.available_from && card.available_to && <span>—</span>}
+                                                            {card.available_to && <span>{formatDate(card.available_to)}</span>}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -475,10 +535,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     </div>
                                 )}
                             </div>
-                            <h2 className="text-2xl font-black text-white/90 mb-1">{selectedCard.display_name}</h2>
+                            <h2 className="text-2xl font-black text-white/90 mb-0.5">{selectedCard.display_name}</h2>
+                            {selectedCard.age_range && (
+                                <p className="text-sm text-white/35 mb-1">{selectedCard.age_range}</p>
+                            )}
                             {selectedCard.listing_type && (
                                 <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${selectedCard.listing_type === 'seeking_crew'
-                                    ? 'bg-blue-500/15 text-blue-300/80'
+                                    ? 'bg-teal-500/15 text-teal-300/80'
                                     : 'bg-amber-500/15 text-amber-300/80'
                                     }`}>
                                     {selectedCard.listing_type === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
@@ -537,13 +600,15 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 </div>
                             )}
 
-                            {/* Availability */}
-                            {(selectedCard.available_from || selectedCard.available_to) && (
+                            {/* Availability — smart date display */}
+                            {(selectedCard.available_from || (selectedCard.available_to && !isOpenEnded(selectedCard.available_to))) && (
                                 <div className="p-3 rounded-xl bg-teal-500/5 border border-teal-500/10">
                                     <p className="text-[10px] font-bold uppercase tracking-wider text-teal-300/40 mb-1">Availability</p>
                                     <p className="text-sm text-teal-200/70">
                                         📅 {selectedCard.available_from ? formatDate(selectedCard.available_from) : 'Flexible'}
-                                        {selectedCard.available_to ? ` — ${formatDate(selectedCard.available_to)}` : ' onwards'}
+                                        {!isOpenEnded(selectedCard.available_to) && selectedCard.available_to
+                                            ? ` — ${formatDate(selectedCard.available_to)}`
+                                            : ' onwards'}
                                     </p>
                                 </div>
                             )}
@@ -551,7 +616,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             {/* Skills */}
                             {selectedCard.skills.length > 0 && (
                                 <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-2">Skills & Can Do</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-2">Seeking:</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {selectedCard.skills.map(skill => (
                                             <span key={skill} className="px-3 py-1.5 rounded-full bg-teal-500/10 text-xs text-teal-200/70 border border-teal-500/15">
@@ -826,13 +891,21 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <p className="text-[10px] text-white/20 uppercase mb-1">To</p>
+                                    <p className="text-[10px] text-white/20 uppercase mb-1">To (optional)</p>
                                     <input
                                         type="date"
-                                        value={editAvailTo}
+                                        value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
                                         onChange={e => setEditAvailTo(e.target.value)}
                                         className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500/30 transition-colors [color-scheme:dark]"
                                     />
+                                    {editAvailTo && (
+                                        <button
+                                            onClick={() => setEditAvailTo('')}
+                                            className="text-[10px] text-teal-400/50 hover:text-teal-400/80 mt-1 transition-colors"
+                                        >
+                                            ✕ Clear end date
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>

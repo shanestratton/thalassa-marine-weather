@@ -74,6 +74,7 @@ export const LogPage: React.FC = () => {
         handleShare,
         handleExportThenDelete,
         handleExportGPX,
+        handleImportGPXFile,
         handleShareToCommunity,
         // Derived state
         filteredEntries,
@@ -95,6 +96,8 @@ export const LogPage: React.FC = () => {
     const [isExportingGPX, setIsExportingGPX] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
+    const [isImportingGPX, setIsImportingGPX] = useState(false);
+    const gpxFileInputRef = useRef<HTMLInputElement>(null);
 
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
@@ -258,6 +261,7 @@ export const LogPage: React.FC = () => {
                                             <MenuBtn icon="📊" label="Statistics" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'stats' }); setShowMenu(false); }} disabled={entries.length === 0} />
                                             <MenuBtn icon="🗺" label="Track Map" onClick={() => { dispatch({ type: 'SHOW_TRACK_MAP', show: true }); setShowMenu(false); }} disabled={entries.length === 0} />
                                             <MenuBtn icon="📤" label="Export" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'export' }); setShowMenu(false); }} disabled={entries.length === 0} />
+                                            <MenuBtn icon="📥" label="Import" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'import' }); setShowMenu(false); }} />
                                             <MenuBtn icon="🔗" label="Share" onClick={() => { dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' }); setShowMenu(false); }} disabled={entries.length === 0} />
                                         </div>
                                     </>
@@ -500,7 +504,27 @@ export const LogPage: React.FC = () => {
                 isOpen={showCommunityBrowser}
                 onClose={() => dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false })}
                 onImportComplete={loadData}
-                onLocalImport={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: false }); }}
+            />
+
+            {/* Hidden GPX file input */}
+            <input
+                ref={gpxFileInputRef}
+                type="file"
+                accept=".gpx,.xml"
+                className="hidden"
+                onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setIsImportingGPX(true);
+                    try {
+                        await handleImportGPXFile(file);
+                    } finally {
+                        setIsImportingGPX(false);
+                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                    }
+                    // Reset input so same file can be re-selected
+                    e.target.value = '';
+                }}
             />
 
             {/* ========== ACTION SHEET MODALS ========== */}
@@ -625,6 +649,102 @@ export const LogPage: React.FC = () => {
                 </div>
             )}
 
+            {/* IMPORT ACTION SHEET — always accessible, even with zero entries */}
+            {actionSheet === 'import' && (
+                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    {/* Header bar */}
+                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                </div>
+                                <h2 className="text-lg font-bold text-white">Import Tracks</h2>
+                            </div>
+                            <button
+                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                className="p-2 text-slate-400 hover:text-white transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-2">
+                            Browse and download community-shared tracks
+                        </p>
+                    </div>
+
+                    {/* Content — vertically centered */}
+                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                            {/* Import GPX File Card — hidden for now, unhide when users request it */}
+                            {false && (
+                                <button
+                                    onClick={() => { if (!isImportingGPX) gpxFileInputRef.current?.click(); }}
+                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isImportingGPX
+                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                        : 'bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
+                                        }`}
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
+                                    {isImportingGPX && (
+                                        <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                                                <span className="text-amber-300 text-sm font-medium">Importing…</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">Import GPX File</div>
+                                        <div className="text-slate-400 text-sm mt-1">Import from OpenCPN, Navionics, or any chartplotter export</div>
+                                    </div>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            )}
+
+                            {/* Browse Community Card */}
+                            <button
+                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40"
+                            >
+                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-white font-bold text-lg">Browse Community</div>
+                                    <div className="text-slate-400 text-sm mt-1">Download tracks shared by other sailors</div>
+                                </div>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+
+                            {/* Imported track provenance notice */}
+                            <div className="bg-slate-800/40 border border-white/5 rounded-xl px-4 py-3">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-amber-400 text-sm mt-0.5">ℹ️</span>
+                                    <p className="text-sm text-slate-400 leading-relaxed">
+                                        Imported tracks are marked with an <span className="text-amber-400 font-bold">Imported</span> badge and cannot be used for official deck logs or re-shared to the community.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* SHARE ACTION SHEET — card menu matching Export layout */}
             {actionSheet === 'share' && (
                 <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
@@ -656,10 +776,13 @@ export const LogPage: React.FC = () => {
                     {/* Content — vertically centered */}
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                         <div className="space-y-4 max-w-lg mx-auto w-full">
-                            {/* Community Share Card */}
+                            {/* Community Share Card — disabled for imported/community tracks */}
                             <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' })}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40"
+                                onClick={() => { if (!hasNonDeviceEntries) dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' }); }}
+                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
+                                    ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40'
+                                    }`}
                             >
                                 <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
                                     <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -668,7 +791,10 @@ export const LogPage: React.FC = () => {
                                 </div>
                                 <div className="flex-1 text-left">
                                     <div className="text-white font-bold text-lg">Community Share</div>
-                                    <div className="text-slate-400 text-sm mt-1">Share your track, route, or anchorage with others</div>
+                                    {hasNonDeviceEntries
+                                        ? <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
+                                        : <div className="text-slate-400 text-sm mt-1">Share your track, route, or anchorage with others</div>
+                                    }
                                 </div>
                                 <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1054,6 +1180,11 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
         waypoint: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
     };
 
+    // Land/water coloring: blue = water, green = land, white = unknown
+    // Land = emerald (app-wide land color), Water = sky (app-wide water color)
+    const envColor = entry.isOnWater === true ? 'text-sky-400' : entry.isOnWater === false ? 'text-emerald-400' : 'text-white';
+    const envDot = entry.isOnWater === true ? 'bg-sky-400' : entry.isOnWater === false ? 'bg-emerald-400' : 'bg-slate-500';
+
     return (
         <div className="bg-slate-800/40 rounded-lg p-3 border border-white/5 mb-2">
             <div className="flex justify-between items-start mb-2">
@@ -1061,13 +1192,14 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
                     <span className={`px-2 py-0.5 rounded text-xs font-bold border ${typeColors[entry.entryType]}`}>
                         {entry.entryType.toUpperCase()}
                     </span>
-                    <span className="text-sm text-white">{timeStr}</span>
+                    <div className={`w-1.5 h-1.5 rounded-full ${envDot}`}></div>
+                    <span className={`text-sm ${envColor}`}>{timeStr}</span>
                     <span className="text-xs text-slate-500">{dateStr}</span>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center gap-1 text-slate-400">
+                <div className={`flex items-center gap-1 ${envColor} opacity-70`}>
                     <CompassIcon className="w-3 h-3" rotation={0} />
                     {entry.latitude?.toFixed(4)}°, {entry.longitude?.toFixed(4)}°
                 </div>
