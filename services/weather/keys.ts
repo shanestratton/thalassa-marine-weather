@@ -41,7 +41,13 @@ export const getTomorrowIoKey = () => {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TOMORROW_IO_API_KEY) {
         return import.meta.env.VITE_TOMORROW_IO_API_KEY;
     }
-    return null;
+    // Fallback or Node process env
+    if (typeof process !== 'undefined' && process.env && process.env.VITE_TOMORROW_IO_API_KEY && process.env.VITE_TOMORROW_IO_API_KEY.length > 10) {
+        return process.env.VITE_TOMORROW_IO_API_KEY;
+    }
+
+    // HARDCODED FALLBACK (Ensuring functionality on device)
+    return "r8504oU3evFU41QkPRQfJzqKVXRYBu3o";
 };
 
 
