@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 // geminiService dynamically imported to avoid bundling @google/generative-ai (158KB) in main chunk
 import { fetchFastWeather, fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from '../services/weatherService';
+import { fetchTomorrowIoRealtime } from '../services/weather/api/tomorrowio';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
@@ -24,6 +25,7 @@ const OFFSHORE_INTERVAL = 60 * 60 * 1000;      // 60 mins (hourly) — top of ho
 const COASTAL_INTERVAL = 30 * 60 * 1000;       // 30 mins — :00 or :30
 const BAD_WEATHER_INTERVAL = 10 * 60 * 1000;   // 10 mins — :00/:10/:20/:30/:40/:50
 const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
+const LIVE_OVERLAY_INTERVAL = 5 * 60 * 1000;   // 5 mins — lightweight temp/conditions poll
 
 // Bad Weather Detection
 const isBadWeather = (weather: MarineWeatherReport): boolean => {
@@ -812,6 +814,73 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         return () => clearInterval(driftCheck);
     }, [locationMode, selectLocation, setWeatherData, updateSettings]);
+
+    // --- LIVE OVERLAY (5min) ---
+    // Lightweight temp/conditions poll using Tomorrow.io only.
+    // Patches current metrics without triggering full StormGlass/OpenMeteo refresh.
+    useEffect(() => {
+        const liveTimer = setInterval(async () => {
+            if (!navigator.onLine) return;
+            if (isFetchingRef.current) return;
+
+            const report = weatherDataRef.current;
+            if (!report?.coordinates) return;
+            // Skip for offshore — Tomorrow.io has no station data there
+            if (report.locationType === 'offshore') return;
+
+            const { lat, lon } = report.coordinates;
+            try {
+                const obs = await fetchTomorrowIoRealtime(lat, lon);
+                if (!obs || obs.temperature === null) return;
+
+                // Only patch if we still have the same report (no full refresh happened)
+                const current = weatherDataRef.current;
+                if (!current) return;
+
+                const patched = { ...current.current } as any;
+                const sources = { ...(patched.sources || {}) };
+
+                const tioSource = (val: number | null) => ({
+                    value: val,
+                    source: 'tomorrow' as const,
+                    sourceColor: 'sky',
+                    sourceName: 'Tomorrow.io',
+                });
+
+                // Patch live metrics
+                if (obs.temperature !== null) {
+                    patched.airTemperature = obs.temperature;
+                    sources['airTemperature'] = tioSource(obs.temperature);
+                }
+                if (obs.temperatureApparent !== null) {
+                    patched.feelsLike = obs.temperatureApparent;
+                    sources['feelsLike'] = tioSource(obs.temperatureApparent);
+                }
+                if (obs.humidity !== null) {
+                    patched.humidity = obs.humidity;
+                    sources['humidity'] = tioSource(obs.humidity);
+                }
+                if (obs.dewPoint !== null) {
+                    patched.dewPoint = obs.dewPoint;
+                    sources['dewPoint'] = tioSource(obs.dewPoint);
+                }
+                if (obs.pressure !== null) {
+                    patched.pressure = obs.pressure;
+                    sources['pressure'] = tioSource(obs.pressure);
+                }
+                if (obs.condition && obs.condition !== 'Unknown') {
+                    patched.condition = obs.condition;
+                }
+
+                patched.sources = sources;
+                setWeatherData({ ...current, current: patched });
+            } catch {
+                // Silently ignore — full refresh will pick it up
+            }
+        }, LIVE_OVERLAY_INTERVAL);
+
+        return () => clearInterval(liveTimer);
+    }, [setWeatherData]);
 
     // Model Change Effect
     const prevModelRef = useRef(settings.preferredModel);

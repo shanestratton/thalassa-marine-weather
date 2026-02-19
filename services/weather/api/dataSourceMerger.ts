@@ -160,20 +160,27 @@ export function mergeWeatherData(
 ): MarineWeatherReport {
 
     const stormglass = stormglassReport.current;
-    const sources: SourcedWeatherMetrics['sources'] = {};
+    const sources: Record<string, any> = {};
+
+    // Preserve existing source labels from the incoming report.
+    // When enhanceWithBeaconData re-merges, the report already has
+    // Tomorrow.io source labels — we must not blindly overwrite them.
+    const existingSources = (stormglass as SourcedWeatherMetrics).sources || {};
 
     // Helper to set metric with source tracking
+    // Priority: Buoy/AWS > existing source (e.g. Tomorrow.io) > StormGlass fallback
     function setMetric<K extends keyof WeatherMetrics>(
         key: K,
         buoyVal: WeatherMetrics[K] | null | undefined,
         stormglassVal: WeatherMetrics[K] | null | undefined
     ): WeatherMetrics[K] {
-        // Priority: Buoy/AWS > StormGlass
-        // Note: BOM AWS data comes through the 'buoy' param (BeaconObservation)
-        if (buoyVal !== undefined && buoyVal !== null && buoy && sources) {
+        if (buoyVal !== undefined && buoyVal !== null && buoy) {
             sources[key] = createMetricSource(buoyVal, 'buoy', buoy.name, buoy.distance);
             return buoyVal;
-        } else if (sources) {
+        } else if (existingSources[key]) {
+            // Preserve existing source label (e.g. 'tomorrow' from strategy merge)
+            sources[key] = existingSources[key];
+        } else {
             sources[key] = createMetricSource(stormglassVal, 'stormglass', 'StormGlass Pro');
         }
         return stormglassVal as WeatherMetrics[K];
@@ -204,21 +211,23 @@ export function mergeWeatherData(
     } else {
         windDirection = stormglass.windDirection;
         windDegree = stormglass.windDegree;
-        sources['windDirection'] = createMetricSource(windDirection, 'stormglass', 'StormGlass Pro');
-        if (windDegree) sources['windDegree'] = createMetricSource(windDegree, 'stormglass', 'StormGlass Pro');
+        // Preserve existing source labels (e.g. Tomorrow.io)
+        sources['windDirection'] = existingSources['windDirection'] || createMetricSource(windDirection, 'stormglass', 'StormGlass Pro');
+        if (windDegree) sources['windDegree'] = existingSources['windDegree'] || createMetricSource(windDegree, 'stormglass', 'StormGlass Pro');
     }
 
-    // AIR TEMPERATURE: Buoy > StormGlass
+    // AIR TEMPERATURE: Buoy > existing source (Tomorrow.io) > StormGlass
     let airTemperature: number | null;
     if (buoy?.airTemperature !== undefined && buoy?.airTemperature !== null) {
         airTemperature = buoy.airTemperature;
         sources['airTemperature'] = createMetricSource(airTemperature, 'buoy', buoy.name, buoy.distance);
     } else if (stormglass.airTemperature !== undefined && stormglass.airTemperature !== null) {
         airTemperature = stormglass.airTemperature;
-        sources['airTemperature'] = createMetricSource(airTemperature, 'stormglass', 'StormGlass Pro');
+        // Preserve existing source (e.g. Tomorrow.io live observation)
+        sources['airTemperature'] = existingSources['airTemperature'] || createMetricSource(airTemperature, 'stormglass', 'StormGlass Pro');
     } else {
         airTemperature = null;
-        sources['airTemperature'] = createMetricSource(null, 'stormglass', 'StormGlass Pro');
+        sources['airTemperature'] = existingSources['airTemperature'] || createMetricSource(null, 'stormglass', 'StormGlass Pro');
     }
 
     // WATER TEMPERATURE: Beacon > StormGlass (airports don't have this)
@@ -282,20 +291,20 @@ export function mergeWeatherData(
         if (buoy?.currentSpeed) {
             sources['currentSpeed'] = createMetricSource(currentSpeed, 'buoy', buoy.name, buoy.distance);
         } else {
-            sources['currentSpeed'] = createMetricSource(currentSpeed, 'stormglass', 'StormGlass Pro');
+            sources['currentSpeed'] = existingSources['currentSpeed'] || createMetricSource(currentSpeed, 'stormglass', 'StormGlass Pro');
         }
     }
     if (currentDirection) {
         if (buoy?.currentDegree) {
             sources['currentDirection'] = createMetricSource(currentDirection, 'buoy', buoy.name, buoy.distance);
         } else {
-            sources['currentDirection'] = createMetricSource(currentDirection, 'stormglass', 'StormGlass Pro');
+            sources['currentDirection'] = existingSources['currentDirection'] || createMetricSource(currentDirection, 'stormglass', 'StormGlass Pro');
         }
     }
 
-    // UV INDEX: StormGlass only (neither beacons nor airports provide this)
+    // UV INDEX: Preserve existing source (Tomorrow.io provides UV too)
     if (stormglass.uvIndex !== undefined && stormglass.uvIndex !== null) {
-        sources['uvIndex'] = createMetricSource(stormglass.uvIndex, 'stormglass', 'StormGlass Pro');
+        sources['uvIndex'] = existingSources['uvIndex'] || createMetricSource(stormglass.uvIndex, 'stormglass', 'StormGlass Pro');
     }
 
     // Build merged current metrics
