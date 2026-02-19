@@ -340,7 +340,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             // Allow selection if in Confirm Mode OR clearly on Stations map
             if (isConfirmMode || activeLayer === 'buoys') {
                 if (isConfirmMode) {
-                    const name = `WP ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+                    const latStr = Math.abs(e.latlng.lat).toFixed(4) + '°' + (e.latlng.lat >= 0 ? 'N' : 'S');
+                    const lonStr = Math.abs(e.latlng.lng).toFixed(4) + '°' + (e.latlng.lng >= 0 ? 'E' : 'W');
+                    const name = `WP ${latStr}, ${lonStr}`;
                     setPendingSelection({ lat: e.latlng.lat, lon: e.latlng.lng, name });
                     setRawTargetPos({ lat: e.latlng.lat, lon: e.latlng.lng });
                 } else if (onLocationSelect) {

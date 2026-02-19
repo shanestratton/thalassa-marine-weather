@@ -73,12 +73,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 setTempLocation({ lat: latitude, lon: longitude, name: "Current Location" });
                 try {
                     const niceName = await reverseGeocode(latitude, longitude);
-                    const finalName = niceName || `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                    const finalName = niceName || `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
                     setHomePort(finalName);
                     // Update temp location name once resolved
                     setTempLocation({ lat: latitude, lon: longitude, name: finalName });
                 } catch (e) {
-                    setHomePort(`WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                    setHomePort(`WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`);
                 }
                 setIsLocating(false);
             }, () => {
@@ -108,7 +108,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 } else {
                     setTempLocation(prev => {
                         if (prev && prev.lat === lat && prev.lon === lon) {
-                            return { lat, lon, name: `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                            return { lat, lon, name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}` };
                         }
                         return prev;
                     });
@@ -117,7 +117,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 /* Reverse geocode failed — fall back to WP coordinate format */
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
-                        return { lat, lon, name: `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+                        return { lat, lon, name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}` };
                     }
                     return prev;
                 });

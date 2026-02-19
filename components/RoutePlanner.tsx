@@ -78,7 +78,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                             isConfirmMode={false}
                             hideLayerControls={false}
                             onLocationSelect={(lat, lon, name) => {
-                                const selectionName = name || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                                const latStr = Math.abs(lat).toFixed(4) + '°' + (lat >= 0 ? 'N' : 'S');
+                                const lonStr = Math.abs(lon).toFixed(4) + '°' + (lon >= 0 ? 'E' : 'W');
+                                const selectionName = name || `WP ${latStr}, ${lonStr}`;
                                 setTempMapSelection({ lat, lon, name: selectionName });
                             }}
                         />
