@@ -333,7 +333,7 @@ export const LogPage: React.FC = () => {
                     })()}
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 pb-24">
+                    <div className="flex-1 overflow-y-auto px-4 pb-36">
                         {/* Live Recording Card */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
@@ -559,7 +559,7 @@ export const LogPage: React.FC = () => {
 
                     {/* Content — vertically centered */}
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                        <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* PDF Card — disabled for imported/community tracks (provenance) */}
                             <button
                                 onClick={async () => {
@@ -679,7 +679,7 @@ export const LogPage: React.FC = () => {
 
                     {/* Content — vertically centered */}
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                        <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* Import GPX File Card — hidden for now, unhide when users request it */}
                             {false && (
                                 <button
@@ -775,7 +775,7 @@ export const LogPage: React.FC = () => {
 
                     {/* Content — vertically centered */}
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                        <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* Community Share Card — disabled for imported/community tracks */}
                             <button
                                 onClick={() => { if (!hasNonDeviceEntries) dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' }); }}
@@ -857,7 +857,7 @@ export const LogPage: React.FC = () => {
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-4 py-3">
-                        <div className="space-y-3 max-w-lg mx-auto w-full">
+                        <div className="space-y-3 max-w-2xl mx-auto w-full">
 
                             {/* Offline Banner */}
                             {typeof navigator !== 'undefined' && !navigator.onLine && (
@@ -993,7 +993,7 @@ export const LogPage: React.FC = () => {
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-lg mx-auto w-full">
+                        <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {(() => {
                                 // Use the highlighted card, or fall back to active/first voyage
                                 const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
