@@ -397,15 +397,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* MAIN CAROUSEL / GRID */}
                     {!isDetailMode && (
                         <div className="absolute inset-0">
-                            {/* DASHBOARD FEED LAYOUT - Clean Flexbox */}
-                            <div className="absolute inset-x-0 flex flex-col gap-4 overflow-hidden z-[110]"
-                                style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)',
-                                    bottom: 'calc(env(safe-area-inset-bottom) + 120px)'
-                                }}>
-
-                                {/* 1. Warnings / CELESTIAL ROW */}
-                                <div className="shrink-0 w-full px-4">
+                            {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)' }}>
+                                <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
                                         sunrise={activeDayData?.sunrise || current?.sunrise}
@@ -417,59 +411,83 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         })}
                                     />
                                 </div>
+                            </div>
 
-                                {/* 2. MAIN HEADER (Temp/Condition) */}
-                                <div className="shrink-0 w-full px-4">
-                                    <HeroHeader
-                                        data={safeActive}
-                                        units={units}
-                                        isLive={activeDay === 0 && activeHour === 0}
-                                        isDay={isActiveDay}
-                                        dateLabel={getDateLabel(activeDay)}
-                                        timeLabel={getTimeLabel()}
-                                        timeZone={data.timeZone}
-                                        sources={safeActive.sources}
-                                        isExpanded={isExpanded}
-                                        onToggleExpand={() => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
-                                    />
-                                </div>
+                            {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)' }}></div>
 
-                                {/* 3. WIDGET GRID (Expanded or Collapsed Row) */}
-                                <div
-                                    className="shrink-0 w-full relative transition-[height] duration-300 ease-in-out overflow-hidden"
-                                    style={{ height: isExpanded ? '160px' : '80px' }}
-                                >
-                                    {/* Expanded Full Grid */}
-                                    <div className={`absolute inset-x-4 top-0 transition-all duration-300 ${isExpanded ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none -translate-y-2'}`}>
-                                        <HeroWidgets
-                                            data={safeActive}
-                                            units={units}
-                                            cardTime={widgetCardTime}
-                                            sources={widgetSources}
-                                            trends={widgetTrends}
-                                            isLive={activeDay === 0 && activeHour === 0}
-                                        />
-                                    </div>
-                                    {/* Collapsed Single Row */}
-                                    <div className={`absolute inset-x-4 top-0 transition-all duration-300 ${!isExpanded ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none -translate-y-2'}`}>
-                                        <CurrentConditionsCard
-                                            data={activeDayData || current}
-                                            units={units}
-                                            timeZone={data.timeZone}
-                                        />
-                                    </div>
-                                </div>
+                            {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 160px)' }}>
+                                <HeroHeader
+                                    data={safeActive}
+                                    units={units}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                    isDay={isActiveDay}
+                                    dateLabel={getDateLabel(activeDay)}
+                                    timeLabel={getTimeLabel()}
+                                    timeZone={data.timeZone}
+                                    sources={safeActive.sources}
+                                    isExpanded={isExpanded}
+                                    onToggleExpand={() => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
+                                />
+                            </div>
 
-                                {/* 4. RAIN FORECAST BANNER */}
+
+
+                            {/* CURRENT CONDITIONS CARD - Collapsed mode only */}
+                            <div
+                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                style={{
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
+                                    opacity: !isExpanded ? 1 : 0,
+                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    pointerEvents: !isExpanded ? 'auto' : 'none',
+                                }}
+                            >
+                                <CurrentConditionsCard
+                                    data={activeDayData || current}
+                                    units={units}
+                                    timeZone={data.timeZone}
+                                />
+                            </div>
+
+                            {/* FIXED WIDGETS - Slide down when expanded */}
+                            <div
+                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                style={{
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
+                                    opacity: isExpanded ? 1 : 0,
+                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    pointerEvents: isExpanded ? 'auto' : 'none',
+                                }}
+                            >
+                                <HeroWidgets
+                                    data={safeActive}
+                                    units={units}
+                                    cardTime={widgetCardTime}
+                                    sources={widgetSources}
+                                    trends={widgetTrends}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                />
+                            </div>
+
+
+                            {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
+                            {/* MATH: 
+                                Expanded Top: 238 (widgets) + 160 (height) + 8 (gap) = 406px
+                                Collapsed Top: 238 (conditions card) + 80 (height) + 8 (gap) = 326px
+                            */}
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                                {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
                                 {minutelyRain && minutelyRain.length > 0 ? (
-                                    <div className="shrink-0 w-full px-4">
+                                    <div className="shrink-0 px-4">
                                         <RainForecastCard
                                             data={minutelyRain}
                                             timeZone={data.timeZone}
                                         />
                                     </div>
                                 ) : (
-                                    <div className="shrink-0 w-full px-4">
+                                    <div className="shrink-0 px-4">
                                         <div className="w-full rounded-xl overflow-hidden"
                                             style={{
                                                 background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
@@ -488,34 +506,30 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         </div>
                                     </div>
                                 )}
-
-                                {/* 5. FORECAST CAROUSEL & TIDE CHART (Fills remaining space) */}
-                                <div className="flex-1 min-h-0 w-full relative z-[100]">
-                                    <HeroSection
-                                        current={current}
-                                        forecasts={data.forecast}
-                                        units={units}
-                                        generatedAt={data.generatedAt}
-                                        locationName={props.displayTitle}
-                                        tides={data.tides}
-                                        tideHourly={data.tideHourly}
-                                        timeZone={data.timeZone}
-                                        hourly={hourly}
-                                        modelUsed={data.modelUsed}
-                                        guiDetails={data.tideGUIDetails}
-                                        coordinates={data.coordinates}
-                                        locationType={data.locationType}
-                                        utcOffset={data.utcOffset}
-                                        className="absolute inset-0 px-4"
-                                        onTimeSelect={handleTimeSelect}
-                                        onDayChange={handleDayChange}
-                                        onHourChange={handleHourChange}
-                                        onActiveDataChange={handleActiveDataChange}
-                                        isEssentialMode={!isExpanded}
-                                        vessel={userSettings.vessel}
-                                        minutelyRain={minutelyRain}
-                                    />
-                                </div>
+                                <HeroSection
+                                    current={current}
+                                    forecasts={data.forecast}
+                                    units={units}
+                                    generatedAt={data.generatedAt}
+                                    locationName={props.displayTitle}
+                                    tides={data.tides}
+                                    tideHourly={data.tideHourly}
+                                    timeZone={data.timeZone}
+                                    hourly={hourly}
+                                    modelUsed={data.modelUsed}
+                                    guiDetails={data.tideGUIDetails}
+                                    coordinates={data.coordinates}
+                                    locationType={data.locationType}
+                                    utcOffset={data.utcOffset}
+                                    className="px-4"
+                                    onTimeSelect={handleTimeSelect}
+                                    onDayChange={handleDayChange}
+                                    onHourChange={handleHourChange}
+                                    onActiveDataChange={handleActiveDataChange}
+                                    isEssentialMode={!isExpanded}
+                                    vessel={userSettings.vessel}
+                                    minutelyRain={minutelyRain}
+                                />
                             </div>
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll */}
