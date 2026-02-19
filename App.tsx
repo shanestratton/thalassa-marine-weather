@@ -1,6 +1,7 @@
 
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useWeather } from './context/WeatherContext';
+import { AnchorWatchService } from './services/AnchorWatchService';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
@@ -15,6 +16,7 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
+import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 
 
 
@@ -50,6 +52,12 @@ const App: React.FC = () => {
     } = useAppController();
 
     const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;
+
+    // Early restore: re-establish anchor watch GPS + geofence on app boot,
+    // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
+    useEffect(() => {
+        AnchorWatchService.restoreWatchState().catch(() => { /* Non-critical */ });
+    }, []);
 
     // Loading State
     if (settingsLoading) {
@@ -156,7 +164,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
@@ -195,6 +203,12 @@ const App: React.FC = () => {
 
                 {/* GLOBAL GPS TRACKING INDICATOR */}
                 <GpsTrackingIndicator />
+
+                {/* GLOBAL ANCHOR STATUS — visible on all screens when deployed */}
+                <AnchorStatusIndicator
+                    currentView={currentView}
+                    onNavigate={() => setPage('compass')}
+                />
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (

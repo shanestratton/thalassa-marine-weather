@@ -76,6 +76,27 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         // Clear
         ctx.clearRect(0, 0, w, h);
 
+        // --- VERTICAL GRID LINES (every 2 hours) ---
+        for (let hour = 0; hour <= 24; hour += 2) {
+            const gx = toX(hour);
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(gx, marginTop);
+            ctx.lineTo(gx, h - marginBottom);
+            ctx.stroke();
+
+            // Label every 4 hours
+            if (hour % 4 === 0 && hour < 24) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+                ctx.font = '8px system-ui, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
+            }
+            ctx.restore();
+        }
+
         // --- Helper: get interpolated height at any time ---
         const getHeightAtTime = (t: number): number => {
             const idx = dataPoints.findIndex(p => p.time >= t);
