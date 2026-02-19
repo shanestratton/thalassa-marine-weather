@@ -6,7 +6,7 @@ import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, GearIcon, MapIcon, CompassIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon, ChatIcon } from './components/Icons';
+import { SearchIcon, WindIcon, GearIcon, MapIcon, ShipWheelIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { ForecastSheet } from './components/ForecastSheet';
 import { IOSInstallPrompt } from './components/IOSInstallPrompt';
@@ -312,11 +312,11 @@ const App: React.FC = () => {
 
                             {/* Watch — with submenu */}
                             <div className="relative">
-                                <NavButton icon={<CompassIcon className="w-6 h-6" rotation={0} />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
+                                <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
                                 {watchMenuOpen && (
                                     <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setWatchMenuOpen(false)} />
-                                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <div className="fixed inset-0 z-[950]" onClick={() => setWatchMenuOpen(false)} />
+                                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[960] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
                                                 <span className="text-base">📒</span> Log
                                             </button>
