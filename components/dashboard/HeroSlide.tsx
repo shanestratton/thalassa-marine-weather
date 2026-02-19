@@ -448,7 +448,7 @@ const HeroSlideComponent = ({
         // 1. INLAND MODE
         if (locationType === 'inland' || isLandlocked) {
             return (
-                <div className="mt-0.5 pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
+                <div className="pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
                     {/* Humidity */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
@@ -490,7 +490,7 @@ const HeroSlideComponent = ({
         // 2. OFFSHORE MODE 
         if (locationType === 'offshore' || (!tides?.length && !isLandlocked)) {
             return (
-                <div className="mt-0.5 pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
+                <div className="pt-1 border-t border-white/5 flex gap-2 px-4 md:px-6 h-44 items-center justify-between pb-4">
                     {/* Water Temp */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
@@ -542,7 +542,7 @@ const HeroSlideComponent = ({
         if (!tides || tides.length === 0) return null;
 
         return (
-            <div className="w-full px-0 pb-0 relative mb-8 transition-all duration-300 ease-in-out" style={{ height: '77px' }}>
+            <div className="w-full px-0 pb-0 relative transition-all duration-300 ease-in-out" style={{ height: '77px' }}>
                 <TideGraph
                     tides={tides}
                     unit={units.tideHeight || 'm'}
