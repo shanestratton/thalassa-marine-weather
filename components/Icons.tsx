@@ -498,3 +498,30 @@ export const ChatIcon = ({ className }: { className?: string }) => (
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
   </svg>
 );
+
+export const ShipWheelIcon = ({ className }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {/* Outer ring */}
+    <circle cx="12" cy="12" r="10" />
+    {/* Inner hub */}
+    <circle cx="12" cy="12" r="2" />
+    {/* 8 spokes */}
+    <line x1="12" y1="2" x2="12" y2="10" />
+    <line x1="12" y1="14" x2="12" y2="22" />
+    <line x1="2" y1="12" x2="10" y2="12" />
+    <line x1="14" y1="12" x2="22" y2="12" />
+    <line x1="4.93" y1="4.93" x2="9.17" y2="9.17" />
+    <line x1="14.83" y1="14.83" x2="19.07" y2="19.07" />
+    <line x1="4.93" y1="19.07" x2="9.17" y2="14.83" />
+    <line x1="14.83" y1="9.17" x2="19.07" y2="4.93" />
+    {/* Handle pegs */}
+    <circle cx="12" cy="2" r="1" fill="currentColor" />
+    <circle cx="12" cy="22" r="1" fill="currentColor" />
+    <circle cx="2" cy="12" r="1" fill="currentColor" />
+    <circle cx="22" cy="12" r="1" fill="currentColor" />
+    <circle cx="4.93" cy="4.93" r="1" fill="currentColor" />
+    <circle cx="19.07" cy="19.07" r="1" fill="currentColor" />
+    <circle cx="4.93" cy="19.07" r="1" fill="currentColor" />
+    <circle cx="19.07" cy="4.93" r="1" fill="currentColor" />
+  </svg>
+);
