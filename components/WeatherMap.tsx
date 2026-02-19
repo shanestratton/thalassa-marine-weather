@@ -356,7 +356,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     const handleConfirm = () => {
         if (pendingSelection && onLocationSelect) {
-            onLocationSelect(pendingSelection.lat, pendingSelection.lon, pendingSelection.name);
+            // Don't pass WP name — let handleMapTargetSelect reverse geocode
+            onLocationSelect(pendingSelection.lat, pendingSelection.lon);
             setPendingSelection(null);
         }
     };
