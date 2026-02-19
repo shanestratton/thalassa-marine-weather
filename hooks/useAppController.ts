@@ -182,20 +182,22 @@ export const useAppController = () => {
 
         const finalCoords = { lat, lon: normalizedLon };
 
-        // Resolve a human-readable name if the map didn't provide one
+        // Resolve a human-readable name if the map didn't provide one or it's a raw coordinate
         let locationQuery = name || '';
         if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
             try {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
             } catch {
-                // Geocode failed — fall through to coordinate fallback
+                // Geocode failed — fall through
             }
         }
         // Final fallback: WP coordinates
-        if (!locationQuery) {
-            locationQuery = `WP ${lat.toFixed(4)}, ${normalizedLon.toFixed(4)}`;
+        if (!locationQuery || locationQuery.startsWith('WP ')) {
+            // Reformat nicely if it's still a WP string or empty
+            locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
         }
+
 
         setQuery(locationQuery);
         setSheetOpen(false);

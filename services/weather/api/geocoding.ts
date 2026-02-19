@@ -17,9 +17,9 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         const mapboxKey = getMapboxKey();
         if (mapboxKey) {
 
-            // Enhanced types: natural_feature (Bays/Headlands/Islands), place (Cities), locality (Suburbs)
-            // natural_feature is critical for marine/coastal locations where there's no "place"
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=natural_feature,place,locality,neighborhood,district&limit=3&access_token=${mapboxKey}`;
+            // Enhanced types: place (Cities), locality (Suburbs), poi (Points of Interest for marine features)
+            // Note: Mapbox doesn't support 'natural_feature' as a type in the Places API.
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&limit=3&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
                 url,
                 headers: {

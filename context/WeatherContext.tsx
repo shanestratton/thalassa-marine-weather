@@ -455,6 +455,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 location === "Current Location" ||
                 location === "0,0" ||
                 location === "0, 0" ||
+                location.startsWith("WP ") ||
                 /^-?\d/.test(location)  // Starts with digit or minus
             )) {
                 try {
