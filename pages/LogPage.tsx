@@ -180,7 +180,7 @@ export const LogPage: React.FC = () => {
     }
 
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden md:flex md:justify-center">
+        <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Fullscreen Statistics View */}
             {showStats ? (
                 <div className="flex flex-col h-full">
@@ -333,7 +333,7 @@ export const LogPage: React.FC = () => {
                     })()}
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 pb-36">
+                    <div className="flex-1 overflow-y-auto px-4 pb-44">
                         {/* Live Recording Card */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
