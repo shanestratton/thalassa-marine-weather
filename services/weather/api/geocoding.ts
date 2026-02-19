@@ -66,9 +66,11 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 // Allow "NSW", "CA" etc...
                 let state = "";
                 if (regionCtx) {
-                    const regCode = regionCtx.short_code ? regionCtx.short_code.replace("US-", "").toUpperCase() : "";
+                    const regCode = regionCtx.short_code
+                        ? regionCtx.short_code.replace(/^[A-Z]{2}-/i, "").toUpperCase()
+                        : "";
                     const regText = regionCtx.text;
-                    // Only use code if it's standard (e.g. US-CA -> CA, AU-NSW -> NSW)
+                    // Only use code if it's standard (e.g. US-CA -> CA, AU-QLD -> QLD, GB-ENG -> ENG)
                     if (regCode && regCode.length <= 3) state = regCode;
                     else if (STATE_ABBREVIATIONS[regText]) state = STATE_ABBREVIATIONS[regText];
                     else if (regText && regText.length < 20) state = regText; // Fallback to full name if reasonable
