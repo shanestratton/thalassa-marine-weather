@@ -99,10 +99,21 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         if (!data?.coordinates) return;
         const { lat, lon } = data.coordinates;
         let cancelled = false;
+
+        // Initial fetch
         fetchMinutelyRain(lat, lon).then(result => {
             if (!cancelled) setMinutelyRain(result);
         }).catch(() => { /* silently ignore */ });
-        return () => { cancelled = true; };
+
+        // Live refresh every 5 minutes (Tomorrow.io has 10min internal cache)
+        const rainTimer = setInterval(() => {
+            if (!navigator.onLine) return;
+            fetchMinutelyRain(lat, lon).then(result => {
+                if (!cancelled) setMinutelyRain(result);
+            }).catch(() => { /* silently ignore */ });
+        }, 5 * 60 * 1000);
+
+        return () => { cancelled = true; clearInterval(rainTimer); };
     }, [data?.coordinates?.lat, data?.coordinates?.lon]);
 
     // Stable scroll callbacks that batch state updates via rAF
