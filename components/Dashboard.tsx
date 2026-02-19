@@ -398,7 +398,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {!isDetailMode && (
                         <div className="absolute inset-0">
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 112px)' }}>
+                            {/* App Header height is ~108px. With 8px gap, top should be 116px */}
+                            <div className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 116px)' }}>
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
@@ -414,10 +415,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 410px)' : 'calc(max(8px, env(safe-area-inset-top)) + 330px)' }}></div>
 
-                            {/* FIXED HEADER - Positioned 8px below CompactHeaderRow */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 160px)' }}>
+                            {/* FIXED HEADER - Positioned 8px below CompactHeaderRow (116 + 40 + 8 = 164) */}
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 164px)' }}>
                                 <HeroHeader
                                     data={safeActive}
                                     units={units}
@@ -434,11 +435,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
 
 
-                            {/* CURRENT CONDITIONS CARD - Collapsed mode only */}
+                            {/* CURRENT CONDITIONS CARD - Collapsed mode only (164 + 70 + 8 = 242) */}
                             <div
                                 className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
                                 style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 242px)',
                                     opacity: !isExpanded ? 1 : 0,
                                     transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: !isExpanded ? 'auto' : 'none',
@@ -451,11 +452,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
-                            {/* FIXED WIDGETS - Slide down when expanded */}
+                            {/* FIXED WIDGETS - Slide down when expanded (164 + 70 + 8 = 242) */}
                             <div
                                 className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
                                 style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 238px)',
+                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 242px)',
                                     opacity: isExpanded ? 1 : 0,
                                     transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: isExpanded ? 'auto' : 'none',
@@ -474,10 +475,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
                             {/* MATH: 
-                                Expanded Top: 238 (widgets) + 160 (height) + 8 (gap) = 406px
-                                Collapsed Top: 238 (conditions card) + 80 (height) + 8 (gap) = 326px
+                                Expanded Top: 242 (widgets) + 160 (height) + 8 (gap) = 410px
+                                Collapsed Top: 242 (conditions card) + 80 (height) + 8 (gap) = 330px
                             */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 406px)' : 'calc(max(8px, env(safe-area-inset-top)) + 326px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-2 pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 410px)' : 'calc(max(8px, env(safe-area-inset-top)) + 330px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
                                 {minutelyRain && minutelyRain.length > 0 ? (
                                     <div className="shrink-0 px-4">
@@ -533,7 +534,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll */}
-                            <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 118px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 116px)' }}>
                                 <div className="flex gap-[2px] px-4 py-1">
                                     {Array.from({ length: 24 }).map((_, i) => (
                                         <div
@@ -548,7 +549,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 72px)' }}>
+                            {/* Height is ~42px. Bottom is 70px. Top of badges is 70+42 = 112px.
+                                Hero container bottom is 120px. 
+                                Gap = 120 - 112 = 8px. PERFECT MATCH.
+                            */}
+                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 70px)' }}>
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}
