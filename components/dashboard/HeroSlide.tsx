@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { t } from '../../theme';
 import { TideGraph } from './TideAndVessel';
-import { RainForecastCard } from './RainForecastCard';
 import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast, UserSettings, SourcedWeatherMetrics } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
@@ -939,19 +938,8 @@ const HeroSlideComponent = ({
                                     <div className="relative w-full h-full flex flex-col gap-2">
 
 
-                                        {/* Rain Forecast Card — expands to flex-[3] when rain active */}
-                                        {index === 0 && minutelyRain && minutelyRain.length > 0 && (
-                                            <div className={`transition-all duration-500 ease-in-out ${hasActiveRain ? 'flex-[3]' : ''} min-h-0`}>
-                                                <RainForecastCard
-                                                    data={minutelyRain}
-                                                    timeZone={timeZone}
-                                                    className="h-full"
-                                                />
-                                            </div>
-                                        )}
-
-                                        {/* Tide Graph Card — shrinks to flex-[1] when rain active, flex-[2] normally */}
-                                        <div className={`relative ${hasActiveRain ? 'flex-[1]' : 'flex-[2]'} transition-all duration-500 ease-in-out min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                        {/* Tide Graph Card — 2/3 of space */}
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
                                             {/* BG Gradient */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
                                                 <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
