@@ -619,58 +619,56 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             updateSettings({ defaultLocation: location });
         }
 
-        // OPTIMISTIC UPDATE: Update UI immediately with target name
-        const isOptimisticOffshore = location.startsWith("WP");
-        const cache = historyCacheRef.current;
+        // --- SMOOTH TRANSITION STRATEGY ---
+        // Instead of flashing an optimistic stub (which causes the layout to jump
+        // between offshore/coastal/inland), we keep the PREVIOUS location's data
+        // visible on screen while the new data loads in the background.
+        // Only swap to a stub if there is absolutely nothing on screen.
 
-        const optimisticData = cache[location] || {
-            locationName: location,
-            coordinates: coords || { lat: 0, lon: 0 },
-            locationType: isOptimisticOffshore ? 'offshore' : 'coastal',
-            timeZone: 'UTC',
-            generatedAt: new Date().toISOString(),
-            isEstimated: true,
-            alerts: [],
-            loading: true,
-            current: {
-                windSpeed: null,
-                windGust: null,
-                windDirection: "---",
-                waveHeight: null,
-                swellPeriod: null,
-                airTemperature: null,
-                waterTemperature: null,
-                condition: "Loading...",
-                uvIndex: 0,
-                visibility: null,
-                humidity: null,
-                pressure: null,
-                cloudCover: null,
-                precipitation: null,
-                description: "Loading marine data...",
-                feelsLike: null,
-                dewPoint: null
-            },
-            forecast: [],
-            hourly: [],
-            tides: [],
-            tideHourly: [],
-            boatingAdvice: "Generating advice...",
-            modelUsed: "Loading..."
-        } as unknown as MarineWeatherReport;
+        const cache = historyCacheRef.current;
 
         // NULL ISLAND BUG guard: reject poisoned 0,0 cache entries
         const cached = cache[location];
         const isCacheValid = cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
-        if (isCacheValid || coords) {
+        if (isCacheValid) {
+            // Best case: we have a real cached report for this location — swap instantly
+            setWeatherData(cached);
+        } else if (!weatherDataRef.current) {
+            // Cold start: nothing on screen at all — show a minimal stub so the UI isn't blank
+            const optimisticData = {
+                locationName: location,
+                coordinates: coords || { lat: 0, lon: 0 },
+                locationType: 'coastal' as const,
+                timeZone: 'UTC',
+                generatedAt: new Date().toISOString(),
+                isEstimated: true,
+                alerts: [],
+                loading: true,
+                current: {
+                    windSpeed: null, windGust: null, windDirection: "---",
+                    waveHeight: null, swellPeriod: null,
+                    airTemperature: null, waterTemperature: null,
+                    condition: "Loading...", uvIndex: 0, visibility: null,
+                    humidity: null, pressure: null, cloudCover: null,
+                    precipitation: null, description: "Loading marine data...",
+                    feelsLike: null, dewPoint: null
+                },
+                forecast: [], hourly: [], tides: [], tideHourly: [],
+                boatingAdvice: "Generating advice...",
+                modelUsed: "Loading..."
+            } as unknown as MarineWeatherReport;
             setWeatherData(optimisticData);
         }
+        // else: keep the CURRENT location's data visible — no flicker!
 
-        if (cache[location]) {
+        // Show background updating indicator
+        setBackgroundUpdating(true);
+
+        if (cached) {
             await fetchWeather(location, false, coords, false, true);
         } else {
-            await fetchWeather(location, false, coords, true);
+            await fetchWeather(location, false, coords, !weatherDataRef.current);
         }
     }, [fetchWeather, updateSettings]);
 
