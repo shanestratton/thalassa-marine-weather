@@ -100,7 +100,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {(() => {
                         const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
                         const len = tempStr.length;
-                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
+                        const sizeClass = len > 3 ? 'text-2xl' : len > 2 ? 'text-3xl' : 'text-4xl';
                         const feelsLike = data.feelsLike !== null && data.feelsLike !== undefined
                             ? convertTemp(data.feelsLike, units.temp) : null;
                         return (
@@ -112,7 +112,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     {tempStr}°
                                 </span>
                                 {feelsLike !== null && (
-                                    <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
+                                    <span className="text-[9px] font-mono text-white/40 mt-0.5 leading-none">
                                         Feels Like {feelsLike}°
                                     </span>
                                 )}

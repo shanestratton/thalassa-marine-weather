@@ -169,6 +169,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const isFirstRender = useRef(true);
     const isTrackingCurrentLocation = useRef(settings.defaultLocation === "Current Location");
     const isFetchingRef = useRef(false); // Prevent concurrent fetches
+    const nextUpdateRef = useRef<number | null>(null); // Synced via effect below
 
     // Sync Refs
     useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
@@ -694,7 +695,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // --- SMART REFRESH TIMER ---
     useEffect(() => {
-        const nextUpdateRef = { current: nextUpdate }; // Capture for closure
+        // nextUpdateRef is synced via a separate useEffect below
 
         const checkInterval = setInterval(() => {
             if (!navigator.onLine) return;
@@ -763,14 +764,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // Update ref when nextUpdate changes
-        nextUpdateRef.current = nextUpdate;
-
         return () => {
             clearInterval(checkInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [fetchWeather, locationMode]); // Removed nextUpdate to prevent interval recreation
+    }, [fetchWeather, locationMode]);
+
+    // Keep nextUpdateRef in sync with nextUpdate state
+    useEffect(() => {
+        nextUpdateRef.current = nextUpdate;
+    }, [nextUpdate]);
 
     // --- GPS DRIFT DETECTOR (30s) ---
     // Two-tier: name-only update for short moves, full weather refresh for long moves

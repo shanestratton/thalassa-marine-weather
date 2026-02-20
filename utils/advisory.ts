@@ -230,7 +230,10 @@ export const generateSafetyAlerts = (current: WeatherMetrics, todayHigh?: number
         else if (temp < 4) alerts.push("FREEZE WARNING: Hypothermia risk");
     }
 
-    if (current.uvIndex !== undefined && current.uvIndex >= 8) alerts.push(`HIGH UV ALERT: Protection Required`);
+    // UV alert — only during daylight hours (forecast data carries stale daytime UV at night)
+    const currentHour = new Date().getHours();
+    const isDaytime = currentHour >= 6 && currentHour < 19;
+    if (isDaytime && current.uvIndex !== undefined && current.uvIndex >= 8) alerts.push(`HIGH UV ALERT: Protection Required`);
 
     return [...new Set(alerts)];
 };
