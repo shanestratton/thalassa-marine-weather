@@ -305,8 +305,8 @@ export const fetchOpenMeteo = async (
         condition: getWmo(dailyArr.weather_code[i]),
         precipitation: dailyArr.precipitation_sum[i],
         uvIndex: dailyArr.uv_index_max[i],
-        sunrise: new Date(dailyArr.sunrise[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        sunset: new Date(dailyArr.sunset[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sunrise: new Date(dailyArr.sunrise[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        sunset: new Date(dailyArr.sunset[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
         pressure: 1013, // Daily pressure avg not easily available
         cloudCover: 50,
         isEstimated: false,
