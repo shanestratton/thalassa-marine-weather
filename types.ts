@@ -232,6 +232,41 @@ export interface InventoryItem {
     updated_at: string;      // ISO timestamp
 }
 
+/** Maintenance task categories */
+export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine';
+
+/** Maintenance trigger types */
+export type MaintenanceTriggerType = 'date' | 'engine_hours' | 'recurring_days';
+
+/** Maintenance task (The Engine) */
+export interface MaintenanceTask {
+    id: string;
+    user_id: string;
+    title: string;
+    description: string | null;
+    category: MaintenanceCategory;
+    trigger_type: MaintenanceTriggerType;
+    interval_value: number | null;
+    next_due_date: string | null;
+    next_due_hours: number | null;
+    last_completed: string | null;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+/** Maintenance history entry (The Logbook) */
+export interface MaintenanceHistory {
+    id: string;
+    user_id: string;
+    task_id: string;
+    completed_at: string;
+    engine_hours_at_service: number | null;
+    notes: string | null;
+    cost: number | null;
+    created_at: string;
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
