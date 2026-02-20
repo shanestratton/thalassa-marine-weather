@@ -213,6 +213,25 @@ export interface GribDownloadState {
     errorMessage?: string;
 }
 
+/** Inventory item categories */
+export type InventoryCategory = 'Engine' | 'Plumbing' | 'Electrical' | 'Rigging' | 'Safety' | 'Provisions' | 'Medical';
+
+/** Ship's inventory item */
+export interface InventoryItem {
+    id: string;              // UUID
+    user_id: string;         // UUID → auth.users
+    barcode: string | null;  // EAN/UPC barcode
+    item_name: string;       // e.g. "Racor 2010PM-OR Fuel Filter"
+    description: string | null;
+    category: InventoryCategory;
+    quantity: number;
+    min_quantity: number;    // Alert threshold
+    location_zone: string | null;     // "Saloon Port", "Engine Room"
+    location_specific: string | null; // "Under the settee, green box"
+    created_at: string;      // ISO timestamp
+    updated_at: string;      // ISO timestamp
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
