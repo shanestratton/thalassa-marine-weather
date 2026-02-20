@@ -179,6 +179,40 @@ export interface SmartPolarBucketGrid {
     createdAt: number;      // Unix ms
 }
 
+/** Bounding box for GRIB weather download area */
+export interface GribBoundingBox {
+    north: number;  // Top latitude (-90 to 90)
+    south: number;  // Bottom latitude
+    west: number;   // Left longitude (-180 to 180)
+    east: number;   // Right longitude
+}
+
+/** Available GRIB weather parameters */
+export type GribParameter = 'wind' | 'pressure' | 'waves' | 'precip' | 'cape' | 'sst';
+
+/** GRIB download request configuration */
+export interface GribRequest {
+    bbox: GribBoundingBox;
+    parameters: GribParameter[];
+    resolution: 0.25 | 0.5 | 1.0;      // Grid resolution in degrees
+    timeStep: 3 | 6 | 12;              // Forecast interval in hours
+    forecastHours: 48 | 72 | 96 | 120; // Total forecast span
+    model: 'GFS' | 'ECMWF';
+}
+
+/** Resumable GRIB download state (persisted for resume) */
+export interface GribDownloadState {
+    status: 'idle' | 'downloading' | 'paused' | 'complete' | 'error';
+    totalBytes: number;
+    downloadedBytes: number;
+    resumeOffset: number;
+    url: string;
+    tempFilePath: string;
+    startedAt: number;      // Epoch ms
+    lastChunkAt: number;    // Epoch ms
+    errorMessage?: string;
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
@@ -208,6 +242,8 @@ export interface UserSettings {
     nmeaHost?: string;  // NMEA TCP/WS host (default: 192.168.1.1)
     nmeaPort?: number;  // NMEA TCP/WS port (default: 10110)
     smartPolarsEnabled?: boolean; // Enable background NMEA listening for polar learning
+    // Offshore GRIB
+    gribMode?: 'direct' | 'iridium'; // Direct HTTP download or Saildocs email fallback
     // Cloud sync preferences
     cloudSyncSettings?: boolean; // Sync settings (units, vessel, preferences) to Supabase
     cloudSyncVoyages?: boolean; // Sync voyage tracks, waypoints, GPX data to Supabase
