@@ -293,6 +293,7 @@ export const POLAR_DATABASE: PolarDatabaseEntry[] = [
     e('Tayana 37', 'Tayana', 37, 'cruiser'),
     e('Tayana 42', 'Tayana', 42, 'cruiser'),
     e('Tayana 48', 'Tayana', 48, 'cruiser'),
+    e('Tayana 52', 'Tayana', 52, 'cruiser'),
     e('Tayana 55', 'Tayana', 55, 'cruiser'),
     e('Tayana 58', 'Tayana', 58, 'cruiser'),
 
@@ -526,11 +527,18 @@ export const POLAR_DATABASE: PolarDatabaseEntry[] = [
     e('Rapido 60', 'Rapido Trimarans', 60, 'multihull'),
 ];
 
-/** Search the polar database by model name (fuzzy match) */
+// Sort database alphabetically by manufacturer, then by LOA within each manufacturer
+const SORTED_DATABASE = [...POLAR_DATABASE].sort((a, b) => {
+    const mfr = a.manufacturer.localeCompare(b.manufacturer);
+    if (mfr !== 0) return mfr;
+    return a.loa - b.loa;
+});
+
+/** Search the polar database by model name (fuzzy match), sorted by manufacturer */
 export function searchPolarDatabase(query: string): PolarDatabaseEntry[] {
     const q = query.toLowerCase().trim();
-    if (!q) return POLAR_DATABASE;
-    return POLAR_DATABASE.filter(entry =>
+    if (!q) return SORTED_DATABASE;
+    return SORTED_DATABASE.filter(entry =>
         entry.model.toLowerCase().includes(q) ||
         entry.manufacturer.toLowerCase().includes(q)
     );
