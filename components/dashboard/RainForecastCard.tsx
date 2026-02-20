@@ -93,7 +93,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         return labels;
     }, [data]);
 
-    // Compact single-line card when no rain
+    // No-rain card — same expanded height as active rain card
     if (!analysis.hasRain) {
         return (
             <div className={`w-full rounded-xl overflow-hidden ${className}`}
@@ -102,14 +102,27 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     border: '1px solid rgba(96, 165, 250, 0.1)',
                 }}
             >
-                <div className="px-4 py-2.5 flex items-center justify-center gap-2">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
-                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                            fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-ivory">
-                        No Rain Expected for the next hour
-                    </span>
+                <div className="px-3 py-1.5">
+                    <div className="flex items-center justify-center gap-2 py-1">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                        <span className="text-xs font-semibold uppercase tracking-wider text-ivory">
+                            No Rain Expected for the next hour
+                        </span>
+                    </div>
+                    {/* Empty bar area — maintains consistent card height */}
+                    <div className="flex items-end gap-[1px] w-full mt-1 h-[52px]">
+                        {data.map((_, i) => (
+                            <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
+                                <div
+                                    className="absolute bottom-0 left-0 right-0 rounded-t-[1px]"
+                                    style={{ height: '0%', minWidth: '1px' }}
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         );
