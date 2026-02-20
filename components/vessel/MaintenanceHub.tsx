@@ -57,6 +57,108 @@ const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; border: stri
     grey: { dot: 'bg-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20', text: 'text-gray-500' },
 };
 
+// ── SwipeableTaskCard ──────────────────────────────────────────
+interface SwipeableTaskCardProps {
+    task: TaskWithStatus;
+    categories: typeof CATEGORIES;
+    lightColors: typeof LIGHT_COLORS;
+    triggerLabels: typeof TRIGGER_LABELS;
+    onTap: () => void;
+    onDelete: () => void;
+}
+
+const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
+    task, categories, lightColors, triggerLabels, onTap, onDelete,
+}) => {
+    const [swipeOffset, setSwipeOffset] = useState(0);
+    const [isSwiping, setIsSwiping] = useState(false);
+    const startX = useRef(0);
+    const deleteThreshold = 80;
+    const light = lightColors[task.status];
+    const catConfig = categories.find(c => c.id === task.category);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        startX.current = e.touches[0].clientX;
+        setIsSwiping(true);
+    };
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (!isSwiping) return;
+        const diff = startX.current - e.touches[0].clientX;
+        setSwipeOffset(Math.max(0, Math.min(diff, deleteThreshold + 20)));
+    };
+    const handleTouchEnd = () => {
+        setIsSwiping(false);
+        setSwipeOffset(swipeOffset >= deleteThreshold ? deleteThreshold : 0);
+    };
+
+    return (
+        <div className="relative overflow-hidden rounded-2xl">
+            {/* Delete button (revealed on swipe) */}
+            <div
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={() => { setSwipeOffset(0); onDelete(); }}
+            >
+                <div className="text-center text-white">
+                    <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    <span className="text-[10px] font-bold">Delete</span>
+                </div>
+            </div>
+
+            {/* Main content (slides on swipe) */}
+            <div
+                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${light.border} rounded-2xl overflow-hidden bg-white/[0.03]`}
+                style={{ transform: `translateX(-${swipeOffset}px)` }}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onClick={() => { if (swipeOffset === 0) onTap(); }}
+            >
+                {/* Traffic light bar */}
+                <div className={`w-1.5 shrink-0 ${light.dot}`} />
+
+                {/* Content */}
+                <div className="flex-1 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 text-left">
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs">{catConfig?.icon || '📋'}</span>
+                                <h4 className="text-sm font-black text-white tracking-wide">{task.title}</h4>
+                            </div>
+                            <p className={`text-[10px] font-bold uppercase tracking-widest ${light.text}`}>
+                                {task.statusLabel}
+                            </p>
+                            {task.last_completed && (
+                                <p className="text-[9px] text-gray-600 mt-1">
+                                    Last: {new Date(task.last_completed).toLocaleDateString()}
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Trigger badge + edit button */}
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                            <span className="px-2 py-1 rounded-lg bg-white/5 text-[9px] font-bold text-gray-500 uppercase tracking-wider">
+                                {triggerLabels[task.trigger_type]}
+                            </span>
+                            {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
+                                <p className="text-[10px] text-gray-500 text-right font-bold">
+                                    @ {task.next_due_hours?.toLocaleString()} hrs
+                                </p>
+                            )}
+                            {task.next_due_date && (
+                                <p className="text-[10px] text-gray-500 text-right font-bold">
+                                    {new Date(task.next_due_date).toLocaleDateString()}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── State ──
     const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
@@ -237,9 +339,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [engineHours]);
 
+    // ── Delete Task ──
+    const handleDeleteTask = useCallback(async (taskId: string) => {
+        if (!confirm('Delete this maintenance task? This cannot be undone.')) return;
+        try {
+            triggerHaptic('medium');
+            await MaintenanceService.deleteTask(taskId);
+            await loadTasks();
+        } catch (e) {
+            console.error('Failed to delete task:', e);
+        }
+    }, [loadTasks]);
+
     // ── Render ──
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pb-24 pt-4 animate-in fade-in duration-300 overflow-y-auto h-full">
+        <div className="w-full max-w-2xl mx-auto px-4 pt-4 animate-in fade-in duration-300 h-full flex flex-col" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
 
             {/* ═══ HEADER ═══ */}
             <div className="flex items-center gap-3 mb-5">
@@ -355,8 +469,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 })}
             </div>
 
-            {/* ═══ TRAFFIC LIGHT LIST ═══ */}
-            <div className="space-y-2 mb-6">
+            {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
+            <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
                 {loading ? (
                     <div className="flex items-center justify-center py-12">
                         <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -367,79 +481,40 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <p className="text-gray-600 text-xs mt-1">Tap + to add your first task</p>
                     </div>
                 ) : (
-                    tasksWithStatus.map(task => {
-                        const light = LIGHT_COLORS[task.status];
-                        const catConfig = CATEGORIES.find(c => c.id === task.category);
-
-                        return (
-                            <button
-                                key={task.id}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    setSheetTask(task);
-                                }}
-                                className={`w-full flex items-stretch rounded-2xl border ${light.border} overflow-hidden hover:scale-[1.01] transition-all active:scale-[0.98]`}
-                            >
-                                {/* Traffic light bar */}
-                                <div className={`w-1.5 shrink-0 ${light.dot}`} />
-
-                                {/* Content */}
-                                <div className="flex-1 p-4 bg-white/[0.03]">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="flex-1 text-left">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-xs">{catConfig?.icon || '📋'}</span>
-                                                <h4 className="text-sm font-black text-white tracking-wide">{task.title}</h4>
-                                            </div>
-                                            <p className={`text-[10px] font-bold uppercase tracking-widest ${light.text}`}>
-                                                {task.statusLabel}
-                                            </p>
-                                            {task.last_completed && (
-                                                <p className="text-[9px] text-gray-600 mt-1">
-                                                    Last: {new Date(task.last_completed).toLocaleDateString()}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {/* Trigger badge */}
-                                        <div className="shrink-0">
-                                            <span className="px-2 py-1 rounded-lg bg-white/5 text-[9px] font-bold text-gray-500 uppercase tracking-wider">
-                                                {TRIGGER_LABELS[task.trigger_type]}
-                                            </span>
-                                            {task.next_due_hours !== null && (
-                                                <p className="text-[10px] text-gray-500 text-right mt-1 font-bold">
-                                                    @ {task.next_due_hours?.toLocaleString()} hrs
-                                                </p>
-                                            )}
-                                            {task.next_due_date && (
-                                                <p className="text-[10px] text-gray-500 text-right mt-1 font-bold">
-                                                    {new Date(task.next_due_date).toLocaleDateString()}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-                        );
-                    })
+                    tasksWithStatus.map(task => (
+                        <SwipeableTaskCard
+                            key={task.id}
+                            task={task}
+                            categories={CATEGORIES}
+                            lightColors={LIGHT_COLORS}
+                            triggerLabels={TRIGGER_LABELS}
+                            onTap={() => {
+                                triggerHaptic('light');
+                                setSheetTask(task);
+                            }}
+                            onDelete={() => handleDeleteTask(task.id)}
+                        />
+                    ))
                 )}
             </div>
 
-            {/* ═══ ADD TASK BUTTON ═══ */}
-            <button
-                onClick={() => {
-                    triggerHaptic('light');
-                    setShowAddForm(true);
-                }}
-                className="w-full py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-emerald-600/30 hover:to-teal-600/30 transition-all active:scale-[0.98]"
-            >
-                <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
-                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                </div>
-                <span className="text-sm font-black text-emerald-400 uppercase tracking-[0.15em]">Add Maintenance Task</span>
-            </button>
+            {/* ═══ ADD TASK BUTTON (fixed at bottom) ═══ */}
+            <div className="shrink-0 pt-3 pb-[env(safe-area-inset-bottom,0px)]">
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setShowAddForm(true);
+                    }}
+                    className="w-full py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-emerald-600/30 hover:to-teal-600/30 transition-all active:scale-[0.98]"
+                >
+                    <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
+                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                    </div>
+                    <span className="text-sm font-black text-emerald-400 uppercase tracking-[0.15em]">Add Maintenance Task</span>
+                </button>
+            </div>
 
             {/* ═══════════════════════════════════════════ */}
             {/* LOG SERVICE BOTTOM SHEET */}
