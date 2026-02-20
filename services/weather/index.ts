@@ -96,6 +96,8 @@ export const fetchWeatherByStrategy = async (
         throw new Error(`All weather APIs failed for ${name}`);
     }
 
+    baseReport.locationType = computedLocationType as 'coastal' | 'offshore' | 'inland';
+
     // --- MERGE TOMORROW.IO LIVE DATA ---
     // Tomorrow.io provides station-blended observed data — more accurate than model data
     // for temperature, wind, humidity, pressure, conditions

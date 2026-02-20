@@ -1,7 +1,7 @@
 
 import { MarineWeatherReport } from '../../types';
 
-const CACHE_KEY_PREFIX = 'marine_weather_cache_v7_';
+const CACHE_KEY_PREFIX = 'marine_weather_cache_v8_';
 
 interface CacheEntry {
     timestamp: number;
