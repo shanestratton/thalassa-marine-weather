@@ -101,13 +101,22 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
                         const len = tempStr.length;
                         const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
+                        const feelsLike = data.feelsLike !== null && data.feelsLike !== undefined
+                            ? convertTemp(data.feelsLike, units.temp) : null;
                         return (
-                            <span
-                                className={`${sizeClass} font-mono font-medium tracking-tighter ${getTempColor()} leading-none`}
-                                aria-label={`Temperature ${tempStr} degrees`}
-                            >
-                                {tempStr}°
-                            </span>
+                            <>
+                                <span
+                                    className={`${sizeClass} font-mono font-medium tracking-tighter ${getTempColor()} leading-none`}
+                                    aria-label={`Temperature ${tempStr} degrees`}
+                                >
+                                    {tempStr}°
+                                </span>
+                                {feelsLike !== null && (
+                                    <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
+                                        Feels {feelsLike}°
+                                    </span>
+                                )}
+                            </>
                         );
                     })()}
                 </div>
@@ -115,17 +124,24 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* CENTER: Status dot + icon + condition */}
                 <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2">
                     {isLive ? (
-                        <div className="flex items-center gap-2">
-                            {/* Pulsing green live dot */}
-                            <div
-                                className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
-                                style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
-                            />
-                            <span className="text-xl leading-none">{conditionIcon}</span>
-                            <span className="text-ivory text-2xl font-mono font-medium tracking-tight leading-none">
-                                {oneWordCondition}
-                            </span>
-                        </div>
+                        <>
+                            <div className="flex items-center gap-2">
+                                {/* Pulsing green live dot */}
+                                <div
+                                    className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
+                                    style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
+                                />
+                                <span className="text-xl leading-none">{conditionIcon}</span>
+                                <span className="text-ivory text-2xl font-mono font-medium tracking-tight leading-none">
+                                    {oneWordCondition}
+                                </span>
+                            </div>
+                            {data.dewPoint !== null && data.dewPoint !== undefined && (
+                                <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
+                                    Dew {Math.round(data.dewPoint)}°
+                                </span>
+                            )}
+                        </>
                     ) : (
                         <>
                             <span className="text-blue-400 font-extrabold text-[10px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
