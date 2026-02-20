@@ -952,18 +952,18 @@ const HeroSlideComponent = ({
                                         </div>
                                     </div>
                                 ) : (
-                                    /* INLAND / OFFSHORE LAYOUT — everything inside a single card */
-                                    <div className={`relative w-full h-full rounded-2xl overflow-hidden flex flex-col border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
-                                        {/* BG Gradient */}
-                                        <div className="absolute inset-0 z-0 pointer-events-none">
-                                            <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
-                                        </div>
-                                        <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col justify-start">
-                                            <div className="w-full max-h-full flex flex-col justify-start gap-3 overflow-y-auto safe-bottom">
-                                                <div className="grid grid-cols-3 gap-3 w-full px-2 pt-3 auto-rows-min">
+                                    /* INLAND / OFFSHORE LAYOUT — 3×2 grid card matching tide graph area */
+                                    <div className="relative w-full h-full flex flex-col gap-2">
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                            {/* BG Gradient */}
+                                            <div className="absolute inset-0 z-0 pointer-events-none">
+                                                <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
+                                            </div>
+                                            <div className="relative w-full h-full p-2">
+                                                <div className="grid grid-cols-3 grid-rows-2 gap-2 w-full h-full">
                                                     {(() => {
-                                                        const OFFSHORE_WIDGETS = ['wind', 'gust', 'wave', 'pressure', 'visibility', 'precip', 'waterTemperature', 'currentSpeed', 'currentDirection'];
-                                                        const INLAND_WIDGETS = ['wind', 'gust', 'uv', 'pressure', 'humidity', 'precip', 'sunrise', 'sunset', 'moon'];
+                                                        const OFFSHORE_WIDGETS = ['waterTemperature', 'currentSpeed', 'currentDirection', 'pressure', 'visibility', 'precip'];
+                                                        const INLAND_WIDGETS = ['humidity', 'uv', 'precip', 'pressure', 'visibility', 'dew'];
 
                                                         const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS : OFFSHORE_WIDGETS;
 
@@ -974,9 +974,9 @@ const HeroSlideComponent = ({
                                                             return (
                                                                 <div
                                                                     key={id}
-                                                                    className={`bg-white/[0.06] backdrop-blur-sm rounded-xl p-2 ${t.border.default} flex flex-col justify-center ${justifyClass}`}
+                                                                    className={`bg-white/[0.06] backdrop-blur-sm rounded-xl p-2 ${t.border.default} flex flex-col justify-center ${justifyClass} min-h-0`}
                                                                 >
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact)}
+                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, true)}
                                                                 </div>
                                                             );
                                                         });
