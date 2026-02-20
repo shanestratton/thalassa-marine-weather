@@ -484,12 +484,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 throw new Error(`Cannot fetch weather for ${resolvedLocation}: Missing Coordinates`);
             }
 
-            // Determine location type from previous real data or undefined to force calculation
-            let locationType: 'coastal' | 'offshore' | 'inland' | undefined;
-            if (weatherDataRef.current && !(weatherDataRef.current as any).isEstimated) {
-                locationType = weatherDataRef.current.locationType;
-            }
-
             try {
                 // Use the new strategy-based orchestrator:
                 // Inland/Coastal: Tomorrow.io live + Open-Meteo forecast
@@ -498,8 +492,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentReport = await fetchWeatherByStrategy(
                     resolvedCoords.lat,
                     resolvedCoords.lon,
-                    resolvedLocation,
-                    locationType
+                    resolvedLocation
                 );
                 incrementQuota();
             } catch (e: unknown) {
@@ -510,7 +503,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                             resolvedLocation,
                             resolvedCoords,
                             false,
-                            locationType
+                            undefined
                         );
                         incrementQuota();
                     } catch {
