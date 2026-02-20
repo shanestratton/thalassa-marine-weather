@@ -182,6 +182,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [newInterval, setNewInterval] = useState('200');
     const [newDueDate, setNewDueDate] = useState('');
     const [newDueHours, setNewDueHours] = useState('');
+    const [newDescription, setNewDescription] = useState('');
 
     // History
     const [historyItems, setHistoryItems] = useState<MaintenanceHistory[]>([]);
@@ -289,7 +290,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
             await MaintenanceService.createTask({
                 title: newTitle.trim(),
-                description: null,
+                description: newDescription.trim() || null,
                 category: newCategory,
                 trigger_type: newTrigger,
                 interval_value: intervalValue,
@@ -300,6 +301,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             });
             setShowAddForm(false);
             setNewTitle('');
+            setNewDescription('');
             setNewInterval('200');
             setNewDueDate('');
             setNewDueHours('');
@@ -307,7 +309,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         } catch (e) {
             console.error('Failed to create task:', e);
         }
-    }, [newTitle, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
+    }, [newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
 
     // ── Load History ──
     const loadHistory = useCallback(async (taskId: string) => {
@@ -644,6 +646,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 onChange={e => setNewTitle(e.target.value)}
                                 placeholder="Main Engine Oil Change"
                                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                            />
+                        </div>
+
+                        {/* Notes */}
+                        <div className="mb-4">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                            <textarea
+                                value={newDescription}
+                                onChange={e => setNewDescription(e.target.value)}
+                                placeholder="Don't forget to check the bottom for rust..."
+                                rows={2}
+                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
                             />
                         </div>
 
