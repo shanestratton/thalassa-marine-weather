@@ -269,7 +269,10 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Clear all active timers (interval + quarter-hour timeout)
+     * Clear logging-interval timers (interval + quarter-hour timeout).
+     * NOTE: Does NOT clear courseCheckIntervalId or envCheckIntervalId —
+     * those have independent lifecycles managed by startCourseChangeDetection()
+     * and startEnvironmentPolling() respectively, and must survive interval rescheduling.
      */
     private clearAllTimers(): void {
         if (this.intervalId) {
@@ -279,14 +282,6 @@ class ShipLogServiceClass {
         if (this.quarterTimeoutId) {
             clearTimeout(this.quarterTimeoutId);
             this.quarterTimeoutId = undefined;
-        }
-        if (this.envCheckIntervalId) {
-            clearInterval(this.envCheckIntervalId);
-            this.envCheckIntervalId = undefined;
-        }
-        if (this.courseCheckIntervalId) {
-            clearInterval(this.courseCheckIntervalId);
-            this.courseCheckIntervalId = undefined;
         }
     }
 
@@ -686,6 +681,16 @@ class ShipLogServiceClass {
     async pauseTracking(): Promise<void> {
         this.clearAllTimers();
 
+        // Stop course change detection + environment polling while paused
+        if (this.courseCheckIntervalId) {
+            clearInterval(this.courseCheckIntervalId);
+            this.courseCheckIntervalId = undefined;
+        }
+        if (this.envCheckIntervalId) {
+            clearInterval(this.envCheckIntervalId);
+            this.envCheckIntervalId = undefined;
+        }
+
         // Clear GPS buffer — no points to log while paused
         this.trackBuffer.clear();
 
@@ -730,6 +735,11 @@ class ShipLogServiceClass {
         if (this.courseCheckIntervalId) {
             clearInterval(this.courseCheckIntervalId);
             this.courseCheckIntervalId = undefined;
+        }
+        // Stop environment polling
+        if (this.envCheckIntervalId) {
+            clearInterval(this.envCheckIntervalId);
+            this.envCheckIntervalId = undefined;
         }
 
         // Reset precision GPS tracker for next voyage
