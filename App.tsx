@@ -33,7 +33,7 @@ const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(modul
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
 const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
-const ChatPage = React.lazy(() => import('./components/ChatPage').then(module => ({ default: module.ChatPage })));
+const ChatPage = React.lazy(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
 const LogPage = React.lazy(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 
 const App: React.FC = () => {
