@@ -306,10 +306,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ CATEGORY FILTER CHIPS ═══ */}
-            <div className="flex gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
+            <div className="flex flex-wrap gap-2 pb-3 mb-4">
                 <button
                     onClick={() => setSelectedCategory('all')}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${selectedCategory === 'all'
+                    className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === 'all'
                         ? 'bg-white/15 text-white border border-white/20'
                         : 'bg-white/5 text-gray-500 border border-white/5'
                         }`}
@@ -322,7 +322,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <button
                             key={cat.id}
                             onClick={() => setSelectedCategory(cat.id)}
-                            className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${selectedCategory === cat.id
+                            className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === cat.id
                                 ? 'bg-white/15 text-white border border-white/20'
                                 : 'bg-white/5 text-gray-500 border border-white/5'
                                 }`}
