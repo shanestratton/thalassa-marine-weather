@@ -25,9 +25,10 @@ type InputTab = 'database' | 'import' | 'manual';
 interface PolarManagerTabProps {
     settings?: { polarSource?: 'factory' | 'smart'; nmeaHost?: string; nmeaPort?: number; smartPolarsEnabled?: boolean };
     onSave?: (patch: Record<string, unknown>) => void;
+    onNavigateToNmea?: () => void;
 }
 
-export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSave }) => {
+export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSave, onNavigateToNmea }) => {
     const [activeTab, setActiveTab] = useState<InputTab>('database');
     const [polarData, setPolarData] = useState<PolarData>(createEmptyPolar());
     const [boatModel, setBoatModel] = useState('');
@@ -181,6 +182,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                 onToggleSmart={toggleSmartPolars}
                 onToggleSource={togglePolarSource}
                 onReset={handleResetSmartData}
+                onNavigateToNmea={onNavigateToNmea}
             />
 
             {/* ═══════════════════════════════════════════ */}
@@ -248,7 +250,8 @@ const SmartPolarsCard: React.FC<{
     onToggleSmart: (enabled: boolean) => void;
     onToggleSource: (src: 'factory' | 'smart') => void;
     onReset: () => void;
-}> = ({ smartEnabled, polarSource, nmeaStatus, filterStatus, smartStats, hasRpmData, onToggleSmart, onToggleSource, onReset }) => {
+    onNavigateToNmea?: () => void;
+}> = ({ smartEnabled, polarSource, nmeaStatus, filterStatus, smartStats, hasRpmData, onToggleSmart, onToggleSource, onReset, onNavigateToNmea }) => {
     const nmeaStatusConfig = {
         connected: { color: 'bg-emerald-400', label: 'Connected', icon: '🟢' },
         connecting: { color: 'bg-amber-400 animate-pulse', label: 'Connecting…', icon: '🟡' },
@@ -271,12 +274,42 @@ const SmartPolarsCard: React.FC<{
                 </div>
                 {/* Smart Polars Toggle */}
                 <button
-                    onClick={() => onToggleSmart(!smartEnabled)}
-                    className={`relative w-11 h-6 rounded-full transition-all ${smartEnabled ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                    onClick={() => {
+                        if (!smartEnabled && nmeaStatus === 'disconnected' && onNavigateToNmea) {
+                            onNavigateToNmea();
+                            return;
+                        }
+                        onToggleSmart(!smartEnabled);
+                    }}
+                    className={`relative w-11 h-6 rounded-full transition-all ${smartEnabled ? 'bg-emerald-500' : nmeaStatus === 'disconnected' ? 'bg-gray-800' : 'bg-gray-700'
+                        }`}
                 >
                     <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${smartEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                 </button>
             </div>
+
+            {/* Explanation when disabled */}
+            {!smartEnabled && (
+                <div className="mb-3 px-3 py-2.5 bg-black/20 rounded-xl border border-white/5">
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                        Smart Polars learns your boat's <span className="text-white font-bold">real performance</span> by
+                        recording speed data from your onboard instruments via the <span className="text-sky-400 font-bold">NMEA 2000 backbone</span>.
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1.5">
+                        {nmeaStatus === 'disconnected' ? (
+                            <>
+                                <span className="text-amber-400">⚠️ Not connected</span> — {onNavigateToNmea ? (
+                                    <button onClick={onNavigateToNmea} className="text-sky-400 underline underline-offset-2 font-bold">
+                                        Set up NMEA Gateway
+                                    </button>
+                                ) : 'configure your NMEA gateway first'}.
+                            </>
+                        ) : (
+                            <><span className="text-emerald-400">✅ NMEA connected</span> — flip the toggle to start learning.</>
+                        )}
+                    </p>
+                </div>
+            )}
 
             {smartEnabled && (
                 <>
