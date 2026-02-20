@@ -260,14 +260,18 @@ const SmartPolarsCard: React.FC<{
     };
 
     const status = nmeaStatusConfig[nmeaStatus];
+    const isDisconnected = nmeaStatus === 'disconnected';
     const fillPercent = smartStats ? Math.round((smartStats.filledBuckets / smartStats.totalBuckets) * 100) : 0;
 
     return (
-        <div className="bg-gradient-to-br from-emerald-500/5 to-cyan-500/5 border border-emerald-500/20 rounded-2xl p-4">
+        <div className={`rounded-2xl p-4 transition-all ${isDisconnected
+            ? 'bg-white/[0.02] border border-white/[0.06] opacity-70'
+            : 'bg-gradient-to-br from-emerald-500/5 to-cyan-500/5 border border-emerald-500/20'
+            }`}>
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                    <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Smart Polars</span>
+                    <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
+                    <span className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-500' : 'text-emerald-400'}`}>Smart Polars</span>
                     {!hasRpmData && smartEnabled && (
                         <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
                     )}
