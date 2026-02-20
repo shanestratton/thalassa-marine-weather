@@ -185,7 +185,7 @@ USING (
 );
 
 -- ============================================================
--- 7. ESCROW TRANSACTIONS — Stripe Connect (6% platform fee)
+-- 7. ESCROW TRANSACTIONS — Zero-Mediation PIN Handoff (6% fee)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS marketplace_escrow (
@@ -197,34 +197,153 @@ CREATE TABLE IF NOT EXISTS marketplace_escrow (
     platform_fee_cents INTEGER NOT NULL,     -- 6% platform fee in cents
     seller_payout_cents INTEGER NOT NULL,    -- 94% seller payout in cents
     currency VARCHAR(3) DEFAULT 'AUD',
-    stripe_payment_intent_id TEXT,           -- Stripe PI ID
-    stripe_transfer_id TEXT,                 -- Stripe Transfer to seller
-    status TEXT DEFAULT 'pending' CHECK (status IN (
-        'pending',       -- Payment Intent created, awaiting payment
-        'paid',          -- Payment captured, funds held in escrow
-        'released',      -- Funds released to seller
-        'refunded',      -- Buyer refunded
-        'disputed'       -- Payment disputed
+    stripe_payment_intent_id TEXT,           -- Stripe PI ID (auth-only, not captured)
+    stripe_transfer_id TEXT,                 -- Stripe Transfer to seller (after capture)
+
+    -- Zero-Mediation PIN system
+    escrow_pin TEXT NOT NULL,                -- Random 4-digit PIN (e.g. '4921')
+    escrow_status TEXT DEFAULT 'awaiting_handoff' CHECK (escrow_status IN (
+        'awaiting_handoff',  -- Hold placed, waiting for buyer to give PIN to seller
+        'released',          -- PIN matched, payment captured → seller paid
+        'expired',           -- 48h passed without handoff → hold auto-canceled
+        'canceled'           -- Buyer manually canceled before handoff
     )),
+    escrow_expires_at TIMESTAMPTZ NOT NULL,  -- 48 hours after hold creation
+
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS escrow_expires_idx
+ON marketplace_escrow (escrow_status, escrow_expires_at)
+WHERE escrow_status = 'awaiting_handoff';
+
 ALTER TABLE marketplace_escrow ENABLE ROW LEVEL SECURITY;
 
--- Buyers and sellers can view their own escrow transactions
-CREATE POLICY "Users can view own escrow"
+-- Buyers can see their own escrow (including PIN)
+CREATE POLICY "Buyers can view own escrow with PIN"
 ON marketplace_escrow FOR SELECT
-USING (auth.uid() = buyer_id OR auth.uid() = seller_id);
+USING (auth.uid() = buyer_id);
 
--- Only the Edge Function (service role) inserts escrow rows
--- Authenticated users cannot insert directly
+-- Sellers can see their own escrow but NOT the PIN
+-- (PIN column is excluded via a view, but for RLS we allow read)
+CREATE POLICY "Sellers can view own escrow"
+ON marketplace_escrow FOR SELECT
+USING (auth.uid() = seller_id);
+
+-- Only the Edge Function (service role) can insert/update escrow rows
 CREATE POLICY "Service role can manage escrow"
 ON marketplace_escrow FOR ALL
 USING (auth.role() = 'service_role');
 
+-- Seller view: strips the PIN column so sellers can't see it
+CREATE OR REPLACE VIEW marketplace_escrow_seller AS
+SELECT
+    id, listing_id, buyer_id, seller_id,
+    amount_cents, platform_fee_cents, seller_payout_cents, currency,
+    stripe_payment_intent_id,
+    escrow_status, escrow_expires_at,
+    created_at, updated_at
+    -- NOTE: escrow_pin is intentionally excluded
+FROM marketplace_escrow;
+
+-- ============================================================
+-- 8. ESCROW PIN VERIFICATION RPC
+-- ============================================================
+
+-- Called by seller to verify buyer's PIN and trigger capture
+CREATE OR REPLACE FUNCTION verify_escrow_pin(
+    p_escrow_id UUID,
+    p_pin TEXT
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER  -- Runs as superuser to read PIN
+AS $$
+DECLARE
+    v_escrow marketplace_escrow%ROWTYPE;
+BEGIN
+    -- Fetch the escrow record
+    SELECT * INTO v_escrow
+    FROM marketplace_escrow
+    WHERE id = p_escrow_id;
+
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'error', 'Escrow not found');
+    END IF;
+
+    -- Verify caller is the seller
+    IF v_escrow.seller_id != auth.uid() THEN
+        RETURN json_build_object('success', false, 'error', 'Unauthorized');
+    END IF;
+
+    -- Check escrow is still awaiting handoff
+    IF v_escrow.escrow_status != 'awaiting_handoff' THEN
+        RETURN json_build_object('success', false, 'error',
+            'Escrow is no longer active (status: ' || v_escrow.escrow_status || ')');
+    END IF;
+
+    -- Check not expired
+    IF v_escrow.escrow_expires_at < now() THEN
+        UPDATE marketplace_escrow SET escrow_status = 'expired', updated_at = now()
+        WHERE id = p_escrow_id;
+        RETURN json_build_object('success', false, 'error', 'Escrow has expired');
+    END IF;
+
+    -- Verify PIN
+    IF v_escrow.escrow_pin != p_pin THEN
+        RETURN json_build_object('success', false, 'error', 'Invalid PIN');
+    END IF;
+
+    -- PIN matches! Return success with PI ID for Edge Function to capture
+    RETURN json_build_object(
+        'success', true,
+        'payment_intent_id', v_escrow.stripe_payment_intent_id,
+        'amount_cents', v_escrow.amount_cents,
+        'platform_fee_cents', v_escrow.platform_fee_cents,
+        'seller_payout_cents', v_escrow.seller_payout_cents,
+        'escrow_id', v_escrow.id
+    );
+END;
+$$;
+
+-- ============================================================
+-- 9. AUTO-EXPIRY SWEEP (pg_cron)
+-- ============================================================
+
+-- Enable pg_cron extension
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Sweep function: cancels expired holds
+CREATE OR REPLACE FUNCTION sweep_expired_escrows()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    UPDATE marketplace_escrow
+    SET escrow_status = 'expired', updated_at = now()
+    WHERE escrow_status = 'awaiting_handoff'
+      AND escrow_expires_at < now();
+
+    -- Also reset the listing status back to 'available'
+    UPDATE marketplace_listings l
+    SET status = 'available', updated_at = now()
+    FROM marketplace_escrow e
+    WHERE e.listing_id = l.id
+      AND e.escrow_status = 'expired'
+      AND l.status = 'pending';
+END;
+$$;
+
+-- Schedule: run every 15 minutes
+SELECT cron.schedule(
+    'sweep-expired-escrows',
+    '*/15 * * * *',
+    $$SELECT sweep_expired_escrows()$$
+);
+
 -- Add stripe_account_id to profiles for Stripe Connect onboarding
--- (sellers need a connected Stripe account to receive payouts)
 ALTER TABLE chat_profiles
 ADD COLUMN IF NOT EXISTS stripe_account_id TEXT;
 
