@@ -105,11 +105,23 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         // Initial fetch
         fetchMinutelyRain(lat, lon).then(result => {
             if (!cancelled) {
-                setMinutelyRain(result);
-                setRainStatus(result.length > 0 ? 'loaded' : 'error');
+                if (result.length > 0) {
+                    setMinutelyRain(result);
+                    setRainStatus('loaded');
+                } else {
+                    // Fallback: synthesize from hourly precipitation
+                    const fallback = synthesizeFromHourly();
+                    setMinutelyRain(fallback);
+                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                }
             }
         }).catch(() => {
-            if (!cancelled) setRainStatus('error');
+            if (!cancelled) {
+                // Fallback: synthesize from hourly precipitation
+                const fallback = synthesizeFromHourly();
+                setMinutelyRain(fallback);
+                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+            }
         });
 
         // Live refresh every 5 minutes (Tomorrow.io has 10min internal cache)
@@ -117,16 +129,36 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             if (!navigator.onLine) return;
             fetchMinutelyRain(lat, lon).then(result => {
                 if (!cancelled) {
-                    setMinutelyRain(result);
-                    setRainStatus(result.length > 0 ? 'loaded' : 'error');
+                    if (result.length > 0) {
+                        setMinutelyRain(result);
+                        setRainStatus('loaded');
+                    } else {
+                        const fallback = synthesizeFromHourly();
+                        setMinutelyRain(fallback);
+                        setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                    }
                 }
             }).catch(() => {
-                if (!cancelled) setRainStatus('error');
+                if (!cancelled) {
+                    const fallback = synthesizeFromHourly();
+                    setMinutelyRain(fallback);
+                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                }
             });
         }, 5 * 60 * 1000);
 
         return () => { cancelled = true; clearInterval(rainTimer); };
-    }, [data?.coordinates?.lat, data?.coordinates?.lon]);
+
+        // Synthesize 60 minutely entries from the current hour's precipitation
+        function synthesizeFromHourly(): MinutelyRain[] {
+            const precip = current?.precipitation ?? 0;
+            const now = new Date();
+            return Array.from({ length: 60 }, (_, i) => ({
+                time: new Date(now.getTime() + i * 60000).toISOString(),
+                intensity: precip,
+            }));
+        }
+    }, [data?.coordinates?.lat, data?.coordinates?.lon, current?.precipitation]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {
