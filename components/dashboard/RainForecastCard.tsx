@@ -102,7 +102,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     border: '1px solid rgba(96, 165, 250, 0.1)',
                 }}
             >
-                <div className="px-3 py-1.5">
+                <div className="px-3 py-1.5 h-full flex flex-col justify-center">
                     <div className="flex items-center justify-center gap-2 py-1">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
                             <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
