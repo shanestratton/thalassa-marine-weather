@@ -236,7 +236,7 @@ export interface InventoryItem {
 export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine';
 
 /** Maintenance trigger types */
-export type MaintenanceTriggerType = 'date' | 'engine_hours' | 'recurring_days';
+export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'weekly' | 'monthly' | 'bi_annual' | 'annual';
 
 /** Maintenance task (The Engine) */
 export interface MaintenanceTask {

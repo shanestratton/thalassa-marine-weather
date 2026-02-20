@@ -32,9 +32,21 @@ const CATEGORIES: { id: MaintenanceCategory; label: string; icon: string }[] = [
 ];
 
 const TRIGGER_LABELS: Record<MaintenanceTriggerType, string> = {
-    date: 'Calendar Date',
-    engine_hours: 'Engine Hours',
-    recurring_days: 'Recurring Days',
+    engine_hours: '⚙️ Engine Hours',
+    daily: '📅 Daily',
+    weekly: '📅 Weekly',
+    monthly: '📅 Monthly',
+    bi_annual: '📅 Bi-Annual',
+    annual: '📅 Annual',
+};
+
+/** Map period triggers to their interval in days */
+const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
+    daily: 1,
+    weekly: 7,
+    monthly: 30,
+    bi_annual: 182,
+    annual: 365,
 };
 
 // Traffic light colors
@@ -64,7 +76,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newCategory, setNewCategory] = useState<MaintenanceCategory>('Engine');
-    const [newTrigger, setNewTrigger] = useState<MaintenanceTriggerType>('engine_hours');
+    const [newTrigger, setNewTrigger] = useState<MaintenanceTriggerType>('monthly');
     const [newInterval, setNewInterval] = useState('200');
     const [newDueDate, setNewDueDate] = useState('');
     const [newDueHours, setNewDueHours] = useState('');
@@ -163,14 +175,24 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         if (!newTitle.trim()) return;
         try {
             triggerHaptic('medium');
+
+            // Auto-compute interval and due date for period-based triggers
+            const periodDays = PERIOD_DAYS[newTrigger];
+            const intervalValue = newTrigger === 'engine_hours'
+                ? (newInterval ? parseInt(newInterval, 10) : null)
+                : (periodDays ?? null);
+            const dueDate = newTrigger === 'engine_hours'
+                ? null
+                : (newDueDate || new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0]);
+
             await MaintenanceService.createTask({
                 title: newTitle.trim(),
                 description: null,
                 category: newCategory,
                 trigger_type: newTrigger,
-                interval_value: newInterval ? parseInt(newInterval, 10) : null,
-                next_due_date: newDueDate || null,
-                next_due_hours: newDueHours ? parseInt(newDueHours, 10) : null,
+                interval_value: intervalValue,
+                next_due_date: dueDate,
+                next_due_hours: newTrigger === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
                 last_completed: null,
                 is_active: true,
             });
@@ -306,10 +328,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ CATEGORY FILTER CHIPS ═══ */}
-            <div className="flex flex-wrap gap-2 pb-3 mb-4">
+            <div className="grid grid-cols-3 gap-2 pb-3 mb-4">
                 <button
                     onClick={() => setSelectedCategory('all')}
-                    className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === 'all'
+                    className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'all'
                         ? 'bg-white/15 text-white border border-white/20'
                         : 'bg-white/5 text-gray-500 border border-white/5'
                         }`}
@@ -322,7 +344,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <button
                             key={cat.id}
                             onClick={() => setSelectedCategory(cat.id)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === cat.id
+                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === cat.id
                                 ? 'bg-white/15 text-white border border-white/20'
                                 : 'bg-white/5 text-gray-500 border border-white/5'
                                 }`}
@@ -571,43 +593,50 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </div>
                         </div>
 
-                        {/* Interval */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                Interval ({newTrigger === 'engine_hours' ? 'Hours' : 'Days'})
-                            </label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={newInterval}
-                                onChange={e => setNewInterval(e.target.value)}
-                                placeholder={newTrigger === 'engine_hours' ? '200' : '30'}
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                            />
-                        </div>
+                        {/* Interval — only for engine hours */}
+                        {newTrigger === 'engine_hours' && (
+                            <>
+                                <div className="mb-4">
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                        Interval (Hours)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={newInterval}
+                                        onChange={e => setNewInterval(e.target.value)}
+                                        placeholder="200"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                    />
+                                </div>
 
-                        {/* Next due */}
-                        {newTrigger === 'engine_hours' ? (
+                                <div className="mb-6">
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={newDueHours}
+                                        onChange={e => setNewDueHours(e.target.value)}
+                                        placeholder={String(engineHours + 200)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Next due — for time-based triggers */}
+                        {newTrigger !== 'engine_hours' && (
                             <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={newDueHours}
-                                    onChange={e => setNewDueHours(e.target.value)}
-                                    placeholder={String(engineHours + 200)}
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                />
-                            </div>
-                        ) : (
-                            <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
                                 <input
                                     type="date"
                                     value={newDueDate}
                                     onChange={e => setNewDueDate(e.target.value)}
                                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                 />
+                                <p className="text-[10px] text-gray-600 mt-1">
+                                    Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
+                                </p>
                             </div>
                         )}
 
