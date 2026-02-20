@@ -978,7 +978,12 @@ const HeroSlideComponent = ({
                                                         const OFFSHORE_WIDGETS = ['waterTemperature', 'currentSpeed', 'currentDirection', 'cape', 'sog', 'cog'];
                                                         const INLAND_WIDGETS = ['humidity', 'uv', 'precip', 'pressure', 'visibility', 'dew'];
 
-                                                        const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS : OFFSHORE_WIDGETS;
+                                                        // Coastal without marine data should fall back to inland widgets
+                                                        // (our proximity fallback can classify as coastal even when marine grid has no data)
+                                                        const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);
+                                                        const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS
+                                                            : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
+                                                                : OFFSHORE_WIDGETS;
 
                                                         return widgets.map((id: string, idx: number) => {
                                                             const align = idx % 3 === 0 ? 'left' : idx % 3 === 1 ? 'center' : 'right';
