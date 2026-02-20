@@ -20,6 +20,7 @@ import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
 import { MinutelyRain } from '../../services/weather/api/tomorrowio';
+import { ShipLogService } from '../../services/ShipLogService';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
@@ -710,7 +711,19 @@ const HeroSlideComponent = ({
                 if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
                 return '--';
             })(),
-            moon: cardData.moonPhase || 'Waxing'
+            moon: cardData.moonPhase || 'Waxing',
+            cape: (cardData.cape !== undefined && cardData.cape !== null) ? Math.round(cardData.cape) : '--',
+            ...(() => {
+                // SOG/COG only available on live card from GPS
+                if (!isHourly && index === 0) {
+                    const nav = ShipLogService.getGpsNavData();
+                    return {
+                        sogKts: nav.sogKts ?? '--',
+                        cogDeg: nav.cogDeg ?? '--',
+                    };
+                }
+                return { sogKts: '--', cogDeg: '--' };
+            })()
         };
 
         const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
@@ -962,7 +975,7 @@ const HeroSlideComponent = ({
                                             <div className="relative w-full h-full p-2">
                                                 <div className="grid grid-cols-3 grid-rows-2 gap-2 w-full h-full">
                                                     {(() => {
-                                                        const OFFSHORE_WIDGETS = ['waterTemperature', 'currentSpeed', 'currentDirection', 'pressure', 'visibility', 'precip'];
+                                                        const OFFSHORE_WIDGETS = ['waterTemperature', 'currentSpeed', 'currentDirection', 'cape', 'sog', 'cog'];
                                                         const INLAND_WIDGETS = ['humidity', 'uv', 'precip', 'pressure', 'visibility', 'dew'];
 
                                                         const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS : OFFSHORE_WIDGETS;

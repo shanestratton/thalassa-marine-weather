@@ -68,6 +68,9 @@ export interface CardDisplayValues {
     feelsLike?: number | string;
     cloudCover?: number | string;
     moon?: string;
+    cape?: number | string;
+    sogKts?: number | string;
+    cogDeg?: number | string;
 }
 
 /**
