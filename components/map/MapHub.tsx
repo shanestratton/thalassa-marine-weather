@@ -27,6 +27,7 @@ import {
 
 interface MapHubProps {
     mapboxToken?: string;
+    homePort?: string;
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
 }
 
@@ -48,7 +49,7 @@ function getOwmKey(): string {
 
 // ── Component ──────────────────────────────────────────────────
 
-export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect }) => {
+export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -517,6 +518,37 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                     </svg>
                 </button>
 
+                {/* Home Port */}
+                {homePort && (
+                    <button
+                        onClick={async () => {
+                            triggerHaptic('medium');
+                            try {
+                                const res = await fetch(
+                                    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(homePort)}&format=json&limit=1`,
+                                    { headers: { 'Accept-Language': 'en' } }
+                                );
+                                const data = await res.json();
+                                if (data?.[0]) {
+                                    const lat = parseFloat(data[0].lat);
+                                    const lon = parseFloat(data[0].lon);
+                                    const map = mapRef.current;
+                                    if (map) {
+                                        map.flyTo({ center: [lon, lat], zoom: 12, duration: 1500 });
+                                        dropPin(map, lat, lon);
+                                    }
+                                    LocationStore.setFromMapPin(lat, lon);
+                                }
+                            } catch (e) {
+                                console.warn('Home port geocode failed:', e);
+                            }
+                        }}
+                        className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                        title={`Home: ${homePort}`}
+                    >
+                        <span className="text-lg">🏠</span>
+                    </button>
+                )}
                 {/* GPS Locate Me */}
                 <button
                     onClick={() => {
@@ -563,117 +595,119 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
             </div>
 
             {/* ═══ PASSAGE PLANNER PANEL ═══ */}
-            {showPassage && (
-                <div className="absolute bottom-16 left-0 right-0 z-20 mx-2 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-t-3xl shadow-2xl shadow-black/50 max-h-[50vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300">
+            {
+                showPassage && (
+                    <div className="absolute bottom-16 left-0 right-0 z-20 mx-2 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-t-3xl shadow-2xl shadow-black/50 max-h-[50vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300">
 
-                    {/* Header */}
-                    <div className="px-5 pt-4 pb-2 flex items-center gap-3 shrink-0">
-                        <div className="w-8 h-1 bg-white/20 rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
-                        <svg className="w-5 h-5 text-sky-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-                        </svg>
-                        <h3 className="text-sm font-black text-white flex-1">Passage Planner</h3>
-                        {routeAnalysis && (
-                            <button onClick={clearRoute} className="text-[10px] text-red-400 font-bold uppercase tracking-widest mr-2">
-                                Clear
-                            </button>
-                        )}
-                        <button
-                            onClick={() => { setShowPassage(false); setSettingPoint(null); }}
-                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                        >
-                            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        {/* Header */}
+                        <div className="px-5 pt-4 pb-2 flex items-center gap-3 shrink-0">
+                            <div className="w-8 h-1 bg-white/20 rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
+                            <svg className="w-5 h-5 text-sky-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
                             </svg>
-                        </button>
-                    </div>
-
-                    <div className="px-5 pb-5 overflow-y-auto flex-1">
-                        {/* Departure + Arrival inputs */}
-                        <div className="space-y-2 mb-4">
-                            <PointInput
-                                label="Departure"
-                                point={departure}
-                                color="emerald"
-                                isActive={settingPoint === 'departure'}
-                                onSet={() => { setSettingPoint(settingPoint === 'departure' ? null : 'departure'); triggerHaptic('light'); }}
-                                onUseCurrent={() => {
-                                    setDeparture({ lat: location.lat, lon: location.lon, name: location.name });
-                                    triggerHaptic('light');
-                                }}
-                            />
-                            <PointInput
-                                label="Arrival"
-                                point={arrival}
-                                color="red"
-                                isActive={settingPoint === 'arrival'}
-                                onSet={() => { setSettingPoint(settingPoint === 'arrival' ? null : 'arrival'); triggerHaptic('light'); }}
-                                onUseCurrent={() => {
-                                    setArrival({ lat: location.lat, lon: location.lon, name: location.name });
-                                    triggerHaptic('light');
-                                }}
-                            />
+                            <h3 className="text-sm font-black text-white flex-1">Passage Planner</h3>
+                            {routeAnalysis && (
+                                <button onClick={clearRoute} className="text-[10px] text-red-400 font-bold uppercase tracking-widest mr-2">
+                                    Clear
+                                </button>
+                            )}
+                            <button
+                                onClick={() => { setShowPassage(false); setSettingPoint(null); }}
+                                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            >
+                                <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
                         </div>
 
-                        {/* Time + Speed */}
-                        <div className="flex gap-2 mb-4">
-                            <div className="flex-1">
-                                <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Departure Time</label>
-                                <input
-                                    type="datetime-local"
-                                    value={departureTime}
-                                    onChange={e => setDepartureTime(e.target.value)}
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                        <div className="px-5 pb-5 overflow-y-auto flex-1">
+                            {/* Departure + Arrival inputs */}
+                            <div className="space-y-2 mb-4">
+                                <PointInput
+                                    label="Departure"
+                                    point={departure}
+                                    color="emerald"
+                                    isActive={settingPoint === 'departure'}
+                                    onSet={() => { setSettingPoint(settingPoint === 'departure' ? null : 'departure'); triggerHaptic('light'); }}
+                                    onUseCurrent={() => {
+                                        setDeparture({ lat: location.lat, lon: location.lon, name: location.name });
+                                        triggerHaptic('light');
+                                    }}
+                                />
+                                <PointInput
+                                    label="Arrival"
+                                    point={arrival}
+                                    color="red"
+                                    isActive={settingPoint === 'arrival'}
+                                    onSet={() => { setSettingPoint(settingPoint === 'arrival' ? null : 'arrival'); triggerHaptic('light'); }}
+                                    onUseCurrent={() => {
+                                        setArrival({ lat: location.lat, lon: location.lon, name: location.name });
+                                        triggerHaptic('light');
+                                    }}
                                 />
                             </div>
-                            <div className="w-20">
-                                <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Speed</label>
-                                <input
-                                    type="number"
-                                    value={speed}
-                                    onChange={e => setSpeed(Math.max(1, parseInt(e.target.value) || 6))}
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-sky-500/30"
-                                />
+
+                            {/* Time + Speed */}
+                            <div className="flex gap-2 mb-4">
+                                <div className="flex-1">
+                                    <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Departure Time</label>
+                                    <input
+                                        type="datetime-local"
+                                        value={departureTime}
+                                        onChange={e => setDepartureTime(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                    />
+                                </div>
+                                <div className="w-20">
+                                    <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Speed</label>
+                                    <input
+                                        type="number"
+                                        value={speed}
+                                        onChange={e => setSpeed(Math.max(1, parseInt(e.target.value) || 6))}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-sky-500/30"
+                                    />
+                                </div>
                             </div>
+
+                            {/* Compute button */}
+                            <button
+                                onClick={computePassage}
+                                disabled={!departure || !arrival}
+                                className="w-full py-3 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed mb-4"
+                            >
+                                Compute Route
+                            </button>
+
+                            {settingPoint && (
+                                <div className="px-3 py-2 bg-sky-600/20 border border-sky-500/20 rounded-xl mb-4 text-center animate-pulse">
+                                    <p className="text-[10px] text-sky-400 font-black uppercase tracking-widest">
+                                        Long-press map to set {settingPoint}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Route results */}
+                            {routeAnalysis && routeAnalysis.totalDistance > 0 && (
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <ResultCard label="Distance" value={formatDistance(routeAnalysis.totalDistance)} />
+                                        <ResultCard label="Duration" value={formatDuration(routeAnalysis.estimatedDuration)} />
+                                        <ResultCard label="Arrival" value={formatETA(routeAnalysis.arrivalTime)} />
+                                    </div>
+
+                                    <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                                        <span className="text-[10px] text-gray-500 font-bold">Route:</span>
+                                        <span className="text-xs text-white font-bold">{routeAnalysis.segments.length} segments</span>
+                                        <span className="text-xs text-gray-400">@ {routeAnalysis.averageSpeed} kts</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-
-                        {/* Compute button */}
-                        <button
-                            onClick={computePassage}
-                            disabled={!departure || !arrival}
-                            className="w-full py-3 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed mb-4"
-                        >
-                            Compute Route
-                        </button>
-
-                        {settingPoint && (
-                            <div className="px-3 py-2 bg-sky-600/20 border border-sky-500/20 rounded-xl mb-4 text-center animate-pulse">
-                                <p className="text-[10px] text-sky-400 font-black uppercase tracking-widest">
-                                    Long-press map to set {settingPoint}
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Route results */}
-                        {routeAnalysis && routeAnalysis.totalDistance > 0 && (
-                            <div className="space-y-3">
-                                <div className="grid grid-cols-3 gap-2">
-                                    <ResultCard label="Distance" value={formatDistance(routeAnalysis.totalDistance)} />
-                                    <ResultCard label="Duration" value={formatDuration(routeAnalysis.estimatedDuration)} />
-                                    <ResultCard label="Arrival" value={formatETA(routeAnalysis.arrivalTime)} />
-                                </div>
-
-                                <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                                    <span className="text-[10px] text-gray-500 font-bold">Route:</span>
-                                    <span className="text-xs text-white font-bold">{routeAnalysis.segments.length} segments</span>
-                                    <span className="text-xs text-gray-400">@ {routeAnalysis.averageSpeed} kts</span>
-                                </div>
-                            </div>
-                        )}
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
