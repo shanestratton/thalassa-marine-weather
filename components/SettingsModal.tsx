@@ -645,7 +645,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     )}
 
                     {activeTab === 'polars' && (
-                        <PolarManagerTab />
+                        <PolarManagerTab settings={settings} onSave={onSave} />
                     )}
 
                     {activeTab === 'alerts' && (
