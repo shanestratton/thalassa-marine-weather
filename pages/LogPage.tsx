@@ -333,7 +333,7 @@ export const LogPage: React.FC = () => {
                     })()}
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 pb-44">
+                    <div className="flex-1 overflow-y-auto px-4 pb-28 snap-y snap-proximity scroll-pt-2">
                         {/* Live Recording Card */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
@@ -347,7 +347,7 @@ export const LogPage: React.FC = () => {
                             const speeds = activeEntries.filter(e => e.speedKts && e.speedKts > 0);
                             const liveAvgSpeed = speeds.length > 0 ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length : 0;
                             return (
-                                <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4">
+                                <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 snap-start">
                                     <div className="flex items-center gap-2 mb-3">
                                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                                         <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
@@ -1300,7 +1300,7 @@ const VoyageCard: React.FC<{
     const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
 
     return (
-        <div className="mb-3 relative overflow-hidden rounded-2xl">
+        <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">
             {/* Delete button revealed on swipe-left */}
             <button
                 onClick={() => { setSwipeOffset(0); onDelete(); }}
