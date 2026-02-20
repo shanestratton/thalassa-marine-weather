@@ -49,31 +49,37 @@ ALTER TABLE marketplace_listings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketplace_messages ENABLE ROW LEVEL SECURITY;
 
 -- Listings: anyone authenticated can read available listings
+DROP POLICY IF EXISTS "Listings are viewable by everyone" ON marketplace_listings;
 CREATE POLICY "Listings are viewable by everyone"
 ON marketplace_listings FOR SELECT
 USING (auth.role() = 'authenticated');
 
 -- Listings: users can only insert their own
+DROP POLICY IF EXISTS "Users can create listings" ON marketplace_listings;
 CREATE POLICY "Users can create listings"
 ON marketplace_listings FOR INSERT
 WITH CHECK (auth.uid() = seller_id);
 
 -- Listings: users can only update their own
+DROP POLICY IF EXISTS "Users can update own listings" ON marketplace_listings;
 CREATE POLICY "Users can update own listings"
 ON marketplace_listings FOR UPDATE
 USING (auth.uid() = seller_id);
 
 -- Listings: users can only delete their own
+DROP POLICY IF EXISTS "Users can delete own listings" ON marketplace_listings;
 CREATE POLICY "Users can delete own listings"
 ON marketplace_listings FOR DELETE
 USING (auth.uid() = seller_id);
 
 -- Messages: anyone authenticated can read
+DROP POLICY IF EXISTS "Messages are viewable by everyone" ON marketplace_messages;
 CREATE POLICY "Messages are viewable by everyone"
 ON marketplace_messages FOR SELECT
 USING (auth.role() = 'authenticated');
 
 -- Messages: users can send their own
+DROP POLICY IF EXISTS "Users can send messages" ON marketplace_messages;
 CREATE POLICY "Users can send messages"
 ON marketplace_messages FOR INSERT
 WITH CHECK (auth.uid() = sender_id);
@@ -138,11 +144,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER marketplace_listings_updated
-    BEFORE UPDATE ON marketplace_listings
-    FOR EACH ROW
-    EXECUTE FUNCTION update_marketplace_timestamp();
-
 -- ============================================================
 -- 6. STORAGE BUCKET — marketplace-images
 -- ============================================================
@@ -153,11 +154,13 @@ VALUES ('marketplace-images', 'marketplace-images', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Storage RLS: Public read access (images are public)
+DROP POLICY IF EXISTS "Marketplace images are publicly readable" ON storage.objects;
 CREATE POLICY "Marketplace images are publicly readable"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'marketplace-images');
 
 -- Storage RLS: Authenticated users can upload to their own folder
+DROP POLICY IF EXISTS "Users can upload marketplace images" ON storage.objects;
 CREATE POLICY "Users can upload marketplace images"
 ON storage.objects FOR INSERT
 WITH CHECK (
@@ -167,6 +170,7 @@ WITH CHECK (
 );
 
 -- Storage RLS: Users can update their own images
+DROP POLICY IF EXISTS "Users can update own marketplace images" ON storage.objects;
 CREATE POLICY "Users can update own marketplace images"
 ON storage.objects FOR UPDATE
 USING (
@@ -176,6 +180,7 @@ USING (
 );
 
 -- Storage RLS: Users can delete their own images
+DROP POLICY IF EXISTS "Users can delete own marketplace images" ON storage.objects;
 CREATE POLICY "Users can delete own marketplace images"
 ON storage.objects FOR DELETE
 USING (
@@ -221,17 +226,19 @@ WHERE escrow_status = 'awaiting_handoff';
 ALTER TABLE marketplace_escrow ENABLE ROW LEVEL SECURITY;
 
 -- Buyers can see their own escrow (including PIN)
+DROP POLICY IF EXISTS "Buyers can view own escrow with PIN" ON marketplace_escrow;
 CREATE POLICY "Buyers can view own escrow with PIN"
 ON marketplace_escrow FOR SELECT
 USING (auth.uid() = buyer_id);
 
 -- Sellers can see their own escrow but NOT the PIN
--- (PIN column is excluded via a view, but for RLS we allow read)
+DROP POLICY IF EXISTS "Sellers can view own escrow" ON marketplace_escrow;
 CREATE POLICY "Sellers can view own escrow"
 ON marketplace_escrow FOR SELECT
 USING (auth.uid() = seller_id);
 
 -- Only the Edge Function (service role) can insert/update escrow rows
+DROP POLICY IF EXISTS "Service role can manage escrow" ON marketplace_escrow;
 CREATE POLICY "Service role can manage escrow"
 ON marketplace_escrow FOR ALL
 USING (auth.role() = 'service_role');
@@ -348,7 +355,28 @@ ALTER TABLE chat_profiles
 ADD COLUMN IF NOT EXISTS stripe_account_id TEXT;
 
 -- Auto-update trigger for escrow
+DROP TRIGGER IF EXISTS marketplace_escrow_updated ON marketplace_escrow;
 CREATE TRIGGER marketplace_escrow_updated
     BEFORE UPDATE ON marketplace_escrow
     FOR EACH ROW
     EXECUTE FUNCTION update_marketplace_timestamp();
+
+-- Also make the listings trigger idempotent
+DROP TRIGGER IF EXISTS marketplace_listings_updated ON marketplace_listings;
+CREATE TRIGGER marketplace_listings_updated
+    BEFORE UPDATE ON marketplace_listings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_marketplace_timestamp();
+
+-- ============================================================
+-- 10. SEED MARKETPLACE CHANNEL
+-- ============================================================
+-- Insert the Marketplace channel into chat_channels if it doesn't exist.
+-- This ensures it appears in Crew Talk even if channels were seeded
+-- before this migration was run.
+
+INSERT INTO chat_channels (name, description, icon, is_global, status)
+SELECT 'Marketplace', 'Buy, sell, and trade gear, boats, and services', '🏪', true, 'active'
+WHERE NOT EXISTS (
+    SELECT 1 FROM chat_channels WHERE name = 'Marketplace'
+);
