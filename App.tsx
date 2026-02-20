@@ -24,6 +24,10 @@ import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 const VoyagePlanner = React.lazy(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
 const SettingsView = React.lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
 const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
+const VesselHub = React.lazy(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
+const InventoryPage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.InventoryPage })));
+const MaintenancePage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.MaintenancePage })));
+const NmeaGatewayPage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.NmeaGatewayPage })));
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
@@ -36,8 +40,7 @@ const App: React.FC = () => {
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline } = useUI();
-    const [watchMenuOpen, setWatchMenuOpen] = useState(false);
-    const isWatchView = currentView === 'details' || currentView === 'voyage' || currentView === 'compass';
+    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -262,9 +265,16 @@ const App: React.FC = () => {
 
                                         {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
-                                        {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('dashboard')} />}
+                                        {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
 
                                         {currentView === 'chat' && <ChatPage />}
+
+                                        {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
+
+                                        {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'polars' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>
@@ -309,32 +319,11 @@ const App: React.FC = () => {
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
                         <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Watch" active={isWatchView} onClick={() => setWatchMenuOpen(v => !v)} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
                             <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />
-                            <NavButton icon={<GearIcon className="w-6 h-6" />} label="Settings" active={currentView === 'settings'} onClick={handleTabSettings} />
+                            <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Vessel" active={isVesselView} onClick={() => setPage('vessel')} />
                         </div>
                     </div>
-                )}
-
-                {/* Watch submenu — rendered OUTSIDE nav bar to escape backdrop-blur stacking context */}
-                {!isMobileLandscape && watchMenuOpen && (
-                    <>
-                        <div className="fixed inset-0 z-[9400]" onClick={() => setWatchMenuOpen(false)} />
-                        <div className="fixed z-[9500] w-44 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', left: '50%', transform: 'translateX(-70%)' }}>
-                            <button onClick={() => { handleTabMetrics(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'details' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                <span className="text-base">📒</span> Log
-                            </button>
-                            <div className="border-t border-white/5" />
-                            <button onClick={() => { handleTabPassage(); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'voyage' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                <span className="text-base">⛵</span> Passage
-                            </button>
-                            <div className="border-t border-white/5" />
-                            <button onClick={() => { setPage('compass'); setWatchMenuOpen(false); }} className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${currentView === 'compass' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-300 hover:bg-white/5'}`}>
-                                <span className="text-base">⚓</span> Anchor
-                            </button>
-                        </div>
-                    </>
                 )}
 
             </div>
