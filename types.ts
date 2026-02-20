@@ -111,11 +111,13 @@ export interface VesselDimensionUnits {
 export interface VesselProfile {
     name: string;
     type: 'sail' | 'power' | 'observer';
+    model?: string; // Make/Model (e.g. "Tayana 55")
     riggingType?: 'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other';
     length: number;
     beam: number;
     draft: number;
     displacement: number;
+    mastHeight?: number; // Mast height (for bridge clearance, routing)
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;
@@ -129,6 +131,13 @@ export interface VesselProfile {
     crewCount?: number; // Total crew including captain (default: 2)
     customIconUrl?: string;
     estimatedFields?: string[]; // Track which fields were auto-calculated
+}
+
+/** Polar performance matrix — boat speed at each (wind angle × wind speed) */
+export interface PolarData {
+    windSpeeds: number[];  // True wind speeds in knots (e.g. [6, 8, 10, 12, 15, 20, 25])
+    angles: number[];      // True wind angles in degrees (e.g. [45, 60, 90, 120, 150, 180])
+    matrix: number[][];    // matrix[angleIdx][windSpeedIdx] = boat speed in knots
 }
 
 export interface UserSettings {

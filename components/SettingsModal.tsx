@@ -19,6 +19,7 @@ import { Section, Row, Toggle } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
+import { PolarManagerTab } from './settings/PolarManagerTab';
 
 
 
@@ -141,13 +142,14 @@ const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValu
     );
 };
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'polars' | 'alerts' | 'scenery' | 'locations' | 'layout';
 
 const MENU_ITEMS: { id: SettingsTab; label: string; description: string; icon: (cls: string) => React.ReactNode; iconBg: string; iconHoverBg: string }[] = [
     { id: 'general', label: 'Preferences', description: 'Units, location & AI personality', icon: (c) => <GearIcon className={c} />, iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10', iconHoverBg: 'group-hover:bg-sky-500/25' },
     { id: 'locations', label: 'Locations', description: 'Saved ports & anchorages', icon: (c) => <MapPinIcon className={c} />, iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10', iconHoverBg: 'group-hover:bg-emerald-500/25' },
     { id: 'account', label: 'System & Cloud', description: 'Cloud sync, API keys & account', icon: (c) => <ServerIcon className={c} />, iconBg: 'bg-violet-500/15 text-violet-400 shadow-violet-500/10', iconHoverBg: 'group-hover:bg-violet-500/25' },
     { id: 'vessel', label: 'Vessel Profile', description: 'Boat specs, rig & safety gear', icon: (c) => <BoatIcon className={c} />, iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10', iconHoverBg: 'group-hover:bg-amber-500/25' },
+    { id: 'polars', label: 'Polar Data', description: 'Performance curves for routing', icon: (c) => <CompassIcon rotation={0} className={c} />, iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10', iconHoverBg: 'group-hover:bg-cyan-500/25' },
     { id: 'alerts', label: 'Notifications', description: 'Anchor alarm, weather alerts', icon: (c) => <BellIcon className={c} />, iconBg: 'bg-rose-500/15 text-rose-400 shadow-rose-500/10', iconHoverBg: 'group-hover:bg-rose-500/25' },
     { id: 'scenery', label: 'Aesthetics', description: 'Theme, colors & environment', icon: (c) => <StarIcon className={c} />, iconBg: 'bg-indigo-500/15 text-indigo-400 shadow-indigo-500/10', iconHoverBg: 'group-hover:bg-indigo-500/25' },
 ];
@@ -281,6 +283,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     <NavButton active={activeTab === 'locations'} onClick={() => setActiveTab('locations')} icon={<MapPinIcon className="w-5 h-5" />} label="LOCATIONS" />
                     <NavButton active={activeTab === 'account'} onClick={() => setActiveTab('account')} icon={<ServerIcon className="w-5 h-5" />} label="SYSTEM & CLOUD" />
                     <NavButton active={activeTab === 'vessel'} onClick={() => setActiveTab('vessel')} icon={<BoatIcon className="w-5 h-5" />} label="VESSEL PROFILE" />
+                    <NavButton active={activeTab === 'polars'} onClick={() => setActiveTab('polars')} icon={<CompassIcon rotation={0} className="w-5 h-5" />} label="POLAR DATA" />
                     <NavButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<BellIcon className="w-5 h-5" />} label="NOTIFICATIONS" />
                     <NavButton active={activeTab === 'scenery'} onClick={() => setActiveTab('scenery')} icon={<StarIcon className="w-5 h-5" />} label="AESTHETICS" />
                 </div>
@@ -639,6 +642,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
 
                     {activeTab === 'vessel' && (
                         <VesselTab settings={settings} onSave={onSave} />
+                    )}
+
+                    {activeTab === 'polars' && (
+                        <PolarManagerTab />
                     )}
 
                     {activeTab === 'alerts' && (
