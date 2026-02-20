@@ -20,6 +20,8 @@ export const determineLocationType = (
     elevation?: number
 ): LocationType => {
 
+    console.error(`[LOC-TYPE-DEBUG] distToLand: ${distToLandKm}, distToWater: ${distToWaterKm}, name: ${landName}, elev: ${elevation}, tides: ${hasTides}`);
+
     // --- THRESHOLDS ---
     // 20 NM = 37.04 km
     const OFFSHORE_THRESHOLD_KM = 37.04;
