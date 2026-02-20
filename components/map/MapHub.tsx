@@ -30,7 +30,7 @@ interface MapHubProps {
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
 }
 
-type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'sea' | 'satellite';
+type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'pressure' | 'sea' | 'satellite';
 
 // ── Free tile sources (no API key required) ──
 const STATIC_TILES: Record<string, string> = {
@@ -317,6 +317,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
             wind: 'wind_new',
             temperature: 'temp_new',
             clouds: 'clouds_new',
+            pressure: 'pressure_new',
         };
 
         const owmLayer = OWM_LAYERS[activeLayer];
@@ -484,6 +485,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                             { key: 'wind', label: 'Wind', icon: '💨' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
                             { key: 'clouds', label: 'Clouds', icon: '☁️' },
+                            { key: 'pressure', label: 'Pressure', icon: '🌀' },
                             { key: 'sea', label: 'Sea Marks', icon: '⚓' },
                             { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                         ] as const).map(layer => (
