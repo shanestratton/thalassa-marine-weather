@@ -465,7 +465,35 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                     </svg>
                 </button>
 
-                {/* Recenter */}
+                {/* GPS Locate Me */}
+                <button
+                    onClick={() => {
+                        triggerHaptic('medium');
+                        if (!navigator.geolocation) return;
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                const { latitude, longitude } = pos.coords;
+                                const map = mapRef.current;
+                                if (map) {
+                                    map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
+                                    dropPin(map, latitude, longitude);
+                                }
+                                LocationStore.setFromGPS(latitude, longitude);
+                                onLocationSelect?.(latitude, longitude);
+                            },
+                            (err) => console.warn('GPS error:', err.message),
+                            { enableHighAccuracy: true, timeout: 10000 }
+                        );
+                    }}
+                    className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                >
+                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <circle cx="12" cy="12" r="3" />
+                        <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                    </svg>
+                </button>
+
+                {/* Recenter on last pin */}
                 <button
                     onClick={() => {
                         if (mapRef.current) {
