@@ -10,9 +10,10 @@ import { useSettings } from '../../context/SettingsContext';
 
 interface PolarPageProps {
     onBack: () => void;
+    onNavigateToNmea?: () => void;
 }
 
-export const PolarPage: React.FC<PolarPageProps> = ({ onBack }) => {
+export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }) => {
     const { settings, updateSettings } = useSettings();
 
     const handleSave = useCallback((patch: Record<string, unknown>) => {
@@ -31,7 +32,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack }) => {
                 </button>
                 <div className="flex-1">
                     <h1 className="text-lg font-black text-white tracking-wide">Polar Manager</h1>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Performance Data</p>
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Performance Data</p>
                 </div>
             </div>
 
@@ -39,6 +40,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack }) => {
             <PolarManagerTab
                 settings={settings as any}
                 onSave={handleSave}
+                onNavigateToNmea={onNavigateToNmea}
             />
         </div>
     );

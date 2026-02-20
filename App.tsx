@@ -284,7 +284,7 @@ const App: React.FC = () => {
 
                                         {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
                                         {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
                                     </div>
                                 </Suspense>
