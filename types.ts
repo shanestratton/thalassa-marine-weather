@@ -140,6 +140,41 @@ export interface PolarData {
     matrix: number[][];    // matrix[angleIdx][windSpeedIdx] = boat speed in knots
 }
 
+/** Raw NMEA instrument sample (emitted every 5s by NmeaListenerService) */
+export interface NmeaSample {
+    timestamp: number;      // Unix ms
+    tws: number | null;     // True Wind Speed (kts)
+    twa: number | null;     // True Wind Angle (degrees, 0-180)
+    stw: number | null;     // Speed Through Water (kts)
+    heading: number | null; // Magnetic/True heading (degrees)
+    rpm: number | null;     // Engine RPM (null if unavailable)
+    voltage: number | null; // Battery/alternator voltage (null if unavailable)
+}
+
+/** Single bucket in the Smart Polar grid */
+export interface SmartPolarBucket {
+    sumSTW: number;         // Running sum of boat speeds
+    sumSTW2: number;        // Running sum of STW² (for std-dev)
+    count: number;          // Number of accepted samples
+    minSTW: number;         // Min recorded speed
+    maxSTW: number;         // Max recorded speed
+    lastUpdated: number;    // Unix ms
+}
+
+/** Full grid of Smart Polar buckets — serialized to Capacitor Filesystem */
+export interface SmartPolarBucketGrid {
+    version: number;        // Schema version (1)
+    twsBucketSize: number;  // 2 (kts)
+    twaBucketSize: number;  // 5 (degrees)
+    twsMin: number;         // 0
+    twsMax: number;         // 30
+    twaMin: number;         // 40
+    twaMax: number;         // 180
+    buckets: Record<string, SmartPolarBucket>; // Key: "tws_{bucket}_twa_{bucket}"
+    totalSamples: number;
+    createdAt: number;      // Unix ms
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
@@ -164,6 +199,11 @@ export interface UserSettings {
     screenOrientation?: ScreenOrientationType; // 'auto' | 'portrait' | 'landscape' - in-app orientation lock
     autoTrackEnabled?: boolean; // Auto-start voyage tracking on app launch (user must opt in)
     backgroundLocationEnabled?: boolean; // Enable background GPS for 15-minute voyage logging (uses more battery)
+    // Smart Polars & NMEA
+    polarSource?: 'factory' | 'smart'; // Which polars the routing engine uses
+    nmeaHost?: string;  // NMEA TCP/WS host (default: 192.168.1.1)
+    nmeaPort?: number;  // NMEA TCP/WS port (default: 10110)
+    smartPolarsEnabled?: boolean; // Enable background NMEA listening for polar learning
     // Cloud sync preferences
     cloudSyncSettings?: boolean; // Sync settings (units, vessel, preferences) to Supabase
     cloudSyncVoyages?: boolean; // Sync voyage tracks, waypoints, GPX data to Supabase
