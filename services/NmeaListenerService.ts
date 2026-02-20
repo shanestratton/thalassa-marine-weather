@@ -23,6 +23,10 @@ interface RawAccumulator {
     heading: number[];
     rpm: number[];
     voltage: number[];
+    depth: number[];
+    sog: number[];
+    cog: number[];
+    waterTemp: number[];
 }
 
 class NmeaListenerServiceClass {
@@ -141,6 +145,10 @@ class NmeaListenerServiceClass {
             case 'HDM': this.parseHDG(parts); break;  // Magnetic heading (alt)
             case 'RPM': this.parseRPM(parts); break;  // Engine RPM
             case 'XDR': this.parseXDR(parts); break;  // Transducers (voltage)
+            case 'DBT': this.parseDBT(parts); break;  // Depth below transducer
+            case 'DPT': this.parseDPT(parts); break;  // Depth
+            case 'RMC': this.parseRMC(parts); break;  // GPS fix (SOG/COG)
+            case 'MTW': this.parseMTW(parts); break;  // Water temperature
         }
     }
 
@@ -211,6 +219,37 @@ class NmeaListenerServiceClass {
         }
     }
 
+    /** $xxDBT — Depth Below Transducer */
+    private parseDBT(parts: string[]) {
+        // $xxDBT,depthFeet,f,depthMeters,M,depthFathoms,F
+        const meters = parseFloat(parts[3]);
+        if (!isNaN(meters)) this.accumulator.depth.push(meters);
+    }
+
+    /** $xxDPT — Depth */
+    private parseDPT(parts: string[]) {
+        // $xxDPT,depth,offset
+        const depth = parseFloat(parts[1]);
+        if (!isNaN(depth)) this.accumulator.depth.push(depth);
+    }
+
+    /** $xxRMC — Recommended Minimum (GPS SOG/COG) */
+    private parseRMC(parts: string[]) {
+        // $xxRMC,time,status,lat,N/S,lon,E/W,sog,cog,...
+        if (parts[2] !== 'A') return; // A = valid fix
+        const sog = parseFloat(parts[7]);
+        const cog = parseFloat(parts[8]);
+        if (!isNaN(sog)) this.accumulator.sog.push(sog);
+        if (!isNaN(cog)) this.accumulator.cog.push(cog);
+    }
+
+    /** $xxMTW — Water Temperature */
+    private parseMTW(parts: string[]) {
+        // $xxMTW,temp,C
+        const temp = parseFloat(parts[1]);
+        if (!isNaN(temp)) this.accumulator.waterTemp.push(temp);
+    }
+
     // ── Sample Emission ──
 
     private startSampleTimer() {
@@ -232,6 +271,10 @@ class NmeaListenerServiceClass {
             heading: avg(this.accumulator.heading),
             rpm: avg(this.accumulator.rpm),
             voltage: avg(this.accumulator.voltage),
+            depth: avg(this.accumulator.depth),
+            sog: avg(this.accumulator.sog),
+            cog: avg(this.accumulator.cog),
+            waterTemp: avg(this.accumulator.waterTemp),
         };
 
         // Reset accumulator
@@ -244,7 +287,7 @@ class NmeaListenerServiceClass {
     }
 
     private freshAccumulator(): RawAccumulator {
-        return { tws: [], twa: [], stw: [], heading: [], rpm: [], voltage: [] };
+        return { tws: [], twa: [], stw: [], heading: [], rpm: [], voltage: [], depth: [], sog: [], cog: [], waterTemp: [] };
     }
 }
 

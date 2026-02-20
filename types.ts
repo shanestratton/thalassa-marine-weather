@@ -149,6 +149,10 @@ export interface NmeaSample {
     heading: number | null; // Magnetic/True heading (degrees)
     rpm: number | null;     // Engine RPM (null if unavailable)
     voltage: number | null; // Battery/alternator voltage (null if unavailable)
+    depth: number | null;   // Depth Below Transducer (meters)
+    sog: number | null;     // Speed Over Ground (kts)
+    cog: number | null;     // Course Over Ground (degrees)
+    waterTemp: number | null; // Water temperature (°C)
 }
 
 /** Single bucket in the Smart Polar grid */
