@@ -333,7 +333,7 @@ export const LogPage: React.FC = () => {
                     })()}
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 pb-28 snap-y snap-proximity scroll-pt-2">
+                    <div className="flex-1 overflow-y-auto px-4 pb-4 snap-y snap-proximity scroll-pt-2">
                         {/* Live Recording Card */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
@@ -440,41 +440,44 @@ export const LogPage: React.FC = () => {
                             </div>
                         )}
                     </div>
+
+                    {/* ── Start/Stop Tracking + New Entry ── pinned at bottom of flex layout */}
+                    <div className="shrink-0 px-4 pt-2 pb-2" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}>
+                        <div className="flex gap-2">
+                            {isTracking ? (
+                                <>
+                                    <button
+                                        onClick={handleStopTracking}
+                                        className="px-4 py-3 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
+                                    >
+                                        <StopIcon className="w-4 h-4" />
+                                        Stop
+                                    </button>
+                                    <button
+                                        onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
+                                        className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                                    >
+                                        <PlusIcon className="w-5 h-5" />
+                                        New Log Entry
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={handleStartTracking}
+                                    className="flex-1 px-4 py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
+                                >
+                                    <PlayIcon className="w-5 h-5" />
+                                    Start Tracking
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 
             {/* Toast Notifications */}
             <toast.ToastContainer />
 
-            {/* Start/Stop Tracking + New Entry — fixed above nav bar */}
-            <div className="fixed left-0 right-0 z-[850] px-4 flex gap-2" style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
-                {isTracking ? (
-                    <>
-                        <button
-                            onClick={handleStopTracking}
-                            className="px-4 py-3 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
-                        >
-                            <StopIcon className="w-4 h-4" />
-                            Stop
-                        </button>
-                        <button
-                            onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                            className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
-                        >
-                            <PlusIcon className="w-5 h-5" />
-                            New Log Entry
-                        </button>
-                    </>
-                ) : (
-                    <button
-                        onClick={handleStartTracking}
-                        className="flex-1 px-4 py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
-                    >
-                        <PlayIcon className="w-5 h-5" />
-                        Start Tracking
-                    </button>
-                )}
-            </div>
 
             {/* Manual Entry Modal */}
             <AddEntryModal
