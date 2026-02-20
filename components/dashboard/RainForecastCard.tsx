@@ -113,7 +113,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                         </span>
                     </div>
                     {/* Empty bar area — maintains consistent card height */}
-                    <div className="flex items-end gap-[1px] w-full mt-1 h-[52px]">
+                    <div className="flex items-end gap-[1px] w-full mt-1 h-[40px]">
                         {data.map((_, i) => (
                             <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
                                 <div
@@ -129,7 +129,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
     }
 
     return (
-        <div className={`w-full rounded-xl overflow-hidden relative min-h-[52px] ${className}`}
+        <div className={`w-full rounded-xl overflow-hidden relative min-h-[40px] ${className}`}
             style={{
                 background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.5), rgba(15, 23, 42, 0.6), rgba(30, 64, 175, 0.3))',
                 border: '1px solid rgba(96, 165, 250, 0.15)',
@@ -164,7 +164,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                 </div>
 
                 {/* Bar Chart — always expanded */}
-                <div className="flex items-end gap-[1px] w-full mt-1 h-[52px]">
+                <div className="flex items-end gap-[1px] w-full mt-1 h-[40px]">
                     {data.map((point, i) => {
                         const normalizedHeight = analysis.maxIntensity > 0
                             ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
