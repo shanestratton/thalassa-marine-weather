@@ -219,6 +219,52 @@ CREATE TABLE IF NOT EXISTS marketplace_escrow (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- ── MIGRATION: upgrade old escrow schema to PIN-based schema ──
+-- If table already existed with old 'status' column, migrate it.
+-- These are all safe to re-run (IF EXISTS / IF NOT EXISTS).
+
+-- Step A: Rename old 'status' column to 'escrow_status' if it exists
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'marketplace_escrow' AND column_name = 'status'
+    ) THEN
+        -- Drop old CHECK constraint (name may vary)
+        ALTER TABLE marketplace_escrow DROP CONSTRAINT IF EXISTS marketplace_escrow_status_check;
+        ALTER TABLE marketplace_escrow RENAME COLUMN status TO escrow_status;
+    END IF;
+END $$;
+
+-- Step B: Add missing PIN columns if they don't exist
+ALTER TABLE marketplace_escrow ADD COLUMN IF NOT EXISTS escrow_pin TEXT;
+ALTER TABLE marketplace_escrow ADD COLUMN IF NOT EXISTS escrow_expires_at TIMESTAMPTZ;
+ALTER TABLE marketplace_escrow ADD COLUMN IF NOT EXISTS escrow_status TEXT;
+
+-- Step C: Set defaults for old rows that lack the new columns
+UPDATE marketplace_escrow SET escrow_pin = '0000' WHERE escrow_pin IS NULL;
+UPDATE marketplace_escrow SET escrow_expires_at = now() + interval '48 hours' WHERE escrow_expires_at IS NULL;
+UPDATE marketplace_escrow SET escrow_status = 'expired' WHERE escrow_status IS NULL;
+
+-- Step D: Now make escrow_pin NOT NULL (safe after backfill)
+ALTER TABLE marketplace_escrow ALTER COLUMN escrow_pin SET NOT NULL;
+ALTER TABLE marketplace_escrow ALTER COLUMN escrow_expires_at SET NOT NULL;
+
+-- Step E: Add the new CHECK constraint if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'marketplace_escrow_escrow_status_check'
+    ) THEN
+        ALTER TABLE marketplace_escrow ADD CONSTRAINT marketplace_escrow_escrow_status_check
+        CHECK (escrow_status IN ('awaiting_handoff', 'released', 'expired', 'canceled'));
+    END IF;
+END $$;
+
+-- Step F: Set column defaults
+ALTER TABLE marketplace_escrow ALTER COLUMN escrow_status SET DEFAULT 'awaiting_handoff';
+
 CREATE INDEX IF NOT EXISTS escrow_expires_idx
 ON marketplace_escrow (escrow_status, escrow_expires_at)
 WHERE escrow_status = 'awaiting_handoff';
