@@ -27,6 +27,7 @@ import { importGPXToEntries } from '../services/gpxService';
 import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
 import { t } from '../theme';
+import { MarketplacePage } from './MarketplacePage';
 
 // --- PIN / TRACK MESSAGE PARSING ---
 const PIN_PREFIX = '📍PIN:';
@@ -60,7 +61,7 @@ function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h = 180):
 }
 
 // --- TYPES ---
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'lonely_hearts' | 'find_crew';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'lonely_hearts' | 'find_crew' | 'marketplace';
 
 // --- AVATAR COLOR SYSTEM ---
 const AVATAR_GRADIENTS = [
@@ -368,6 +369,11 @@ export const ChatPage: React.FC = () => {
         // Find Crew gets the crew board page
         if (channel.name === 'Find Crew') {
             setView('find_crew');
+            return;
+        }
+        // Marketplace gets the gear exchange page
+        if (channel.name === 'Marketplace') {
+            setView('marketplace');
             return;
         }
         setActiveChannel(channel);
@@ -953,6 +959,7 @@ export const ChatPage: React.FC = () => {
         else if (view === 'profile') { setView('channels'); }
         else if (view === 'lonely_hearts') { setView('channels'); }
         else if (view === 'find_crew') { setView('channels'); }
+        else if (view === 'marketplace') { setView('channels'); }
     };
 
     const isMod = ChatService.isMod();
@@ -991,6 +998,7 @@ export const ChatPage: React.FC = () => {
                                 {view === 'profile' && '⚓ Sailor Profile'}
                                 {view === 'lonely_hearts' && <><span className="text-[#FF7F50]">♥</span> First Mates</>}
                                 {view === 'find_crew' && '👥 Find Crew'}
+                                {view === 'marketplace' && '🏪 Marketplace'}
                             </h1>
                         )}
                         {view === 'messages' && activeChannel && (
@@ -1113,6 +1121,15 @@ export const ChatPage: React.FC = () => {
                     <LonelyHeartsPage
                         onOpenDM={(userId, name) => {
                             openDMThread(userId, name);
+                        }}
+                    />
+                )}
+                {/* ══════ MARKETPLACE ══════ */}
+                {view === 'marketplace' && !loading && (
+                    <MarketplacePage
+                        onBack={() => setView('channels')}
+                        onOpenDM={(sellerId, sellerName) => {
+                            openDMThread(sellerId, sellerName);
                         }}
                     />
                 )}
