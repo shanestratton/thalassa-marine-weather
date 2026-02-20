@@ -525,14 +525,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             style={{
                                                 background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
                                                 border: '1px solid rgba(96, 165, 250, 0.1)',
+                                                minHeight: '76px',
                                             }}
                                         >
-                                            <div className="px-4 py-2.5 flex items-center justify-center gap-2">
+                                            <div className="min-h-[76px] flex items-center justify-center gap-2 px-3">
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
                                                     <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                                         fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                                                 </svg>
-                                                <span className="text-xs font-semibold uppercase tracking-wider text-ivory">
+                                                <span className="text-sm font-semibold uppercase tracking-wider text-ivory">
                                                     {rainStatus === 'loading' ? 'Checking rain forecast…' : 'Rain data unavailable'}
                                                 </span>
                                             </div>

@@ -745,10 +745,31 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         }, 10000);
 
+        // WAKE FROM SLEEP — when iPhone/device resumes, check if nextUpdate is stale
+        const handleVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') return;
+            if (isFetchingRef.current) return;
+
+            const now = Date.now();
+            const target = nextUpdateRef.current;
+
+            // If nextUpdate is in the past, schedule an immediate refresh
+            if (target && now >= target) {
+                console.log('[WeatherContext] Wake from sleep — scheduling refresh');
+                const wakeNext = now + 5000; // 5s grace to let the device stabilize
+                nextUpdateRef.current = wakeNext;
+                setNextUpdate(wakeNext);
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         // Update ref when nextUpdate changes
         nextUpdateRef.current = nextUpdate;
 
-        return () => clearInterval(checkInterval);
+        return () => {
+            clearInterval(checkInterval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, [fetchWeather, locationMode]); // Removed nextUpdate to prevent interval recreation
 
     // --- GPS DRIFT DETECTOR (30s) ---
