@@ -122,19 +122,17 @@ export class LocalMaintenanceService {
         let nextDueHours = task.next_due_hours;
 
         switch (task.trigger_type) {
-            case 'date': {
-                const interval = task.interval_value || 365;
-                const d = new Date();
-                d.setDate(d.getDate() + interval);
-                nextDueDate = d.toISOString();
-                break;
-            }
             case 'engine_hours': {
                 const interval = task.interval_value || 200;
                 nextDueHours = (engineHours || 0) + interval;
                 break;
             }
-            case 'recurring_days': {
+            case 'daily':
+            case 'weekly':
+            case 'monthly':
+            case 'bi_annual':
+            case 'annual':
+            default: {
                 const interval = task.interval_value || 30;
                 const d = new Date();
                 d.setDate(d.getDate() + interval);
