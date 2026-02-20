@@ -92,10 +92,10 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
     };
 
     return (
-        <div className="relative overflow-hidden rounded-2xl">
+        <div className="relative overflow-hidden rounded-lg">
             {/* Delete button (revealed on swipe) */}
             <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={() => { setSwipeOffset(0); onDelete(); }}
             >
                 <div className="text-center text-white">
@@ -106,54 +106,62 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                 </div>
             </div>
 
-            {/* Main content (slides on swipe) */}
+            {/* Main card (slides on swipe) */}
             <div
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${light.border} rounded-2xl overflow-hidden bg-white/[0.03]`}
+                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5 border-l-2 ${task.status === 'red' ? 'border-l-red-500'
+                    : task.status === 'yellow' ? 'border-l-amber-400'
+                        : task.status === 'green' ? 'border-l-emerald-500'
+                            : 'border-l-gray-600'
+                    }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
-                onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
-                {/* Traffic light bar */}
-                <div className={`w-1.5 shrink-0 ${light.dot}`} />
+                {/* Row 1: Category icon + Title + 3-dot menu */}
+                <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-xs shrink-0">{catConfig?.icon || '📋'}</span>
+                        <h4 className="text-sm font-bold text-white truncate">{task.title}</h4>
+                    </div>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onTap(); }}
+                        className="p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                        aria-label="Task options"
+                    >
+                        <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="5" r="1.5" />
+                            <circle cx="12" cy="12" r="1.5" />
+                            <circle cx="12" cy="19" r="1.5" />
+                        </svg>
+                    </button>
+                </div>
 
-                {/* Content */}
-                <div className="flex-1 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 text-left">
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs">{catConfig?.icon || '📋'}</span>
-                                <h4 className="text-sm font-black text-white tracking-wide">{task.title}</h4>
-                            </div>
-                            <p className={`text-[10px] font-bold uppercase tracking-widest ${light.text}`}>
-                                {task.statusLabel}
-                            </p>
-                            {task.last_completed && (
-                                <p className="text-[9px] text-gray-600 mt-1">
-                                    Last: {new Date(task.last_completed).toLocaleDateString()}
-                                </p>
-                            )}
-                        </div>
-
-                        {/* Trigger badge + edit button */}
-                        <div className="shrink-0 flex flex-col items-end gap-1">
-                            <span className="px-2 py-1 rounded-lg bg-white/5 text-[9px] font-bold text-gray-500 uppercase tracking-wider">
-                                {triggerLabels[task.trigger_type]}
+                {/* Row 2: Status label + due info */}
+                <div className="flex items-center justify-between mt-1.5">
+                    <p className={`text-[10px] font-bold uppercase tracking-widest ${light.text}`}>
+                        {task.statusLabel}
+                    </p>
+                    <div className="flex items-center gap-2">
+                        {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                                @ {task.next_due_hours?.toLocaleString()} hrs
                             </span>
-                            {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
-                                <p className="text-[10px] text-gray-500 text-right font-bold">
-                                    @ {task.next_due_hours?.toLocaleString()} hrs
-                                </p>
-                            )}
-                            {task.next_due_date && (
-                                <p className="text-[10px] text-gray-500 text-right font-bold">
-                                    {new Date(task.next_due_date).toLocaleDateString()}
-                                </p>
-                            )}
-                        </div>
+                        )}
+                        {task.next_due_date && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                                {new Date(task.next_due_date).toLocaleDateString()}
+                            </span>
+                        )}
                     </div>
                 </div>
+
+                {/* Row 3: Last serviced */}
+                {task.last_completed && (
+                    <p className="text-[9px] text-slate-600 mt-1">
+                        Last serviced: {new Date(task.last_completed).toLocaleDateString()}
+                    </p>
+                )}
             </div>
         </div>
     );
@@ -519,7 +527,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
-            <div className="flex-1 overflow-y-auto space-y-2 pb-2 min-h-0">
+            <div className="flex-1 overflow-y-auto space-y-2 pb-24 min-h-0">
                 {loading ? (
                     <div className="flex items-center justify-center py-12">
                         <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -554,14 +562,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         triggerHaptic('light');
                         setShowAddForm(true);
                     }}
-                    className="w-full py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-emerald-600/30 hover:to-teal-600/30 transition-all active:scale-[0.98]"
+                    className="w-full py-4 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.98]"
                 >
-                    <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
-                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                    </div>
-                    <span className="text-sm font-black text-emerald-400 uppercase tracking-[0.15em]">Add Maintenance Task</span>
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span className="text-sm font-black text-white uppercase tracking-[0.15em]">Add Maintenance Task</span>
                 </button>
             </div>
 
