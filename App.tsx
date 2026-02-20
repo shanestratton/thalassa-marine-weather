@@ -1,6 +1,8 @@
 
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useWeather } from './context/WeatherContext';
+import { WeatherRoutingPanel } from './components/map/WeatherRoutingPanel';
+import type { RouteWaypoint } from './services/WeatherRoutingService';
 import { AnchorWatchService } from './services/AnchorWatchService';
 import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
@@ -57,6 +59,17 @@ const App: React.FC = () => {
     } = useAppController();
 
     const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;
+
+    // Weather Routing state
+    const [showRouting, setShowRouting] = useState(false);
+    const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
+    const [routeWaypoints, setRouteWaypoints] = useState<RouteWaypoint[]>([]);
+    const [addWaypointMode, setAddWaypointMode] = useState(false);
+
+    const handleRouteChange = useCallback((coords: [number, number][], waypoints: RouteWaypoint[]) => {
+        setRouteCoords(coords);
+        setRouteWaypoints(waypoints);
+    }, []);
 
     // Early restore: re-establish anchor watch GPS + geofence on app boot,
     // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
@@ -299,25 +312,58 @@ const App: React.FC = () => {
                                 lon={weatherData?.coordinates?.lon}
                                 currentWeather={weatherData?.current}
                                 synopticMap={weatherData?.synopticMap}
-                                onLocationSelect={handleMapTargetSelect}
+                                onLocationSelect={(lat, lon, name) => {
+                                    if (addWaypointMode && (window as any).__routingAddWaypoint) {
+                                        (window as any).__routingAddWaypoint(lat, lon);
+                                    } else {
+                                        handleMapTargetSelect(lat, lon, name);
+                                    }
+                                }}
+                                routeCoordinates={routeCoords.map(([lat, lon]) => ({ lat, lon }))}
+                                waypoints={routeWaypoints.map(wp => ({ name: wp.name, lat: wp.lat, lon: wp.lon }))}
                                 mapboxToken={settings.mapboxToken}
                                 enableZoom={true}
                                 restrictBounds={true}
-                                isConfirmMode={true}
+                                isConfirmMode={!addWaypointMode}
                                 initialLayer="buoys"
                             />
                         </Suspense>
 
-                        {/* Passage Planning FAB — Map section entry point */}
-                        <button
-                            onClick={() => setPage('voyage')}
-                            className="absolute z-[800] bottom-20 right-4 flex items-center gap-2 px-4 py-3 bg-slate-800/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl hover:bg-slate-700/90 transition-all active:scale-95"
-                        >
-                            <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-                            </svg>
-                            <span className="text-sm font-black text-white tracking-wide">Passage</span>
-                        </button>
+                        {/* Weather Routing Panel */}
+                        {showRouting && (
+                            <WeatherRoutingPanel
+                                onRouteChange={handleRouteChange}
+                                onClose={() => { setShowRouting(false); setRouteCoords([]); setRouteWaypoints([]); setAddWaypointMode(false); }}
+                                currentLat={weatherData?.coordinates?.lat}
+                                currentLon={weatherData?.coordinates?.lon}
+                                onAddWaypointMode={setAddWaypointMode}
+                            />
+                        )}
+
+                        {/* Map FABs */}
+                        <div className="absolute z-[800] bottom-20 right-4 flex flex-col gap-2">
+                            <button
+                                onClick={() => setShowRouting(!showRouting)}
+                                className={`flex items-center gap-2 px-4 py-3 backdrop-blur-xl border rounded-2xl shadow-2xl transition-all active:scale-95 ${showRouting
+                                    ? 'bg-sky-600/90 border-sky-500/30 hover:bg-sky-500/90'
+                                    : 'bg-slate-800/90 border-white/10 hover:bg-slate-700/90'
+                                    }`}
+                            >
+                                <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+                                </svg>
+                                <span className="text-sm font-black text-white tracking-wide">Route</span>
+                            </button>
+                            <button
+                                onClick={() => setPage('voyage')}
+                                className="flex items-center gap-2 px-4 py-3 bg-slate-800/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl hover:bg-slate-700/90 transition-all active:scale-95"
+                            >
+                                <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                                </svg>
+                                <span className="text-sm font-black text-white tracking-wide">Passage</span>
+                            </button>
+                        </div>
                     </div>
                 )}
 
