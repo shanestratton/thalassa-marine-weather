@@ -2,13 +2,12 @@
  * VesselHub — Ship's Office & Active Watch dashboard.
  *
  * Three-zone split screen:
- *   Zone 1: Active Watch (anchor alarm, log entry) — top priority
+ *   Zone 1: Active Watch (Anchor Watch + Log Book) — two grid cards
  *   Zone 2: Ship's Office Grid (inventory, maintenance, polars, NMEA) — 2x2 cards
  *   Zone 3: App Administration (account, dark mode, terms) — bottom rows
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
-import { NmeaListenerService } from '../services/NmeaListenerService';
 import { triggerHaptic } from '../utils/system';
 
 interface VesselHubProps {
@@ -29,36 +28,25 @@ interface OfficeCard {
 }
 
 export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSave }) => {
-    // ── Anchor state ──
-    const [anchorActive, setAnchorActive] = useState(false);
-    const [anchorRadius, setAnchorRadius] = useState(0);
+    // ── Anchor state (for status display on the card) ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
+    const [anchorRadius, setAnchorRadius] = useState(0);
 
-    // Poll anchor state via the actual AnchorWatchService API
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
-            setAnchorActive(snapshot.state === 'watching' || snapshot.state === 'alarm');
             setAnchorRadius(snapshot.swingRadius || 0);
             setAnchorStatus(snapshot.state === 'alarm' ? 'alarm' : snapshot.state === 'watching' ? 'armed' : 'disarmed');
         });
         return unsub;
     }, []);
 
-    const toggleAnchor = useCallback(() => {
-        triggerHaptic('medium');
-        if (anchorActive) {
-            AnchorWatchService.stopWatch();
-            setAnchorActive(false);
-            setAnchorStatus('disarmed');
-        } else {
-            onNavigate('compass'); // Navigate to anchor page for deployment
-        }
-    }, [anchorActive, onNavigate]);
-
-    const handleLogEntry = useCallback(() => {
-        triggerHaptic('light');
-        onNavigate('details'); // Navigate to log page
-    }, [onNavigate]);
+    // Status sublabel for anchor card
+    const anchorSublabel = anchorStatus === 'alarm' ? '⚠️ DRAG ALARM' : anchorStatus === 'armed' ? `Armed — ${anchorRadius}m Radius` : 'Disarmed';
+    const anchorAccent = anchorStatus === 'alarm'
+        ? { color: 'text-red-400', bg: 'from-red-500/25 to-red-600/25 border-red-500/30' }
+        : anchorStatus === 'armed'
+            ? { color: 'text-emerald-400', bg: 'from-emerald-500/20 to-green-500/20 border-emerald-500/20' }
+            : { color: 'text-red-400', bg: 'from-red-500/15 to-orange-500/15 border-red-500/20' };
 
     // Zone 2 cards
     const officeCards: OfficeCard[] = [
@@ -100,18 +88,11 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
         },
     ];
 
-    const anchorColors = {
-        disarmed: { bg: 'from-gray-600/20 to-gray-700/20', border: 'border-gray-500/20', text: 'text-gray-400', button: 'bg-gray-600', label: 'Disarmed' },
-        armed: { bg: 'from-emerald-600/20 to-green-600/20', border: 'border-emerald-500/30', text: 'text-emerald-400', button: 'bg-emerald-600', label: `Armed — ${anchorRadius}m Swing Radius` },
-        alarm: { bg: 'from-red-600/30 to-red-700/30', border: 'border-red-500/40', text: 'text-red-400', button: 'bg-red-600 animate-pulse', label: '⚠️ DRAG ALARM' },
-    };
-    const ac = anchorColors[anchorStatus];
-
     return (
         <div className="w-full max-w-2xl mx-auto px-4 pb-24 pt-4 animate-in fade-in duration-300">
 
             {/* ═══════════════════════════════════════════ */}
-            {/* ZONE 1: ACTIVE WATCH */}
+            {/* ZONE 1: ACTIVE WATCH — Two grid cards */}
             {/* ═══════════════════════════════════════════ */}
             <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
@@ -119,45 +100,41 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[10px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                {/* Anchor Alarm Card */}
-                <div className={`bg-gradient-to-br ${ac.bg} border ${ac.border} rounded-2xl p-5 mb-3`}>
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-xl ${anchorStatus === 'alarm' ? 'bg-red-600/30' : anchorStatus === 'armed' ? 'bg-emerald-500/20' : 'bg-gray-600/20'}`}>
-                                <svg className={`w-7 h-7 ${ac.text}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L12 5M12 5C9.79 5 8 6.79 8 9V12L12 16L16 12V9C16 6.79 14.21 5 12 5ZM8 19H16M10 19V21M14 19V21M5 12H3M21 12H19" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-black text-white tracking-wide">Anchor Watch</h3>
-                                <p className={`text-xs font-bold ${ac.text} uppercase tracking-widest`}>{ac.label}</p>
-                            </div>
+                <div className="grid grid-cols-2 gap-3">
+                    {/* Anchor Watch Card */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('compass');
+                        }}
+                        className={`bg-gradient-to-br ${anchorAccent.bg} border rounded-2xl p-5 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
+                    >
+                        <div className="p-3 rounded-xl bg-white/5 inline-block mb-3 group-hover:bg-white/10 transition-colors">
+                            <svg className={`w-6 h-6 ${anchorAccent.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L12 5M12 5C9.79 5 8 6.79 8 9V12L12 16L16 12V9C16 6.79 14.21 5 12 5ZM8 19H16M10 19V21M14 19V21M5 12H3M21 12H19" />
+                            </svg>
                         </div>
+                        <h4 className="text-sm font-black text-white tracking-wide">Anchor Watch</h4>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color}`}>{anchorSublabel}</p>
+                    </button>
 
-                        {/* Toggle */}
-                        <button
-                            onClick={toggleAnchor}
-                            className={`w-16 h-9 rounded-full transition-all duration-300 relative ${anchorActive ? ac.button : 'bg-gray-700'
-                                } shadow-lg`}
-                        >
-                            <div className={`absolute top-1 w-7 h-7 bg-white rounded-full shadow-md transition-transform duration-300 ${anchorActive ? 'translate-x-8' : 'translate-x-1'
-                                }`} />
-                        </button>
-                    </div>
+                    {/* Log Book Card */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('details');
+                        }}
+                        className="bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                    >
+                        <div className="p-3 rounded-xl bg-white/5 inline-block mb-3 group-hover:bg-white/10 transition-colors">
+                            <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                            </svg>
+                        </div>
+                        <h4 className="text-sm font-black text-white tracking-wide">Log Book</h4>
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Voyage Entries</p>
+                    </button>
                 </div>
-
-                {/* Drop Log Entry Button */}
-                <button
-                    onClick={handleLogEntry}
-                    className="w-full py-4 bg-gradient-to-r from-sky-600/20 to-cyan-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-cyan-600/30 transition-all active:scale-[0.98]"
-                >
-                    <div className="p-2 bg-sky-500/20 rounded-lg group-hover:bg-sky-500/30 transition-colors">
-                        <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                    </div>
-                    <span className="text-sm font-black text-sky-400 uppercase tracking-[0.15em]">Log Current Position</span>
-                </button>
             </div>
 
             {/* ═══════════════════════════════════════════ */}
@@ -179,7 +156,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             }}
                             className={`bg-gradient-to-br ${card.accentBg} border rounded-2xl p-5 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
                         >
-                            <div className={`p-3 rounded-xl bg-white/5 inline-block mb-3 group-hover:bg-white/10 transition-colors`}>
+                            <div className="p-3 rounded-xl bg-white/5 inline-block mb-3 group-hover:bg-white/10 transition-colors">
                                 <div className={`${card.accentColor}`}>{card.icon}</div>
                             </div>
                             <h4 className="text-sm font-black text-white tracking-wide">{card.label}</h4>
@@ -211,7 +188,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                         </div>
                         <div className="flex-1">
                             <p className="text-sm font-bold text-white">Account & Subscription</p>
-                            <p className="text-[10px] text-gray-500">{(settings as Record<string, unknown>).isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
+                            <p className="text-[10px] text-gray-500">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
                         </div>
                         <ChevronRight />
                     </button>
@@ -257,7 +234,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     );
 };
 
-// ── Zone 2 Icons ──
+// ── Zone Icons ──
 
 const BoxIcon: React.FC = () => (
     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

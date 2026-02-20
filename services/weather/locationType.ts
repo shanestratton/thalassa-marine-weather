@@ -98,6 +98,22 @@ export const determineLocationType = (
         return 'coastal';
     }
 
+    // 2.2 PROXIMITY-TO-LAND COASTAL FALLBACK
+    // If we are close to land (< 3km), the marine ring search may fail
+    // (all 5 ring points inside a bay/harbour/land mask → distToWaterKm = 9999).
+    // But being < 3km from the coast at low elevation is definitively COASTAL.
+    // This prevents harbours, marinas, and beach towns from being misclassified as inland.
+    if (distToLandKm !== null && distToLandKm < 3 && isLowElevation) {
+        return 'coastal';
+    }
+
+    // 2.3 NEAR-COAST RELAXED THRESHOLD
+    // If within 10km of land and elevation is very low (< 10m), very likely coastal.
+    // Catches estuaries, tidal flats, and coastal plains where marine grid has no wave data.
+    if (distToLandKm !== null && distToLandKm < 10 && elevation !== undefined && elevation !== null && elevation < 10) {
+        return 'coastal';
+    }
+
     // We are effectively ON LAND.
     // Check if we are > 5nm from water.
     if (distToWaterKm > INLAND_THRESHOLD_KM) {
