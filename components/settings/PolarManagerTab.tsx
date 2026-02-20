@@ -166,31 +166,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
 
     return (
         <div className="w-full max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Header */}
-            <div className="mb-6">
-                <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-sky-500/20 to-cyan-500/20 border border-sky-500/30">
-                        <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-black text-white tracking-wide">POLAR DATA</h2>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Performance matrix for weather routing</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                    {saving ? (
-                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Saving…
-                        </span>
-                    ) : lastSaved ? (
-                        <span className="text-[10px] text-emerald-400/60 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {lastSaved}
-                        </span>
-                    ) : null}
-                </div>
-            </div>
+
 
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
@@ -213,7 +189,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             <div className="mt-6">
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
-                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Factory Polar Input</span>
+                    <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Factory Polar Input</span>
                 </div>
 
                 {/* Tab Switcher */}
@@ -222,7 +198,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
-                            className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${activeTab === tab
+                            className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${activeTab === tab
                                 ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
                                 : 'text-gray-400 hover:text-white'
                                 }`}
@@ -247,8 +223,8 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             <div className="mt-8 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-cyan-500" />
-                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
-                    {boatModel && <span className="text-[10px] text-gray-500 ml-auto">{boatModel}</span>}
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
+                    {boatModel && <span className="text-xs text-gray-500 ml-auto">{boatModel}</span>}
                 </div>
                 <PolarChart data={polarData} overlayData={smartPolarData} />
             </div>
@@ -286,9 +262,9 @@ const SmartPolarsCard: React.FC<{
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Smart Polars</span>
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Smart Polars</span>
                     {!hasRpmData && smartEnabled && (
-                        <span className="text-[9px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
+                        <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
                     )}
                 </div>
                 {/* Smart Polars Toggle */}
@@ -355,20 +331,20 @@ const SmartPolarsCard: React.FC<{
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
                         <button
                             onClick={() => onToggleSource('factory')}
-                            className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
                         >
                             Factory
                         </button>
                         <button
                             onClick={() => onToggleSource('smart')}
-                            className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}
                         >
                             Smart
                         </button>
                     </div>
                     <button
                         onClick={onReset}
-                        className="text-[9px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
+                        className="text-[10px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
                     >
                         Reset
                     </button>
@@ -388,7 +364,7 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
     return (
         <div className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border ${c.bg}`}>
             <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-            <span className={`text-[8px] font-bold uppercase tracking-widest ${c.text}`}>{label}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${c.text}`}>{label}</span>
         </div>
     );
 };
@@ -416,7 +392,7 @@ const DatabaseTab: React.FC<{
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-sky-500" />
-                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Select Your Boat</span>
+                <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Boat</span>
             </div>
 
             <div className="relative mb-4">
@@ -435,7 +411,7 @@ const DatabaseTab: React.FC<{
             <div className="max-h-72 overflow-y-auto custom-scrollbar space-y-3">
                 {Object.entries(grouped).map(([mfr, entries]) => (
                     <div key={mfr}>
-                        <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
                         <div className="space-y-1">
                             {entries.map(entry => (
                                 <button
