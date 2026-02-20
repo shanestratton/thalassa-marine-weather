@@ -267,6 +267,26 @@ export interface MaintenanceHistory {
     created_at: string;
 }
 
+/** Equipment register categories */
+export type EquipmentCategory = 'Propulsion' | 'Electronics' | 'HVAC' | 'Plumbing' | 'Rigging' | 'Galley';
+
+/** Equipment register item — permanent installed hardware */
+export interface EquipmentItem {
+    id: string;
+    user_id: string;
+    equipment_name: string;
+    category: EquipmentCategory;
+    make: string;
+    model: string;
+    serial_number: string;
+    installation_date: string | null;
+    warranty_expiry: string | null;
+    manual_uri: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
