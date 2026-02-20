@@ -30,17 +30,21 @@ interface MapHubProps {
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
 }
 
-type WeatherLayer = 'none' | 'wind' | 'rain' | 'temperature' | 'waves';
+type WeatherLayer = 'none' | 'wind' | 'rain' | 'temperature' | 'sea' | 'satellite';
 
-// ── Weather tile endpoints (OpenWeatherMap free tiles) ──
-const OWM_KEY = ''; // Falls back to localStorage
-const WEATHER_TILES: Record<WeatherLayer, string | null> = {
-    none: null,
-    wind: 'https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=',
-    rain: 'https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=',
-    temperature: 'https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=',
-    waves: null, // No free wave tile source
+// ── Free tile sources (no API key required) ──
+const STATIC_TILES: Record<string, string> = {
+    sea: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+    satellite: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
 };
+
+// OWM key for wind/temperature tiles
+function getOwmKey(): string {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OWM_API_KEY) {
+        return import.meta.env.VITE_OWM_API_KEY as string;
+    }
+    return localStorage.getItem('owm_api_key') || '';
+}
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -305,22 +309,68 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
         if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles');
         if (map.getSource('weather-tiles')) map.removeSource('weather-tiles');
 
-        const tileUrl = WEATHER_TILES[activeLayer];
-        const owmKey = OWM_KEY || localStorage.getItem('owm_api_key') || '';
+        if (activeLayer === 'none') return;
 
-        if (tileUrl && owmKey) {
+        // Rain needs dynamic timestamp from RainViewer API
+        if (activeLayer === 'rain') {
+            fetch('https://api.rainviewer.com/public/weather-maps.json')
+                .then(r => r.json())
+                .then(data => {
+                    const latestRadar = data?.radar?.past?.slice(-1)?.[0];
+                    if (!latestRadar?.path) return;
+                    const tileUrl = `https://tilecache.rainviewer.com${latestRadar.path}/256/{z}/{x}/{y}/2/1_1.png`;
+                    if (!map.getSource('weather-tiles')) {
+                        map.addSource('weather-tiles', {
+                            type: 'raster',
+                            tiles: [tileUrl],
+                            tileSize: 256,
+                        });
+                        map.addLayer({
+                            id: 'weather-tiles',
+                            type: 'raster',
+                            source: 'weather-tiles',
+                            paint: { 'raster-opacity': 0.7 },
+                        }, 'route-line-layer');
+                    }
+                })
+                .catch(e => console.warn('RainViewer fetch failed:', e));
+            return;
+        }
+
+        // Wind / Temperature: OWM tiles (need API key)
+        if (activeLayer === 'wind' || activeLayer === 'temperature') {
+            const owmKey = getOwmKey();
+            if (owmKey) {
+                const layerName = activeLayer === 'wind' ? 'wind_new' : 'temp_new';
+                map.addSource('weather-tiles', {
+                    type: 'raster',
+                    tiles: [`https://tile.openweathermap.org/map/${layerName}/{z}/{x}/{y}.png?appid=${owmKey}`],
+                    tileSize: 256,
+                });
+                map.addLayer({
+                    id: 'weather-tiles',
+                    type: 'raster',
+                    source: 'weather-tiles',
+                    paint: { 'raster-opacity': 0.6 },
+                }, 'route-line-layer');
+            }
+            return;
+        }
+
+        // Static tile layers (sea marks, satellite)
+        const tileUrl = STATIC_TILES[activeLayer];
+        if (tileUrl) {
             map.addSource('weather-tiles', {
                 type: 'raster',
-                tiles: [`${tileUrl}${owmKey}`],
+                tiles: [tileUrl],
                 tileSize: 256,
             });
-
             map.addLayer({
                 id: 'weather-tiles',
                 type: 'raster',
                 source: 'weather-tiles',
-                paint: { 'raster-opacity': 0.7 },
-            }, 'route-line-layer'); // Insert below route
+                paint: { 'raster-opacity': activeLayer === 'satellite' ? 0.8 : 1.0 },
+            }, 'route-line-layer');
         }
     }, [activeLayer, mapReady]);
 
@@ -449,9 +499,11 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                     <div className="bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
                         {([
                             { key: 'none', label: 'None', icon: '🗺️' },
+                            { key: 'rain', label: 'Rain Radar', icon: '🌧️' },
                             { key: 'wind', label: 'Wind', icon: '💨' },
-                            { key: 'rain', label: 'Rain', icon: '🌧️' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
+                            { key: 'sea', label: 'Sea Marks', icon: '⚓' },
+                            { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                         ] as const).map(layer => (
                             <button
                                 key={layer.key}
