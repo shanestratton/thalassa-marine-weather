@@ -42,6 +42,7 @@ const TABLE_FILES: Record<string, string> = {
     maintenance_tasks: 'vessel_maintenance_tasks.json',
     maintenance_history: 'vessel_maintenance_history.json',
     equipment_register: 'vessel_equipment_register.json',
+    ship_documents: 'vessel_ship_documents.json',
 };
 
 const SYNC_QUEUE_FILE = 'vessel_sync_queue.json';
