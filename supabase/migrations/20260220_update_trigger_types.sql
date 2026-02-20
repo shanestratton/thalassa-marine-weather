@@ -4,7 +4,27 @@
 -- New: 'engine_hours', 'daily', 'weekly', 'monthly', 'bi_annual', 'annual'
 -- ═══════════════════════════════════════════════════════════════════
 
--- 1. Migrate existing data to new trigger types
+-- 1. DROP old constraint FIRST (before any data changes)
+ALTER TABLE maintenance_tasks
+DROP CONSTRAINT IF EXISTS maintenance_tasks_trigger_type_check;
+
+-- Also try the auto-generated name pattern in case it differs
+DO $$
+BEGIN
+    EXECUTE (
+        SELECT 'ALTER TABLE maintenance_tasks DROP CONSTRAINT ' || conname
+        FROM pg_constraint
+        WHERE conrelid = 'maintenance_tasks'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%trigger_type%'
+        LIMIT 1
+    );
+EXCEPTION WHEN OTHERS THEN
+    -- Constraint already dropped, ignore
+    NULL;
+END $$;
+
+-- 2. Migrate existing data to new trigger types
 UPDATE maintenance_tasks
 SET trigger_type = 'annual'
 WHERE trigger_type = 'date';
@@ -13,17 +33,14 @@ UPDATE maintenance_tasks
 SET trigger_type = 'monthly'
 WHERE trigger_type = 'recurring_days';
 
--- 2. Drop old constraint and add new one
-ALTER TABLE maintenance_tasks
-DROP CONSTRAINT IF EXISTS maintenance_tasks_trigger_type_check;
-
+-- 3. Add new constraint with expanded values
 ALTER TABLE maintenance_tasks
 ADD CONSTRAINT maintenance_tasks_trigger_type_check
 CHECK (trigger_type IN (
     'engine_hours', 'daily', 'weekly', 'monthly', 'bi_annual', 'annual'
 ));
 
--- 3. Update log_service RPC to handle new trigger types
+-- 4. Update log_service RPC to handle new trigger types
 CREATE OR REPLACE FUNCTION log_service(
     p_task_id            UUID,
     p_engine_hours       INTEGER DEFAULT NULL,
