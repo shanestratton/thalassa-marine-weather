@@ -293,16 +293,6 @@ export const ChatPage: React.FC = () => {
             const chs = await loadChannels();
             loadUnreadCount();
 
-            // Auto-reopen last channel (survives tab switches)
-            const lastChannelId = localStorage.getItem('chat_last_channel');
-            if (lastChannelId && chs.length > 0) {
-                const lastChannel = chs.find(c => c.id === lastChannelId);
-                if (lastChannel) {
-                    setLoadingStatus('Loading messages…');
-                    openChannel(lastChannel);
-                }
-            }
-
             // Load chat profile (pre-populate vessel from onboarding)
             ChatService.getCurrentUser().then(async (user) => {
                 if (user) {
