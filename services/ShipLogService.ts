@@ -111,6 +111,10 @@ class ShipLogServiceClass {
     private envCheckIntervalId?: NodeJS.Timeout; // 60s environment polling (water/land + zone)
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
 
+    // Cached water detection status — updated every 60s by environment polling.
+    // Stamped onto every log entry so career totals can filter out land tracks.
+    private lastWaterStatus: boolean | undefined = undefined;
+
     // --- BATTLE-HARDENED GPS STREAMING ---
     // onLocation continuously caches the latest position. Timers decide WHEN to log,
     // but never block on getCurrentPosition. This survives background, suspension,
@@ -475,6 +479,8 @@ class ShipLogServiceClass {
             try {
                 // 1. Water/Land check
                 const isWater = await checkIsOnWater(pos.latitude, pos.longitude);
+                // Cache for stamping onto subsequent log entries
+                this.lastWaterStatus = isWater;
                 // Update EnvironmentService for UI consumers
                 EnvironmentService.updateWaterStatus(isWater);
 
@@ -820,6 +826,7 @@ class ShipLogServiceClass {
             // On-water check (fire-and-forget, fail-open)
             try {
                 entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
+                this.lastWaterStatus = entry.isOnWater; // Seed cache for subsequent entries
             } catch {
                 entry.isOnWater = true; // Fail open
             }
@@ -1099,7 +1106,10 @@ class ShipLogServiceClass {
                 eventCategory,
                 engineStatus,
                 notes,
-                waypointName: effectiveWaypointName
+                waypointName: effectiveWaypointName,
+                // Stamp water status from cached 60s environment polling.
+                // Ensures career totals filter has enough data to classify land vs water tracks.
+                isOnWater: this.lastWaterStatus,
             };
 
             // Try to save to Supabase (online)
