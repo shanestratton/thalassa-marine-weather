@@ -502,38 +502,36 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     onClick={() => setShowCompass(false)}
                 >
                     <div
-                        className="relative flex flex-col items-center gap-5 p-6 pt-10 rounded-3xl bg-gradient-to-b from-slate-800/95 to-slate-900/98 border border-white/10 shadow-2xl max-w-xs w-full mx-4"
-                        style={{ boxShadow: '0 0 60px rgba(94,234,212,0.08), 0 25px 50px rgba(0,0,0,0.5)' }}
+                        className="relative flex flex-col items-center gap-3 p-4 pt-8 rounded-2xl bg-gradient-to-b from-slate-800/95 to-slate-900/98 border border-white/10 shadow-2xl"
+                        style={{ boxShadow: '0 0 60px rgba(94,234,212,0.08), 0 25px 50px rgba(0,0,0,0.5)', maxWidth: '260px', width: '90%' }}
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Close button — prominent X */}
                         <button
                             onClick={() => setShowCompass(false)}
-                            className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all active:scale-95"
+                            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all active:scale-95"
                             aria-label="Close compass"
                         >
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                                <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                             </svg>
                         </button>
 
                         {/* Title */}
-                        <div className="flex items-center gap-2">
-                            <CompassIcon className="w-4 h-4 text-teal-400" rotation={0} />
-                            <span className="text-xs font-bold text-teal-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
+                        <div className="flex items-center gap-1.5">
+                            <CompassIcon className="w-3.5 h-3.5 text-teal-400" rotation={0} />
+                            <span className="text-[10px] font-bold text-teal-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
                         </div>
 
-                        {/* Large Compass — rendered at native resolution, no scaling */}
-                        <div className="py-2">
-                            <CompassWidget degrees={windDeg} size={200} />
-                        </div>
+                        {/* Compass — compact size */}
+                        <CompassWidget degrees={windDeg} size={160} />
 
                         {/* Degrees + Cardinal readout */}
-                        <div className="flex items-baseline gap-3">
-                            <span className="text-4xl font-light text-white tracking-tight" style={{ fontFeatureSettings: '"tnum"' }}>
+                        <div className="flex items-baseline gap-2 pb-1">
+                            <span className="text-3xl font-light text-white tracking-tight" style={{ fontFeatureSettings: '"tnum"' }}>
                                 {windDeg}°
                             </span>
-                            <span className="text-lg font-semibold text-teal-400/80 tracking-wider">{windDir}</span>
+                            <span className="text-base font-semibold text-teal-400/80 tracking-wider">{windDir}</span>
                         </div>
                     </div>
                 </div>
