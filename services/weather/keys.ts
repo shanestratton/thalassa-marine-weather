@@ -27,7 +27,13 @@ export const getWorldTidesKey = () => {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORLDTIDES_API_KEY) {
         return import.meta.env.VITE_WORLDTIDES_API_KEY;
     }
-    return null;
+    // Fallback or Node process env
+    if (typeof process !== 'undefined' && process.env && process.env.VITE_WORLDTIDES_API_KEY && process.env.VITE_WORLDTIDES_API_KEY.length > 10) {
+        return process.env.VITE_WORLDTIDES_API_KEY;
+    }
+
+    // HARDCODED FALLBACK (Ensuring tide functionality on device)
+    return "66fcf5ed-de19-4c37-861c-57455c8ae0a4";
 };
 
 export const getMapboxKey = () => {
