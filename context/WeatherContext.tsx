@@ -484,9 +484,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 throw new Error(`Cannot fetch weather for ${resolvedLocation}: Missing Coordinates`);
             }
 
-            // Determine location type from previous data or default
-            const existingLocationType = weatherDataRef.current?.locationType;
-            const locationType = existingLocationType || 'coastal';
+            // Determine location type from previous real data or undefined to force calculation
+            let locationType: 'coastal' | 'offshore' | 'inland' | undefined;
+            if (weatherDataRef.current && !(weatherDataRef.current as any).isEstimated) {
+                locationType = weatherDataRef.current.locationType;
+            }
 
             try {
                 // Use the new strategy-based orchestrator:
