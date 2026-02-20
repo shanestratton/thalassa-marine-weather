@@ -271,14 +271,30 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                 setArrival({ lat, lon, name });
             }
             setSettingPoint(null);
+            // Don't navigate to WX — stay on map
+            LocationStore.setFromMapPin(lat, lon);
+            return;
         }
 
-        // Update global LocationStore
-        LocationStore.setFromMapPin(lat, lon);
+        // If passage planner is open, auto-fill the first empty field
+        if (showPassage) {
+            const name = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+            if (!departure) {
+                setDeparture({ lat, lon, name });
+            } else if (!arrival) {
+                setArrival({ lat, lon, name });
+            } else {
+                // Both set — update arrival
+                setArrival({ lat, lon, name });
+            }
+            LocationStore.setFromMapPin(lat, lon);
+            return;
+        }
 
-        // Notify parent
+        // Default: Update global LocationStore + navigate to WX
+        LocationStore.setFromMapPin(lat, lon);
         onLocationSelect?.(lat, lon);
-    }, [settingPoint, onLocationSelect]);
+    }, [settingPoint, showPassage, departure, arrival, onLocationSelect]);
 
     // ── Weather Layer Toggle ──
     useEffect(() => {
@@ -522,10 +538,18 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                         </svg>
                         <h3 className="text-sm font-black text-white flex-1">Passage Planner</h3>
                         {routeAnalysis && (
-                            <button onClick={clearRoute} className="text-[10px] text-red-400 font-bold uppercase tracking-widest">
+                            <button onClick={clearRoute} className="text-[10px] text-red-400 font-bold uppercase tracking-widest mr-2">
                                 Clear
                             </button>
                         )}
+                        <button
+                            onClick={() => { setShowPassage(false); setSettingPoint(null); }}
+                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                        >
+                            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
 
                     <div className="px-5 pb-5 overflow-y-auto flex-1">
