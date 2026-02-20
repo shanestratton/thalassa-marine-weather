@@ -475,11 +475,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </div>
                         </div>
 
-                        {/* Engine hours snapshot */}
-                        <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
-                            <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
-                        </div>
+                        {/* Engine hours snapshot — only for engine-based tasks */}
+                        {sheetTask.trigger_type === 'engine_hours' && (
+                            <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
+                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
+                                <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
+                            </div>
+                        )}
 
                         {/* Notes */}
                         <div className="mb-4">
