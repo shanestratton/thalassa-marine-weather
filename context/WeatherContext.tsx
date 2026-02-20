@@ -14,7 +14,7 @@ import { getErrorMessage } from '../utils/logger';
 
 import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
-const CACHE_VERSION = 'v19.0-FIX';
+const CACHE_VERSION = 'v19.1-CACHE-CLEAR';
 // Keys imported from nativeStorage to stay in sync
 
 // INTELLIGENT UPDATE INTERVALS
