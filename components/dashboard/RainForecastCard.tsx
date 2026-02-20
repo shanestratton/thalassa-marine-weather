@@ -108,7 +108,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                         <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                             fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
                     </svg>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-ivory">
+                    <span className="text-sm font-semibold uppercase tracking-wider text-ivory">
                         No Rain Expected for the next hour
                     </span>
                 </div>
