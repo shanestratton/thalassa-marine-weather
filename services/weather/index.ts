@@ -261,7 +261,8 @@ export const fetchWeatherByStrategy = async (
     baseReport.modelUsed = sourcesParts.join('+') || baseReport.modelUsed;
 
     // Ensure location metadata is set
-    baseReport.locationType = locationType;
+    // NOTE: locationType is already set on baseReport via computedLocationType (line 99)
+    // Do NOT overwrite it with the raw argument which may be undefined
     baseReport.locationName = name;
 
     return baseReport;
