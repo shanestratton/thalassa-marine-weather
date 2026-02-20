@@ -64,7 +64,8 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
     // Trigger geocoding when waypointName is missing OR is a sentinel placeholder
     useEffect(() => {
         const fetchLocationNames = async () => {
-            if (firstEntry && isSentinelName(firstEntry.waypointName) && (firstEntry.latitude || firstEntry.longitude)) {
+            // Skip placeholder 0,0 coords — GPS retry hasn't filled in yet
+            if (firstEntry && isSentinelName(firstEntry.waypointName) && (firstEntry.latitude !== 0 || firstEntry.longitude !== 0)) {
                 try {
                     const name = await reverseGeocode(firstEntry.latitude, firstEntry.longitude);
                     if (name) setStartLocationName(name);
@@ -72,7 +73,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                     // Fallback to coords
                 }
             }
-            if (lastEntry && isSentinelName(lastEntry.waypointName) && lastEntry.id !== firstEntry?.id && (lastEntry.latitude || lastEntry.longitude)) {
+            if (lastEntry && isSentinelName(lastEntry.waypointName) && lastEntry.id !== firstEntry?.id && (lastEntry.latitude !== 0 || lastEntry.longitude !== 0)) {
                 try {
                     const name = await reverseGeocode(lastEntry.latitude, lastEntry.longitude);
                     if (name) setEndLocationName(name);
@@ -82,7 +83,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
             }
         };
         fetchLocationNames();
-    }, [firstEntry?.id, lastEntry?.id]);
+    }, [firstEntry?.id, lastEntry?.id, firstEntry?.latitude, lastEntry?.latitude]);
 
     // Get display name for a location
     const getLocationDisplay = (entry: ShipLogEntry | undefined, resolvedName: string | null): string => {
@@ -214,8 +215,8 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                                     {firstEntry ? (
                                         <>
                                             {getLocationDisplay(firstEntry, startLocationName)}
-                                            {/* Only show end location for completed voyages */}
-                                            {!isActive && lastEntry && (
+                                            {/* Show end location (→ Destination) for all voyages with >1 entry */}
+                                            {lastEntry && lastEntry.id !== firstEntry.id && (
                                                 <>
                                                     <span className="text-slate-400 mx-2">→</span>
                                                     {getLocationDisplay(lastEntry, endLocationName)}
