@@ -29,6 +29,7 @@ const VesselHub = React.lazy(() => import('./components/VesselHub').then(module 
 const InventoryPage = React.lazy(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
 const MaintenancePage = React.lazy(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
 const EquipmentPage = React.lazy(() => import('./components/vessel/EquipmentList').then(m => ({ default: m.EquipmentList })));
+const DocumentsPage = React.lazy(() => import('./components/vessel/DocumentsHub').then(m => ({ default: m.DocumentsHub })));
 const NmeaGatewayPage = React.lazy(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
 const PolarPage = React.lazy(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
@@ -44,7 +45,7 @@ const App: React.FC = () => {
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline } = useUI();
-    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment';
+    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -179,7 +180,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
@@ -288,6 +289,7 @@ const App: React.FC = () => {
                                         {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
                                         {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>

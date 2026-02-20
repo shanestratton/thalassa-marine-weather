@@ -287,6 +287,23 @@ export interface EquipmentItem {
     updated_at: string;
 }
 
+/** Ship's documents categories */
+export type DocumentCategory = 'Registration' | 'Insurance' | 'Crew Visas/IDs' | 'Radio/MMSI' | 'Customs Clearances';
+
+/** Ship's document — legal and clearance paperwork */
+export interface ShipDocument {
+    id: string;
+    user_id: string;
+    document_name: string;
+    category: DocumentCategory;
+    issue_date: string | null;
+    expiry_date: string | null;
+    file_uri: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
