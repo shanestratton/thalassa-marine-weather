@@ -319,6 +319,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const pressureVal = data.pressure !== null && data.pressure !== undefined ? Math.round(data.pressure) : '--';
     const seaTemp = data.waterTemperature !== null && data.waterTemperature !== undefined
         ? convertTemp(data.waterTemperature, units.temp) : '--';
+    const humidityVal = data.humidity !== null && data.humidity !== undefined ? Math.round(data.humidity) : '--';
     const rainVal = data.precipitation !== null && data.precipitation !== undefined ? Math.round(data.precipitation) : '--';
 
     const speedUnit = units.speed || 'kts';
@@ -333,6 +334,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const isWaveImproving = trends?.waveHeight === 'down';
     const isVisImproving = trends?.visibility === 'up';
     const isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
+    const isHumidityImproving = trends?.humidity === 'down'; // Lower humidity = more comfortable
 
     const [showCompass, setShowCompass] = useState(false);
 
@@ -423,11 +425,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     trend={trends?.pressure}
                 />
 
-                {/* Sea Temp */}
+                {/* Humidity */}
                 <InstrumentCell
-                    label="SEAS"
-                    icon={<ThermometerIcon className="w-3 h-3" />}
-                    value={seaTemp !== '--' ? `${seaTemp}°` : '--'}
+                    label="HUM"
+                    icon={<DropletIcon className="w-3 h-3" />}
+                    value={humidityVal}
+                    unit="%"
+                    trend={trends?.humidity}
+                    improving={isHumidityImproving}
                 />
 
                 {/* Rain */}
