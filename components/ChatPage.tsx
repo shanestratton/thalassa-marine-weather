@@ -838,7 +838,8 @@ export const ChatPage: React.FC = () => {
         });
         setProfileSaving(false);
         setProfileSaved(true);
-        setTimeout(() => setProfileSaved(false), 2000);
+        // Brief success feedback, then return to channel list
+        setTimeout(() => { setProfileSaved(false); setView('channels'); }, 1200);
     };
 
     // --- DM ACTIONS ---
