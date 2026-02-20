@@ -113,7 +113,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 </span>
                                 {feelsLike !== null && (
                                     <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
-                                        Feels {feelsLike}°
+                                        Feels Like {feelsLike}°
                                     </span>
                                 )}
                             </>
@@ -138,7 +138,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </div>
                             {data.dewPoint !== null && data.dewPoint !== undefined && (
                                 <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
-                                    Dew {Math.round(data.dewPoint)}°
+                                    Dew Point {Math.round(data.dewPoint)}°
                                 </span>
                             )}
                         </>

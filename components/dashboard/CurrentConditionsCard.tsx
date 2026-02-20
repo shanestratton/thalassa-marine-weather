@@ -1,7 +1,7 @@
 import React from 'react';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertSpeed } from '../../utils';
-import { SunIcon, RainIcon, WindIcon, DropletIcon, ThermometerIcon } from '../Icons';
+import { SunIcon, RainIcon, DropletIcon, EyeIcon } from '../Icons';
 
 interface CurrentConditionsCardProps {
     data: WeatherMetrics;
@@ -31,9 +31,10 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
     const humidity = data.humidity !== null && data.humidity !== undefined
         ? `${Math.round(data.humidity)}%`
         : '--';
-    const dewPoint = data.dewPoint !== null && data.dewPoint !== undefined
-        ? `${Math.round(data.dewPoint)}°`
+    const visibility = data.visibility !== null && data.visibility !== undefined
+        ? `${Math.round(data.visibility)}`
         : '--';
+    const visUnit = units.visibility || 'km';
 
     return (
         <div className="w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl transition-all duration-300">
@@ -86,13 +87,16 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{humidity}</span>
                 </div>
 
-                {/* Dew Point */}
+                {/* Visibility */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <ThermometerIcon className="w-3 h-3 text-teal-400" />
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Dew</span>
+                        <EyeIcon className="w-3 h-3 text-teal-400" />
+                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Vis</span>
                     </div>
-                    <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{dewPoint}</span>
+                    <div className="flex items-baseline mt-1">
+                        <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{visibility}</span>
+                        <span className="text-[10px] text-white/50 font-medium ml-0.5">{visUnit}</span>
+                    </div>
                 </div>
             </div>
         </div>
