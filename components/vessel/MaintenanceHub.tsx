@@ -16,6 +16,7 @@ import {
 } from '../../services/MaintenanceService';
 import type { MaintenanceTask, MaintenanceCategory, MaintenanceTriggerType, MaintenanceHistory } from '../../types';
 import { triggerHaptic } from '../../utils/system';
+import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -71,6 +72,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // History
     const [historyItems, setHistoryItems] = useState<MaintenanceHistory[]>([]);
     const [showHistory, setShowHistory] = useState(false);
+
+    // Export
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [exporting, setExporting] = useState(false);
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
 
@@ -191,6 +196,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, []);
 
+    // ── Export PDF ──
+    const handleExport = useCallback(async (type: 'checklist' | 'history') => {
+        setExporting(true);
+        try {
+            triggerHaptic('medium');
+            const vesselName = localStorage.getItem('thalassa_vessel_name') || 'Vessel';
+            if (type === 'checklist') {
+                await exportChecklist(engineHours, vesselName);
+            } else {
+                await exportServiceHistory(vesselName);
+            }
+            setShowExportModal(false);
+        } catch (e) {
+            console.error('Failed to export PDF:', e);
+        } finally {
+            setExporting(false);
+        }
+    }, [engineHours]);
+
     // ── Render ──
     return (
         <div className="w-full max-w-2xl mx-auto px-4 pb-24 pt-4 animate-in fade-in duration-300 overflow-y-auto h-full">
@@ -220,6 +244,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     )}
                     <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black">{counts.green}</span>
                 </div>
+
+                {/* Export PDF Button */}
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setShowExportModal(true);
+                    }}
+                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
+                    title="Export PDF"
+                >
+                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                </button>
             </div>
 
             {/* ═══ ENGINE HOURS CARD ═══ */}
@@ -272,8 +310,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 <button
                     onClick={() => setSelectedCategory('all')}
                     className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${selectedCategory === 'all'
-                            ? 'bg-white/15 text-white border border-white/20'
-                            : 'bg-white/5 text-gray-500 border border-white/5'
+                        ? 'bg-white/15 text-white border border-white/20'
+                        : 'bg-white/5 text-gray-500 border border-white/5'
                         }`}
                 >
                     All ({tasks.length})
@@ -285,8 +323,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             key={cat.id}
                             onClick={() => setSelectedCategory(cat.id)}
                             className={`shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${selectedCategory === cat.id
-                                    ? 'bg-white/15 text-white border border-white/20'
-                                    : 'bg-white/5 text-gray-500 border border-white/5'
+                                ? 'bg-white/15 text-white border border-white/20'
+                                : 'bg-white/5 text-gray-500 border border-white/5'
                                 }`}
                         >
                             {cat.icon} {cat.label} ({count})
@@ -504,8 +542,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         key={cat.id}
                                         onClick={() => setNewCategory(cat.id)}
                                         className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${newCategory === cat.id
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
                                             }`}
                                     >
                                         {cat.icon} {cat.label}
@@ -523,8 +561,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         key={t}
                                         onClick={() => setNewTrigger(t)}
                                         className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${newTrigger === t
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
                                             }`}
                                     >
                                         {TRIGGER_LABELS[t]}
@@ -620,6 +658,68 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         )}
                                     </div>
                                 ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════ */}
+            {/* EXPORT PDF MODAL */}
+            {/* ═══════════════════════════════════════════ */}
+            {showExportModal && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center" onClick={() => setShowExportModal(false)}>
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+                    <div
+                        className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-3xl p-6 animate-in fade-in zoom-in-95 duration-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-black text-white mb-1">Export PDF</h3>
+                        <p className="text-xs text-gray-500 mb-5">Choose a report format:</p>
+
+                        {/* Option A: Blank Checklist */}
+                        <button
+                            onClick={() => handleExport('checklist')}
+                            disabled={exporting}
+                            className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-cyan-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-sky-500/20 rounded-xl">
+                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-black text-white">Print Blank Checklist</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
+                                </div>
+                            </div>
+                        </button>
+
+                        {/* Option B: Service History */}
+                        <button
+                            onClick={() => handleExport('history')}
+                            disabled={exporting}
+                            className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-amber-500/20 rounded-xl">
+                                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-black text-white">Export Service History</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
+                                </div>
+                            </div>
+                        </button>
+
+                        {exporting && (
+                            <div className="flex items-center justify-center gap-2 mt-4">
+                                <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                                <span className="text-xs text-sky-400 font-bold">Generating PDF...</span>
                             </div>
                         )}
                     </div>
