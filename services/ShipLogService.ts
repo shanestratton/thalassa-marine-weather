@@ -676,6 +676,26 @@ class ShipLogServiceClass {
     }
 
     /**
+     * Get GPS navigation data (SOG and COG) for dashboard display.
+     * Returns speed over ground in knots and course over ground in degrees.
+     */
+    getGpsNavData(): { sogKts: number | null; cogDeg: number | null } {
+        const pos = this.lastBgLocation || BgGeoManager.getLastPosition();
+        if (!pos) return { sogKts: null, cogDeg: null };
+
+        const ageMs = Date.now() - pos.receivedAt;
+        if (ageMs > GPS_STALE_LIMIT_MS) return { sogKts: null, cogDeg: null };
+
+        const sogKts = pos.speed != null && pos.speed >= 0
+            ? parseFloat((pos.speed * 1.94384).toFixed(1))  // m/s → knots
+            : null;
+        const cogDeg = pos.heading != null && pos.heading >= 0
+            ? Math.round(pos.heading)
+            : null;
+        return { sogKts, cogDeg };
+    }
+
+    /**
      * Pause tracking (user initiated)
      */
     async pauseTracking(): Promise<void> {

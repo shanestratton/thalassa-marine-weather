@@ -46,6 +46,7 @@ interface OMHourlyBlock {
     wind_direction_10m: number[];
     wind_gusts_10m: number[];
     uv_index: number[];
+    cape: number[];
 }
 
 interface OMDailyBlock {
@@ -165,7 +166,7 @@ export const fetchOpenMeteo = async (
         latitude: safeLat.toFixed(4),
         longitude: safeLon.toFixed(4),
         current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-        hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index",
+        hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,cape",
         daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
         timezone: "auto",
         forecast_days: "16",
@@ -239,6 +240,7 @@ export const fetchOpenMeteo = async (
     const curVis = wData.hourly?.visibility ? wData.hourly.visibility[currentHourIndex] : 10000; // meters
     const curDew = wData.hourly?.dew_point_2m ? wData.hourly.dew_point_2m[currentHourIndex] : 0;
     const curUV = wData.hourly?.uv_index ? wData.hourly.uv_index[currentHourIndex] : 0;
+    const curCAPE = wData.hourly?.cape ? wData.hourly.cape[currentHourIndex] : 0;
 
     const windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified. 
     // Wait, params didn't specify units. Default is km/h. 
@@ -287,7 +289,8 @@ export const fetchOpenMeteo = async (
         currentSpeed: 0,
         currentDirection: 0,
         highTemp: undefined as number | undefined,
-        lowTemp: undefined as number | undefined
+        lowTemp: undefined as number | undefined,
+        cape: curCAPE
     };
     currentMetrics.description = generateDescription(currentMetrics.condition, currentMetrics.windSpeed, currentMetrics.windDirection, waveH);
 

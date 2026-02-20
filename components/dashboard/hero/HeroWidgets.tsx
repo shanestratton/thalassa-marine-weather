@@ -361,6 +361,66 @@ export const renderHeroWidget = (
                     </div>
                 </div>
             );
+        case 'cape': {
+            const capeVal = data.cape ?? 0;
+            const capeDisplay = values.cape ?? '--';
+            // CAPE severity colors: <300 = low (green), 300-1000 = moderate (yellow), 1000-2500 = high (orange), >2500 = extreme (red)
+            const capeColor = capeVal >= 2500 ? 'text-red-400' : capeVal >= 1000 ? 'text-orange-400' : capeVal >= 300 ? 'text-yellow-400' : 'text-emerald-400';
+            const capeLabel = capeVal >= 2500 ? 'EXTREME' : capeVal >= 1000 ? 'HIGH' : capeVal >= 300 ? 'MOD' : 'LOW';
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <CloudIcon className={`w-3 h-3 ${isLive ? 'text-yellow-400' : 'text-slate-400'}`} />
+                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-yellow-200' : 'text-slate-300'}`}>CAPE</span>
+                    </div>
+                    <div className="flex items-end gap-1">
+                        <span className={`${valSize} font-mono font-medium tracking-tight ${capeColor}`}>{capeDisplay}</span>
+                        <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>J/kg</span>
+                    </div>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider ${capeColor} opacity-80`}>{capeLabel}</span>
+                </div>
+            );
+        }
+        case 'sog': {
+            const sogDisplay = values.sogKts ?? '--';
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'}`}>SOG</span>
+                    </div>
+                    <div className="flex items-end gap-1">
+                        <span className={`${valSize} font-mono font-medium tracking-tight text-white`}>{sogDisplay}</span>
+                        <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>kts</span>
+                    </div>
+                    <span className="text-[9px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                </div>
+            );
+        }
+        case 'cog': {
+            const cogDisplay = values.cogDeg ?? '--';
+            const cogNum = typeof values.cogDeg === 'number' ? values.cogDeg : null;
+            const cogCardinal = cogNum !== null ? (() => {
+                const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+                return dirs[Math.round(cogNum / 22.5) % 16];
+            })() : '--';
+            return (
+                <div className={`flex flex-col h-full justify-between ${alignClass}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
+                        <CompassIcon className={`w-3 h-3 ${isLive ? 'text-violet-400' : 'text-slate-400'}`} rotation={cogNum ?? 0} />
+                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-violet-200' : 'text-slate-300'}`}>COG</span>
+                    </div>
+                    <div className="flex items-end gap-1">
+                        <span className={`${valSize} font-mono font-medium tracking-tight text-white`}>{cogDisplay}</span>
+                        <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>°</span>
+                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-violet-300 border border-white/5 ml-1`}>
+                            <span>{cogCardinal}</span>
+                        </div>
+                    </div>
+                    <span className="text-[9px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                </div>
+            );
+        }
         default:
             return null;
     }

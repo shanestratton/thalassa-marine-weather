@@ -204,6 +204,7 @@ export interface WeatherMetrics {
     stationId?: string;    // e.g. "YBSU"
     precipLabel?: string;  // e.g. "HEAVY RAIN"
     precipValue?: string;  // e.g. "55mm"
+    cape?: number | null;  // Convective Available Potential Energy (J/kg) — thunderstorm instability
 }
 
 export interface CalibratedSensorData extends Partial<WeatherMetrics> {
