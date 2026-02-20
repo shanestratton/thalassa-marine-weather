@@ -15,6 +15,7 @@ import {
 } from '../components/Icons';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
+import { SlideToAction } from '../components/ui/SlideToAction';
 import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
 import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
 import { EditEntryModal } from '../components/EditEntryModal';
@@ -443,34 +444,31 @@ export const LogPage: React.FC = () => {
 
                     {/* ── Start/Stop Tracking + New Entry ── pinned at bottom of flex layout */}
                     <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
-                        <div className="flex gap-2">
-                            {isTracking ? (
-                                <>
-                                    <button
-                                        onClick={handleStopTracking}
-                                        className="px-4 py-3 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
-                                    >
-                                        <StopIcon className="w-4 h-4" />
-                                        Stop
-                                    </button>
-                                    <button
-                                        onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                                        className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
-                                    >
-                                        <PlusIcon className="w-5 h-5" />
-                                        New Log Entry
-                                    </button>
-                                </>
-                            ) : (
+                        {isTracking ? (
+                            <div className="flex gap-2">
                                 <button
-                                    onClick={handleStartTracking}
-                                    className="flex-1 px-4 py-3.5 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
+                                    onClick={handleStopTracking}
+                                    className="px-4 py-3 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                 >
-                                    <PlayIcon className="w-5 h-5" />
-                                    Start Tracking
+                                    <StopIcon className="w-4 h-4" />
+                                    Stop
                                 </button>
-                            )}
-                        </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
+                                    className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                                >
+                                    <PlusIcon className="w-5 h-5" />
+                                    New Log Entry
+                                </button>
+                            </div>
+                        ) : (
+                            <SlideToAction
+                                label="Slide to Start Tracking"
+                                thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
+                                onConfirm={handleStartTracking}
+                                theme="emerald"
+                            />
+                        )}
                     </div>
                 </div>
             )}
