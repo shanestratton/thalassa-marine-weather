@@ -17,6 +17,7 @@ import {
 import type { MaintenanceTask, MaintenanceCategory, MaintenanceTriggerType, MaintenanceHistory } from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
+import { SlideToAction } from '../ui/SlideToAction';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -527,7 +528,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
-            <div className="flex-1 overflow-y-auto space-y-2 pb-24 min-h-0">
+            <div className="flex-1 overflow-y-auto space-y-2 pb-4 min-h-0 -webkit-overflow-scrolling-touch">
                 {loading ? (
                     <div className="flex items-center justify-center py-12">
                         <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -557,18 +558,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
             {/* ═══ ADD TASK BUTTON (fixed at bottom) ═══ */}
             <div className="shrink-0 pt-3 pb-[env(safe-area-inset-bottom,0px)]">
-                <button
-                    onClick={() => {
-                        triggerHaptic('light');
+                <SlideToAction
+                    label="Slide to Add Task"
+                    thumbIcon={
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                    }
+                    onConfirm={() => {
+                        triggerHaptic('medium');
                         setShowAddForm(true);
                     }}
-                    className="w-full py-4 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.98]"
-                >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span className="text-sm font-black text-white uppercase tracking-[0.15em]">Add Maintenance Task</span>
-                </button>
+                    theme="sky"
+                />
             </div>
 
             {/* ═══════════════════════════════════════════ */}
