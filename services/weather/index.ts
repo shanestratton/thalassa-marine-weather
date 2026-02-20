@@ -36,7 +36,7 @@ export const fetchWeatherByStrategy = async (
     lat: number,
     lon: number,
     name: string,
-    locationType: 'coastal' | 'offshore' | 'inland'
+    locationType?: 'coastal' | 'offshore' | 'inland'
 ): Promise<MarineWeatherReport> => {
 
     const needsTomorrowLive = locationType !== 'offshore';
@@ -82,9 +82,11 @@ export const fetchWeatherByStrategy = async (
     // For coastal: StormGlass with OpenMeteo enrichment
     let baseReport: MarineWeatherReport;
 
-    if (locationType === 'offshore' && stormGlassReport) {
+    const computedLocationType = stormGlassReport?.locationType || openMeteoReport?.locationType || locationType || 'coastal';
+
+    if (computedLocationType === 'offshore' && stormGlassReport) {
         baseReport = stormGlassReport;
-    } else if (locationType === 'inland' && openMeteoReport) {
+    } else if (computedLocationType === 'inland' && openMeteoReport) {
         baseReport = openMeteoReport;
     } else if (stormGlassReport) {
         baseReport = stormGlassReport;
