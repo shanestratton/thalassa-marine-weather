@@ -30,7 +30,7 @@ interface MapHubProps {
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
 }
 
-type WeatherLayer = 'none' | 'wind' | 'rain' | 'temperature' | 'sea' | 'satellite';
+type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'sea' | 'satellite';
 
 // ── Free tile sources (no API key required) ──
 const STATIC_TILES: Record<string, string> = {
@@ -311,47 +311,28 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
 
         if (activeLayer === 'none') return;
 
-        // Rain needs dynamic timestamp from RainViewer API
-        if (activeLayer === 'rain') {
-            fetch('https://api.rainviewer.com/public/weather-maps.json')
-                .then(r => r.json())
-                .then(data => {
-                    const latestRadar = data?.radar?.past?.slice(-1)?.[0];
-                    if (!latestRadar?.path) return;
-                    const tileUrl = `https://tilecache.rainviewer.com${latestRadar.path}/256/{z}/{x}/{y}/2/1_1.png`;
-                    if (!map.getSource('weather-tiles')) {
-                        map.addSource('weather-tiles', {
-                            type: 'raster',
-                            tiles: [tileUrl],
-                            tileSize: 256,
-                        });
-                        map.addLayer({
-                            id: 'weather-tiles',
-                            type: 'raster',
-                            source: 'weather-tiles',
-                            paint: { 'raster-opacity': 0.7 },
-                        }, 'route-line-layer');
-                    }
-                })
-                .catch(e => console.warn('RainViewer fetch failed:', e));
-            return;
-        }
+        // OWM weather layers — all through user's API key
+        const OWM_LAYERS: Record<string, string> = {
+            rain: 'precipitation_new',
+            wind: 'wind_new',
+            temperature: 'temp_new',
+            clouds: 'clouds_new',
+        };
 
-        // Wind / Temperature: OWM tiles (need API key)
-        if (activeLayer === 'wind' || activeLayer === 'temperature') {
+        const owmLayer = OWM_LAYERS[activeLayer];
+        if (owmLayer) {
             const owmKey = getOwmKey();
             if (owmKey) {
-                const layerName = activeLayer === 'wind' ? 'wind_new' : 'temp_new';
                 map.addSource('weather-tiles', {
                     type: 'raster',
-                    tiles: [`https://tile.openweathermap.org/map/${layerName}/{z}/{x}/{y}.png?appid=${owmKey}`],
+                    tiles: [`https://tile.openweathermap.org/map/${owmLayer}/{z}/{x}/{y}.png?appid=${owmKey}`],
                     tileSize: 256,
                 });
                 map.addLayer({
                     id: 'weather-tiles',
                     type: 'raster',
                     source: 'weather-tiles',
-                    paint: { 'raster-opacity': 0.6 },
+                    paint: { 'raster-opacity': 0.65 },
                 }, 'route-line-layer');
             }
             return;
@@ -499,9 +480,10 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, onLocationSelect })
                     <div className="bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
                         {([
                             { key: 'none', label: 'None', icon: '🗺️' },
-                            { key: 'rain', label: 'Rain Radar', icon: '🌧️' },
+                            { key: 'rain', label: 'Rain', icon: '🌧️' },
                             { key: 'wind', label: 'Wind', icon: '💨' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
+                            { key: 'clouds', label: 'Clouds', icon: '☁️' },
                             { key: 'sea', label: 'Sea Marks', icon: '⚓' },
                             { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                         ] as const).map(layer => (
