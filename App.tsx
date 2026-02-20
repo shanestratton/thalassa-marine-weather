@@ -178,7 +178,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
