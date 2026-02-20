@@ -713,6 +713,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (!nextUpdateRef.current) return;
             if (Date.now() >= nextUpdateRef.current) {
 
+                // Immediately push nextUpdate forward so the countdown shows
+                // "Updating..." instead of "Overdue Xm" while the fetch runs.
+                // The actual nextUpdate will be properly set when fetch completes.
+                const tempNext = Date.now() + 90000; // 90s grace window
+                nextUpdateRef.current = tempNext;
+                setNextUpdate(tempNext);
+
                 // INTELLIGENT GPS vs SELECTED MODE
                 if (locationMode === 'gps' && navigator.geolocation) {
                     // GPS Mode: Get fresh coordinates
