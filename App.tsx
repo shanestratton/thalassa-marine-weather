@@ -26,7 +26,7 @@ const SettingsView = React.lazy(() => import('./components/SettingsModal').then(
 const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
 const VesselHub = React.lazy(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
 const InventoryPage = React.lazy(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
-const MaintenancePage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.MaintenancePage })));
+const MaintenancePage = React.lazy(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
 const NmeaGatewayPage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.NmeaGatewayPage })));
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
