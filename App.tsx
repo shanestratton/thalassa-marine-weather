@@ -2,6 +2,7 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { AnchorWatchService } from './services/AnchorWatchService';
+import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
@@ -60,6 +61,14 @@ const App: React.FC = () => {
     // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
     useEffect(() => {
         AnchorWatchService.restoreWatchState().catch(() => { /* Non-critical */ });
+    }, []);
+
+    // Initialize local-first database and start background sync engine.
+    useEffect(() => {
+        initLocalDatabase()
+            .then(() => startSyncEngine())
+            .catch(e => console.error('[App] Local DB init failed:', e));
+        return () => stopSyncEngine();
     }, []);
 
     // Loading State
