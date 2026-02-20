@@ -6,6 +6,7 @@ import {
     PowerBoatIcon, SailBoatIcon, AnchorIcon
 } from './Icons';
 import { WeatherMap } from './WeatherMap';
+import { SlideToAction } from './ui/SlideToAction';
 import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { t } from '../theme';
@@ -48,6 +49,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
 
     const [tempMapSelection, setTempMapSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
     const [departureTime, setDepartureTime] = useState('06:00');
+    const formRef = React.useRef<HTMLFormElement>(null);
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
@@ -186,7 +188,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                 </div>
             ) : (
                 /* EMPTY STATE — single screen, no scroll */
-                <form onSubmit={handleCalculate} className="flex-1 flex flex-col min-h-0 px-4">
+                <form ref={formRef} onSubmit={handleCalculate} className="flex-1 flex flex-col min-h-0 px-4">
                     {/* Form inputs at top */}
                     <div className="pt-4 space-y-3 max-w-xl mx-auto w-full">
                         {/* Origin */}
@@ -310,24 +312,27 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                         </div>
                     )}
 
-                    {/* Calculate Route button — pinned 8px above menu bar */}
+                    {/* Calculate Route slider — pinned 8px above menu bar */}
                     <div className="pb-[calc(8px+env(safe-area-inset-bottom))] mb-[72px] max-w-xl mx-auto w-full">
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className={`h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 ${isPro ? 'bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white shadow-teal-900/20' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
-                        >
-                            {!isPro ? (
-                                <>
-                                    <LockIcon className="w-4 h-4 text-teal-400" />
-                                    Unlock Route Planning
-                                </>
-                            ) : loading ? (
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                "Calculate Route"
-                            )}
-                        </button>
+                        {!isPro ? (
+                            <button
+                                type="button"
+                                onClick={onTriggerUpgrade}
+                                className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
+                            >
+                                <LockIcon className="w-4 h-4 text-teal-400" />
+                                Unlock Route Planning
+                            </button>
+                        ) : (
+                            <SlideToAction
+                                label="Slide to Calculate Route"
+                                thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
+                                onConfirm={() => formRef.current?.requestSubmit()}
+                                loading={loading}
+                                loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
+                                theme="teal"
+                            />
+                        )}
                     </div>
                 </form>
             )}
