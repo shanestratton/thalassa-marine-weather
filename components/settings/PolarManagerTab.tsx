@@ -220,13 +220,15 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             </div>
 
             {/* Polar Chart Visualization */}
-            <div className="mt-8 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
-                <div className="flex items-center gap-2 mb-4">
+            <div className="mt-8 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg">
+                <div className="flex items-center justify-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-cyan-500" />
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
-                    {boatModel && <span className="text-xs text-gray-500 ml-auto">{boatModel}</span>}
+                    {boatModel && <span className="text-xs text-gray-500 ml-2">— {boatModel}</span>}
                 </div>
-                <PolarChart data={polarData} overlayData={smartPolarData} />
+                <div className="flex justify-center">
+                    <PolarChart data={polarData} overlayData={smartPolarData} />
+                </div>
             </div>
         </div>
     );
