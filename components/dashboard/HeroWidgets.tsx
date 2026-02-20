@@ -67,57 +67,91 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
     );
 };
 
-// --- Award-Winning SVG Compass Widget ---
-const CompassWidget: React.FC<{ degrees: number; direction: string }> = ({ degrees, direction }) => {
-    // The needle points in the wind direction (where wind is coming FROM)
+// --- Premium SVG Compass Widget ---
+const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 200 }) => {
     const needleRotation = degrees;
-    const size = 52;
     const cx = size / 2;
     const cy = size / 2;
-    const outerR = 23;
-    const innerR = 19;
-    const tickR = 21;
+    const outerR = size * 0.45;
+    const innerR = size * 0.39;
+    const cardinalR = size * 0.28;
+    const labelR = size * 0.19;
 
     return (
         <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
-                {/* Definitions */}
                 <defs>
-                    {/* Compass face gradient */}
-                    <radialGradient id="compassFace" cx="50%" cy="40%" r="50%">
-                        <stop offset="0%" stopColor="rgba(30,41,59,0.95)" />
-                        <stop offset="100%" stopColor="rgba(15,23,42,0.98)" />
+                    {/* Compass face gradient — deep, rich dark */}
+                    <radialGradient id="compassFaceLg" cx="50%" cy="35%" r="55%">
+                        <stop offset="0%" stopColor="rgba(30,41,59,0.98)" />
+                        <stop offset="70%" stopColor="rgba(15,23,42,0.99)" />
+                        <stop offset="100%" stopColor="rgba(8,12,21,1)" />
                     </radialGradient>
 
+                    {/* Bezel gradient — metallic silver ring */}
+                    <linearGradient id="bezelGradLg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(148,163,184,0.45)" />
+                        <stop offset="50%" stopColor="rgba(71,85,105,0.25)" />
+                        <stop offset="100%" stopColor="rgba(148,163,184,0.45)" />
+                    </linearGradient>
+
                     {/* Needle glow */}
-                    <filter id="needleGlow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+                    <filter id="needleGlowLg" x="-100%" y="-100%" width="300%" height="300%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
                     </filter>
 
-                    {/* Outer ring gradient */}
-                    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="rgba(94,234,212,0.4)" />
-                        <stop offset="50%" stopColor="rgba(56,189,248,0.3)" />
-                        <stop offset="100%" stopColor="rgba(94,234,212,0.4)" />
+                    {/* Outer ring glow */}
+                    <filter id="outerGlowLg" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="4" />
+                    </filter>
+
+                    {/* Needle gradient */}
+                    <linearGradient id="needleGradLg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#ef4444" />
+                    </linearGradient>
+
+                    {/* Teal accent gradient */}
+                    <linearGradient id="tealAccentLg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(94,234,212,0.9)" />
+                        <stop offset="100%" stopColor="rgba(45,212,191,0.7)" />
                     </linearGradient>
                 </defs>
 
-                {/* Outer bezel ring */}
+                {/* Outer glow ring */}
+                <circle cx={cx} cy={cy} r={outerR + 2} fill="none"
+                    stroke="rgba(94,234,212,0.15)" strokeWidth="6"
+                    filter="url(#outerGlowLg)" />
+
+                {/* Outer bezel ring — metallic */}
                 <circle cx={cx} cy={cy} r={outerR} fill="none"
-                    stroke="url(#ringGrad)" strokeWidth="1.5" />
+                    stroke="url(#bezelGradLg)" strokeWidth="2" />
+
+                {/* Inner bezel ring */}
+                <circle cx={cx} cy={cy} r={outerR - 3} fill="none"
+                    stroke="rgba(148,163,184,0.08)" strokeWidth="0.5" />
 
                 {/* Face background */}
-                <circle cx={cx} cy={cy} r={innerR} fill="url(#compassFace)"
-                    stroke="rgba(94,234,212,0.12)" strokeWidth="0.5" />
+                <circle cx={cx} cy={cy} r={innerR} fill="url(#compassFaceLg)"
+                    stroke="rgba(94,234,212,0.1)" strokeWidth="0.5" />
 
                 {/* Degree tick marks */}
-                {Array.from({ length: 36 }).map((_, i) => {
-                    const angle = i * 10;
+                {Array.from({ length: 72 }).map((_, i) => {
+                    const angle = i * 5;
                     const rad = (angle - 90) * Math.PI / 180;
                     const isCardinal = angle % 90 === 0;
+                    const isIntercardinal = angle % 45 === 0 && !isCardinal;
                     const isMajor = angle % 30 === 0;
-                    const r1 = isCardinal ? innerR - 5 : isMajor ? innerR - 3.5 : innerR - 2;
+                    const isMinor10 = angle % 10 === 0;
+                    const len = isCardinal ? 12 : isIntercardinal ? 9 : isMajor ? 7 : isMinor10 ? 5 : 3;
+                    const r1 = innerR - len;
                     const r2 = innerR - 1;
+                    const color = isCardinal ? 'rgba(94,234,212,0.8)'
+                        : isIntercardinal ? 'rgba(94,234,212,0.4)'
+                            : isMajor ? 'rgba(255,255,255,0.3)'
+                                : isMinor10 ? 'rgba(255,255,255,0.18)'
+                                    : 'rgba(255,255,255,0.08)';
+                    const width = isCardinal ? 1.5 : isIntercardinal ? 1 : 0.5;
 
                     return (
                         <line key={i}
@@ -125,20 +159,38 @@ const CompassWidget: React.FC<{ degrees: number; direction: string }> = ({ degre
                             y1={cy + r1 * Math.sin(rad)}
                             x2={cx + r2 * Math.cos(rad)}
                             y2={cy + r2 * Math.sin(rad)}
-                            stroke={isCardinal ? 'rgba(94,234,212,0.7)' : isMajor ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)'}
-                            strokeWidth={isCardinal ? 1 : 0.5}
+                            stroke={color}
+                            strokeWidth={width}
                         />
                     );
                 })}
 
                 {/* Cardinal labels */}
-                {[{ l: 'N', a: 0, c: '#f87171' }, { l: 'E', a: 90, c: 'rgba(255,255,255,0.35)' }, { l: 'S', a: 180, c: 'rgba(255,255,255,0.35)' }, { l: 'W', a: 270, c: 'rgba(255,255,255,0.35)' }].map(({ l, a, c }) => {
+                {[
+                    { l: 'N', a: 0, c: '#f87171', s: 16, w: '800' },
+                    { l: 'E', a: 90, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
+                    { l: 'S', a: 180, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
+                    { l: 'W', a: 270, c: 'rgba(255,255,255,0.5)', s: 13, w: '600' },
+                ].map(({ l, a, c, s, w }) => {
                     const rad = (a - 90) * Math.PI / 180;
-                    const r = innerR - 9;
                     return (
-                        <text key={l} x={cx + r * Math.cos(rad)} y={cy + r * Math.sin(rad)}
+                        <text key={l} x={cx + cardinalR * Math.cos(rad)} y={cy + cardinalR * Math.sin(rad)}
                             textAnchor="middle" dominantBaseline="central"
-                            fill={c} fontSize="6" fontWeight="700" fontFamily="system-ui"
+                            fill={c} fontSize={s} fontWeight={w} fontFamily="system-ui"
+                        >{l}</text>
+                    );
+                })}
+
+                {/* Intercardinal labels */}
+                {[
+                    { l: 'NE', a: 45 }, { l: 'SE', a: 135 },
+                    { l: 'SW', a: 225 }, { l: 'NW', a: 315 },
+                ].map(({ l, a }) => {
+                    const rad = (a - 90) * Math.PI / 180;
+                    return (
+                        <text key={l} x={cx + labelR * Math.cos(rad)} y={cy + labelR * Math.sin(rad)}
+                            textAnchor="middle" dominantBaseline="central"
+                            fill="rgba(255,255,255,0.2)" fontSize={9} fontWeight="500" fontFamily="system-ui"
                         >{l}</text>
                     );
                 })}
@@ -149,36 +201,35 @@ const CompassWidget: React.FC<{ degrees: number; direction: string }> = ({ degre
                 >
                     {/* Needle glow (behind) */}
                     <polygon
-                        points={`${cx},${cy - 14} ${cx - 2.5},${cy} ${cx + 2.5},${cy}`}
-                        fill="rgba(248,113,113,0.5)" filter="url(#needleGlow)"
+                        points={`${cx},${cy - innerR + 8} ${cx - 5},${cy} ${cx + 5},${cy}`}
+                        fill="rgba(248,113,113,0.35)" filter="url(#needleGlowLg)"
                     />
 
-                    {/* North needle (red/warm) */}
+                    {/* North needle (red) */}
                     <polygon
-                        points={`${cx},${cy - 14} ${cx - 2},${cy - 1} ${cx + 2},${cy - 1}`}
-                        fill="url(#ringGrad)"
-                        style={{ filter: 'drop-shadow(0 0 2px rgba(94,234,212,0.6))' }}
+                        points={`${cx},${cy - innerR + 8} ${cx - 4},${cy - 2} ${cx},${cy - 6} ${cx + 4},${cy - 2}`}
+                        fill="url(#needleGradLg)"
+                        style={{ filter: 'drop-shadow(0 0 4px rgba(248,113,113,0.5))' }}
                     />
 
                     {/* South needle (subtle) */}
                     <polygon
-                        points={`${cx},${cy + 12} ${cx - 1.5},${cy + 1} ${cx + 1.5},${cy + 1}`}
-                        fill="rgba(148,163,184,0.25)"
+                        points={`${cx},${cy + innerR - 12} ${cx - 3},${cy + 2} ${cx},${cy + 6} ${cx + 3},${cy + 2}`}
+                        fill="rgba(148,163,184,0.15)"
                     />
 
-                    {/* Center pivot */}
-                    <circle cx={cx} cy={cy} r="2"
+                    {/* Center pivot — outer ring */}
+                    <circle cx={cx} cy={cy} r="5"
+                        fill="rgba(15,23,42,0.9)"
+                        stroke="rgba(94,234,212,0.5)" strokeWidth="1"
+                    />
+                    {/* Center pivot — inner dot */}
+                    <circle cx={cx} cy={cy} r="2.5"
                         fill="rgba(94,234,212,0.9)"
-                        stroke="rgba(255,255,255,0.3)" strokeWidth="0.5"
-                        style={{ filter: 'drop-shadow(0 0 3px rgba(94,234,212,0.5))' }}
+                        style={{ filter: 'drop-shadow(0 0 4px rgba(94,234,212,0.6))' }}
                     />
                 </g>
             </svg>
-
-            {/* Direction label — below compass */}
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2">
-                <span className="text-[9px] font-bold text-white/80 tracking-widest">{direction}</span>
-            </div>
         </div>
     );
 };
@@ -451,37 +502,38 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     onClick={() => setShowCompass(false)}
                 >
                     <div
-                        className="relative flex flex-col items-center gap-6 p-8 rounded-3xl bg-slate-900/95 border border-white/10 shadow-2xl max-w-xs w-full mx-4"
+                        className="relative flex flex-col items-center gap-5 p-6 pt-10 rounded-3xl bg-gradient-to-b from-slate-800/95 to-slate-900/98 border border-white/10 shadow-2xl max-w-xs w-full mx-4"
+                        style={{ boxShadow: '0 0 60px rgba(94,234,212,0.08), 0 25px 50px rgba(0,0,0,0.5)' }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        {/* Close button */}
+                        {/* Close button — prominent X */}
                         <button
                             onClick={() => setShowCompass(false)}
-                            className="absolute top-3 right-3 p-2 rounded-full bg-white/10 text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+                            className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all active:scale-95"
                             aria-label="Close compass"
                         >
-                            <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-                                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                             </svg>
                         </button>
 
                         {/* Title */}
                         <div className="flex items-center gap-2">
                             <CompassIcon className="w-4 h-4 text-teal-400" rotation={0} />
-                            <span className="text-sm font-bold text-teal-300 uppercase tracking-widest">Wind Direction</span>
+                            <span className="text-xs font-bold text-teal-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
                         </div>
 
-                        {/* Large Compass */}
-                        <div className="transform scale-[3] my-12">
-                            <CompassWidget degrees={windDeg} direction={windDir} />
+                        {/* Large Compass — rendered at native resolution, no scaling */}
+                        <div className="py-2">
+                            <CompassWidget degrees={windDeg} size={200} />
                         </div>
 
-                        {/* Metadata */}
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-mono font-medium text-white" style={{ fontFeatureSettings: '"tnum"' }}>
+                        {/* Degrees + Cardinal readout */}
+                        <div className="flex items-baseline gap-3">
+                            <span className="text-4xl font-light text-white tracking-tight" style={{ fontFeatureSettings: '"tnum"' }}>
                                 {windDeg}°
                             </span>
-                            <span className="text-lg font-mono text-slate-400">{windDir}</span>
+                            <span className="text-lg font-semibold text-teal-400/80 tracking-wider">{windDir}</span>
                         </div>
                     </div>
                 </div>
