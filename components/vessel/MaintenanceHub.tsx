@@ -188,6 +188,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [historyItems, setHistoryItems] = useState<MaintenanceHistory[]>([]);
     const [showHistory, setShowHistory] = useState(false);
 
+    // Edit task
+    const [showEditForm, setShowEditForm] = useState(false);
+    const [editTask, setEditTask] = useState<TaskWithStatus | null>(null);
+
     // Export
     const [showExportModal, setShowExportModal] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -353,12 +357,55 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [loadTasks]);
 
+    // ── Edit Task ──
+    const openEditForm = useCallback((task: TaskWithStatus) => {
+        setEditTask(task);
+        setNewTitle(task.title);
+        setNewCategory(task.category);
+        setNewTrigger(task.trigger_type);
+        setNewInterval(String(task.interval_value || '200'));
+        setNewDueDate(task.next_due_date ? task.next_due_date.split('T')[0] : '');
+        setNewDueHours(task.next_due_hours !== null ? String(task.next_due_hours) : '');
+        setNewDescription(task.description || '');
+        setShowEditForm(true);
+    }, []);
+
+    const handleEditTask = useCallback(async () => {
+        if (!editTask || !newTitle.trim()) return;
+        try {
+            triggerHaptic('medium');
+            const periodDays = PERIOD_DAYS[newTrigger];
+            const intervalValue = newTrigger === 'engine_hours'
+                ? (newInterval ? parseInt(newInterval, 10) : null)
+                : (periodDays ?? null);
+            const dueDate = newTrigger === 'engine_hours'
+                ? null
+                : (newDueDate || null);
+
+            await MaintenanceService.updateTask(editTask.id, {
+                title: newTitle.trim(),
+                description: newDescription.trim() || null,
+                category: newCategory,
+                trigger_type: newTrigger,
+                interval_value: intervalValue,
+                next_due_date: dueDate,
+                next_due_hours: newTrigger === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
+            });
+            setShowEditForm(false);
+            setEditTask(null);
+            setSheetTask(null);
+            await loadTasks();
+        } catch (e) {
+            console.error('Failed to update task:', e);
+        }
+    }, [editTask, newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
+
     // ── Render ──
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pt-4 animate-in fade-in duration-300 h-full flex flex-col" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
+        <div className="w-full max-w-2xl mx-auto px-4 pt-4 animate-in fade-in duration-300 h-full flex flex-col overflow-hidden" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
 
             {/* ═══ HEADER ═══ */}
-            <div className="flex items-center gap-3 mb-5">
+            <div className="flex items-center gap-3 mb-5 shrink-0">
                 <button
                     onClick={onBack}
                     className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
@@ -399,7 +446,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ ENGINE HOURS CARD ═══ */}
-            <div className="mb-5">
+            <div className="mb-5 shrink-0">
                 <button
                     onClick={() => {
                         setIsEditingHours(true);
@@ -444,7 +491,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ CATEGORY FILTER CHIPS ═══ */}
-            <div className="grid grid-cols-3 gap-2 pb-3 mb-4">
+            <div className="grid grid-cols-3 gap-2 pb-3 mb-4 shrink-0">
                 <button
                     onClick={() => setSelectedCategory('all')}
                     className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'all'
@@ -600,6 +647,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 History
                             </button>
                             <button
+                                onClick={() => {
+                                    openEditForm(sheetTask);
+                                }}
+                                className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
+                            >
+                                ✎ Edit
+                            </button>
+                            <button
                                 onClick={handleLogService}
                                 disabled={sheetSaving}
                                 className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-[0.97] disabled:opacity-50"
@@ -753,6 +808,93 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
                         >
                             Create Task
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════ */}
+            {/* EDIT TASK MODAL */}
+            {/* ═══════════════════════════════════════════ */}
+            {showEditForm && editTask && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                    <div
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <button onClick={() => { setShowEditForm(false); setEditTask(null); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+
+                        <h3 className="text-lg font-black text-white mb-5">Edit Task</h3>
+
+                        {/* Task Name */}
+                        <div className="mb-3">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
+                            <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        </div>
+
+                        {/* Notes */}
+                        <div className="mb-4">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                            <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                        </div>
+
+                        {/* Category */}
+                        <div className="mb-4">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {CATEGORIES.map(cat => (
+                                    <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        {cat.icon} {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Trigger type */}
+                        <div className="mb-4">
+                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                    <button key={t} onClick={() => setNewTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        {TRIGGER_LABELS[t]}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Engine hours interval */}
+                        {newTrigger === 'engine_hours' && (
+                            <>
+                                <div className="mb-4">
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
+                                    <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                </div>
+                                <div className="mb-6">
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                    <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Due date — for non-engine triggers */}
+                        {newTrigger !== 'engine_hours' && (
+                            <div className="mb-6">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
+                                <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleEditTask}
+                            disabled={!newTitle.trim()}
+                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                        >
+                            Save Changes
                         </button>
                     </div>
                 </div>
