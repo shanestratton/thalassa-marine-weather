@@ -150,8 +150,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     )}
                 </div>
 
-                {/* Bar Chart — compact */}
-                <div className="flex items-end gap-[1px] h-[20px] w-full mt-1">
+                {/* Bar Chart — doubles height when rain active */}
+                <div className={`flex items-end gap-[1px] w-full mt-1 transition-all duration-500 ease-in-out ${analysis.hasRain ? 'h-[52px]' : 'h-[20px]'}`}>
                     {data.map((point, i) => {
                         const normalizedHeight = analysis.maxIntensity > 0
                             ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
