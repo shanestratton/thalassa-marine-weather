@@ -511,11 +511,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             {/* ADD TASK FORM (Bottom Sheet) */}
             {/* ═══════════════════════════════════════════ */}
             {showAddForm && (
-                <div className="fixed inset-0 z-[999] flex items-end justify-center" onClick={() => setShowAddForm(false)}>
+                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                     <div
-                        className="relative w-full max-w-2xl bg-slate-900 border-t border-white/10 rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto"
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
                         onClick={e => e.stopPropagation()}
                     >
                         <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-5" />
