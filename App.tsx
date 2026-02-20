@@ -28,7 +28,8 @@ const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(m
 const VesselHub = React.lazy(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
 const InventoryPage = React.lazy(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
 const MaintenancePage = React.lazy(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
-const NmeaGatewayPage = React.lazy(() => import('./components/vessel/PlaceholderScreens').then(m => ({ default: m.NmeaGatewayPage })));
+const NmeaGatewayPage = React.lazy(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
+const PolarPage = React.lazy(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
 const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
 const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
@@ -282,7 +283,7 @@ const App: React.FC = () => {
 
                                         {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'polars' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
                                     </div>
                                 </Suspense>
