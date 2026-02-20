@@ -185,6 +185,17 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                 onNavigateToNmea={onNavigateToNmea}
             />
 
+            {/* Polar Chart Visualization */}
+            <div className="mt-6 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg">
+                <div className="flex flex-col items-center gap-1 mb-4">
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
+                    {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
+                </div>
+                <div className="flex justify-center">
+                    <PolarChart data={polarData} overlayData={smartPolarData} />
+                </div>
+            </div>
+
             {/* ═══════════════════════════════════════════ */}
             {/* FACTORY POLAR INPUT */}
             {/* ═══════════════════════════════════════════ */}
@@ -219,18 +230,6 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                 {activeTab === 'manual' && (
                     <ManualTab polarData={polarData} onChange={(data) => updatePolar(data, boatModel, 'manual')} />
                 )}
-            </div>
-
-            {/* Polar Chart Visualization */}
-            <div className="mt-8 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg">
-                <div className="flex items-center justify-center gap-2 mb-4">
-                    <div className="w-1 h-4 rounded-full bg-cyan-500" />
-                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
-                    {boatModel && <span className="text-xs text-gray-500 ml-2">— {boatModel}</span>}
-                </div>
-                <div className="flex justify-center">
-                    <PolarChart data={polarData} overlayData={smartPolarData} />
-                </div>
             </div>
         </div>
     );
