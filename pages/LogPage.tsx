@@ -442,7 +442,7 @@ export const LogPage: React.FC = () => {
                     </div>
 
                     {/* ── Start/Stop Tracking + New Entry ── pinned at bottom of flex layout */}
-                    <div className="shrink-0 px-4 pt-2 pb-2" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}>
+                    <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
                         <div className="flex gap-2">
                             {isTracking ? (
                                 <>
