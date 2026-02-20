@@ -575,12 +575,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         {/* Category chips */}
                         <div className="mb-4">
                             <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {CATEGORIES.map(cat => (
                                     <button
                                         key={cat.id}
                                         onClick={() => setNewCategory(cat.id)}
-                                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${newCategory === cat.id
+                                        className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
                                             ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                             : 'bg-white/5 text-gray-500 border border-white/5'
                                             }`}
@@ -594,12 +594,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         {/* Trigger type */}
                         <div className="mb-4">
                             <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                     <button
                                         key={t}
                                         onClick={() => setNewTrigger(t)}
-                                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${newTrigger === t
+                                        className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
                                             ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                             : 'bg-white/5 text-gray-500 border border-white/5'
                                             }`}
