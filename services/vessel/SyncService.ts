@@ -37,9 +37,21 @@ export type SyncStatus = 'idle' | 'syncing' | 'error' | 'offline';
 
 // ── Supabase table config ──────────────────────────────────────
 
-const SYNCABLE_TABLES = ['inventory_items', 'maintenance_tasks', 'maintenance_history'] as const;
+const SYNCABLE_TABLES = [
+    'inventory_items',
+    'maintenance_tasks',
+    'maintenance_history',
+    'equipment_register',
+    'ship_documents',
+] as const;
 
 type SyncableTable = typeof SYNCABLE_TABLES[number];
+
+/** Tables that have file URIs which need uploading before sync */
+const FILE_URI_FIELDS: Partial<Record<SyncableTable, string>> = {
+    equipment_register: 'manual_uri',
+    ship_documents: 'file_uri',
+};
 
 // ── Singleton state ────────────────────────────────────────────
 
@@ -233,13 +245,14 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
 
     switch (item.mutation_type) {
         case 'INSERT': {
-            // Get current user for user_id
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
             const row = { ...payload, user_id: user.id };
-            // Remove local-only fields
             delete row._local_only;
+
+            // Upload file if this table has a file URI field
+            await uploadFileIfNeeded(table, row, user.id);
 
             const { error } = await supabase
                 .from(table)
@@ -250,6 +263,12 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
         }
 
         case 'UPDATE': {
+            // Upload file if this table has a file URI field
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                await uploadFileIfNeeded(table, payload, user.id);
+            }
+
             const { error } = await supabase
                 .from(table)
                 .update(payload)
@@ -268,6 +287,86 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
             if (error) throw new Error(error.message);
             break;
         }
+    }
+}
+
+/**
+ * If a row has a local file URI (e.g. capacitor://... or file://...),
+ * upload it to the vessel_vault bucket and replace the field with the cloud URL.
+ */
+async function uploadFileIfNeeded(
+    table: SyncableTable,
+    row: Record<string, unknown>,
+    userId: string
+): Promise<void> {
+    const field = FILE_URI_FIELDS[table];
+    if (!field) return;
+
+    const localUri = row[field] as string | null;
+    if (!localUri) return;
+
+    // Skip if already a cloud URL (Supabase storage URLs)
+    if (localUri.startsWith('http://') || localUri.startsWith('https://')) return;
+
+    try {
+        // Determine subfolder by table type
+        const subfolder = table === 'equipment_register' ? 'equipment' : 'documents';
+
+        // Extract filename from the local URI
+        const nameParts = localUri.split('/');
+        const originalName = nameParts[nameParts.length - 1] || `file_${Date.now()}`;
+        const storagePath = `${userId}/${subfolder}/${Date.now()}_${originalName}`;
+
+        // Read the file as base64 using Capacitor Filesystem
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const base64Data = await Filesystem.readFile({
+            path: localUri.replace('file://', ''),
+            directory: Directory.Data,
+        });
+
+        // Convert base64 to Uint8Array for upload
+        const raw = typeof base64Data.data === 'string'
+            ? base64Data.data
+            : '';
+        const binaryString = atob(raw);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Detect content type
+        const ext = originalName.split('.').pop()?.toLowerCase() || '';
+        const contentType =
+            ext === 'pdf' ? 'application/pdf'
+                : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
+                    : ext === 'png' ? 'image/png'
+                        : 'application/octet-stream';
+
+        // Upload to vessel_vault
+        const { error: uploadError } = await supabase!.storage
+            .from('vessel_vault')
+            .upload(storagePath, bytes, {
+                contentType,
+                upsert: true,
+            });
+
+        if (uploadError) {
+            console.error(`[SyncService] File upload failed for ${storagePath}:`, uploadError.message);
+            return; // Don't block the row sync — file stays local
+        }
+
+        // Get signed URL (valid for 10 years — effectively permanent)
+        const { data: urlData } = await supabase!.storage
+            .from('vessel_vault')
+            .createSignedUrl(storagePath, 10 * 365 * 86400);
+
+        if (urlData?.signedUrl) {
+            row[field] = urlData.signedUrl;
+            console.log(`[SyncService] Uploaded file → ${storagePath}`);
+        }
+    } catch (e) {
+        console.warn(`[SyncService] File upload skipped:`, e);
+        // Non-fatal — row syncs with the local URI, file can be uploaded later
     }
 }
 
