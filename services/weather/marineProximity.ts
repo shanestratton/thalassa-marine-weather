@@ -1,5 +1,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { getOpenMeteoKey } from './keys';
+import { calculateDistance } from '../../utils/math';
 
 export interface MarineProximityResult {
     hasMarineData: boolean;
@@ -71,17 +72,22 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
         // OpenMeteo returns array if multiple points
         const results = Array.isArray(data) ? data : [data];
 
-        // 3. Check for ANY valid data
-        for (const r of results) {
+        // 3. Check for ANY valid data — track which point matched
+        for (let idx = 0; idx < results.length; idx++) {
+            const r = results[idx];
             // Check if ANY day in forecast has valid wave data
             const hasWaves = r.daily?.wave_height_max?.some((h: number | null) => h !== null && h > 0);
             if (hasWaves) {
                 // Found valid water!
+                // Calculate actual distance from user to the matching ring point
+                const matchedPoint = points[idx];
+                const distKm = matchedPoint
+                    ? calculateDistance(lat, lon, matchedPoint.lat, matchedPoint.lon)
+                    : 0;
 
-                // Return this valid data set
                 return {
                     hasMarineData: true,
-                    nearestWaterDistanceKm: 0, // Effectively on/near water
+                    nearestWaterDistanceKm: distKm,
                     data: r
                 };
             }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { t } from '../../theme';
 import { TideGraph } from './TideAndVessel';
+const MapHub = React.lazy(() => import('../map/MapHub').then(m => ({ default: m.MapHub })));
 import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast, UserSettings, SourcedWeatherMetrics } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
@@ -146,7 +147,9 @@ const HeroSlideComponent = ({
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
-    const showGrid = !showTideGraph; // Explicit switch
+    // In essential mode, replace tide graph area with interactive map
+    const showMapInstead = isEssentialMode && showTideGraph;
+    const showGrid = !showTideGraph && !showMapInstead; // Explicit switch
 
     // Rain detection — only on Today slide (index 0) with minutely data
     const hasActiveRain = useMemo(() => {
@@ -696,29 +699,29 @@ const HeroSlideComponent = ({
             lowTemp: cardData.lowTemp !== undefined ? convertTemp(cardData.lowTemp, units.temp) : '--',
             windSpeed: cardData.windSpeed !== null && cardData.windSpeed !== undefined ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!) : '--',
             waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? String(convertLength(cardData.waveHeight, units.waveHeight)) : '--'),
-            vis: cardData.visibility ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
+            vis: (cardData.visibility && !isNaN(cardData.visibility)) ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
             gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
             precip: convertPrecip(cardData.precipitation, units.length) ?? '0',
-            pressure: cardData.pressure ? Math.round(cardData.pressure) : '--',
-            cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined) ? Math.round(cardData.cloudCover) : '--',
-            uv: cardData.uvIndex !== undefined ? Math.round(cardData.uvIndex) : '--',
+            pressure: (cardData.pressure && !isNaN(cardData.pressure)) ? Math.round(cardData.pressure) : '--',
+            cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined && !isNaN(cardData.cloudCover)) ? Math.round(cardData.cloudCover) : '--',
+            uv: (cardData.uvIndex !== undefined && cardData.uvIndex !== null && !isNaN(cardData.uvIndex)) ? Math.round(cardData.uvIndex) : '--',
             sunrise: cardData.sunrise,
             sunset: cardData.sunset,
-            humidity: (cardData.humidity !== undefined && cardData.humidity !== null) ? Math.round(cardData.humidity) : '--',
-            dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null) ? convertTemp(cardData.dewPoint, units.temp) : '--',
+            humidity: (cardData.humidity !== undefined && cardData.humidity !== null && !isNaN(cardData.humidity)) ? Math.round(cardData.humidity) : '--',
+            dewPoint: (cardData.dewPoint !== undefined && cardData.dewPoint !== null && !isNaN(cardData.dewPoint as number)) ? convertTemp(cardData.dewPoint as number, units.temp) : '--',
             waterTemperature: (() => {
                 const val = cardData.waterTemperature;
-                return (val !== undefined && val !== null) ? convertTemp(val, units.temp) : '--';
+                return (val !== undefined && val !== null && !isNaN(val)) ? convertTemp(val, units.temp) : '--';
             })(),
-            currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null) ? Number(cardData.currentSpeed).toFixed(1) : '--',
+            currentSpeed: (cardData.currentSpeed !== undefined && cardData.currentSpeed !== null && !isNaN(cardData.currentSpeed as number)) ? Number(cardData.currentSpeed).toFixed(1) : '--',
             currentDirection: (() => {
                 const val = cardData.currentDirection;
-                if (typeof val === 'number') return degreesToCardinal(val);
+                if (typeof val === 'number' && !isNaN(val)) return degreesToCardinal(val);
                 if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
                 return '--';
             })(),
             moon: cardData.moonPhase || 'Waxing',
-            cape: (cardData.cape !== undefined && cardData.cape !== null) ? Math.round(cardData.cape) : '--',
+            cape: (cardData.cape !== undefined && cardData.cape !== null && !isNaN(cardData.cape as number)) ? Math.round(cardData.cape as number) : '--',
             ...(() => {
                 // SOG/COG only available on live card from GPS
                 if (!isHourly && index === 0) {
@@ -892,7 +895,7 @@ const HeroSlideComponent = ({
                     role="region"
                     aria-roledescription="carousel"
                     aria-label="Hourly forecast carousel — use left and right arrow keys to navigate between hours"
-                    className="w-full h-full overflow-x-auto snap-x snap-mandatory no-scrollbar flex flex-row focus:outline-none"
+                    className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-x-auto snap-x snap-mandatory'} no-scrollbar flex flex-row focus:outline-none`}
                     style={{ willChange: 'scroll-position' }}
                 >
                     {slides.map((slide, slideIdx) => {
@@ -933,7 +936,54 @@ const HeroSlideComponent = ({
                                 key={slideIdx}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                {showTideGraph ? (
+                                {showMapInstead ? (
+                                    /* ESSENTIAL MODE MAP — only render on first slide to avoid multiple WebGL contexts */
+                                    <div className="relative w-full h-full flex flex-col">
+                                        <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
+                                            {slideIdx === 0 ? (
+                                                <>
+                                                    <style>{`
+                                                        .essential-map .mapboxgl-ctrl-bottom-left,
+                                                        .essential-map .mapboxgl-ctrl-bottom-right,
+                                                        .essential-map > div > div.absolute.bottom-20 { display: none !important; }
+                                                        .essential-map > div > div.absolute.top-14 { top: 0.25rem !important; right: 0.25rem !important; gap: 0.25rem !important; }
+                                                        .essential-map > div > div.absolute.top-14 > button { width: 1.75rem !important; height: 1.75rem !important; border-radius: 0.5rem !important; }
+                                                        .essential-map > div > div.absolute.top-14 > button svg { width: 0.875rem !important; height: 0.875rem !important; }
+                                                        .essential-map > div > div.absolute.top-14 > div { border-radius: 0.5rem !important; max-height: 85% !important; }
+                                                        .essential-map > div > div.absolute.top-14 > div button { padding: 0.2rem 0.5rem !important; gap: 0.25rem !important; }
+                                                        .essential-map > div > div.absolute.top-14 > div .text-base { font-size: 0.625rem !important; line-height: 1 !important; }
+                                                        .essential-map > div > div.absolute.top-14 > div .text-xs { font-size: 0.5625rem !important; line-height: 1 !important; }
+                                                        /* Synoptic scrubber — compact, flush to bottom */
+                                                        .essential-map > div > div.absolute.left-4 { bottom: 0.25rem !important; left: 0.25rem !important; right: 0.25rem !important; z-index: 20; }
+                                                        .essential-map > div > div.absolute.left-4 > div { padding: 0.2rem 0.4rem !important; gap: 0.25rem !important; border-radius: 0.375rem !important; }
+                                                        .essential-map > div > div.absolute.left-4 button { width: 1rem !important; height: 1rem !important; }
+                                                        .essential-map > div > div.absolute.left-4 button svg { width: 0.5rem !important; height: 0.5rem !important; }
+                                                        .essential-map > div > div.absolute.left-4 .text-xs { font-size: 0.45rem !important; }
+                                                        .essential-map > div > div.absolute.left-4 .text-\[8px\] { font-size: 0.3rem !important; }
+                                                        .essential-map > div > div.absolute.left-4 .min-w-\[52px\] { min-width: 1.5rem !important; }
+                                                    `}</style>
+                                                    <div className="essential-map absolute inset-0">
+                                                        <React.Suspense fallback={
+                                                            <div className="flex items-center justify-center h-full bg-slate-900">
+                                                                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                                                            </div>
+                                                        }>
+                                                            <MapHub
+                                                                mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}
+                                                                initialZoom={6}
+                                                                minimalLabels
+                                                            />
+                                                        </React.Suspense>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div className="flex items-center justify-center h-full bg-slate-900/80">
+                                                    <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Map on Live</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
                                     <div className="relative w-full h-full flex flex-col gap-2">
 
@@ -971,42 +1021,94 @@ const HeroSlideComponent = ({
                                         </div>
                                     </div>
                                 ) : (
-                                    /* INLAND / OFFSHORE LAYOUT — 3×2 grid card matching tide graph area */
+                                    /* INLAND / OFFSHORE LAYOUT — 3×2 instrument panel matching HeroWidgets */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
-                                            {/* BG Gradient */}
-                                            <div className="absolute inset-0 z-0 pointer-events-none">
-                                                <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-blue-500/[0.04]' : 'from-indigo-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
-                                            </div>
-                                            <div className="relative w-full h-full p-2">
-                                                <div className="grid grid-cols-3 grid-rows-2 gap-2 w-full h-full">
-                                                    {(() => {
-                                                        const OFFSHORE_WIDGETS = ['waterTemperature', 'currentSpeed', 'currentDirection', 'cape', 'sog', 'cog'];
-                                                        const INLAND_WIDGETS = ['humidity', 'uv', 'precip', 'pressure', 'visibility', 'dew'];
+                                        <div className="relative flex-[2] min-h-0 w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl flex flex-col">
+                                            {(() => {
+                                                const OFFSHORE_WIDGETS = [
+                                                    { id: 'waterTemperature', label: 'WATER', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-blue-400', labelColor: 'text-blue-300' },
+                                                    { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
+                                                    { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
+                                                    { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
+                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-orange-400', labelColor: 'text-orange-300' },
+                                                ];
+                                                const INLAND_WIDGETS = [
+                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
+                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-orange-400', labelColor: 'text-orange-300' },
+                                                    { id: 'precip', label: 'RAIN', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-blue-400', labelColor: 'text-blue-300' },
+                                                    { id: 'pressure', label: 'HPA', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
+                                                    { id: 'visibility', label: 'VIS', icon: <EyeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
+                                                    { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
+                                                ];
 
-                                                        // Coastal without marine data should fall back to inland widgets
-                                                        // (our proximity fallback can classify as coastal even when marine grid has no data)
-                                                        const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);
-                                                        const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS
-                                                            : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
-                                                                : OFFSHORE_WIDGETS;
+                                                const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);
+                                                const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS
+                                                    : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
+                                                        : OFFSHORE_WIDGETS;
 
-                                                        return widgets.map((id: string, idx: number) => {
-                                                            const align = idx % 3 === 0 ? 'left' : idx % 3 === 1 ? 'center' : 'right';
-                                                            const justifyClass = align === 'left' ? 'items-start' : align === 'center' ? 'items-center' : 'items-end';
+                                                const getVal = (id: string): string | number => {
+                                                    switch (id) {
+                                                        case 'humidity': return cardDisplayValues.humidity;
+                                                        case 'uv': return cardDisplayValues.uv;
+                                                        case 'precip': return cardDisplayValues.precip;
+                                                        case 'pressure': return cardDisplayValues.pressure;
+                                                        case 'visibility': return cardDisplayValues.vis;
+                                                        case 'dew': return cardDisplayValues.dewPoint;
+                                                        case 'waterTemperature': return cardDisplayValues.waterTemperature;
+                                                        case 'currentSpeed': return cardDisplayValues.currentSpeed;
+                                                        case 'currentDirection': return cardDisplayValues.currentDirection;
+                                                        case 'cape': return cardDisplayValues.cape;
+                                                        default: return '--';
+                                                    }
+                                                };
+                                                const getUnit = (id: string): string => {
+                                                    switch (id) {
+                                                        case 'humidity': return '%';
+                                                        case 'precip': return '%';
+                                                        case 'visibility': return units.visibility || 'nm';
+                                                        case 'dew': return `°${units.temp || 'C'}`;
+                                                        case 'waterTemperature': return `°${units.temp || 'C'}`;
+                                                        case 'currentSpeed': return 'kts';
+                                                        default: return '';
+                                                    }
+                                                };
 
-                                                            return (
-                                                                <div
-                                                                    key={id}
-                                                                    className={`bg-white/[0.06] backdrop-blur-sm rounded-xl p-2 ${t.border.default} flex flex-col justify-center ${justifyClass} min-h-0`}
-                                                                >
-                                                                    {renderHeroWidget(id, cardData, cardDisplayValues, units, !isHourly, trends, align, isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, true)}
-                                                                </div>
-                                                            );
-                                                        });
-                                                    })()}
-                                                </div>
-                                            </div>
+                                                const topRow = widgets.slice(0, 3);
+                                                const bottomRow = widgets.slice(3, 6);
+
+                                                const renderCell = (w: typeof topRow[0]) => (
+                                                    <div key={w.id} className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
+                                                        <div className="flex items-center gap-1.5 opacity-90">
+                                                            <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
+                                                            <span className={`text-[10px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>{w.label}</span>
+                                                        </div>
+                                                        <div className="flex items-baseline gap-0.5">
+                                                            <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
+                                                                {getVal(w.id)}
+                                                            </span>
+                                                            {getUnit(w.id) && <span className="text-[10px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{getUnit(w.id)}</span>}
+                                                        </div>
+                                                    </div>
+                                                );
+
+                                                return (
+                                                    <>
+                                                        {/* TOP ROW */}
+                                                        <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
+                                                            {topRow.map(renderCell)}
+                                                        </div>
+
+                                                        {/* Horizontal divider */}
+                                                        <div className="w-full h-px bg-white/[0.12] shrink-0" />
+
+                                                        {/* BOTTOM ROW */}
+                                                        <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
+                                                            {bottomRow.map(renderCell)}
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                 )}

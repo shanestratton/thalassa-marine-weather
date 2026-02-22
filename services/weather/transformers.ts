@@ -208,6 +208,7 @@ export const mapStormGlassToReport = (
         day: "Today",
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
+        cape: typeof (currentHour as any).cape === 'number' ? (currentHour as any).cape : 0,
         isDay: true,
         isEstimated: false,
         sunrise: astro?.[0]?.sunrise ? new Date(astro[0].sunrise).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : sRise,
@@ -261,7 +262,8 @@ export const mapStormGlassToReport = (
                 return getVal(uvField) ?? 0;
             })(),
             feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField) ?? 0, getVal(h.humidity as MultiSourceField) ?? 0, windKts * 0.8),
-            dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null
+            dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
+            cape: typeof (h as any).cape === 'number' ? (h as any).cape : 0,
         };
     });
 

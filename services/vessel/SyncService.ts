@@ -400,11 +400,24 @@ async function pullUpdates(): Promise<{ count: number; errors: string[] }> {
 async function pullTable(table: SyncableTable, since: string): Promise<number> {
     if (!supabase) return 0;
 
+    // Normalize the timestamp to strict UTC ISO format (Z suffix).
+    // PostgREST misinterprets '+' in timezone offsets like '+10:00' as a space.
+    let normalizedSince = since;
+    try {
+        const d = new Date(since);
+        if (!isNaN(d.getTime())) {
+            normalizedSince = d.toISOString(); // Always ends with 'Z'
+        }
+    } catch {
+        // Keep original if parsing fails (should not happen with valid ISO strings)
+        console.warn(`[SyncService] Could not normalize timestamp: ${since}`);
+    }
+
     // Fetch records updated since last pull
     const { data, error } = await supabase
         .from(table)
         .select('*')
-        .gt('updated_at', since)
+        .gt('updated_at', normalizedSince)
         .order('updated_at', { ascending: true });
 
     if (error) throw new Error(error.message);

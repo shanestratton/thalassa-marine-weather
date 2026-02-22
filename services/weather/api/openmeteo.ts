@@ -339,13 +339,15 @@ export const fetchOpenMeteo = async (
         precipitation: hourlyArr.precipitation[i],
         cloudCover: hourlyArr.cloud_cover[i],
         condition: getWmo(hourlyArr.weather_code[i]),
-        visibility: hourlyArr.visibility[i] * 0.000539957,
+        visibility: (hourlyArr.visibility?.[i] ?? 10000) * 0.000539957,
         humidity: hourlyArr.relative_humidity_2m[i],
         isEstimated: false,
         currentSpeed: 0,
         currentDirection: 0,
         waterTemperature: 0,
         uvIndex: hourlyArr.uv_index[i],
+        cape: hourlyArr.cape?.[i] ?? 0,
+        dewPoint: hourlyArr.dew_point_2m?.[i] ?? null,
         feelsLike: calculateFeelsLike(hourlyArr.temperature_2m[i], hourlyArr.relative_humidity_2m[i], hourlyArr.wind_speed_10m[i] * kFactor * 0.8)
     }));
 
@@ -399,9 +401,11 @@ export const fetchOpenMeteo = async (
         if (landCtx) {
             // FIX: If the name is generic (e.g. "Location -23,150") or a Water Body (e.g. "South Pacific Ocean")
             // In this case, we should treat it as "Unknown Context" so the inland rule (elevation) can take over.
+            // NOTE: Only match STANDALONE generic water body names ("Pacific Ocean", "South Sea"),
+            // NOT place names containing these words ("Seaford", "Coral Sea Marina", "Reefton").
             const isGeneric = landCtx.name.startsWith("Location") ||
                 /^[+-]?\d/.test(landCtx.name) ||
-                /\b(Ocean|Sea|Reef)\b/i.test(landCtx.name); // Contains Ocean/Sea/Reef anywhere
+                /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(landCtx.name);
 
             if (!isGeneric) {
                 distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);

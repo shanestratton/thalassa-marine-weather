@@ -87,7 +87,7 @@ export const fetchStormGlassWeather = async (
 
             // FIX: Added hourly=uv_index to support Current Card UV display
             // FIX: Changed timezone=UTC to timezone=auto to get location's offset
-            const weatherUrl = `${baseUrl}/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max&hourly=uv_index&timezone=auto${omKey ? `&apikey=${omKey}` : ''}`;
+            const weatherUrl = `${baseUrl}/forecast?latitude=${lat}&longitude=${lon}&daily=uv_index_max&hourly=uv_index,cape&timezone=auto${omKey ? `&apikey=${omKey}` : ''}`;
 
             // Fetch Marine (Waves) using Ring Search (Proximity)
             let distToWaterIdx = 9999;
@@ -178,6 +178,26 @@ export const fetchStormGlassWeather = async (
         });
     }
 
+    // INJECT HYBRID HOURLY CAPE INTO STORMGLASS HOURS
+    // CAPE (Convective Available Potential Energy) only comes from Open-Meteo.
+    if (hybridData?.weather?.hourly?.cape && weatherRes?.hours) {
+        const omTimes = hybridData.weather.hourly.time as string[];
+        const omCape = hybridData.weather.hourly.cape as number[];
+        const omOffset = hybridData.weather.utc_offset_seconds || 0;
+
+        weatherRes.hours.forEach(h => {
+            const sgTime = new Date(h.time).getTime();
+            const matchIdx = omTimes.findIndex(tStr => {
+                const localEp = new Date(tStr + "Z").getTime();
+                const utcEp = localEp - (omOffset * 1000);
+                return Math.abs(utcEp - sgTime) < 100000;
+            });
+            if (matchIdx !== -1) {
+                (h as any).cape = omCape[matchIdx];
+            }
+        });
+    }
+
     // Normalize Tides
     let tides: import('../../../types').Tide[] = [];
 
@@ -217,8 +237,10 @@ export const fetchStormGlassWeather = async (
     // Merge buoy data with StormGlass report to add source tracking
     const mergedReport = mergeWeatherData(nearestBuoy, report, { lat, lon, name });
 
-    // 5. Calculate Location Type (if not forced)
-    if (!existingLocationType) {
+    // 5. Calculate Location Type (ALWAYS recompute — never trust stale cached values)
+    // The existingLocationType from cache can become stale when a user moves between
+    // coastal/offshore zones. We always recompute from fresh geocode + marine proximity.
+    {
         try {
             // Calculate Distances
             // distToWaterIdx is set by Ring Search above (0 if found)
@@ -236,10 +258,12 @@ export const fetchStormGlassWeather = async (
 
             let distToLand = 9999;
             if (landCtx) {
-                // FIX: Filter out Generic or Ocean/Sea names
+                // FIX: Filter out Generic or STANDALONE Ocean/Sea names
+                // NOTE: Only match full water body names ("Pacific Ocean", "South Sea"),
+                // NOT place names containing these words ("Seaford", "Coral Sea Marina", "Reefton").
                 const isGeneric = landCtx.name.startsWith("Location") ||
                     /^[+-]?\d/.test(landCtx.name) ||
-                    /\b(Ocean|Sea|Reef)\b/i.test(landCtx.name);
+                    /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(landCtx.name);
 
                 if (!isGeneric) {
                     distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);

@@ -259,6 +259,8 @@ const App: React.FC = () => {
                                                         isNightMode={effectiveMode === 'night'}
                                                         isMobileLandscape={isMobileLandscape}
                                                         viewMode={'overview'}
+                                                        mapboxToken={settings.mapboxToken}
+                                                        onLocationSelect={handleMapTargetSelect}
                                                     />
                                                 )}
                                             </>

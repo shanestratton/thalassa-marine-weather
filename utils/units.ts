@@ -50,12 +50,13 @@ export const convertTemp = (val: number | null | undefined, unit: string) => {
 };
 
 export const convertDistance = (nauticalMiles: number | null | undefined, unit: string) => {
-    if (nauticalMiles === undefined || nauticalMiles === null) return '--';
+    if (nauticalMiles === undefined || nauticalMiles === null || isNaN(nauticalMiles)) return '--';
     let val = nauticalMiles;
     if (unit === 'km') val = nauticalMiles * 1.852;
     if (unit === 'mi') val = nauticalMiles * 1.15078;
     // if unit is 'nm', val is already nm
-    return val.toFixed(1);
+    const result = val.toFixed(1);
+    return result === 'NaN' ? '--' : result;
 }
 
 export const convertMetersTo = (meters: number | null | undefined, targetUnit: string) => {
