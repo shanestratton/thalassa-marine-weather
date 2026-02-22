@@ -192,50 +192,61 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void }> = ({ onTri
                     {/* Form inputs at top */}
                     <div className="pt-4 space-y-3 max-w-xl mx-auto w-full">
                         {/* Origin */}
-                        <div className="relative group cursor-pointer" onClick={() => openMap('origin')}>
-                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                <MapPinIcon className="w-4 h-4 text-emerald-400" />
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-emerald-400">
+                                <MapPinIcon className="w-4 h-4" />
                             </div>
-                            <input type="text" readOnly value={origin} placeholder="Tap to Select Start Port"
-                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
-                            <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                                <button type="button" onClick={(e) => { e.stopPropagation(); handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>); }}
-                                    className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg z-10" title="Use Current Location" aria-label="Use Current Location">
-                                    <CrosshairIcon className="w-5 h-5 text-sky-400" />
+                            <input type="text" value={origin} onChange={e => setOrigin(e.target.value)}
+                                placeholder="Type port name or tap map…"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                <button type="button" onClick={() => openMap('origin')}
+                                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select origin on map">
+                                    <MapIcon className="w-4 h-4" />
+                                </button>
+                                <button type="button" onClick={(e) => handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)}
+                                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Use Current Location" aria-label="Use Current Location">
+                                    <CrosshairIcon className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
 
                         {/* Destination */}
-                        <div className="relative group cursor-pointer" onClick={() => openMap('destination')}>
-                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                <MapPinIcon className="w-4 h-4 text-purple-400" />
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-purple-400">
+                                <MapPinIcon className="w-4 h-4" />
                             </div>
-                            <input type="text" readOnly value={destination} placeholder="Tap to Select Destination"
-                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
-                                <MapIcon className="w-4 h-4" />
+                            <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
+                                placeholder="Type destination or tap map…"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                <button type="button" onClick={() => openMap('destination')}
+                                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select destination on map">
+                                    <MapIcon className="w-4 h-4" />
+                                </button>
                             </div>
                         </div>
 
                         {/* Via */}
-                        <div className="relative group cursor-pointer" onClick={() => openMap('via')}>
-                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-hover:text-sky-400 transition-colors">
-                                <RouteIcon className="w-4 h-4 text-sky-400" />
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-sky-400">
+                                <RouteIcon className="w-4 h-4" />
                             </div>
-                            <input type="text" readOnly value={via} placeholder="Via (Opt)"
-                                className="w-full h-12 bg-slate-900/50 border border-white/10 group-hover:border-sky-500/50 rounded-xl pl-12 pr-4 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner cursor-pointer" />
-                            {via && (
-                                <button onClick={(e) => { e.stopPropagation(); setVia(''); }} aria-label="Clear Via Point"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:text-white text-gray-500">
-                                    <XIcon className="w-4 h-4" />
-                                </button>
-                            )}
-                            {!via && (
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-600 group-hover:text-sky-400 transition-colors">
+                            <input type="text" value={via} onChange={e => setVia(e.target.value)}
+                                placeholder="Via waypoint (optional)"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-20 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                <button type="button" onClick={() => openMap('via')}
+                                    className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select via point on map">
                                     <MapIcon className="w-4 h-4" />
-                                </div>
-                            )}
+                                </button>
+                                {via && (
+                                    <button type="button" onClick={() => setVia('')} aria-label="Clear Via Point"
+                                        className="p-2 text-gray-500 hover:text-white transition-colors hover:bg-white/10 rounded-lg">
+                                        <XIcon className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         {/* Date & Time row */}

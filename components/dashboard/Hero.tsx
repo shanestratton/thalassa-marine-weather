@@ -192,7 +192,7 @@ export const HeroSection = ({
                 role="region"
                 aria-roledescription="carousel"
                 aria-label="Daily forecast carousel — use up and down arrow keys to navigate between days"
-                className="w-full h-full overflow-y-auto snap-y snap-mandatory no-scrollbar flex flex-col gap-0 focus:outline-none"
+                className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto snap-y snap-mandatory'} no-scrollbar flex flex-col gap-0 focus:outline-none`}
             >
                 {/* Show skeleton while data is loading */}
                 {dayRows.length === 0 ? (
@@ -247,8 +247,8 @@ export const HeroSection = ({
                 )}
             </div>
 
-            {/* Pagination Dots (Vertical) */}
-            {dayRows.length > 1 && (
+            {/* Pagination Dots (Vertical) — hidden in essential mode */}
+            {!isEssentialMode && dayRows.length > 1 && (
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-30 pointer-events-none pr-1">
                     {dayRows.map((_, i) => (
                         <div key={i} className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400' : 'bg-white/20'} `} />

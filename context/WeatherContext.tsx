@@ -493,7 +493,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentReport = await fetchWeatherByStrategy(
                     resolvedCoords.lat,
                     resolvedCoords.lon,
-                    resolvedLocation
+                    resolvedLocation,
+                    // NOTE: Do NOT pass weatherDataRef.current?.locationType here.
+                    // It creates a self-perpetuating cycle where a stale 'offshore' from
+                    // cache prevents all future fetches from reclassifying correctly.
+                    undefined
                 );
                 incrementQuota();
             } catch (e: unknown) {

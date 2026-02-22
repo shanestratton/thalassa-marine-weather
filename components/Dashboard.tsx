@@ -35,6 +35,8 @@ interface DashboardProps {
     isNightMode: boolean;
     isMobileLandscape?: boolean;
     viewMode?: 'overview' | 'details';
+    mapboxToken?: string;
+    onLocationSelect?: (lat: number, lon: number, name?: string) => void;
 }
 
 // Main Component
@@ -95,6 +97,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Minutely rain data from Tomorrow.io
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
     const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+    const precipRef = useRef<number>(0);
+    precipRef.current = current?.precipitation ?? 0;
 
     useEffect(() => {
         if (!data?.coordinates) return;
@@ -102,12 +106,38 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         let cancelled = false;
         setRainStatus('loading');
 
+        // 5-minute local cache key to prevent re-fetch on every remount
+        const cacheKey = `thalassa_rain_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            try {
+                const { ts, data: cachedData } = JSON.parse(cached) as { ts: number; data: MinutelyRain[] };
+                if (Date.now() - ts < 5 * 60 * 1000 && cachedData.length > 0) {
+                    setMinutelyRain(cachedData);
+                    setRainStatus('loaded');
+                    // Still set up the refresh timer below, but skip initial fetch
+                    const rainTimer = setInterval(() => {
+                        if (!navigator.onLine || cancelled) return;
+                        fetchMinutelyRain(lat, lon).then(result => {
+                            if (!cancelled && result.length > 0) {
+                                setMinutelyRain(result);
+                                setRainStatus('loaded');
+                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
+                            }
+                        }).catch(() => { /* keep cached data */ });
+                    }, 5 * 60 * 1000);
+                    return () => { cancelled = true; clearInterval(rainTimer); };
+                }
+            } catch { /* corrupted cache, continue with fresh fetch */ }
+        }
+
         // Initial fetch
         fetchMinutelyRain(lat, lon).then(result => {
             if (!cancelled) {
                 if (result.length > 0) {
                     setMinutelyRain(result);
                     setRainStatus('loaded');
+                    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
                 } else {
                     // Fallback: synthesize from hourly precipitation
                     const fallback = synthesizeFromHourly();
@@ -132,6 +162,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     if (result.length > 0) {
                         setMinutelyRain(result);
                         setRainStatus('loaded');
+                        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
                     } else {
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
@@ -150,15 +181,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         return () => { cancelled = true; clearInterval(rainTimer); };
 
         // Synthesize 60 minutely entries from the current hour's precipitation
+        // Uses ref to avoid stale closure over current?.precipitation
         function synthesizeFromHourly(): MinutelyRain[] {
-            const precip = current?.precipitation ?? 0;
+            const precip = precipRef.current;
+            if (precip < 0.5) return []; // Below threshold — don't show false rain
             const now = new Date();
             return Array.from({ length: 60 }, (_, i) => ({
                 time: new Date(now.getTime() + i * 60000).toISOString(),
                 intensity: precip,
             }));
         }
-    }, [data?.coordinates?.lat, data?.coordinates?.lon, current?.precipitation]);
+    }, [data?.coordinates?.lat, data?.coordinates?.lon]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {
@@ -423,6 +456,18 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black"> {/* Flex Root */}
 
+                {/* ── Background Update Blur Overlay ── */}
+                {props.isRefreshing && (
+                    <div className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none"
+                        style={{ backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+                    >
+                        <div className="bg-black/50 rounded-2xl px-5 py-3 flex items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
+                            <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs font-bold text-white/70 uppercase tracking-widest">Updating</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* 2. Main Content Area */}
                 <div className="flex-1 relative w-full min-h-0">
 
@@ -511,7 +556,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
                             <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 412px)' : 'calc(max(8px, env(safe-area-inset-top)) + 332px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
-                                {/* STATIC RAIN FORECAST — always visible, outside both carousels */}
+                                {/* STATIC RAIN FORECAST — always visible */}
                                 {minutelyRain && minutelyRain.length > 0 ? (
                                     <div className="shrink-0 px-4">
                                         <RainForecastCard
@@ -566,20 +611,22 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
-                            {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll */}
-                            <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
-                                <div className="flex gap-[3px] px-4 py-1">
-                                    {Array.from({ length: 24 }).map((_, i) => (
-                                        <div
-                                            key={i}
-                                            className={`w-1 h-1 rounded-full transition-all duration-150 ${i === activeHour
-                                                ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
-                                                : 'bg-white/20'
-                                                }`}
-                                        />
-                                    ))}
+                            {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
+                            {isExpanded && (
+                                <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                                    <div className="flex gap-[3px] px-4 py-1">
+                                        {Array.from({ length: 24 }).map((_, i) => (
+                                            <div
+                                                key={i}
+                                                className={`w-1 h-1 rounded-full transition-all duration-150 ${i === activeHour
+                                                    ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
+                                                    : 'bg-white/20'
+                                                    }`}
+                                            />
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
                             {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.

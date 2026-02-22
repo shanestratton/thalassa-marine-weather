@@ -365,13 +365,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const windDeg = topRowData.windDegree || 0;
     const swellDirDeg = cardinalToDeg(topRowData.swellDirection || undefined);
 
-    const uvVal = data.uvIndex !== null && data.uvIndex !== undefined ? Math.ceil(data.uvIndex) : '--';
-    const visVal = data.visibility !== null && data.visibility !== undefined ? Math.round(data.visibility) : '--';
-    const pressureVal = data.pressure !== null && data.pressure !== undefined ? Math.round(data.pressure) : '--';
-    const seaTemp = data.waterTemperature !== null && data.waterTemperature !== undefined
+    const safeRound = (v: number | null | undefined): number | string => (v !== null && v !== undefined && !isNaN(v)) ? Math.round(v) : '--';
+    const uvVal = (data.uvIndex !== null && data.uvIndex !== undefined && !isNaN(data.uvIndex)) ? Math.ceil(data.uvIndex) : '--';
+    const visVal = safeRound(data.visibility);
+    const pressureVal = safeRound(data.pressure);
+    const seaTemp = (data.waterTemperature !== null && data.waterTemperature !== undefined && !isNaN(data.waterTemperature))
         ? convertTemp(data.waterTemperature, units.temp) : '--';
-    const humidityVal = data.humidity !== null && data.humidity !== undefined ? Math.round(data.humidity) : '--';
-    const rainVal = data.precipitation !== null && data.precipitation !== undefined ? Math.round(data.precipitation) : '--';
+    const humidityVal = safeRound(data.humidity);
+    const rainVal = safeRound(data.precipitation);
 
     const speedUnit = units.speed || 'kts';
     const waveUnit = units.waveHeight || 'm';

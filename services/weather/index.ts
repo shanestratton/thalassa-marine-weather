@@ -82,7 +82,9 @@ export const fetchWeatherByStrategy = async (
     // For coastal: StormGlass with OpenMeteo enrichment
     let baseReport: MarineWeatherReport;
 
-    const computedLocationType = stormGlassReport?.locationType || openMeteoReport?.locationType || locationType || 'coastal';
+    // Precedence: StormGlass (most accurate marine classification) > caller's known type
+    // (from previous report) > OpenMeteo (atmospheric only, often wrong for deep ocean) > fallback
+    const computedLocationType = stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
 
     if (computedLocationType === 'offshore' && stormGlassReport) {
         baseReport = stormGlassReport;
@@ -101,7 +103,9 @@ export const fetchWeatherByStrategy = async (
     // --- MERGE TOMORROW.IO LIVE DATA ---
     // Tomorrow.io provides station-blended observed data — more accurate than model data
     // for temperature, wind, humidity, pressure, conditions
-    if (tomorrowObs && baseReport) {
+    // IMPORTANT: Skip for offshore locations — Tomorrow.io has no station data offshore
+    // and its modelled values are inferior to StormGlass marine-specific models.
+    if (tomorrowObs && baseReport && computedLocationType !== 'offshore') {
         const current = { ...baseReport.current };
         const sources = (current as any).sources || {};
 
@@ -255,7 +259,7 @@ export const fetchWeatherByStrategy = async (
 
     // Update model description for logging
     const sourcesParts: string[] = [];
-    if (tomorrowObs) sourcesParts.push('tio-live');
+    if (tomorrowObs && computedLocationType !== 'offshore') sourcesParts.push('tio-live');
     if (stormGlassReport) sourcesParts.push('sg');
     if (openMeteoReport) sourcesParts.push('om');
     baseReport.modelUsed = sourcesParts.join('+') || baseReport.modelUsed;

@@ -250,15 +250,15 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
             {/* Data Source Info Modal — portalled to document root to escape z-index stacking */}
             {showInfoModal && createPortal(
                 <div
-                    className="fixed inset-0 z-[9999] flex items-end justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md"
+                    className="fixed inset-0 z-[9999] flex items-start justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md"
                     onClick={() => setShowInfoModal(false)}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Data sources details"
-                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)', paddingTop: 'env(safe-area-inset-top)' }}
+                    style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)', paddingTop: 'calc(env(safe-area-inset-top) + 60px)' }}
                 >
                     <div
-                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl max-h-[60dvh] overflow-y-auto mx-4"
+                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl max-h-[85dvh] overflow-y-auto mx-4"
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Header */}

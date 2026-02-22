@@ -441,6 +441,8 @@ export interface HourlyForecast {
     currentSpeed?: number | null;
     currentDirection?: number | string;
     waterTemperature?: number | null;
+    cape?: number | null;
+    dewPoint?: number | null;
 }
 
 export interface Tide {
