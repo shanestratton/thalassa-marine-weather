@@ -24,6 +24,7 @@ export interface DiaryEntry {
     body: string;
     mood: DiaryMood;
     photos: string[];           // Public URLs (or data: URIs when offline)
+    audio_url: string | null;   // Voice memo URL (or data: URI when offline)
     latitude: number | null;
     longitude: number | null;
     location_name: string;
@@ -49,7 +50,8 @@ export const MOOD_CONFIG: Record<DiaryMood, { emoji: string; label: string; colo
 // ── Constants ──────────────────────────────────────────────────
 
 const TABLE = 'diary_entries';
-const BUCKET = 'diary-photos';
+const PHOTO_BUCKET = 'diary-photos';
+const AUDIO_BUCKET = 'diary-audio';
 const CACHE_KEY = 'thalassa_diary_entries_v2';
 const PENDING_KEY = 'thalassa_diary_pending_v2';
 const MAX_PHOTO_SIZE = 1200;
@@ -118,6 +120,7 @@ class DiaryServiceClass {
         body: string;
         mood: DiaryMood;
         photos?: string[];
+        audio_url?: string | null;
         latitude?: number | null;
         longitude?: number | null;
         location_name?: string;
@@ -133,6 +136,7 @@ class DiaryServiceClass {
             body: entry.body,
             mood: entry.mood,
             photos: entry.photos || [],
+            audio_url: entry.audio_url ?? null,
             latitude: entry.latitude ?? null,
             longitude: entry.longitude ?? null,
             location_name: entry.location_name || '',
@@ -198,7 +202,7 @@ class DiaryServiceClass {
         if (entry?.photos?.length) {
             for (const url of entry.photos) {
                 const path = this._extractStoragePath(url);
-                if (path) await supabase.storage.from(BUCKET).remove([path]);
+                if (path) await supabase.storage.from(PHOTO_BUCKET).remove([path]);
             }
         }
 
@@ -234,7 +238,7 @@ class DiaryServiceClass {
             const path = `${user.id}/${Date.now()}.${ext}`;
 
             const { error } = await supabase.storage
-                .from(BUCKET)
+                .from(PHOTO_BUCKET)
                 .upload(path, compressed, {
                     contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
                     upsert: false,
@@ -243,7 +247,7 @@ class DiaryServiceClass {
             if (error) return null;
 
             const { data: urlData } = supabase.storage
-                .from(BUCKET)
+                .from(PHOTO_BUCKET)
                 .getPublicUrl(path);
 
             return urlData?.publicUrl || null;
@@ -272,13 +276,13 @@ class DiaryServiceClass {
             const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
 
             const { error } = await supabase.storage
-                .from(BUCKET)
+                .from(PHOTO_BUCKET)
                 .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
 
             if (error) return null;
 
             const { data: urlData } = supabase.storage
-                .from(BUCKET)
+                .from(PHOTO_BUCKET)
                 .getPublicUrl(path);
 
             return urlData?.publicUrl || null;
@@ -314,7 +318,14 @@ class DiaryServiceClass {
                         }
                     }
 
-                    // 2. Insert entry to Supabase
+                    // 2. Upload pending audio if needed
+                    let audioUrl = entry.audio_url;
+                    if (audioUrl && audioUrl.startsWith('data:')) {
+                        const uploaded = await this._uploadAudioDataUri(audioUrl);
+                        if (uploaded) audioUrl = uploaded;
+                    }
+
+                    // 3. Insert entry to Supabase
                     const { data, error } = await supabase
                         .from(TABLE)
                         .insert({
@@ -323,6 +334,7 @@ class DiaryServiceClass {
                             body: entry.body,
                             mood: entry.mood,
                             photos: uploadedPhotos,
+                            audio_url: audioUrl || null,
                             latitude: entry.latitude,
                             longitude: entry.longitude,
                             location_name: entry.location_name,
@@ -488,6 +500,98 @@ class DiaryServiceClass {
             if (!res.ok) return null;
             const data = await res.json();
             return data?.enhanced || null;
+        } catch { return null; }
+    }
+
+    // ── Audio ──────────────────────────────────────────────────
+
+    async uploadAudio(blob: Blob): Promise<string | null> {
+        // Convert to data URI for offline storage
+        const dataUri = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+        });
+
+        // Try upload if online
+        if (supabase && navigator.onLine) {
+            const url = await this._uploadAudioBlob(blob);
+            if (url) return url;
+        }
+
+        // Return data URI — will be uploaded during sync
+        return dataUri;
+    }
+
+    private async _uploadAudioBlob(blob: Blob): Promise<string | null> {
+        if (!supabase) return null;
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!user) return null;
+
+        try {
+            const path = `${user.id}/${Date.now()}.webm`;
+            const { error } = await supabase.storage
+                .from(AUDIO_BUCKET)
+                .upload(path, blob, { contentType: 'audio/webm', upsert: false });
+
+            if (error) return null;
+
+            const { data: urlData } = supabase.storage
+                .from(AUDIO_BUCKET)
+                .getPublicUrl(path);
+
+            return urlData?.publicUrl || null;
+        } catch { return null; }
+    }
+
+    private async _uploadAudioDataUri(dataUri: string): Promise<string | null> {
+        if (!supabase) return null;
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!user) return null;
+
+        try {
+            const res = await fetch(dataUri);
+            const blob = await res.blob();
+            return this._uploadAudioBlob(blob);
+        } catch { return null; }
+    }
+
+    async transcribeAudio(audioUrl: string): Promise<string | null> {
+        if (!navigator.onLine) return null;
+
+        try {
+            const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
+            const supabaseKey = import.meta.env?.VITE_SUPABASE_KEY || '';
+            if (!supabaseUrl) return null;
+
+            // Fetch audio as base64
+            const audioRes = await fetch(audioUrl);
+            const audioBlob = await audioRes.blob();
+            const base64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = reader.result as string;
+                    resolve(result.split(',')[1] || result);
+                };
+                reader.readAsDataURL(audioBlob);
+            });
+
+            const res = await fetch(`${supabaseUrl}/functions/v1/gemini-diary`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                },
+                body: JSON.stringify({
+                    action: 'transcribe',
+                    audio_base64: base64,
+                    mime_type: 'audio/webm',
+                }),
+            });
+
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data?.transcript || null;
         } catch { return null; }
     }
 

@@ -4,6 +4,33 @@ import { WorldTidesResponse } from '../../../types';
 
 const BASE_URL = 'https://www.worldtides.info/api/v3';
 
+// ── HARD RATE LIMITER ──────────────────────────────────────────
+// Max 4 calls per hour, persisted across app restarts.
+// This is the LAST line of defense against credit drain.
+const WT_RATE_KEY = 'thalassa_wt_rate_v1';
+const MAX_CALLS_PER_HOUR = 4;
+
+function isRateLimited(): boolean {
+    try {
+        const raw = localStorage.getItem(WT_RATE_KEY);
+        const timestamps: number[] = raw ? JSON.parse(raw) : [];
+        const oneHourAgo = Date.now() - 3600_000;
+        const recent = timestamps.filter(t => t > oneHourAgo);
+        return recent.length >= MAX_CALLS_PER_HOUR;
+    } catch { return false; }
+}
+
+function recordCall(): void {
+    try {
+        const raw = localStorage.getItem(WT_RATE_KEY);
+        const timestamps: number[] = raw ? JSON.parse(raw) : [];
+        const oneHourAgo = Date.now() - 3600_000;
+        const recent = timestamps.filter(t => t > oneHourAgo);
+        recent.push(Date.now());
+        localStorage.setItem(WT_RATE_KEY, JSON.stringify(recent));
+    } catch { /* localStorage full — proceed anyway */ }
+}
+
 export const fetchWorldTides = async (
     lat: number,
     lon: number,
@@ -11,6 +38,12 @@ export const fetchWorldTides = async (
 ): Promise<WorldTidesResponse | null> => {
     const key = getWorldTidesKey();
     if (!key) {
+        return null;
+    }
+
+    // HARD LIMIT: Max 4 calls/hour — no exceptions
+    if (isRateLimited()) {
+        console.warn('[WorldTides] RATE LIMITED — max 4 calls/hour reached. Skipping API call.');
         return null;
     }
 
@@ -35,6 +68,7 @@ export const fetchWorldTides = async (
         // console.log(`[WorldTides] Status: ${res.status}`, res.data);
 
         if (res.status === 200 && res.data) {
+            recordCall(); // Track this call for rate limiting
             // Check if response has station in body (WorldTides V3 often returns 'station' object or name field)
             const data = res.data as Record<string, unknown> & { station?: string | { name?: string }; atlasLatitude?: number; atlasLongitude?: number };
 
