@@ -39,13 +39,14 @@ const WarningDetails = React.lazy(() => import('./components/WarningDetails').th
 const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
 const ChatPage = React.lazy(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
 const LogPage = React.lazy(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
+const DiaryPage = React.lazy(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline } = useUI();
-    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents';
+    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -180,7 +181,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
@@ -292,6 +293,8 @@ const App: React.FC = () => {
                                         {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
+                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>

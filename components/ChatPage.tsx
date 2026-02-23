@@ -288,26 +288,31 @@ export const ChatPage: React.FC = () => {
 
     // --- INIT ---
     useEffect(() => {
-        ChatService.initialize().then(async () => {
-            setLoadingStatus('Loading channels…');
-            const chs = await loadChannels();
-            loadUnreadCount();
+        // FAST PATH: Show channels immediately (from cache or defaults)
+        // Don't wait for auth — channels are public data
+        loadChannels().then(() => {
+            // Auth + profile load in background — non-blocking
+            ChatService.initialize().then(async () => {
+                loadUnreadCount();
+                // Refresh channels from network (might have new ones)
+                const fresh = await ChatService.getChannels();
+                if (fresh.length > 0) setChannels(fresh);
 
-            // Load chat profile (pre-populate vessel from onboarding)
-            ChatService.getCurrentUser().then(async (user) => {
-                if (user) {
-                    const profile = await getProfile(user.id);
-                    if (profile) {
-                        setProfileDisplayName(profile.display_name || '');
-                        setProfileVesselName(profile.vessel_name || settings.vessel?.name || '');
-                        setProfileLookingForLove(profile.looking_for_love || false);
-                        if (profile.avatar_url) setMyAvatarUrl(profile.avatar_url);
-                    } else {
-                        // First time: pre-fill from onboarding
-                        setProfileVesselName(settings.vessel?.name || '');
+                // Load chat profile
+                ChatService.getCurrentUser().then(async (user) => {
+                    if (user) {
+                        const profile = await getProfile(user.id);
+                        if (profile) {
+                            setProfileDisplayName(profile.display_name || '');
+                            setProfileVesselName(profile.vessel_name || settings.vessel?.name || '');
+                            setProfileLookingForLove(profile.looking_for_love || false);
+                            if (profile.avatar_url) setMyAvatarUrl(profile.avatar_url);
+                        } else {
+                            setProfileVesselName(settings.vessel?.name || '');
+                        }
+                        setProfileLoaded(true);
                     }
-                    setProfileLoaded(true);
-                }
+                });
             });
         });
 
@@ -332,7 +337,7 @@ export const ChatPage: React.FC = () => {
     }, []);
 
     const loadChannels = async (): Promise<ChatChannel[]> => {
-        setLoading(true);
+        // getChannels returns cached data instantly (or fetches if no cache)
         const chs = await ChatService.getChannels();
         const result = chs.length > 0 ? chs : DEFAULT_CHANNELS.map((c, i) => ({
             ...c,
@@ -340,7 +345,7 @@ export const ChatPage: React.FC = () => {
             created_at: new Date().toISOString(),
         }));
         setChannels(result);
-        setLoading(false);
+        setLoading(false); // Channels visible — kill spinner immediately
         return result;
     };
 
@@ -1050,7 +1055,7 @@ export const ChatPage: React.FC = () => {
                             <div>
                                 <p className="text-sm font-bold text-sky-300 mb-1.5">Welcome aboard, sailor! ⛵</p>
                                 <p className="text-[11px] text-white/60 leading-relaxed max-w-[280px]">
-                                    Every expert was once a beginner. Tap <span className="inline-flex items-center gap-0.5 text-amber-400 font-semibold">🆘</span> to mark
+                                    Every expert was once a beginner. Tap <span className="inline-flex items-center gap-0.5 text-amber-400 font-semibold">📢</span> to mark
                                     your message as a question — the crew will rally to help.
                                 </p>
                                 <div className="flex items-center gap-4 mt-3">

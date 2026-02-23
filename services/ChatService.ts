@@ -21,6 +21,7 @@ const MESSAGES_TABLE = 'chat_messages';
 const DM_TABLE = 'chat_direct_messages';
 const ROLES_TABLE = 'chat_roles';
 const DM_BLOCKS_TABLE = 'dm_blocks';
+const CHANNELS_CACHE_KEY = 'thalassa_chat_channels_v1';
 
 // --- TYPES ---
 
@@ -158,6 +159,24 @@ class ChatServiceClass {
     // --- CHANNELS ---
 
     async getChannels(): Promise<ChatChannel[]> {
+        // 1. Return cached channels instantly (localStorage survives restarts)
+        try {
+            const cached = localStorage.getItem(CHANNELS_CACHE_KEY);
+            if (cached) {
+                const parsed = JSON.parse(cached) as ChatChannel[];
+                if (parsed.length > 0) {
+                    // Background refresh — don't await
+                    this._refreshChannelsCache();
+                    return parsed;
+                }
+            }
+        } catch { /* corrupt cache — fetch fresh */ }
+
+        // 2. No cache — fetch from Supabase
+        return this._fetchAndCacheChannels();
+    }
+
+    private async _fetchAndCacheChannels(): Promise<ChatChannel[]> {
         if (!supabase) return [];
         const { data, error } = await supabase
             .from(CHANNELS_TABLE)
@@ -165,8 +184,15 @@ class ChatServiceClass {
             .order('is_global', { ascending: false })
             .order('name');
 
-        if (error) return [];
-        return (data || []) as ChatChannel[];
+        if (error || !data || data.length === 0) return [];
+        const channels = data as ChatChannel[];
+        try { localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels)); } catch { }
+        return channels;
+    }
+
+    private _refreshChannelsCache(): void {
+        // Fire-and-forget background refresh
+        this._fetchAndCacheChannels().catch(() => { });
     }
 
     // --- MESSAGES ---
