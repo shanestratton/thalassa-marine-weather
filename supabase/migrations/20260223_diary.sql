@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.diary_entries (
     mood            TEXT NOT NULL DEFAULT 'neutral'
                         CHECK (mood IN ('epic', 'good', 'neutral', 'rough', 'storm')),
     photos          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    audio_url       TEXT,                              -- Voice memo URL
     latitude        DOUBLE PRECISION,
     longitude       DOUBLE PRECISION,
     location_name   TEXT NOT NULL DEFAULT '',
@@ -106,6 +107,36 @@ CREATE TRIGGER diary_entries_updated_at
     BEFORE UPDATE ON public.diary_entries
     FOR EACH ROW
     EXECUTE FUNCTION public.diary_updated_at();
+
+-- ── 5. Create diary-audio storage bucket ───────────────────────
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'diary-audio',
+    'diary-audio',
+    true,
+    20971520,                          -- 20MB max per recording
+    ARRAY['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav']::text[]
+)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Users can upload diary audio"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'diary-audio'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+    );
+
+CREATE POLICY "Public read diary audio"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'diary-audio');
+
+CREATE POLICY "Users can delete own diary audio"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'diary-audio'
+        AND auth.uid()::text = (storage.foldername(name))[1]
+    );
 
 -- ═══════════════════════════════════════════════════════════════
 -- Done! The diary is ready to use.

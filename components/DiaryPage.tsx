@@ -4,6 +4,7 @@
  * Premium passage diary with:
  *   - Timeline view of entries with photos, GPS, mood
  *   - Full-screen compose/edit with photo attachment + GPS
+ *   - 🎙️ Voice recorder — record audio memos, transcribe later
  *   - Gemini AI "polish" button for journal text
  *   - Mood selector with nautical emojis
  *   - Beautiful card-based timeline
@@ -30,11 +31,16 @@ const formatTime = (iso: string): string => {
     return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 };
 
-/** Format lat/lon as proper cardinal coordinates */
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
     const lonDir = lon >= 0 ? 'E' : 'W';
     return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
+};
+
+const formatDuration = (seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
 const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
@@ -62,6 +68,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [body, setBody] = useState('');
     const [mood, setMood] = useState<DiaryMood>('good');
     const [photos, setPhotos] = useState<string[]>([]);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     const [lat, setLat] = useState<number | null>(null);
     const [lon, setLon] = useState<number | null>(null);
@@ -70,6 +77,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [polishing, setPolishing] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
+
+    // Audio recording state
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [transcribing, setTranscribing] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Playback state
+    const [isPlaying, setIsPlaying] = useState(false);
+    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
     const fileRef = useRef<HTMLInputElement>(null);
 
@@ -80,6 +99,15 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             setEntries(data);
             setLoading(false);
         });
+    }, []);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+            if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+            if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
+        };
     }, []);
 
     // ── GPS helper ─────────────────────────────────────────────
@@ -103,12 +131,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setBody('');
         setMood('good');
         setPhotos([]);
+        setAudioUrl(null);
         setLat(null);
         setLon(null);
         setLocationName('');
+        setRecordingTime(0);
         setShowCompose(true);
         triggerHaptic('light');
-        // Auto-grab GPS
         grabGps();
     }, [grabGps]);
 
@@ -120,6 +149,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setBody(entry.body);
         setMood(entry.mood);
         setPhotos(entry.photos || []);
+        setAudioUrl(entry.audio_url || null);
         setLat(entry.latitude);
         setLon(entry.longitude);
         setLocationName(entry.location_name || (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : ''));
@@ -127,6 +157,97 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setShowCompose(true);
         triggerHaptic('light');
     }, []);
+
+    // ── Audio Recording ────────────────────────────────────────
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : 'audio/webm',
+            });
+
+            audioChunksRef.current = [];
+            mediaRecorderRef.current = mediaRecorder;
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                // Stop all tracks
+                stream.getTracks().forEach(t => t.stop());
+
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                if (blob.size > 0) {
+                    const url = await DiaryService.uploadAudio(blob);
+                    setAudioUrl(url);
+                }
+                if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+            };
+
+            mediaRecorder.start(250); // Collect data every 250ms
+            setIsRecording(true);
+            setRecordingTime(0);
+            triggerHaptic('medium');
+
+            // Timer
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+        } catch (err) {
+            console.error('[Diary] Mic access denied:', err);
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsRecording(false);
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        triggerHaptic('light');
+    };
+
+    const removeAudio = () => {
+        setAudioUrl(null);
+        setRecordingTime(0);
+    };
+
+    // ── Audio Playback ─────────────────────────────────────────
+
+    const togglePlayback = (url: string) => {
+        if (isPlaying && audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            audioPlayerRef.current = null;
+            setIsPlaying(false);
+            return;
+        }
+
+        const audio = new Audio(url);
+        audioPlayerRef.current = audio;
+        audio.play();
+        setIsPlaying(true);
+        audio.onended = () => {
+            setIsPlaying(false);
+            audioPlayerRef.current = null;
+        };
+    };
+
+    // ── Transcribe ─────────────────────────────────────────────
+
+    const handleTranscribe = async (url: string) => {
+        if (transcribing) return;
+        setTranscribing(true);
+        triggerHaptic('light');
+        const text = await DiaryService.transcribeAudio(url);
+        if (text) {
+            setBody(prev => prev ? `${prev}\n\n${text}` : text);
+        }
+        setTranscribing(false);
+    };
 
     // ── Photo handling ─────────────────────────────────────────
 
@@ -150,10 +271,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         if (!body.trim() || polishing) return;
         setPolishing(true);
         triggerHaptic('light');
-        const enhanced = await DiaryService.enhanceWithGemini(body, {
-            mood,
-            location: locationName,
-        });
+        const enhanced = await DiaryService.enhanceWithGemini(body, { mood, location: locationName });
         if (enhanced) setBody(enhanced);
         setPolishing(false);
     };
@@ -161,43 +279,38 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     // ── Save (create or update) ────────────────────────────────
 
     const handleSave = async () => {
-        if (!body.trim() && !title.trim()) return;
+        if (!body.trim() && !title.trim() && !audioUrl) return;
         setSaving(true);
         triggerHaptic('medium');
 
         if (editingId) {
-            // UPDATE existing entry
             const ok = await DiaryService.updateEntry(editingId, {
                 title: title.trim() || formatDate(new Date().toISOString()),
                 body: body.trim(),
                 mood,
                 photos,
-                location_name: locationName,
             });
-
             if (ok) {
-                // Update local state
                 setEntries(prev => prev.map(e =>
                     e.id === editingId
-                        ? { ...e, title: title.trim() || e.title, body: body.trim(), mood, photos, location_name: locationName }
+                        ? { ...e, title: title.trim() || e.title, body: body.trim(), mood, photos, audio_url: audioUrl }
                         : e
                 ));
                 setShowCompose(false);
                 setEditingId(null);
             }
         } else {
-            // CREATE new entry
             const entry = await DiaryService.createEntry({
                 title: title.trim() || formatDate(new Date().toISOString()),
                 body: body.trim(),
                 mood,
                 photos,
+                audio_url: audioUrl,
                 latitude: lat,
                 longitude: lon,
                 location_name: locationName,
                 tags: [],
             });
-
             if (entry) {
                 setEntries(prev => [entry, ...prev]);
                 setShowCompose(false);
@@ -221,6 +334,71 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     const grouped = groupByDate(entries);
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //  AUDIO PLAYER WIDGET — reused in entry view and compose
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    const AudioWidget: React.FC<{
+        url: string;
+        allowTranscribe?: boolean;
+        allowRemove?: boolean;
+    }> = ({ url, allowTranscribe, allowRemove }) => (
+        <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/15 rounded-xl p-3">
+            <div className="flex items-center gap-2.5">
+                <button
+                    onClick={() => togglePlayback(url)}
+                    className="p-2.5 bg-emerald-500/20 rounded-full hover:bg-emerald-500/30 transition-colors active:scale-95"
+                >
+                    {isPlaying ? (
+                        <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+                            <rect x="6" y="4" width="4" height="16" rx="1" />
+                            <rect x="14" y="4" width="4" height="16" rx="1" />
+                        </svg>
+                    ) : (
+                        <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                    )}
+                </button>
+                <div className="flex-1">
+                    <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-wider">Voice Memo</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                        {/* Waveform visualization */}
+                        {[3, 5, 8, 12, 6, 10, 4, 7, 11, 5, 8, 3, 6, 9, 4].map((h, i) => (
+                            <div
+                                key={i}
+                                className={`w-1 rounded-full transition-all ${isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500/30'}`}
+                                style={{ height: `${h}px`, animationDelay: `${i * 0.1}s` }}
+                            />
+                        ))}
+                    </div>
+                </div>
+                <div className="flex items-center gap-1">
+                    {allowTranscribe && (
+                        <button
+                            onClick={() => handleTranscribe(url)}
+                            disabled={transcribing}
+                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-violet-300 hover:bg-violet-500/15 transition-colors disabled:opacity-40"
+                            title="Transcribe to text"
+                        >
+                            {transcribing ? '⏳' : '📝'} {transcribing ? 'Transcribing…' : 'To Text'}
+                        </button>
+                    )}
+                    {allowRemove && (
+                        <button
+                            onClick={removeAudio}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
+                        >
+                            <svg className="w-4 h-4 text-red-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
     // ── Render: Full Entry View ─────────────────────────────────
 
     if (selectedEntry) {
@@ -238,20 +416,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </svg>
                     </button>
                     <h2 className="text-base font-black text-white flex-1 truncate">{e.title}</h2>
-                    {/* Edit button */}
-                    <button
-                        onClick={() => openEdit(e)}
-                        className="p-2 rounded-full hover:bg-sky-500/20 transition-colors"
-                    >
+                    <button onClick={() => openEdit(e)} className="p-2 rounded-full hover:bg-sky-500/20 transition-colors">
                         <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                         </svg>
                     </button>
-                    {/* Delete button */}
-                    <button
-                        onClick={() => setDeleteConfirm(e.id)}
-                        className="p-2 rounded-full hover:bg-red-500/20 transition-colors"
-                    >
+                    <button onClick={() => setDeleteConfirm(e.id)} className="p-2 rounded-full hover:bg-red-500/20 transition-colors">
                         <svg className="w-5 h-5 text-red-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                         </svg>
@@ -260,7 +430,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto">
-                    {/* Photos hero */}
                     {e.photos.length > 0 && (
                         <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory">
                             {e.photos.map((url, i) => (
@@ -280,7 +449,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <span className="text-gray-500 font-mono text-xs">{formatTime(e.created_at)}</span>
                         </div>
 
-                        {/* GPS Position — prominent card */}
+                        {/* GPS Position */}
                         {hasCoords && (
                             <div className="bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
                                 <div className="flex items-center gap-2.5">
@@ -302,8 +471,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 </div>
                             </div>
                         )}
-
-                        {/* Location name only (no coords) */}
                         {!hasCoords && e.location_name && (
                             <div className="flex items-center gap-2 text-xs text-sky-400/70">
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -314,6 +481,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             </div>
                         )}
 
+                        {/* Voice Memo */}
+                        {e.audio_url && (
+                            <AudioWidget url={e.audio_url} allowTranscribe={true} />
+                        )}
+
                         {/* Weather */}
                         {e.weather_summary && (
                             <div className="text-xs text-gray-500 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
@@ -322,9 +494,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         )}
 
                         {/* Body */}
-                        <div className="text-[15px] text-gray-200 leading-relaxed whitespace-pre-wrap">
-                            {e.body}
-                        </div>
+                        {e.body && (
+                            <div className="text-[15px] text-gray-200 leading-relaxed whitespace-pre-wrap">
+                                {e.body}
+                            </div>
+                        )}
 
                         {/* Tags */}
                         {e.tags.length > 0 && (
@@ -337,7 +511,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             </div>
                         )}
 
-                        {/* Offline badge */}
                         {e._offline && (
                             <div className="flex items-center gap-2 text-[10px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
                                 <span>⏳</span>
@@ -352,14 +525,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-8">
                         <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-sm w-full space-y-4">
                             <h3 className="text-lg font-black text-white">Delete Entry?</h3>
-                            <p className="text-sm text-gray-400">This will permanently delete this journal entry and any attached photos.</p>
+                            <p className="text-sm text-gray-400">This will permanently delete this journal entry and any attached photos or audio.</p>
                             <div className="flex gap-3">
-                                <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-sm">
-                                    Cancel
-                                </button>
-                                <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-sm">
-                                    Delete
-                                </button>
+                                <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-sm">Cancel</button>
+                                <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-sm">Delete</button>
                             </div>
                         </div>
                     </div>
@@ -384,7 +553,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <h2 className="text-base font-black text-white flex-1">{isEditing ? 'Edit Entry' : 'New Entry'}</h2>
                     <button
                         onClick={handleSave}
-                        disabled={saving || (!body.trim() && !title.trim())}
+                        disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
                         className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm rounded-xl transition-colors"
                     >
                         {saving ? 'Saving…' : isEditing ? 'Update' : 'Save'}
@@ -431,28 +600,17 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <div className="flex-1 min-w-0">
                                 <p className="text-[10px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
                                 {lat != null && lon != null ? (
-                                    <p className="text-sm font-bold text-white font-mono tracking-wide">
-                                        {formatCoord(lat, lon)}
-                                    </p>
+                                    <p className="text-sm font-bold text-white font-mono tracking-wide">{formatCoord(lat, lon)}</p>
                                 ) : (
-                                    <p className="text-xs text-gray-500 italic">
-                                        {gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}
-                                    </p>
+                                    <p className="text-xs text-gray-500 italic">{gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}</p>
                                 )}
                             </div>
-                            <button
-                                onClick={grabGps}
-                                disabled={gpsLoading}
-                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40"
-                                title="Refresh GPS"
-                            >
+                            <button onClick={grabGps} disabled={gpsLoading} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40" title="Refresh GPS">
                                 <svg className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
                                 </svg>
                             </button>
                         </div>
-
-                        {/* Editable location name */}
                         <div className="mt-2">
                             <input
                                 type="text"
@@ -464,16 +622,83 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </div>
                     </div>
 
+                    {/* ═══ VOICE MEMO ═══ */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice Memo</span>
+                            <span className="text-[10px] text-gray-600">Record or type below</span>
+                        </div>
+
+                        {isRecording ? (
+                            /* Active recording UI */
+                            <div className="bg-gradient-to-r from-red-500/15 to-orange-500/15 border border-red-500/20 rounded-xl p-4">
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={stopRecording}
+                                        className="p-3 bg-red-500 rounded-full shadow-lg shadow-red-500/30 hover:bg-red-400 transition-colors active:scale-95"
+                                    >
+                                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                                        </svg>
+                                    </button>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-bold text-red-400 animate-pulse">● Recording…</p>
+                                        <p className="text-xl font-mono font-bold text-white">{formatDuration(recordingTime)}</p>
+                                    </div>
+                                    {/* Live waveform */}
+                                    <div className="flex items-center gap-0.5">
+                                        {Array.from({ length: 12 }).map((_, i) => (
+                                            <div
+                                                key={i}
+                                                className="w-1 bg-red-400 rounded-full animate-pulse"
+                                                style={{
+                                                    height: `${8 + Math.random() * 16}px`,
+                                                    animationDelay: `${i * 0.08}s`,
+                                                    animationDuration: '0.5s',
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-red-400/50 mt-2 text-center font-bold uppercase tracking-wider">
+                                    Tap the square to stop recording
+                                </p>
+                            </div>
+                        ) : audioUrl ? (
+                            /* Recorded audio preview */
+                            <AudioWidget url={audioUrl} allowTranscribe={true} allowRemove={true} />
+                        ) : (
+                            /* Record button */
+                            <button
+                                onClick={startRecording}
+                                className="w-full bg-white/[0.03] border border-white/5 rounded-xl p-4 flex items-center gap-3 hover:bg-emerald-500/5 hover:border-emerald-500/15 transition-all active:scale-[0.98] group"
+                            >
+                                <div className="p-2.5 bg-emerald-500/15 rounded-full group-hover:bg-emerald-500/25 transition-colors">
+                                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                                    </svg>
+                                </div>
+                                <div className="text-left flex-1">
+                                    <p className="text-sm font-bold text-white">Record Voice Memo</p>
+                                    <p className="text-[10px] text-gray-500">Tap to start — hands-free journaling at sea</p>
+                                </div>
+                                <svg className="w-4 h-4 text-gray-600 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
                     {/* Body text */}
                     <textarea
                         placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                         value={body}
                         onChange={e => setBody(e.target.value)}
-                        rows={8}
+                        rows={6}
                         className="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-[15px] text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                     />
 
-                    {/* AI Polish button */}
+                    {/* AI Polish */}
                     {body.trim().length > 20 && (
                         <button
                             onClick={handlePolish}
@@ -493,20 +718,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 <span className="text-[10px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
                             )}
                         </div>
-
                         <div className="flex gap-2 flex-wrap">
                             {photos.map((url, i) => (
                                 <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden group">
                                     <img src={url} alt="" className="w-full h-full object-cover" />
-                                    <button
-                                        onClick={() => removePhoto(i)}
-                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        ✕
-                                    </button>
+                                    <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                                 </div>
                             ))}
-
                             {photos.length < 6 && (
                                 <button
                                     onClick={() => fileRef.current?.click()}
@@ -578,7 +796,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <div className="text-5xl mb-4">🌅</div>
                             <h3 className="text-lg font-black text-white mb-2">Your Story Starts Here</h3>
                             <p className="text-sm text-gray-400 leading-relaxed mb-6">
-                                Document your passages, anchorages, and adventures. Add photos, GPS coordinates, and let Gemini help craft your narrative.
+                                Document your passages, anchorages, and adventures. Add photos, voice memos, GPS coordinates, and let Gemini help craft your narrative.
                             </p>
                             <button
                                 onClick={openCompose}
@@ -592,7 +810,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="p-4 space-y-6 pb-24">
                         {Array.from(grouped.entries()).map(([dateKey, dayEntries]) => (
                             <div key={dateKey}>
-                                {/* Date header */}
                                 <div className="flex items-center gap-3 mb-3">
                                     <div className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
                                     <span className="text-xs font-black text-sky-400 uppercase tracking-widest">
@@ -601,7 +818,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     <div className="flex-1 h-px bg-white/5" />
                                 </div>
 
-                                {/* Entries for this day */}
                                 <div className="space-y-3 ml-4 border-l border-white/5 pl-4">
                                     {dayEntries.map(entry => {
                                         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
@@ -612,7 +828,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                 onClick={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
                                                 className="w-full text-left bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden hover:bg-white/[0.05] hover:border-white/10 transition-all active:scale-[0.98] group"
                                             >
-                                                {/* Photo strip */}
                                                 {entry.photos.length > 0 && (
                                                     <div className="flex h-28 overflow-hidden">
                                                         {entry.photos.slice(0, 3).map((url, i) => (
@@ -632,10 +847,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                             <div className="flex items-center gap-2 mb-1">
                                                                 <span className="text-sm">{moodCfg.emoji}</span>
                                                                 <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
+                                                                {entry.audio_url && <span className="text-[9px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
                                                                 {entry._offline && <span className="text-[9px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
                                                             </div>
                                                             <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
-                                                                {entry.body}
+                                                                {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
                                                             </p>
                                                         </div>
                                                         <span className="text-[10px] text-gray-600 font-mono shrink-0 mt-0.5">
@@ -643,23 +859,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                         </span>
                                                     </div>
 
-                                                    {/* GPS coordinates in timeline cards */}
                                                     {entryHasCoords && (
                                                         <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/60">
                                                             <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                                                             </svg>
-                                                            <span className="font-mono font-medium">
-                                                                {formatCoord(entry.latitude!, entry.longitude!)}
-                                                            </span>
+                                                            <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
                                                             {entry.location_name && !entry.location_name.includes('°') && (
                                                                 <span className="text-gray-600 truncate">— {entry.location_name}</span>
                                                             )}
                                                         </div>
                                                     )}
-
-                                                    {/* Location name only */}
                                                     {!entryHasCoords && entry.location_name && (
                                                         <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/50">
                                                             <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
