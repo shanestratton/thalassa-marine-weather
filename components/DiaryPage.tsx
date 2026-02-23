@@ -3,7 +3,7 @@
  *
  * Premium passage diary with:
  *   - Timeline view of entries with photos, GPS, mood
- *   - Full-screen compose with photo attachment + GPS
+ *   - Full-screen compose/edit with photo attachment + GPS
  *   - Gemini AI "polish" button for journal text
  *   - Mood selector with nautical emojis
  *   - Beautiful card-based timeline
@@ -30,6 +30,13 @@ const formatTime = (iso: string): string => {
     return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 };
 
+/** Format lat/lon as proper cardinal coordinates */
+const formatCoord = (lat: number, lon: number): string => {
+    const latDir = lat >= 0 ? 'N' : 'S';
+    const lonDir = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
+};
+
 const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     const map = new Map<string, DiaryEntry[]>();
     for (const e of entries) {
@@ -50,6 +57,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
 
     // Compose state
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
     const [mood, setMood] = useState<DiaryMood>('good');
@@ -61,9 +69,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [saving, setSaving] = useState(false);
     const [polishing, setPolishing] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    const [gpsLoading, setGpsLoading] = useState(false);
 
     const fileRef = useRef<HTMLInputElement>(null);
-    const bodyRef = useRef<HTMLTextAreaElement>(null);
 
     // ── Load entries ───────────────────────────────────────────
 
@@ -74,25 +82,53 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         });
     }, []);
 
-    // ── Compose ────────────────────────────────────────────────
+    // ── GPS helper ─────────────────────────────────────────────
 
-    const openCompose = useCallback(async () => {
-        setTitle('');
-        setBody('');
-        setMood('good');
-        setPhotos([]);
-        setLocationName('');
-        setShowCompose(true);
-        triggerHaptic('light');
-
-        // Auto-grab GPS
+    const grabGps = useCallback(async () => {
+        setGpsLoading(true);
         const loc = await DiaryService.getCurrentLocation();
         if (loc) {
             setLat(loc.lat);
             setLon(loc.lon);
-            setLocationName(`${loc.lat.toFixed(4)}°, ${loc.lon.toFixed(4)}°`);
+            setLocationName(formatCoord(loc.lat, loc.lon));
         }
+        setGpsLoading(false);
     }, []);
+
+    // ── Compose (new) ──────────────────────────────────────────
+
+    const openCompose = useCallback(async () => {
+        setEditingId(null);
+        setTitle('');
+        setBody('');
+        setMood('good');
+        setPhotos([]);
+        setLat(null);
+        setLon(null);
+        setLocationName('');
+        setShowCompose(true);
+        triggerHaptic('light');
+        // Auto-grab GPS
+        grabGps();
+    }, [grabGps]);
+
+    // ── Edit (existing) ────────────────────────────────────────
+
+    const openEdit = useCallback((entry: DiaryEntry) => {
+        setEditingId(entry.id);
+        setTitle(entry.title);
+        setBody(entry.body);
+        setMood(entry.mood);
+        setPhotos(entry.photos || []);
+        setLat(entry.latitude);
+        setLon(entry.longitude);
+        setLocationName(entry.location_name || (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : ''));
+        setSelectedEntry(null);
+        setShowCompose(true);
+        triggerHaptic('light');
+    }, []);
+
+    // ── Photo handling ─────────────────────────────────────────
 
     const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -108,6 +144,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setPhotos(prev => prev.filter((_, i) => i !== idx));
     };
 
+    // ── Gemini polish ──────────────────────────────────────────
+
     const handlePolish = async () => {
         if (!body.trim() || polishing) return;
         setPolishing(true);
@@ -120,28 +158,55 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setPolishing(false);
     };
 
+    // ── Save (create or update) ────────────────────────────────
+
     const handleSave = async () => {
         if (!body.trim() && !title.trim()) return;
         setSaving(true);
         triggerHaptic('medium');
 
-        const entry = await DiaryService.createEntry({
-            title: title.trim() || formatDate(new Date().toISOString()),
-            body: body.trim(),
-            mood,
-            photos,
-            latitude: lat,
-            longitude: lon,
-            location_name: locationName,
-            tags: [],
-        });
+        if (editingId) {
+            // UPDATE existing entry
+            const ok = await DiaryService.updateEntry(editingId, {
+                title: title.trim() || formatDate(new Date().toISOString()),
+                body: body.trim(),
+                mood,
+                photos,
+                location_name: locationName,
+            });
 
-        if (entry) {
-            setEntries(prev => [entry, ...prev]);
-            setShowCompose(false);
+            if (ok) {
+                // Update local state
+                setEntries(prev => prev.map(e =>
+                    e.id === editingId
+                        ? { ...e, title: title.trim() || e.title, body: body.trim(), mood, photos, location_name: locationName }
+                        : e
+                ));
+                setShowCompose(false);
+                setEditingId(null);
+            }
+        } else {
+            // CREATE new entry
+            const entry = await DiaryService.createEntry({
+                title: title.trim() || formatDate(new Date().toISOString()),
+                body: body.trim(),
+                mood,
+                photos,
+                latitude: lat,
+                longitude: lon,
+                location_name: locationName,
+                tags: [],
+            });
+
+            if (entry) {
+                setEntries(prev => [entry, ...prev]);
+                setShowCompose(false);
+            }
         }
         setSaving(false);
     };
+
+    // ── Delete ─────────────────────────────────────────────────
 
     const handleDelete = async (id: string) => {
         const ok = await DiaryService.deleteEntry(id);
@@ -161,6 +226,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     if (selectedEntry) {
         const e = selectedEntry;
         const moodCfg = MOOD_CONFIG[e.mood] || MOOD_CONFIG.neutral;
+        const hasCoords = e.latitude != null && e.longitude != null;
+
         return (
             <div className="flex flex-col h-full bg-slate-900 text-white">
                 {/* Header */}
@@ -171,6 +238,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </svg>
                     </button>
                     <h2 className="text-base font-black text-white flex-1 truncate">{e.title}</h2>
+                    {/* Edit button */}
+                    <button
+                        onClick={() => openEdit(e)}
+                        className="p-2 rounded-full hover:bg-sky-500/20 transition-colors"
+                    >
+                        <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                        </svg>
+                    </button>
+                    {/* Delete button */}
                     <button
                         onClick={() => setDeleteConfirm(e.id)}
                         className="p-2 rounded-full hover:bg-red-500/20 transition-colors"
@@ -203,19 +280,37 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <span className="text-gray-500 font-mono text-xs">{formatTime(e.created_at)}</span>
                         </div>
 
-                        {/* Location */}
-                        {e.location_name && (
+                        {/* GPS Position — prominent card */}
+                        {hasCoords && (
+                            <div className="bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 bg-sky-500/15 rounded-lg">
+                                        <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-[10px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                        <p className="text-sm font-bold text-white font-mono tracking-wide">
+                                            {formatCoord(e.latitude!, e.longitude!)}
+                                        </p>
+                                        {e.location_name && !e.location_name.includes('°') && (
+                                            <p className="text-xs text-gray-400 mt-0.5">{e.location_name}</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Location name only (no coords) */}
+                        {!hasCoords && e.location_name && (
                             <div className="flex items-center gap-2 text-xs text-sky-400/70">
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                                 </svg>
                                 <span className="font-medium">{e.location_name}</span>
-                                {e.latitude && e.longitude && (
-                                    <span className="text-gray-600 font-mono">
-                                        ({e.latitude.toFixed(4)}°, {e.longitude.toFixed(4)}°)
-                                    </span>
-                                )}
                             </div>
                         )}
 
@@ -239,6 +334,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         #{tag}
                                     </span>
                                 ))}
+                            </div>
+                        )}
+
+                        {/* Offline badge */}
+                        {e._offline && (
+                            <div className="flex items-center gap-2 text-[10px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
+                                <span>⏳</span>
+                                <span className="font-bold uppercase tracking-wider">Pending sync — will upload when online</span>
                             </div>
                         )}
                     </div>
@@ -265,25 +368,26 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         );
     }
 
-    // ── Render: Compose ─────────────────────────────────────────
+    // ── Render: Compose / Edit ───────────────────────────────────
 
     if (showCompose) {
+        const isEditing = !!editingId;
         return (
             <div className="flex flex-col h-full bg-slate-900 text-white">
                 {/* Header */}
                 <div className="flex items-center gap-2 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-slate-900/95 backdrop-blur-xl border-b border-white/5 shrink-0">
-                    <button onClick={() => setShowCompose(false)} className="p-2 -ml-2 rounded-full hover:bg-white/10 transition-colors">
+                    <button onClick={() => { setShowCompose(false); setEditingId(null); }} className="p-2 -ml-2 rounded-full hover:bg-white/10 transition-colors">
                         <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
-                    <h2 className="text-base font-black text-white flex-1">New Entry</h2>
+                    <h2 className="text-base font-black text-white flex-1">{isEditing ? 'Edit Entry' : 'New Entry'}</h2>
                     <button
                         onClick={handleSave}
                         disabled={saving || (!body.trim() && !title.trim())}
                         className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm rounded-xl transition-colors"
                     >
-                        {saving ? 'Saving…' : 'Save'}
+                        {saving ? 'Saving…' : isEditing ? 'Update' : 'Save'}
                     </button>
                 </div>
 
@@ -315,21 +419,54 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         ))}
                     </div>
 
-                    {/* Location badge */}
-                    {locationName && (
-                        <div className="flex items-center gap-2 text-xs text-sky-400/70 bg-sky-500/10 rounded-lg px-3 py-2 border border-sky-500/10">
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                            </svg>
-                            <span className="font-medium">{locationName}</span>
+                    {/* GPS Position */}
+                    <div className="bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 bg-sky-500/15 rounded-lg">
+                                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                </svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                {lat != null && lon != null ? (
+                                    <p className="text-sm font-bold text-white font-mono tracking-wide">
+                                        {formatCoord(lat, lon)}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-gray-500 italic">
+                                        {gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}
+                                    </p>
+                                )}
+                            </div>
+                            <button
+                                onClick={grabGps}
+                                disabled={gpsLoading}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40"
+                                title="Refresh GPS"
+                            >
+                                <svg className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
+                                </svg>
+                            </button>
                         </div>
-                    )}
+
+                        {/* Editable location name */}
+                        <div className="mt-2">
+                            <input
+                                type="text"
+                                placeholder="Location name (e.g. Moreton Bay, Anchor in 4m)"
+                                value={locationName}
+                                onChange={e => setLocationName(e.target.value)}
+                                className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-sky-500/30 transition-colors"
+                            />
+                        </div>
+                    </div>
 
                     {/* Body text */}
                     <textarea
-                        ref={bodyRef}
-                        placeholder="What's happening out there, skipper?&#10;&#10;Describe the conditions, the crew mood, the sunset over the bow…"
+                        placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                         value={body}
                         onChange={e => setBody(e.target.value)}
                         rows={8}
@@ -468,6 +605,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 <div className="space-y-3 ml-4 border-l border-white/5 pl-4">
                                     {dayEntries.map(entry => {
                                         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
+                                        const entryHasCoords = entry.latitude != null && entry.longitude != null;
                                         return (
                                             <button
                                                 key={entry.id}
@@ -494,6 +632,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                             <div className="flex items-center gap-2 mb-1">
                                                                 <span className="text-sm">{moodCfg.emoji}</span>
                                                                 <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
+                                                                {entry._offline && <span className="text-[9px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
                                                             </div>
                                                             <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
                                                                 {entry.body}
@@ -504,14 +643,30 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                         </span>
                                                     </div>
 
-                                                    {/* Footer: location + coords */}
-                                                    {(entry.location_name || (entry.latitude && entry.longitude)) && (
+                                                    {/* GPS coordinates in timeline cards */}
+                                                    {entryHasCoords && (
+                                                        <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/60">
+                                                            <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                                            </svg>
+                                                            <span className="font-mono font-medium">
+                                                                {formatCoord(entry.latitude!, entry.longitude!)}
+                                                            </span>
+                                                            {entry.location_name && !entry.location_name.includes('°') && (
+                                                                <span className="text-gray-600 truncate">— {entry.location_name}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Location name only */}
+                                                    {!entryHasCoords && entry.location_name && (
                                                         <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/50">
                                                             <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                                                             </svg>
-                                                            <span className="font-medium truncate">{entry.location_name || `${entry.latitude?.toFixed(2)}°, ${entry.longitude?.toFixed(2)}°`}</span>
+                                                            <span className="font-medium truncate">{entry.location_name}</span>
                                                         </div>
                                                     )}
                                                 </div>
