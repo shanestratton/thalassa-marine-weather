@@ -16,7 +16,7 @@ import {
     CompassIcon,
     DropletIcon
 } from '../Icons';
-import { WeatherMetrics, UnitPreferences } from '../../types';
+import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import {
     convertTemp,
     convertSpeed,
@@ -32,6 +32,8 @@ interface HeroWidgetsProps {
     sources?: Record<string, { source: string; sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'; sourceName?: string }>;
     trends?: Record<string, 'up' | 'down' | 'stable'>;
     isLive?: boolean;
+    locationType?: 'coastal' | 'offshore' | 'inland';
+    hourly?: HourlyForecast[];
 }
 
 // --- Trend Arrow Component ---
@@ -344,7 +346,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     cardTime,
     sources,
     trends,
-    isLive = true
+    isLive = true,
+    locationType,
+    hourly
 }) => {
     // Both rows now use the same data (activeDayData — updates on scroll)
     const topRowData = data;
@@ -367,12 +371,27 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     const safeRound = (v: number | null | undefined): number | string => (v !== null && v !== undefined && !isNaN(v)) ? Math.round(v) : '--';
     const uvVal = (data.uvIndex !== null && data.uvIndex !== undefined && !isNaN(data.uvIndex)) ? Math.ceil(data.uvIndex) : '--';
-    const visVal = safeRound(data.visibility);
+    const visVal = (() => {
+        if (data.visibility === null || data.visibility === undefined || isNaN(data.visibility)) return '--';
+        const converted = convertDistance(data.visibility, units.visibility || 'nm');
+        if (typeof converted === 'string' && converted.includes('+')) return converted; // '20+' etc
+        const num = parseFloat(String(converted));
+        return isNaN(num) ? converted : Math.round(num);
+    })();
     const pressureVal = safeRound(data.pressure);
     const seaTemp = (data.waterTemperature !== null && data.waterTemperature !== undefined && !isNaN(data.waterTemperature))
         ? convertTemp(data.waterTemperature, units.temp) : '--';
     const humidityVal = safeRound(data.humidity);
-    const rainVal = safeRound(data.precipitation);
+
+    // Rain chance from WeatherKit hourly precipChance
+    const rainChance = (() => {
+        if (!hourly?.length) return safeRound(data.precipitation);
+        const now = Date.now();
+        const currentHour = hourly.find(h => Math.abs(new Date(h.time).getTime() - now) < 90 * 60_000);
+        return currentHour?.precipChance !== undefined ? currentHour.precipChance : safeRound(data.precipitation);
+    })();
+
+    const isOffshore = locationType === 'offshore';
 
     const speedUnit = units.speed || 'kts';
     const waveUnit = units.waveHeight || 'm';
@@ -427,9 +446,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     improving={isGustImproving}
                 />
 
-                {/* Wave Height — with directional arrow */}
+                {/* Wave/Swell Height — adapts to location type */}
                 <InstrumentCell
-                    label="WAVE"
+                    label={isOffshore ? 'SWELL' : 'WAVE'}
                     icon={<WaveIcon className="w-3 h-3" />}
                     value={waveHeight ?? '--'}
                     unit={waveUnit}
@@ -438,9 +457,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     dirDeg={swellDirDeg}
                 />
 
-                {/* Swell Period — with directional arrow */}
+                {/* Period — wave or swell period */}
                 <InstrumentCell
-                    label="SWELL"
+                    label="PER."
                     icon={<WaveIcon className="w-3 h-3" />}
                     value={wavePeriod}
                     unit="s"
@@ -491,7 +510,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 <InstrumentCell
                     label="RAIN"
                     icon={<DropletIcon className="w-3 h-3" />}
-                    value={rainVal}
+                    value={rainChance}
                     unit="%"
                 />
             </div>

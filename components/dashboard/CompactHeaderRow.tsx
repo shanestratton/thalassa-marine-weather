@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { t } from '../../theme';
 import { CheckIcon, AlertTriangleIcon, SunriseIcon, SunsetIcon, RainIcon, MoonIcon } from '../Icons';
 import { useUI } from '../../context/UIContext';
 import type { DashboardMode } from '../../types';
+
+// Critical warnings that CANNOT be dismissed (must match AlertsBanner/WarningDetails)
+const CRITICAL_PATTERNS = [
+    'STORM WARNING', 'GALE WARNING', 'DANGEROUS SEAS',
+    'FREEZING SPRAY', 'FREEZE WARNING', 'EXCESSIVE HEAT',
+    'DENSE FOG', 'STORM WATCH', 'GALE WATCH',
+];
+const isCritical = (alert: string) =>
+    CRITICAL_PATTERNS.some(p => alert.toUpperCase().includes(p));
 
 export const CompactHeaderRow = ({
     alerts,
@@ -22,7 +31,18 @@ export const CompactHeaderRow = ({
     onToggleDashboardMode?: () => void;
 }) => {
     const { setPage } = useUI();
-    const hasWarnings = alerts && alerts.length > 0;
+
+    // Read dismissed state from sessionStorage (shared with AlertsBanner + WarningDetails)
+    const getDismissed = (): Set<string> => {
+        try {
+            const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
+            return stored ? new Set(JSON.parse(stored)) : new Set();
+        } catch { return new Set(); }
+    };
+
+    const dismissed = getDismissed();
+    const activeAlerts = (alerts || []).filter(a => isCritical(a) || !dismissed.has(a));
+    const hasWarnings = activeAlerts.length > 0;
 
     return (
         <div className="w-full flex items-center gap-2" aria-live="polite" aria-atomic="true">
@@ -41,7 +61,7 @@ export const CompactHeaderRow = ({
                             Warnings
                         </span>
                         <div className="bg-white text-red-600 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
-                            {alerts.length}
+                            {activeAlerts.length}
                         </div>
                     </>
                 ) : (

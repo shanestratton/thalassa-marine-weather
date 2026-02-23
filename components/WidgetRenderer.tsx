@@ -25,6 +25,7 @@ export interface DashboardWidgetContextType {
     timeZone?: string;
     modelUsed?: string;
     isLandlocked?: boolean;
+    locationType?: 'coastal' | 'offshore' | 'inland';
     lat?: number; // Added for Southern Hemi Moon Logic
     tideGUIDetails?: TideGUIDetails;
 
@@ -91,6 +92,7 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             current={ctx.current}
             units={ctx.units}
             hourly={ctx.hourly}
+            locationType={ctx.locationType}
         />
     ),
     'metrics': (ctx) => (

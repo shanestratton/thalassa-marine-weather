@@ -3,8 +3,8 @@ import type { WindGrid } from '../../services/weather/windField';
 
 const MAX_SPEED = 60.0;
 const NUM_PARTICLES = 15000;
-const MAX_AGE = 120;
-const SPEED_FACTOR = 0.00002;
+const MAX_AGE = 200;
+const SPEED_FACTOR = 0.00025;
 const MS_TO_KNOTS = 1.94384;
 const VELOCITY_KILL_THRESHOLD = 0.3; // knots — kill particles in convergence zones
 const RANDOM_DROP_RATE = 0.005; // 0.5% chance per frame of spontaneous respawn
@@ -115,6 +115,7 @@ uniform mat4 u_matrix;
 uniform vec4 u_grid_bounds;
 uniform vec4 u_bbox;
 uniform float u_zoom;
+uniform float u_lon_offset; // longitude offset for multi-world rendering
 varying float v_speed;
 varying float v_alpha;
 
@@ -128,9 +129,11 @@ vec2 toMercator(float lon, float lat) {
 
 void main() {
     float lat = u_grid_bounds.x + a_particle_pos.y * (u_grid_bounds.y - u_grid_bounds.x);
-    float lon = u_grid_bounds.z + a_particle_pos.x * (u_grid_bounds.w - u_grid_bounds.z);
+    float lon = u_grid_bounds.z + a_particle_pos.x * (u_grid_bounds.w - u_grid_bounds.z) + u_lon_offset;
 
-    if (lon < u_bbox.x || lon > u_bbox.z || lat < u_bbox.y || lat > u_bbox.w || a_particle_alpha <= 0.0) {
+    // Only check latitude bounds and alpha — let Mapbox clip handle lon culling
+    // (lon bbox check breaks multi-world rendering when u_lon_offset is applied)
+    if (lat < -85.0 || lat > 85.0 || a_particle_alpha <= 0.0) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         gl_PointSize = 0.0;
         return;
@@ -140,7 +143,7 @@ void main() {
     v_alpha = a_particle_alpha;
     vec2 merc = toMercator(lon, lat);
     gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
-    gl_PointSize = mix(2.5, 6.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    gl_PointSize = mix(3.0, 8.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
 }`;
 
 const PARTICLE_FRAG = `
@@ -215,6 +218,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private uGridBoundsLoc: WebGLUniformLocation | null = null;
     private uBboxLoc: WebGLUniformLocation | null = null;
     private uZoomLoc: WebGLUniformLocation | null = null;
+    private uLonOffsetLoc: WebGLUniformLocation | null = null;
     private uWindTex0Loc: WebGLUniformLocation | null = null;
     private uWindTex1Loc: WebGLUniformLocation | null = null;
     private uTimeBlendLoc: WebGLUniformLocation | null = null;
@@ -240,6 +244,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
     // Trail buffer
     private trailData: Float32Array;
+    private _debugFrame = 0;
     private particleAges: Int32Array;
 
     // ── Timeline: all timesteps stored as CPU arrays ──
@@ -314,6 +319,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
         this.uBboxLoc = gl.getUniformLocation(this.program, 'u_bbox');
         this.uZoomLoc = gl.getUniformLocation(this.program, 'u_zoom');
+        this.uLonOffsetLoc = gl.getUniformLocation(this.program, 'u_lon_offset');
         this.uWindTex0Loc = gl.getUniformLocation(this.program, 'u_wind_texture_0');
         this.uWindTex1Loc = gl.getUniformLocation(this.program, 'u_wind_texture_1');
         this.uTimeBlendLoc = gl.getUniformLocation(this.program, 'u_time_blend');
@@ -366,10 +372,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             return;
         }
 
-        this.dataBounds = {
+        this.dataBounds = this.sanitizeBounds({
             north: grid.north, south: grid.south,
             east: grid.east, west: grid.west,
-        };
+        });
         this.gridBounds = { ...this.dataBounds };
         this.windGridWidth = grid.width;
         this.windGridHeight = grid.height;
@@ -571,8 +577,8 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         height: number,
         bounds: WindBounds,
     ): void {
-        this.dataBounds = bounds;
-        this.gridBounds = { ...bounds };
+        this.dataBounds = this.sanitizeBounds(bounds);
+        this.gridBounds = { ...this.dataBounds };
         this.windGridWidth = width;
         this.windGridHeight = height;
 
@@ -669,6 +675,20 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
     // ── Particle management ───────────────────────────────────
 
+    /** Clamp bounds to valid geographic ranges — safety net for bogus GRIB data. */
+    private sanitizeBounds(b: WindBounds): WindBounds {
+        const clamped = {
+            north: Math.max(-90, Math.min(90, b.north)),
+            south: Math.max(-90, Math.min(90, b.south)),
+            east: b.east,
+            west: b.west,
+        };
+        if (clamped.north !== b.north || clamped.south !== b.south) {
+            console.warn(`[WindParticleLayer] Sanitized bounds: south ${b.south}→${clamped.south}, north ${b.north}→${clamped.north}`);
+        }
+        return clamped;
+    }
+
     private toGeo(nx: number, ny: number): [number, number] {
         return [
             this.gridBounds.west + nx * (this.gridBounds.east - this.gridBounds.west),
@@ -679,8 +699,11 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private randomWithinBounds(): [number, number] {
         const b = this.dataBounds;
         const gb = this.gridBounds;
+        // Constrain to ±70° latitude to avoid polar degenerate zones
+        const safeNorth = Math.min(b.north, 70);
+        const safeSouth = Math.max(b.south, -70);
         const lon = b.west + Math.random() * (b.east - b.west);
-        const lat = b.south + Math.random() * (b.north - b.south);
+        const lat = safeSouth + Math.random() * (safeNorth - safeSouth);
         const gbLonRange = gb.east - gb.west;
         const gbLatRange = gb.north - gb.south;
         const nx = gbLonRange > 0 ? (lon - gb.west) / gbLonRange : Math.random();
@@ -730,34 +753,44 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             if (hasWind) {
                 const [u, v] = this.sampleWind(x, y);
                 speedKnots = Math.sqrt(u * u + v * v) * MS_TO_KNOTS;
-                x += u * SPEED_FACTOR;
-                y += v * SPEED_FACTOR;
+
+                // Scale displacement by cos(latitude) to prevent Mercator polar acceleration.
+                // At equator (y=0.5, lat=0°): cosLat=1.0 (no scaling)
+                // At lat=60° (y=0.83): cosLat=0.5 (half speed)
+                // At lat=80° (y=0.94): cosLat=0.17 (very slow)
+                const latDeg = this.gridBounds.south + y * (this.gridBounds.north - this.gridBounds.south);
+                const cosLat = Math.max(0.1, Math.cos(latDeg * Math.PI / 180));
+                x += u * SPEED_FACTOR * cosLat;
+                y += v * SPEED_FACTOR * cosLat;
             }
 
             // ── Global wrapping vs bounded kill ──
             if (this.globalMode) {
                 // Wrap X (longitude) seamlessly across antimeridian
-                // If particle wrapped, reset trail to prevent cross-screen comet
-                const prevX = x;
+                const prevX = data[base]; // position BEFORE advection stored at head
                 if (x > 1.0) x -= 1.0;
                 if (x < 0.0) x += 1.0;
-                const wrapped = Math.abs(x - prevX) > 0.5;
-                if (wrapped) {
-                    // Kill trail — snap all trail points to new position
-                    for (let t = 1; t < TRAIL_LENGTH; t++) {
+
+                // If particle wrapped across antimeridian, kill entire trail
+                if (Math.abs(x - prevX) > 0.5) {
+                    for (let t = 0; t < TRAIL_LENGTH; t++) {
                         const offset = base + t * FLOATS_PER_TRAIL_PT;
                         data[offset] = x;
                         data[offset + 1] = y;
-                        data[offset + 2] = speedKnots;
+                        data[offset + 2] = 0;
                         data[offset + 3] = 0;
                     }
+                    data[base + 3] = 0.85;
+                    ages[i] = 0;
+                    continue;
                 }
 
-                // Kill for: Y out of bounds, age, low velocity, or random drop
+                // Kill for: polar zones, Y out of bounds, age, low velocity, or random drop
+                const polarKill = y < 0.11 || y > 0.89; // ~±70° latitude
                 const latOob = y < 0.0 || y > 1.0;
                 const stalled = speedKnots < VELOCITY_KILL_THRESHOLD;
                 const randomDrop = Math.random() < RANDOM_DROP_RATE;
-                if (ages[i] >= MAX_AGE || latOob || stalled || randomDrop) {
+                if (ages[i] >= MAX_AGE || latOob || polarKill || stalled || randomDrop) {
                     const [rx, ry] = this.randomWithinBounds();
                     for (let t = 0; t < TRAIL_LENGTH; t++) {
                         const offset = base + t * FLOATS_PER_TRAIL_PT;
@@ -799,18 +832,37 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
                 const fadeRatio = 1.0 - t / TRAIL_LENGTH;
-                // Kill trail segments with large jumps (prevents vertical comets)
-                if (t > 0) {
-                    const prevOffset = base + (t - 1) * FLOATS_PER_TRAIL_PT;
-                    const dx = Math.abs(data[offset] - data[prevOffset]);
-                    const dy = Math.abs(data[offset + 1] - data[prevOffset + 1]);
-                    if (dx > 0.3 || dy > 0.3) {
-                        data[offset + 3] = 0; // kill this segment
-                        continue;
-                    }
-                }
                 data[offset + 3] = 0.92 * fadeRatio;
             }
+        }
+
+        // DEBUG: expose state to window for browser inspection
+        this._debugFrame++;
+        if (this._debugFrame % 60 === 0) {
+            const p0base = 0;
+            const trail0 = [];
+            for (let t = 0; t < 6; t++) {
+                const off = p0base + t * FLOATS_PER_TRAIL_PT;
+                trail0.push({ x: data[off], y: data[off + 1], spd: data[off + 2], a: data[off + 3] });
+            }
+            // Sample 10 particles
+            const sample: Array<{ x: number, y: number, age: number }> = [];
+            for (let i = 0; i < Math.min(10, NUM_PARTICLES); i++) {
+                const b2 = i * FLOATS_PER_PARTICLE;
+                sample.push({ x: data[b2], y: data[b2 + 1], age: ages[i] });
+            }
+            const wind0 = hasWind ? this.sampleWind(data[0], data[1]) : [0, 0];
+            (window as any).__windDebug = {
+                frame: this._debugFrame,
+                hasWind,
+                timelineLen: this.windTimeline.length,
+                dataBounds: { ...this.dataBounds },
+                gridBounds: { ...this.gridBounds },
+                globalMode: this.globalMode,
+                trail0,
+                sample,
+                wind0: { u: wind0[0], v: wind0[1] },
+            };
         }
     }
 
@@ -904,7 +956,12 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         gl.vertexAttribPointer(this.aParticleAlphaLoc, 1, gl.FLOAT, false, STRIDE, 3 * 4);
 
         const drawCount = TOTAL_POINTS;
-        gl.drawArrays(gl.POINTS, 0, drawCount);
+        // Draw particles for 3 world copies: offset by -360°, 0°, +360°
+        const worldOffsets = this.globalMode ? [-360, 0, 360] : [0];
+        for (const offset of worldOffsets) {
+            if (this.uLonOffsetLoc) gl.uniform1f(this.uLonOffsetLoc, offset);
+            gl.drawArrays(gl.POINTS, 0, drawCount);
+        }
 
         gl.disableVertexAttribArray(this.aParticlePosLoc);
         gl.disableVertexAttribArray(this.aParticleSpeedLoc);

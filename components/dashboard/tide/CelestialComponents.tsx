@@ -111,7 +111,23 @@ interface SolarArcProps {
     timeZone?: string;
 }
 
-export const SolarArc = ({ sunrise, sunset, showTimes = true, size = 'normal', timeZone }: SolarArcProps) => {
+export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = true, size = 'normal', timeZone }: SolarArcProps) => {
+    // Defensive: ensure sunrise/sunset are always HH:MM format
+    // WeatherKit may return ISO timestamps if cached data is stale
+    const formatTimeStr = (t: string): string => {
+        if (!t || t === '--:--') return t;
+        if (t.length <= 5) return t; // Already "HH:MM"
+        // Parse as Date and extract local time
+        try {
+            const d = new Date(t);
+            if (isNaN(d.getTime())) return t;
+            return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch { return t; }
+    };
+
+    const sunrise = formatTimeStr(rawSunrise);
+    const sunset = formatTimeStr(rawSunset);
+
     const parseTime = (tStr: string) => {
         if (!tStr || tStr === '--:--') return null;
         // Support 24h format (e.g. "14:30") or 12h (e.g. "2:30 PM")

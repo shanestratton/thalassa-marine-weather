@@ -203,6 +203,8 @@ export const useAppController = () => {
         setSheetOpen(false);
 
         // NAVIGATION FIRST (Optimistic UI)
+        // Default to full dashboard — inland locations are auto-forced to essential by Dashboard
+        updateSettings({ dashboardMode: 'full' });
         setPage('dashboard');
 
         // Fire-and-forget fetch

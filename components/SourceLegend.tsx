@@ -5,8 +5,9 @@ import { t } from '../theme';
  * SourceLegend - Educational tooltip explaining color-coded data sources
  * 
  * Displays a collapsible legend teaching users what the metric colors mean:
- * - Green: Real-time measured data from marine beacons
- * - Amber: Modeled/computed predictions from StormGlass
+ * - Emerald: Apple WeatherKit observations (atmospheric)
+ * - Amber: StormGlass model predictions (marine)
+ * - White: Future forecast data
  * 
  * Solves the UX "learning curve" problem by making source transparency obvious.
  */
@@ -45,13 +46,13 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
                     {/* Legend Items */}
                     <div className="space-y-3">
-                        {/* Green: Beacon */}
+                        {/* Emerald: Apple Weather */}
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-emerald-400 mt-0.5 shadow-lg shadow-emerald-400/50" />
                             <div className="flex-1">
-                                <div className="text-sm font-bold text-emerald-400 mb-0.5">Beacon (Measured)</div>
+                                <div className="text-sm font-bold text-emerald-400 mb-0.5">Apple Weather (Observed)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">
-                                    Real-time data from marine buoys and BOM weather stations. Direct measurements.
+                                    Station-blended observations from Apple WeatherKit. Premium atmospheric data — temperature, wind, humidity, pressure, and rain.
                                 </div>
                             </div>
                         </div>
@@ -60,9 +61,9 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-amber-400 mt-0.5 shadow-lg shadow-amber-400/50" />
                             <div className="flex-1">
-                                <div className="text-sm font-bold text-amber-400 mb-0.5">Model (SG)</div>
+                                <div className="text-sm font-bold text-amber-400 mb-0.5">StormGlass (Model)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">
-                                    Predictions from StormGlass weather models. Computed from satellite and forecast data.
+                                    Predictions from StormGlass weather models. Waves, swell, water temperature, and currents. Tides powered by WorldTides.
                                 </div>
                             </div>
                         </div>
@@ -73,7 +74,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                             <div className="flex-1">
                                 <div className="text-sm font-bold text-white mb-0.5">Forecast (Future)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">
-                                    All future forecast data shown in white. These are predictions for upcoming hours and days.
+                                    All future forecast data shown in white. Predictions for upcoming hours and days.
                                 </div>
                             </div>
                         </div>
@@ -82,7 +83,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                     {/* Footer Note */}
                     <div className="mt-3 pt-3 border-t border-white/10">
                         <p className="text-sm text-white/50 leading-relaxed">
-                            Thalassa automatically selects the best available source for each metric based on proximity and data quality.
+                            Thalassa blends Apple WeatherKit (atmospheric) with StormGlass (marine) to deliver the most accurate conditions.
                         </p>
                     </div>
                 </div>

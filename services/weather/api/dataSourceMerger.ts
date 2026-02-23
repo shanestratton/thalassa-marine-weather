@@ -19,15 +19,15 @@ const BUOY_THRESHOLD_NM = 10;  // Maximum distance to use buoy data
  * Maps data source to UI color indicator
  * 
  * Marine-focused color scheme:
- * - Emerald: Buoy data (real ocean measurements)
- * - Sky: Tomorrow.io (station-blended observations)
+ * - Emerald: Buoy data (real ocean measurements) / WeatherKit (Apple Weather)
+ * - Sky: WeatherKit (Apple Weather station-blended observations)
  * - Amber: StormGlass (marine forecast models)
  * - White: Fallback/unknown
  */
 function getSourceColor(source: DataSource): SourceColor {
     switch (source) {
         case 'buoy': return 'emerald';
-        case 'tomorrow': return 'sky';
+        case 'weatherkit': return 'emerald';
         case 'stormglass': return 'amber';
         default: return 'white';
     }
@@ -164,11 +164,11 @@ export function mergeWeatherData(
 
     // Preserve existing source labels from the incoming report.
     // When enhanceWithBeaconData re-merges, the report already has
-    // Tomorrow.io source labels — we must not blindly overwrite them.
+    // WeatherKit source labels — we must not blindly overwrite them.
     const existingSources = (stormglass as SourcedWeatherMetrics).sources || {};
 
     // Helper to set metric with source tracking
-    // Priority: Buoy/AWS > existing source (e.g. Tomorrow.io) > StormGlass fallback
+    // Priority: Buoy/AWS > existing source (e.g. WeatherKit) > StormGlass fallback
     function setMetric<K extends keyof WeatherMetrics>(
         key: K,
         buoyVal: WeatherMetrics[K] | null | undefined,
@@ -178,7 +178,7 @@ export function mergeWeatherData(
             sources[key] = createMetricSource(buoyVal, 'buoy', buoy.name, buoy.distance);
             return buoyVal;
         } else if (existingSources[key]) {
-            // Preserve existing source label (e.g. 'tomorrow' from strategy merge)
+            // Preserve existing source label (e.g. 'weatherkit' from strategy merge)
             sources[key] = existingSources[key];
         } else {
             sources[key] = createMetricSource(stormglassVal, 'stormglass', 'StormGlass Pro');
@@ -211,19 +211,19 @@ export function mergeWeatherData(
     } else {
         windDirection = stormglass.windDirection;
         windDegree = stormglass.windDegree;
-        // Preserve existing source labels (e.g. Tomorrow.io)
+        // Preserve existing source labels (e.g. WeatherKit)
         sources['windDirection'] = existingSources['windDirection'] || createMetricSource(windDirection, 'stormglass', 'StormGlass Pro');
         if (windDegree) sources['windDegree'] = existingSources['windDegree'] || createMetricSource(windDegree, 'stormglass', 'StormGlass Pro');
     }
 
-    // AIR TEMPERATURE: Buoy > existing source (Tomorrow.io) > StormGlass
+    // AIR TEMPERATURE: Buoy > existing source (WeatherKit) > StormGlass
     let airTemperature: number | null;
     if (buoy?.airTemperature !== undefined && buoy?.airTemperature !== null) {
         airTemperature = buoy.airTemperature;
         sources['airTemperature'] = createMetricSource(airTemperature, 'buoy', buoy.name, buoy.distance);
     } else if (stormglass.airTemperature !== undefined && stormglass.airTemperature !== null) {
         airTemperature = stormglass.airTemperature;
-        // Preserve existing source (e.g. Tomorrow.io live observation)
+        // Preserve existing source (e.g. WeatherKit live observation)
         sources['airTemperature'] = existingSources['airTemperature'] || createMetricSource(airTemperature, 'stormglass', 'StormGlass Pro');
     } else {
         airTemperature = null;
@@ -278,10 +278,12 @@ export function mergeWeatherData(
         stormglass.cloudCover
     );
 
-    // PRECIPITATION: StormGlass only
+    // PRECIPITATION: WeatherKit (precipitationIntensity) > existing source > StormGlass
+    // WeatherKit stores current rain as 'precipitationIntensity' (mm/hr) on the observation
+    const wkPrecip = (stormglass as any).precipitationIntensity;
     const precipitation = setMetric('precipitation',
         null,
-        stormglass.precipitation
+        (typeof wkPrecip === 'number' && wkPrecip > 0) ? wkPrecip : stormglass.precipitation
     );
 
     // CURRENTS: Beacon only (no other sources provide this)
@@ -302,7 +304,7 @@ export function mergeWeatherData(
         }
     }
 
-    // UV INDEX: Preserve existing source (Tomorrow.io provides UV too)
+    // UV INDEX: Preserve existing source (WeatherKit provides UV too)
     if (stormglass.uvIndex !== undefined && stormglass.uvIndex !== null) {
         sources['uvIndex'] = existingSources['uvIndex'] || createMetricSource(stormglass.uvIndex, 'stormglass', 'StormGlass Pro');
     }
@@ -367,7 +369,7 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
     }
 
     const beaconMetrics: string[] = [];
-    const tomorrowMetrics: string[] = [];
+    const weatherkitMetrics: string[] = [];
     const stormglassMetrics: string[] = [];
 
     // Group metrics by source
@@ -382,8 +384,8 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
             case 'buoy':
                 beaconMetrics.push(line);
                 break;
-            case 'tomorrow':
-                tomorrowMetrics.push(line);
+            case 'weatherkit':
+                weatherkitMetrics.push(line);
                 break;
             case 'stormglass':
                 stormglassMetrics.push(line);
@@ -403,9 +405,9 @@ export function generateSourceReport(current: SourcedWeatherMetrics): string {
         lines.push('');
     }
 
-    if (tomorrowMetrics.length > 0) {
-        lines.push(`🔵 TOMORROW.IO: Station-Blended Observation`);
-        lines.push(...tomorrowMetrics);
+    if (weatherkitMetrics.length > 0) {
+        lines.push(`🟢 APPLE WEATHER: Station-Blended Observation`);
+        lines.push(...weatherkitMetrics);
         lines.push('');
     }
 

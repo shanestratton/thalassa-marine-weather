@@ -17,9 +17,8 @@ export const saveLargeData = async (key: string, data: unknown) => {
     // Schedule new write
     return new Promise<void>((resolve) => {
         saveTimers[key] = setTimeout(async () => {
+            const jsonString = JSON.stringify(data);
             try {
-                const start = Date.now();
-                const jsonString = JSON.stringify(data);
                 const fileName = `${key}.json`;
 
                 await Filesystem.writeFile({
@@ -28,14 +27,14 @@ export const saveLargeData = async (key: string, data: unknown) => {
                     directory: Directory.Documents,
                     encoding: Encoding.UTF8,
                 });
-
-                const sizeKB = (new Blob([jsonString]).size / 1024).toFixed(2);
-
-                resolve();
             } catch (e) {
-                resolve(); // Resolve anyway to not block
+                // Capacitor Filesystem not available (web browser) — use localStorage fallback
+                try {
+                    localStorage.setItem(key, jsonString);
+                } catch { /* quota exceeded — ignore */ }
             } finally {
                 delete saveTimers[key];
+                resolve();
             }
         }, 1000); // 1s Debounce
     });
@@ -100,12 +99,13 @@ export const loadLargeData = async (key: string) => {
             // Parse to ensure valid JSON before saving
             const parsed = JSON.parse(legacyData);
 
-            // Save to File
+            // Save to Filesystem (will fallback to localStorage via saveLargeData)
             await saveLargeData(key, parsed);
 
-            // CRITICAL: Delete from LocalStorage to free quota (The whole point!)
-            localStorage.removeItem(key);
-
+            // NOTE: Do NOT delete from localStorage here.
+            // In browser environments, Capacitor Filesystem is unavailable,
+            // so localStorage IS the persistence layer. Deleting it would
+            // cause data loss on the next reload.
 
             return parsed;
         } catch (migErr) {

@@ -269,7 +269,7 @@ export const fetchOpenMeteo = async (
         waterTemperature: 0, // OM Marine doesn't give water temp easily in basic tier? actually 'hourly' has it in marine? No.
         pressure: cur.pressure_msl,
         cloudCover: cur.cloud_cover,
-        visibility: parseFloat((curVis * 0.000539957).toFixed(1)), // m to NM
+        visibility: parseFloat((curVis / 1000).toFixed(1)), // m to km
         dewPoint: curDew,
         fogRisk: false, // Calculate later?
         precipitation: cur.precipitation,
@@ -315,6 +315,8 @@ export const fetchOpenMeteo = async (
         isEstimated: false,
         humidity: 80,
         visibility: 10,
+        windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i] ?? 0),
+        windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? 0,
         precipLabel: "",
         precipValue: ""
     }));
@@ -332,6 +334,8 @@ export const fetchOpenMeteo = async (
         time: t,
         windSpeed: hourlyArr.wind_speed_10m[i] * kFactor,
         windGust: hourlyArr.wind_gusts_10m[i] * kFactor,
+        windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i] ?? 0),
+        windDegree: hourlyArr.wind_direction_10m?.[i] ?? 0,
         waveHeight: waveData?.hourly?.wave_height ? waveData.hourly.wave_height[i] * 3.28084 : 0,
         swellPeriod: waveData?.hourly?.wave_period ? waveData.hourly.wave_period[i] : 0,
         temperature: hourlyArr.temperature_2m[i],
@@ -339,7 +343,7 @@ export const fetchOpenMeteo = async (
         precipitation: hourlyArr.precipitation[i],
         cloudCover: hourlyArr.cloud_cover[i],
         condition: getWmo(hourlyArr.weather_code[i]),
-        visibility: (hourlyArr.visibility?.[i] ?? 10000) * 0.000539957,
+        visibility: ((hourlyArr.visibility?.[i] ?? 10000) / 1000), // m to km
         humidity: hourlyArr.relative_humidity_2m[i],
         isEstimated: false,
         currentSpeed: 0,

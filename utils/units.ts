@@ -49,12 +49,18 @@ export const convertTemp = (val: number | null | undefined, unit: string) => {
     return val.toFixed(0);
 };
 
-export const convertDistance = (nauticalMiles: number | null | undefined, unit: string) => {
-    if (nauticalMiles === undefined || nauticalMiles === null || isNaN(nauticalMiles)) return '--';
-    let val = nauticalMiles;
-    if (unit === 'km') val = nauticalMiles * 1.852;
-    if (unit === 'mi') val = nauticalMiles * 1.15078;
-    // if unit is 'nm', val is already nm
+export const convertDistance = (km: number | null | undefined, unit: string) => {
+    if (km === undefined || km === null || isNaN(km)) return '--';
+    let val = km;
+    if (unit === 'nm') val = km / 1.852;        // km → nautical miles
+    if (unit === 'mi') val = km / 1.60934;      // km → statute miles
+    // if unit is 'km', val is already km
+
+    // Marine practical cap: visibility >20nm is functionally unlimited
+    if (unit === 'nm' && val > 20) return '20+';
+    if (unit === 'mi' && val > 23) return '23+';
+    if (unit === 'km' && val > 37) return '37+';
+
     const result = val.toFixed(1);
     return result === 'NaN' ? '--' : result;
 }

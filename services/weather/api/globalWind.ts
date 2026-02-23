@@ -2,11 +2,13 @@
  * Global Wind Data Service
  * 
  * Fetches real wind speed, wind direction, and mean sea level pressure (MSLP)
- * from the Open-Meteo API (free, no API key required).
+ * from the Open-Meteo API (paid commercial endpoint).
  * 
  * Samples a grid of points across the visible map area to produce a global
  * wind heat map with isobar contour lines.
  */
+
+import { getOpenMeteoKey } from '../keys';
 
 export interface WindGridPoint {
     lat: number;
@@ -99,7 +101,9 @@ async function _doFetch(
         const latParam = lats.join(',');
         const lonParam = lons.join(',');
 
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${latParam}&longitude=${lonParam}&current=wind_speed_10m,wind_direction_10m,surface_pressure&wind_speed_unit=kn&timezone=auto`;
+        const omKey = getOpenMeteoKey();
+        if (!omKey) { console.warn('[GlobalWind] No Open-Meteo API key'); return null; }
+        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${latParam}&longitude=${lonParam}&current=wind_speed_10m,wind_direction_10m,surface_pressure&wind_speed_unit=kn&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
         if (!response.ok) {

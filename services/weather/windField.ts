@@ -85,11 +85,10 @@ export async function fetchWindGrid(
         const multiLats = points.map(p => p.lat).join(',');
         const multiLons = points.map(p => p.lon).join(',');
 
-        // Use commercial API with key if available, fall back to free API
+        // Use commercial API (required — no free fallback for App Store compliance)
         const omKey = getOpenMeteoKey();
-        const baseUrl = omKey ? 'https://customer-api.open-meteo.com/v1/forecast' : 'https://api.open-meteo.com/v1/forecast';
-        const keyParam = omKey ? `&apikey=${omKey}` : '';
-        const url = `${baseUrl}?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto${keyParam}`;
+        if (!omKey) { console.warn('[WindField] No Open-Meteo API key'); return null; }
+        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
         if (!response.ok) return null;
@@ -347,10 +346,9 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
         const allResults: any[] = new Array(allPoints.length).fill(null);
 
         const omKey = getOpenMeteoKey();
-        const baseUrl = omKey
-            ? 'https://customer-api.open-meteo.com/v1/forecast'
-            : 'https://api.open-meteo.com/v1/forecast';
-        const keyParam = omKey ? `&apikey=${omKey}` : '';
+        if (!omKey) { console.warn('[WindField] No Open-Meteo API key for global fallback'); return null; }
+        const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
+        const keyParam = `&apikey=${omKey}`;
 
         const batches: { start: number; end: number }[] = [];
         for (let i = 0; i < allPoints.length; i += BATCH_SIZE) {

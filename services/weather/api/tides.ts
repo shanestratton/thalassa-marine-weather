@@ -1,5 +1,6 @@
 import { Tide, StormGlassTideData } from '../../../types';
 import { fetchWorldTides } from './worldtides';
+import { apiCacheGet, apiCacheSet } from '../apiCache';
 
 /** Tide station GUI metadata for source provenance display */
 export interface TideGUIDetails {
@@ -12,9 +13,15 @@ export interface TideGUIDetails {
 
 /**
  * Fetch tide extremes directly from the WorldTides API.
- * The API handles station resolution, snapping, and data — we just display what it returns.
+ * CACHED for 24 hours — tide predictions are deterministic (harmonic constants).
+ * Called from BOTH openmeteo.ts AND stormglass.ts, so caching here
+ * prevents double-hitting WorldTides on every single weather refresh.
  */
 export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides: Tide[], guiDetails?: TideGUIDetails }> => {
+    // Check cache first (24h TTL — predictions don't change)
+    const cached = apiCacheGet<{ tides: Tide[], guiDetails?: TideGUIDetails }>('tides', lat, lon);
+    if (cached) return cached;
+
     try {
         const wtData = await fetchWorldTides(lat, lon, 14);
 
@@ -33,7 +40,9 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
                 isSecondary: false,
             };
 
-            return { tides: mappedTides, guiDetails };
+            const result = { tides: mappedTides, guiDetails };
+            apiCacheSet('tides', lat, lon, result);
+            return result;
         }
     } catch (err) {
         // Silently ignored — non-critical failure

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 
 interface MinutelyRain {
     time: string;
@@ -9,174 +9,390 @@ interface RainForecastCardProps {
     data: MinutelyRain[];
     className?: string;
     timeZone?: string;
+    rainSummary?: string; // Apple's native summary (e.g. "Rain starting in 15 min")
 }
 
 /**
- * RainForecastCard — Beautiful 60-bar precipitation chart
- * Replaces WIND/GUSTS/WAVE row when rain is expected in the next hour.
+ * RainForecastCard — Progressive Disclosure Rain Component
+ * 
+ * Compact State: Small card with summary text. "Wakes up" with cyan glow when rain detected.
+ * Expanded State: Full modal with Dark Sky-style 60-bar minute-by-minute precipitation chart.
  */
-export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, className = '', timeZone }) => {
+export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, className = '', timeZone, rainSummary }) => {
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     const analysis = useMemo(() => {
         if (!data || data.length === 0) return {
             maxIntensity: 0,
             hasRain: false,
             headline: 'No Rain Expected',
-            subline: '',
-            bars: [],
+            subline: 'Next 60 minutes',
             isCurrentlyRaining: false,
-            category: { label: '', badgeClass: '' },
+            category: { label: 'Clear', badgeClass: '', color: 'rgba(96, 165, 250, 0.5)' },
+            totalPrecip: 0,
+            firstRainIdx: -1,
+            peakIdx: 0,
         };
 
-        const maxIntensity = Math.max(...data.map(d => d.intensity), 0.1); // Floor at 0.1 to avoid /0
+        const maxIntensity = Math.max(...data.map(d => d.intensity), 0.1);
         const hasRain = data.some(d => d.intensity > 0);
-
-        // Find when rain starts / stops
         const firstRainIdx = data.findIndex(d => d.intensity > 0);
-        const lastRainIdx = data.length - 1 - [...data].reverse().findIndex(d => d.intensity > 0);
-
-        // Check if it's currently raining (minute 0)
         const isCurrentlyRaining = data[0]?.intensity > 0;
 
-        // Find first dry minute (after rain starts)
+        // Find first dry minute after rain
         const firstDryAfterRain = isCurrentlyRaining
             ? data.findIndex((d, i) => i > 0 && d.intensity === 0)
             : -1;
 
-        // Headline logic
+        // Peak intensity index
+        const peakIdx = data.reduce((maxI, d, i) => d.intensity > data[maxI].intensity ? i : maxI, 0);
+
+        // Total precipitation in the hour (mm)
+        const totalPrecip = data.reduce((sum, d) => sum + (d.intensity / 60), 0);
+
+        // Headline logic — prefer Apple's native summary if available
         let headline = '';
         let subline = '';
 
         if (!hasRain) {
-            headline = 'No Rain Expected for the next hour';
+            headline = rainSummary || 'No Rain Expected';
             subline = 'Next 60 minutes';
+        } else if (rainSummary) {
+            headline = rainSummary;
+            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
         } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
             headline = `Rain stopping in ${firstDryAfterRain} min`;
-            subline = `${getIntensityLabel(data[0].intensity)}`;
+            subline = getIntensityLabel(data[0].intensity);
         } else if (isCurrentlyRaining && firstDryAfterRain === -1) {
             headline = 'Rain for the next hour';
-            subline = `${getIntensityLabel(maxIntensity)}`;
+            subline = getIntensityLabel(maxIntensity);
         } else if (firstRainIdx > 0) {
             headline = `Rain in ${firstRainIdx} min`;
-            subline = `${getIntensityLabel(data[firstRainIdx].intensity)}`;
+            subline = getIntensityLabel(data[firstRainIdx].intensity);
         }
 
-        // Categorize intensity for the overall badge
         const category = getIntensityCategory(maxIntensity);
 
         return {
             maxIntensity,
             hasRain,
             firstRainIdx,
-            lastRainIdx,
             isCurrentlyRaining,
             headline,
             subline,
-            category
+            category,
+            totalPrecip,
+            peakIdx,
         };
+    }, [data, rainSummary]);
+
+    // Close modal on ESC
+    useEffect(() => {
+        if (!isModalOpen) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsModalOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [isModalOpen]);
+
+    const openModal = useCallback(() => {
+        if (data && data.length > 0) setIsModalOpen(true);
     }, [data]);
 
     if (!analysis) return null;
 
-    // Generate time labels for x-axis (every 15 min)
-    const timeLabels = useMemo(() => {
-        if (!data || data.length === 0) return [];
-        const labels: { idx: number; label: string }[] = [];
-        [0, 15, 30, 45, 60].forEach(min => {
-            const idx = Math.min(min, data.length - 1);
-            if (min === 0) {
-                labels.push({ idx, label: 'Now' });
-            } else {
-                labels.push({ idx, label: `+${min}` });
-            }
-        });
-        return labels;
-    }, [data]);
+    // --- COMPACT CARD (always visible) ---
+    const isActive = analysis.hasRain;
 
-    // No-rain card — same height as active rain card, text centered
-    if (!analysis.hasRain) {
-        return (
-            <div className={`w-full rounded-xl overflow-hidden ${className}`}
+    return (
+        <>
+            <button
+                onClick={openModal}
+                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className}`}
                 style={{
-                    background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
-                    border: '1px solid rgba(96, 165, 250, 0.1)',
+                    background: isActive
+                        ? 'linear-gradient(135deg, rgba(6, 78, 115, 0.7), rgba(15, 23, 42, 0.8), rgba(8, 51, 96, 0.6))'
+                        : 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
+                    border: isActive
+                        ? '1px solid rgba(34, 211, 238, 0.3)'
+                        : '1px solid rgba(96, 165, 250, 0.1)',
+                    boxShadow: isActive
+                        ? '0 0 25px -5px rgba(34, 211, 238, 0.2), inset 0 1px 0 rgba(255,255,255,0.08)'
+                        : 'none',
                     minHeight: '76px',
                 }}
             >
-                <div className="h-full min-h-[76px] flex items-center justify-center gap-2 px-3">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400/60 shrink-0">
-                        <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                            fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                    <span className="text-sm font-semibold uppercase tracking-wider text-ivory">
-                        No Rain Expected for the next hour
-                    </span>
-                </div>
-            </div>
-        );
-    }
+                {/* Rain glow animation when active */}
+                {isActive && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
+                        <div className="absolute -top-8 left-1/3 w-24 h-24 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
+                        <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-blue-500/10 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
+                    </div>
+                )}
 
-    return (
-        <div className={`w-full rounded-xl overflow-hidden relative min-h-[40px] ${className}`}
-            style={{
-                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.5), rgba(15, 23, 42, 0.6), rgba(30, 64, 175, 0.3))',
-                border: '1px solid rgba(96, 165, 250, 0.15)',
-                boxShadow: '0 0 20px -5px rgba(59, 130, 246, 0.15), inset 0 1px 0 rgba(255,255,255,0.05)'
-            }}
-        >
-            {/* Subtle animated rain glow */}
-            {analysis.hasRain && (
-                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
-                    <div className="absolute -top-10 left-1/4 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl animate-pulse" />
-                </div>
-            )}
+                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between">
+                    {/* Header Row */}
+                    <div className="flex items-center justify-center">
+                        <div className="flex items-center gap-1.5">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-cyan-400" : "text-blue-400/60"}>
+                                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                    fill="currentColor" fillOpacity={isActive ? "0.5" : "0.3"} stroke="currentColor" strokeWidth="1.5" />
+                            </svg>
+                            <span className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-cyan-300' : 'text-ivory'}`}>
+                                {analysis.headline}
+                            </span>
+                        </div>
 
-            <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between">
-                {/* Header Row — compact single line */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
-                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/90">
-                            {analysis.headline}
-                        </span>
+                        {isActive && (
+                            <div className={`px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
+                                {analysis.category.label}
+                            </div>
+                        )}
                     </div>
 
-                    {analysis.hasRain && (
-                        <div className={`px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
-                            {analysis.category.label}
+                    {/* Mini Bar Chart (compact preview) */}
+                    {data && data.length > 0 && (
+                        <div className="flex items-end gap-[1px] w-full mt-1 h-[22px]">
+                            {data.map((point, i) => {
+                                const normalizedHeight = analysis.maxIntensity > 0
+                                    ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
+                                    : 0;
+                                const barColor = getBarColor(point.intensity, analysis.maxIntensity, isActive);
+
+                                return (
+                                    <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
+                                        <div
+                                            className="absolute bottom-0 left-0 right-0 rounded-t-[1px]"
+                                            style={{
+                                                height: `${normalizedHeight}%`,
+                                                background: barColor,
+                                                minWidth: '1px',
+                                                boxShadow: point.intensity > 0 ? `0 0 3px ${barColor}30` : 'none',
+                                            }}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Tap hint */}
+                    {data && data.length > 0 && (
+                        <div className="flex items-center justify-center mt-0.5">
+                            <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Tap for detail</span>
                         </div>
                     )}
                 </div>
+            </button>
 
-                {/* Bar Chart — always expanded */}
-                <div className="flex items-end gap-[1px] w-full mt-1 h-[40px]">
-                    {data.map((point, i) => {
-                        const normalizedHeight = analysis.maxIntensity > 0
-                            ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
-                            : 0;
+            {/* Expanded Modal */}
+            {isModalOpen && (
+                <RainModal
+                    data={data}
+                    analysis={analysis}
+                    onClose={() => setIsModalOpen(false)}
+                />
+            )}
+        </>
+    );
+};
 
-                        const barColor = getBarColor(point.intensity, analysis.maxIntensity);
+// --- EXPANDED MODAL ---
 
-                        return (
-                            <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
-                                <div
-                                    className="absolute bottom-0 left-0 right-0 rounded-t-[1px]"
-                                    style={{
-                                        height: `${normalizedHeight}%`,
-                                        background: barColor,
-                                        minWidth: '1px',
-                                        boxShadow: point.intensity > 0 ? `0 0 3px ${barColor}30` : 'none'
-                                    }}
-                                />
-                            </div>
-                        );
-                    })}
+interface ModalProps {
+    data: MinutelyRain[];
+    analysis: {
+        maxIntensity: number;
+        hasRain: boolean;
+        headline: string;
+        subline: string;
+        category: { label: string; badgeClass: string; color: string };
+        totalPrecip: number;
+        peakIdx: number;
+        isCurrentlyRaining: boolean;
+    };
+    onClose: () => void;
+}
+
+const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
+    // Prevent body scroll when modal is open
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = ''; };
+    }, []);
+
+    // Time labels
+    const timeLabels = [
+        { min: 0, label: 'NOW' },
+        { min: 15, label: '15M' },
+        { min: 30, label: '30M' },
+        { min: 45, label: '45M' },
+        { min: 59, label: '60M' },
+    ];
+
+    return (
+        <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+            onClick={onClose}
+        >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+
+            {/* Modal */}
+            <div
+                className="relative w-full max-w-md rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                onClick={e => e.stopPropagation()}
+                style={{
+                    background: 'linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%)',
+                    border: '1px solid rgba(34, 211, 238, 0.2)',
+                    boxShadow: '0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5)',
+                }}
+            >
+                {/* Glow effects */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+                    <div className="absolute -top-20 left-1/4 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl" />
+                    <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl" />
                 </div>
 
+                <div className="relative z-10 p-5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-cyan-400">
+                                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                    fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="1.5" />
+                            </svg>
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Rain Forecast</h3>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+                            aria-label="Close"
+                        >
+                            <span className="text-white/70 text-sm">✕</span>
+                        </button>
+                    </div>
 
+                    {/* Intensity Gauge */}
+                    <div className="flex flex-col items-center mb-5">
+                        <div className="relative w-36 h-20">
+                            <svg viewBox="0 0 120 65" className="w-full h-full overflow-visible">
+                                {/* Background arc */}
+                                <path
+                                    d="M 10 60 A 50 50 0 0 1 110 60"
+                                    fill="none"
+                                    stroke="rgba(255,255,255,0.08)"
+                                    strokeWidth="8"
+                                    strokeLinecap="round"
+                                />
+                                {/* Active arc — proportional to intensity */}
+                                {analysis.hasRain && (
+                                    <path
+                                        d="M 10 60 A 50 50 0 0 1 110 60"
+                                        fill="none"
+                                        stroke="url(#rainGaugeGrad)"
+                                        strokeWidth="8"
+                                        strokeLinecap="round"
+                                        strokeDasharray={`${Math.min(analysis.maxIntensity / 15, 1) * 157} 157`}
+                                    />
+                                )}
+                                <defs>
+                                    <linearGradient id="rainGaugeGrad" x1="0" y1="0" x2="1" y2="0">
+                                        <stop offset="0%" stopColor="#22d3ee" />
+                                        <stop offset="50%" stopColor="#3b82f6" />
+                                        <stop offset="100%" stopColor="#818cf8" />
+                                    </linearGradient>
+                                </defs>
+                                {/* Droplet icon */}
+                                <path d="M 60 28 l3.5 3.5 a5 5 0 1 1 -7 0 L60 28z"
+                                    fill="rgba(34, 211, 238, 0.7)" stroke="rgba(34, 211, 238, 0.9)" strokeWidth="0.5" />
+                            </svg>
+                        </div>
+
+                        {/* Intensity label */}
+                        <div className="text-center -mt-2">
+                            <div className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-blue-400/50'}`}>
+                                {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
+                            </div>
+                            <div className="text-2xl font-black text-white tabular-nums">
+                                {analysis.hasRain ? analysis.maxIntensity.toFixed(1) : '0.0'}
+                            </div>
+                            <div className="text-[10px] text-white/40 uppercase tracking-wider">mm/hr peak</div>
+                        </div>
+                    </div>
+
+                    {/* Summary Text */}
+                    <div className="text-center mb-4">
+                        <p className="text-sm font-bold text-white uppercase tracking-wide">
+                            {analysis.headline}
+                        </p>
+                    </div>
+
+                    {/* 60-Bar Chart */}
+                    <div className="relative">
+                        {/* Peak intensity marker */}
+                        {analysis.hasRain && (
+                            <div
+                                className="absolute -top-4 text-[8px] text-cyan-400 font-bold uppercase tracking-wider whitespace-nowrap"
+                                style={{ left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`, transform: 'translateX(-50%)' }}
+                            >
+                                Peak
+                            </div>
+                        )}
+
+                        <div className="flex items-end gap-[2px] w-full h-[120px]">
+                            {data.map((point, i) => {
+                                const normalizedHeight = analysis.maxIntensity > 0
+                                    ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 8 : 0)
+                                    : 0;
+                                const barColor = getBarColor(point.intensity, analysis.maxIntensity, true);
+                                const isPeak = i === analysis.peakIdx && analysis.hasRain;
+
+                                return (
+                                    <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
+                                        <div
+                                            className={`absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 ${isPeak ? 'ring-1 ring-cyan-400/50' : ''}`}
+                                            style={{
+                                                height: `${normalizedHeight}%`,
+                                                background: barColor,
+                                                minWidth: '2px',
+                                                boxShadow: point.intensity > 0
+                                                    ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
+                                                    : 'none',
+                                            }}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Time Axis */}
+                        <div className="flex justify-between mt-2 px-0">
+                            {timeLabels.map(({ min, label }) => (
+                                <span key={min} className="text-[9px] text-white/40 font-bold uppercase tracking-wider">
+                                    {label}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Stats Row */}
+                    {analysis.hasRain && (
+                        <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
+                            <div className="text-center">
+                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Total</div>
+                                <div className="text-sm font-bold text-white tabular-nums">{analysis.totalPrecip.toFixed(1)} mm</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Peak</div>
+                                <div className="text-sm font-bold text-cyan-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Type</div>
+                                <div className="text-sm font-bold text-white">{analysis.category.label}</div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -185,43 +401,54 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
 // --- Helpers ---
 
 function getIntensityLabel(mmPerHr: number): string {
-    if (mmPerHr >= 7.6) return 'Heavy rain';
-    if (mmPerHr >= 2.5) return 'Moderate rain';
-    if (mmPerHr >= 0.5) return 'Light rain';
+    if (mmPerHr >= 7.6) return 'Heavy Rain';
+    if (mmPerHr >= 2.5) return 'Moderate Rain';
+    if (mmPerHr >= 0.5) return 'Light Rain';
     if (mmPerHr > 0) return 'Drizzle';
     return 'Dry';
 }
 
-function getIntensityCategory(mmPerHr: number): { label: string; badgeClass: string } {
+function getIntensityCategory(mmPerHr: number): { label: string; badgeClass: string; color: string } {
     if (mmPerHr >= 7.6) return {
         label: 'Heavy',
-        badgeClass: 'bg-red-500/30 text-red-300 border border-red-400/30'
+        badgeClass: 'bg-red-500/30 text-red-300 border border-red-400/30',
+        color: 'rgba(239, 68, 68, 0.7)',
     };
     if (mmPerHr >= 2.5) return {
         label: 'Moderate',
-        badgeClass: 'bg-amber-500/25 text-amber-300 border border-amber-400/25'
+        badgeClass: 'bg-amber-500/25 text-amber-300 border border-amber-400/25',
+        color: 'rgba(245, 158, 11, 0.7)',
     };
     if (mmPerHr >= 0.5) return {
         label: 'Light',
-        badgeClass: 'bg-blue-500/25 text-blue-300 border border-blue-400/25'
+        badgeClass: 'bg-blue-500/25 text-blue-300 border border-blue-400/25',
+        color: 'rgba(59, 130, 246, 0.7)',
     };
     return {
         label: 'Drizzle',
-        badgeClass: 'bg-sky-500/20 text-sky-300 border border-sky-400/20'
+        badgeClass: 'bg-sky-500/20 text-sky-300 border border-sky-400/20',
+        color: 'rgba(14, 165, 233, 0.5)',
     };
 }
 
-function getBarColor(intensity: number, maxIntensity: number): string {
+function getBarColor(intensity: number, maxIntensity: number, active: boolean): string {
     if (intensity === 0) return 'transparent';
 
     const ratio = intensity / Math.max(maxIntensity, 0.1);
 
-    // Gradient: cyan → blue → indigo → purple based on intensity
-    if (ratio > 0.8) return 'rgba(129, 140, 248, 0.95)';  // Indigo — heavy
-    if (ratio > 0.6) return 'rgba(99, 102, 241, 0.85)';   // Blue-indigo
-    if (ratio > 0.4) return 'rgba(96, 165, 250, 0.80)';   // Blue
-    if (ratio > 0.2) return 'rgba(56, 189, 248, 0.70)';   // Sky
-    return 'rgba(103, 232, 249, 0.60)';                     // Cyan — light
+    if (active) {
+        // Active: cyan → blue → indigo spectrum
+        if (ratio > 0.8) return 'rgba(34, 211, 238, 0.95)';   // Cyan — peak
+        if (ratio > 0.6) return 'rgba(56, 189, 248, 0.85)';   // Sky
+        if (ratio > 0.4) return 'rgba(96, 165, 250, 0.80)';   // Blue
+        if (ratio > 0.2) return 'rgba(129, 140, 248, 0.70)';  // Indigo
+        return 'rgba(147, 197, 253, 0.55)';                     // Light blue
+    }
+
+    // Quiet: muted blues
+    if (ratio > 0.6) return 'rgba(96, 165, 250, 0.70)';
+    if (ratio > 0.3) return 'rgba(96, 165, 250, 0.50)';
+    return 'rgba(96, 165, 250, 0.35)';
 }
 
 export default RainForecastCard;

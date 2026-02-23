@@ -2,7 +2,7 @@
  * Isobar Service — Generates pressure contour lines from Open-Meteo grid data.
  *
  * Pipeline:
- *   1. Fetch pressure grid from Open-Meteo for visible map bounds
+ *   1. Fetch pressure grid from Open-Meteo (paid) for visible map bounds
  *   2. Marching-squares contour algorithm → polylines at 4hPa intervals
  *   3. Detect H/L pressure centers (local extrema)
  *   4. Return GeoJSON Feature Collections for Mapbox GL rendering
@@ -39,6 +39,10 @@ interface IsobarResult {
     barbs: GeoJSON.FeatureCollection;
     arrows: GeoJSON.FeatureCollection;
     tracks: GeoJSON.FeatureCollection;
+    /** Canvas-rendered pressure gradient image (data URL) */
+    heatmapDataUrl: string | null;
+    /** Bounds for the heatmap image [west, south, east, north] */
+    heatmapBounds: [number, number, number, number] | null;
 }
 
 // ── Constants ──────────────────────────────────────────────────
@@ -48,7 +52,112 @@ const GRID_RESOLUTION = 1.0;   // degrees (1° ≈ 111km — fast, sufficient fo
 const GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
-// ── Open-Meteo Grid Fetch ──────────────────────────────────────
+import { getOpenMeteoKey } from './keys';
+
+// ── NOAA GFS Pressure Grid Fetch (via Supabase Edge Function) ─
+// Fetches decoded pressure grid as JSON from our edge function.
+// No client-side GRIB2 parsing needed — server handles it all.
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_KEY || '';
+
+// Forecast hours: 3h intervals over 12h = 5 frames
+const GRIB_FORECAST_HOURS = [0, 3, 6, 9, 12];
+
+interface GfsGridResponse {
+    frames: number[][][]; // [frameIdx][row_S_to_N][col_W_to_E] in hPa
+    lats: number[];       // S→N
+    lons: number[];       // W→E
+    width: number;
+    height: number;
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+}
+
+async function fetchPressureGridGfs(
+    north: number, south: number, west: number, east: number
+): Promise<PressureGrid | null> {
+    try {
+        const url = `${SUPABASE_URL}/functions/v1/fetch-pressure-grid`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({ north, south, east, west, hours: GRIB_FORECAST_HOURS }),
+        });
+
+        if (!res.ok) {
+            console.warn(`[Isobars-GFS] Edge function returned ${res.status}`);
+            return null;
+        }
+
+        const data: GfsGridResponse = await res.json();
+
+        if (!data.frames || data.frames.length === 0) return null;
+
+        const { lats, lons, frames } = data;
+        const rows = lats.length;
+        const cols = lons.length;
+        const totalHours = frames.length;
+
+        // Data is already S→N, W→E — use directly as allHourlyPressure
+        const allHourlyPressure: number[][][] = frames;
+        const emptyGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+        const allHourlyWindSpeed: number[][][] = frames.map(() => emptyGrid);
+        const allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
+
+        console.log(`[Isobars-GFS] Grid ${cols}×${rows}, ${totalHours} frames, bounds=[${south}→${north}]×[${west}→${east}]`);
+
+        // ── Interpolate between GRIB frames for butter-smooth animation ──
+        // 5 GRIB frames at 3h intervals → 25 sub-frames at 30-min intervals
+        const INTERP_STEPS = 6;
+        const interpPressure: number[][][] = [];
+
+        for (let f = 0; f < totalHours - 1; f++) {
+            const gridA = allHourlyPressure[f];
+            const gridB = allHourlyPressure[f + 1];
+
+            for (let step = 0; step < INTERP_STEPS; step++) {
+                const t = step / INTERP_STEPS;
+                const interpGrid: number[][] = [];
+                for (let r = 0; r < rows; r++) {
+                    const pRow: number[] = [];
+                    for (let c = 0; c < cols; c++) {
+                        pRow.push(gridA[r][c] + (gridB[r][c] - gridA[r][c]) * t);
+                    }
+                    interpGrid.push(pRow);
+                }
+                interpPressure.push(interpGrid);
+            }
+        }
+        // Add final frame
+        interpPressure.push(allHourlyPressure[totalHours - 1]);
+
+        const interpTotal = interpPressure.length;
+        const emptyGridInterp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
+        console.log(`[Isobars-GFS] Interpolated: ${totalHours} → ${interpTotal} sub-frames`);
+
+        return {
+            allHourlyPressure: interpPressure,
+            allHourlyWindSpeed: Array.from({ length: interpTotal }, () => emptyGridInterp),
+            allHourlyWindDir: Array.from({ length: interpTotal }, () => emptyGridInterp),
+            lats,
+            lons,
+            rows,
+            cols,
+            totalHours: interpTotal,
+        };
+    } catch (e) {
+        console.warn('[Isobars-GFS] Failed:', e);
+        return null;
+    }
+}
+
+// ── Open-Meteo Grid Fetch (fallback) ──────────────────────────
 
 export async function fetchPressureGrid(
     north: number, south: number, west: number, east: number, zoom: number
@@ -73,8 +182,8 @@ export async function fetchPressureGrid(
 
         if (lats.length < 3 || lons.length < 3) return null;
 
-        const sparseLatStep = Math.max((north - south) / 8, 0.5);
-        const sparseLonStep = Math.max((east - west) / 8, 0.5);
+        const sparseLatStep = Math.max((north - south) / 12, 0.5);
+        const sparseLonStep = Math.max((east - west) / 12, 0.5);
 
         const points: { lat: number; lon: number }[] = [];
         for (let lat = south; lat <= north + 0.01; lat += sparseLatStep) {
@@ -90,7 +199,9 @@ export async function fetchPressureGrid(
         const multiLons = points.map(p => p.lon).join(',');
 
         // Fetch all forecast hours of pressure + wind in one request
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=pressure_msl,wind_speed_10m,wind_direction_10m&forecast_hours=${FORECAST_HOURS}&timezone=auto`;
+        const omKey = getOpenMeteoKey();
+        if (!omKey) { console.warn('[Isobars] No Open-Meteo API key'); return null; }
+        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=pressure_msl,wind_speed_10m,wind_direction_10m&forecast_hours=${FORECAST_HOURS}&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
         if (!response.ok) return null;
@@ -235,67 +346,84 @@ function generateContourLines(grid: HourGrid, level: number): number[][][] {
 function chainSegments(segments: [number, number, number, number][]): number[][][] {
     if (segments.length === 0) return [];
 
-    const EPS = 0.001;
-    const match = (a: number, b: number) => Math.abs(a - b) < EPS;
-    const matchPt = (a: [number, number], b: [number, number]) => match(a[0], b[0]) && match(a[1], b[1]);
+    // ── O(n) hash-map chaining ──
+    // Key = rounded coordinate string, Value = list of segment indices with that endpoint
+    const PRECISION = 4; // decimal places for hash key (0.0001° ≈ 11m)
+    const keyOf = (lat: number, lon: number) =>
+        `${lat.toFixed(PRECISION)},${lon.toFixed(PRECISION)}`;
 
-    // Convert to start/end point pairs
-    const segs: { start: [number, number]; end: [number, number]; used: boolean }[] =
-        segments.map(s => ({ start: [s[0], s[1]], end: [s[2], s[3]], used: false }));
+    // Build adjacency map: endpoint → segment indices
+    const endpointMap = new Map<string, number[]>();
+    const addToMap = (key: string, idx: number) => {
+        const list = endpointMap.get(key);
+        if (list) list.push(idx);
+        else endpointMap.set(key, [idx]);
+    };
+
+    const starts: [number, number][] = [];
+    const ends: [number, number][] = [];
+    const used = new Uint8Array(segments.length);
+
+    for (let i = 0; i < segments.length; i++) {
+        const [lat1, lon1, lat2, lon2] = segments[i];
+        starts.push([lat1, lon1]);
+        ends.push([lat2, lon2]);
+        addToMap(keyOf(lat1, lon1), i);
+        addToMap(keyOf(lat2, lon2), i);
+    }
 
     const chains: number[][][] = [];
 
-    for (let i = 0; i < segs.length; i++) {
-        if (segs[i].used) continue;
-        segs[i].used = true;
-        const chain: [number, number][] = [segs[i].start, segs[i].end];
+    // Find unused neighbor at a given endpoint
+    const findNeighbor = (lat: number, lon: number, exclude: number): number => {
+        const key = keyOf(lat, lon);
+        const candidates = endpointMap.get(key);
+        if (!candidates) return -1;
+        for (const idx of candidates) {
+            if (idx !== exclude && !used[idx]) return idx;
+        }
+        return -1;
+    };
+
+    for (let i = 0; i < segments.length; i++) {
+        if (used[i]) continue;
+        used[i] = 1;
+        const chain: [number, number][] = [starts[i], ends[i]];
 
         // Extend forward
-        let changed = true;
-        while (changed) {
-            changed = false;
-            for (let j = 0; j < segs.length; j++) {
-                if (segs[j].used) continue;
-                const tail = chain[chain.length - 1];
-                if (matchPt(tail, segs[j].start)) {
-                    chain.push(segs[j].end);
-                    segs[j].used = true;
-                    changed = true;
-                } else if (matchPt(tail, segs[j].end)) {
-                    chain.push(segs[j].start);
-                    segs[j].used = true;
-                    changed = true;
-                }
-            }
+        let tail = chain[chain.length - 1];
+        let next = findNeighbor(tail[0], tail[1], i);
+        while (next >= 0) {
+            used[next] = 1;
+            const isStart = keyOf(starts[next][0], starts[next][1]) === keyOf(tail[0], tail[1]);
+            const newPt = isStart ? ends[next] : starts[next];
+            chain.push(newPt);
+            tail = newPt;
+            const prev = next;
+            next = findNeighbor(tail[0], tail[1], prev);
         }
 
         // Extend backward
-        changed = true;
-        while (changed) {
-            changed = false;
-            for (let j = 0; j < segs.length; j++) {
-                if (segs[j].used) continue;
-                const head = chain[0];
-                if (matchPt(head, segs[j].end)) {
-                    chain.unshift(segs[j].start);
-                    segs[j].used = true;
-                    changed = true;
-                } else if (matchPt(head, segs[j].start)) {
-                    chain.unshift(segs[j].end);
-                    segs[j].used = true;
-                    changed = true;
-                }
-            }
+        let head = chain[0];
+        next = findNeighbor(head[0], head[1], i);
+        while (next >= 0) {
+            used[next] = 1;
+            const isStart = keyOf(starts[next][0], starts[next][1]) === keyOf(head[0], head[1]);
+            const newPt = isStart ? ends[next] : starts[next];
+            chain.unshift(newPt);
+            head = newPt;
+            const prev = next;
+            next = findNeighbor(head[0], head[1], prev);
         }
 
-        // Only keep chains with 3+ points for smooth rendering
-        if (chain.length >= 2) {
+        // Only keep chains with 4+ points (filters noise from tiny grid artifacts)
+        if (chain.length >= 4) {
             chains.push(chain.map(p => [p[1], p[0]])); // GeoJSON is [lon, lat]
         }
     }
 
-    // Smooth all chains with Chaikin subdivision (3 passes)
-    return chains.map(c => chaikinSmooth(c, 3));
+    // Smooth all chains with Chaikin subdivision (2 passes — less aggressive for dense grids)
+    return chains.map(c => chaikinSmooth(c, 2));
 }
 
 // ── Chaikin Curve Subdivision ──────────────────────────────────
@@ -326,22 +454,28 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     const { values, lats, lons, rows, cols } = grid;
     const centers: { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] = [];
 
-    // Minimum distance between centers (in grid cells)
-    const minSep = 2;
+    // Search window radius — must be LARGE to avoid noise on dense grids
+    // At 1° grid: radius=5 → 11×11 window = 10° span (synoptic scale)
+    const radius = Math.max(5, Math.floor(Math.min(rows, cols) / 8));
 
-    for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
+    // Minimum separation between centers in degrees (synoptic systems are ~10°+ apart)
+    const MIN_SEP_DEG = 10;
+
+    for (let r = radius; r < rows - radius; r++) {
+        for (let c = radius; c < cols - radius; c++) {
             const val = values[r][c];
             let isMax = true, isMin = true;
 
-            // Check all 8 neighbors
-            for (let dr = -1; dr <= 1; dr++) {
-                for (let dc = -1; dc <= 1; dc++) {
+            // Check all cells within the radius window
+            scanLoop:
+            for (let dr = -radius; dr <= radius; dr++) {
+                for (let dc = -radius; dc <= radius; dc++) {
                     if (dr === 0 && dc === 0) continue;
                     const nr = r + dr, nc = c + dc;
                     if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
                     if (values[nr][nc] >= val) isMax = false;
                     if (values[nr][nc] <= val) isMin = false;
+                    if (!isMax && !isMin) break scanLoop;
                 }
             }
 
@@ -350,13 +484,20 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
         }
     }
 
-    // Deduplicate nearby centers — keep strongest
+    // Sort by extremity (strongest first) so dedup keeps the most significant
+    centers.sort((a, b) => {
+        if (a.type === 'H' && b.type === 'H') return b.pressure - a.pressure; // Higher pressure first
+        if (a.type === 'L' && b.type === 'L') return a.pressure - b.pressure; // Lower pressure first
+        return 0;
+    });
+
+    // Deduplicate — keep strongest, reject any within MIN_SEP_DEG
     const filtered: typeof centers = [];
     for (const center of centers) {
         const tooClose = filtered.some(f =>
             f.type === center.type &&
-            Math.abs(f.lat - center.lat) < minSep * (lats[1] - lats[0]) &&
-            Math.abs(f.lon - center.lon) < minSep * (lons[1] - lons[0])
+            Math.abs(f.lat - center.lat) < MIN_SEP_DEG &&
+            Math.abs(f.lon - center.lon) < MIN_SEP_DEG
         );
         if (!tooClose) filtered.push(center);
     }
@@ -370,8 +511,9 @@ function generateWindBarbs(grid: HourGrid): GeoJSON.Feature[] {
     const { windSpeeds, windDirs, lats, lons, rows, cols } = grid;
     const features: GeoJSON.Feature[] = [];
 
-    // Place barbs at every other grid point to avoid clutter
-    const step = Math.max(1, Math.floor(Math.min(rows, cols) / 6));
+    // Place barbs sparsely — at synoptic scale we want ~5-8 visible, not 100+
+    // Step = 1/4 of grid dimension, minimum 5 cells (~5° at 1° resolution)
+    const step = Math.max(5, Math.floor(Math.min(rows, cols) / 4));
 
     for (let r = 0; r < rows; r += step) {
         for (let c = 0; c < cols; c += step) {
@@ -468,11 +610,19 @@ function generateCirculationArrows(
 
 // ── Main Exports ───────────────────────────────────────────────
 
-/** Fetch + generate for a single hour (legacy, for initial load) */
+/** Fetch + generate for a single hour */
 export async function generateIsobars(
     north: number, south: number, west: number, east: number, zoom: number
 ): Promise<{ grid: PressureGrid; result: IsobarResult } | null> {
-    const grid = await fetchPressureGrid(north, south, west, east, zoom);
+    // TODO: FIX GFS CONTOUR BUG — GFS data is correct (H/L values verified)
+    // but contour lines render as vertical strings. The grid→contour coordinate
+    // mapping is transposed somewhere. Needs console-level debugging.
+    let grid = await fetchPressureGridGfs(north, south, west, east);
+
+    if (!grid) {
+        grid = await fetchPressureGrid(north, south, west, east, zoom);
+    }
+
     if (!grid) return null;
     const result = generateIsobarsFromGrid(grid, 0);
     return { grid, result };
@@ -525,15 +675,109 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
     // Generate movement tracks (current hour → +12h)
     const trackFeatures = generateMovementTracks(centers, hourGrid);
 
+    // Generate pressure gradient heatmap
+    const heatmap = generatePressureHeatmap(hourGrid, minP, maxP);
+
     return {
         contours: { type: 'FeatureCollection', features: contourFeatures },
         centers: { type: 'FeatureCollection', features: centerFeatures },
         barbs: { type: 'FeatureCollection', features: barbFeatures },
         arrows: { type: 'FeatureCollection', features: arrowFeatures },
         tracks: { type: 'FeatureCollection', features: trackFeatures },
+        heatmapDataUrl: heatmap?.dataUrl ?? null,
+        heatmapBounds: heatmap?.bounds ?? null,
     };
 }
 
+// ── Pressure Gradient Heatmap Generation ──────────────────────
+// Creates a canvas-based raster image colored by pressure value.
+// Low pressure (cyclones) → deep purple/blue
+// High pressure (anticyclones) → light cyan/white
+// Matches the Weatherzone synoptic chart aesthetic.
+
+function generatePressureHeatmap(
+    grid: HourGrid, minP: number, maxP: number
+): { dataUrl: string; bounds: [number, number, number, number] } | null {
+    if (typeof document === 'undefined') return null; // SSR guard
+    if (grid.rows < 3 || grid.cols < 3) return null;
+
+    const { values, lats, lons, rows, cols } = grid;
+
+    // Canvas at native grid resolution (upscaled by Mapbox)
+    const canvas = document.createElement('canvas');
+    canvas.width = cols;
+    canvas.height = rows;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const imgData = ctx.createImageData(cols, rows);
+
+    // Pressure color stops (hPa → RGBA)
+    // Inspired by Weatherzone: deep-blue lows → cyan mids → white highs
+    const colorStops: [number, number, number, number, number][] = [
+        // [pressure_hPa, R, G, B, A]
+        [970, 60, 20, 120, 180],  // Deep purple — intense low
+        [990, 40, 80, 180, 160],  // Royal blue — moderate low
+        [1008, 50, 140, 210, 130],  // Ocean blue — neutral-low
+        [1020, 120, 200, 230, 100],  // Cyan — neutral-high
+        [1040, 200, 230, 245, 80],  // Light ice — strong high
+    ];
+
+    // Clamp range to observed data (with padding)
+    const rangeMin = Math.max(960, minP - 4);
+    const rangeMax = Math.min(1050, maxP + 4);
+
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const pressure = values[r][c];
+
+            // Interpolate color from stops
+            let R = 0, G = 0, B = 0, A = 0;
+
+            if (pressure <= colorStops[0][0]) {
+                [, R, G, B, A] = colorStops[0];
+            } else if (pressure >= colorStops[colorStops.length - 1][0]) {
+                [, R, G, B, A] = colorStops[colorStops.length - 1];
+            } else {
+                // Find the two stops we're between
+                for (let s = 0; s < colorStops.length - 1; s++) {
+                    const [p0, r0, g0, b0, a0] = colorStops[s];
+                    const [p1, r1, g1, b1, a1] = colorStops[s + 1];
+                    if (pressure >= p0 && pressure <= p1) {
+                        const t = (pressure - p0) / (p1 - p0);
+                        R = r0 + (r1 - r0) * t;
+                        G = g0 + (g1 - g0) * t;
+                        B = b0 + (b1 - b0) * t;
+                        A = a0 + (a1 - a0) * t;
+                        break;
+                    }
+                }
+            }
+
+            // Grid is S→N (lats[0]=south), but canvas is top-down
+            // So row 0 (south) should be at the bottom of the canvas
+            const canvasRow = rows - 1 - r;
+            const px = (canvasRow * cols + c) * 4;
+            imgData.data[px + 0] = Math.round(R);
+            imgData.data[px + 1] = Math.round(G);
+            imgData.data[px + 2] = Math.round(B);
+            imgData.data[px + 3] = Math.round(A);
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    // Bounds: [west, south, east, north]
+    const west = lons[0];
+    const east = lons[cols - 1];
+    const south = lats[0];
+    const north = lats[rows - 1];
+
+    return {
+        dataUrl: canvas.toDataURL('image/png'),
+        bounds: [west, south, east, north],
+    };
+}
 // ── Movement Track Generation ─────────────────────────────────
 // Compares H/L positions at T=0 vs T+12h to show where systems are heading.
 

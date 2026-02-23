@@ -4,7 +4,7 @@ import { WindIcon, RainIcon, CompassIcon, BoatIcon, XIcon } from '../Icons';
 import { fetchStopDetails } from '../../services/geminiService';
 import { Waypoint, StopDetails, ObservationStation } from '../../types';
 
-export type MapLayer = 'wind' | 'rain' | 'global-wind';
+export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 
 export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     if (layer === 'wind') {

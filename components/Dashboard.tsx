@@ -20,7 +20,7 @@ import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, WeatherMetrics, SourcedWeatherMetrics } from '../types';
-import { fetchMinutelyRain, MinutelyRain } from '../services/weather/api/tomorrowio';
+import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 
 interface DashboardProps {
     onOpenMap: () => void;
@@ -67,7 +67,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
-    const isExpanded = userSettings.dashboardMode !== 'essential';
+    const isInland = data?.locationType === 'inland' || isLandlocked;
+    const isExpanded = isInland ? false : userSettings.dashboardMode !== 'essential';
 
     // Onboarding tutorial for first-time users
     const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
@@ -94,8 +95,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, [current]);
 
-    // Minutely rain data from Tomorrow.io
+    // Minutely rain data from Apple WeatherKit
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
+    const [rainSummary, setRainSummary] = useState<string>('');
     const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
@@ -118,11 +120,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     // Still set up the refresh timer below, but skip initial fetch
                     const rainTimer = setInterval(() => {
                         if (!navigator.onLine || cancelled) return;
-                        fetchMinutelyRain(lat, lon).then(result => {
-                            if (!cancelled && result.length > 0) {
-                                setMinutelyRain(result);
+                        fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
+                            if (!cancelled && rain.length > 0) {
+                                setMinutelyRain(rain);
+                                setRainSummary(summary);
                                 setRainStatus('loaded');
-                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
+                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
                             }
                         }).catch(() => { /* keep cached data */ });
                     }, 5 * 60 * 1000);
@@ -132,12 +135,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
 
         // Initial fetch
-        fetchMinutelyRain(lat, lon).then(result => {
+        fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
             if (!cancelled) {
-                if (result.length > 0) {
-                    setMinutelyRain(result);
+                if (rain.length > 0) {
+                    setMinutelyRain(rain);
+                    setRainSummary(summary);
                     setRainStatus('loaded');
-                    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
+                    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
                 } else {
                     // Fallback: synthesize from hourly precipitation
                     const fallback = synthesizeFromHourly();
@@ -154,15 +158,16 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }
         });
 
-        // Live refresh every 5 minutes (Tomorrow.io has 10min internal cache)
+        // Live refresh every 5 minutes (WeatherKit has internal caching)
         const rainTimer = setInterval(() => {
             if (!navigator.onLine) return;
-            fetchMinutelyRain(lat, lon).then(result => {
+            fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
                 if (!cancelled) {
-                    if (result.length > 0) {
-                        setMinutelyRain(result);
+                    if (rain.length > 0) {
+                        setMinutelyRain(rain);
+                        setRainSummary(summary);
                         setRainStatus('loaded');
-                        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: result }));
+                        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
                     } else {
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
@@ -424,6 +429,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         timeZone: data?.timeZone,
         modelUsed: data?.modelUsed,
         isLandlocked: isLandlocked,
+        locationType: data?.locationType,
         isPro: isPro,
 
         units: units,
@@ -506,7 +512,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     timeZone={data.timeZone}
                                     sources={safeActive.sources}
                                     isExpanded={isExpanded}
-                                    onToggleExpand={() => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
+                                    onToggleExpand={isInland ? undefined : () => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
                                 />
                             </div>
 
@@ -523,7 +529,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 }}
                             >
                                 <CurrentConditionsCard
-                                    data={activeDayData || current}
+                                    data={current}
                                     units={units}
                                     timeZone={data.timeZone}
                                 />
@@ -546,6 +552,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     sources={widgetSources}
                                     trends={widgetTrends}
                                     isLive={activeDay === 0 && activeHour === 0}
+                                    locationType={data.locationType}
+                                    hourly={hourly}
                                 />
                             </div>
 
@@ -555,36 +563,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
                                 Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
-                            <div className="fixed left-0 right-0 overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 412px)' : 'calc(max(8px, env(safe-area-inset-top)) + 332px)', bottom: 'calc(env(safe-area-inset-bottom) + 120px)' }}>
+                            <div className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 412px)' : 'calc(max(8px, env(safe-area-inset-top)) + 332px)', bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible */}
-                                {minutelyRain && minutelyRain.length > 0 ? (
-                                    <div className="shrink-0 px-4">
-                                        <RainForecastCard
-                                            data={minutelyRain}
-                                            timeZone={data.timeZone}
-                                        />
-                                    </div>
-                                ) : (
-                                    <div className="shrink-0 px-4">
-                                        <div className="w-full rounded-xl overflow-hidden"
-                                            style={{
-                                                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
-                                                border: '1px solid rgba(96, 165, 250, 0.1)',
-                                                minHeight: '76px',
-                                            }}
-                                        >
-                                            <div className="min-h-[76px] flex items-center justify-center gap-2 px-3">
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-blue-400 shrink-0">
-                                                    <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                                        fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1.5" />
-                                                </svg>
-                                                <span className="text-sm font-semibold uppercase tracking-wider text-ivory">
-                                                    {rainStatus === 'loading' ? 'Checking rain forecast…' : 'Rain data unavailable'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                <div className="shrink-0 px-4">
+                                    <RainForecastCard
+                                        data={minutelyRain}
+                                        timeZone={data.timeZone}
+                                        rainSummary={rainSummary}
+                                    />
+                                </div>
                                 <HeroSection
                                     current={current}
                                     forecasts={data.forecast}
@@ -613,7 +600,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
                             {isExpanded && (
-                                <div className="fixed left-0 right-0 z-[110] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                                <div className="fixed left-0 right-0 z-[125] flex justify-center" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
                                     <div className="flex gap-[3px] px-4 py-1">
                                         {Array.from({ length: 24 }).map((_, i) => (
                                             <div
@@ -633,7 +620,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Hero container bottom is 120px. 
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
-                            <div className="fixed left-0 right-0 z-[110] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}>
+                            <div className="fixed left-0 right-0 z-[125] px-4" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}>
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}

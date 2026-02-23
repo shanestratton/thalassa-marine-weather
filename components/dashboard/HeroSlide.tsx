@@ -20,7 +20,7 @@ import { useWeather } from '../../context/WeatherContext';
 import { generateWeatherNarrative, getMoonPhase } from './WeatherHelpers';
 import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
-import { MinutelyRain } from '../../services/weather/api/tomorrowio';
+import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { ShipLogService } from '../../services/ShipLogService';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
@@ -147,8 +147,8 @@ const HeroSlideComponent = ({
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
-    // In essential mode, replace tide graph area with interactive map
-    const showMapInstead = isEssentialMode && showTideGraph;
+    // In essential mode, show map for any coastal location — independent of tide availability
+    const showMapInstead = isEssentialMode && (locationType === 'coastal' || locationType === 'inland' || isLandlocked);
     const showGrid = !showTideGraph && !showMapInstead; // Explicit switch
 
     // Rain detection — only on Today slide (index 0) with minutely data
@@ -364,6 +364,15 @@ const HeroSlideComponent = ({
         const d = displayData.date ? new Date(displayData.date) : new Date();
         return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     }, [index, displayData.isoDate, displayData.date]);
+
+    // Auto-scroll to slide 0 when entering essential mode (map only renders on slide 0)
+    useEffect(() => {
+        if (isEssentialMode && horizontalScrollRef.current) {
+            horizontalScrollRef.current.scrollTo({ left: 0 });
+            lastScrollIdxRef.current = 0;
+            setActiveHIdx(0);
+        }
+    }, [isEssentialMode]);
 
     useEffect(() => {
         const handleReset = () => {
@@ -618,7 +627,7 @@ const HeroSlideComponent = ({
         }
 
         // Use Common Renderer
-        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact);
+        const customWidget = renderHeroWidget(topWidgetId, data, displayValues, units, isLive, undefined, 'left', isLive ? (displayData as SourcedWeatherMetrics).sources : undefined, isCompact, locationType);
         if (customWidget) {
             return customWidget;
         }
@@ -937,7 +946,7 @@ const HeroSlideComponent = ({
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
                                 {showMapInstead ? (
-                                    /* ESSENTIAL MODE MAP — only render on first slide to avoid multiple WebGL contexts */
+                                    /* ESSENTIAL MODE MAP — only on slide 0 to avoid multiple WebGL contexts */
                                     <div className="relative w-full h-full flex flex-col">
                                         <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isCardDay ? 'border-white/[0.08]' : 'border-indigo-300/[0.08]'}`}>
                                             {slideIdx === 0 ? (
@@ -945,22 +954,7 @@ const HeroSlideComponent = ({
                                                     <style>{`
                                                         .essential-map .mapboxgl-ctrl-bottom-left,
                                                         .essential-map .mapboxgl-ctrl-bottom-right,
-                                                        .essential-map > div > div.absolute.bottom-20 { display: none !important; }
-                                                        .essential-map > div > div.absolute.top-14 { top: 0.25rem !important; right: 0.25rem !important; gap: 0.25rem !important; }
-                                                        .essential-map > div > div.absolute.top-14 > button { width: 1.75rem !important; height: 1.75rem !important; border-radius: 0.5rem !important; }
-                                                        .essential-map > div > div.absolute.top-14 > button svg { width: 0.875rem !important; height: 0.875rem !important; }
-                                                        .essential-map > div > div.absolute.top-14 > div { border-radius: 0.5rem !important; max-height: 85% !important; }
-                                                        .essential-map > div > div.absolute.top-14 > div button { padding: 0.2rem 0.5rem !important; gap: 0.25rem !important; }
-                                                        .essential-map > div > div.absolute.top-14 > div .text-base { font-size: 0.625rem !important; line-height: 1 !important; }
-                                                        .essential-map > div > div.absolute.top-14 > div .text-xs { font-size: 0.5625rem !important; line-height: 1 !important; }
-                                                        /* Synoptic scrubber — compact, flush to bottom */
-                                                        .essential-map > div > div.absolute.left-4 { bottom: 0.25rem !important; left: 0.25rem !important; right: 0.25rem !important; z-index: 20; }
-                                                        .essential-map > div > div.absolute.left-4 > div { padding: 0.2rem 0.4rem !important; gap: 0.25rem !important; border-radius: 0.375rem !important; }
-                                                        .essential-map > div > div.absolute.left-4 button { width: 1rem !important; height: 1rem !important; }
-                                                        .essential-map > div > div.absolute.left-4 button svg { width: 0.5rem !important; height: 0.5rem !important; }
-                                                        .essential-map > div > div.absolute.left-4 .text-xs { font-size: 0.45rem !important; }
-                                                        .essential-map > div > div.absolute.left-4 .text-\[8px\] { font-size: 0.3rem !important; }
-                                                        .essential-map > div > div.absolute.left-4 .min-w-\[52px\] { min-width: 1.5rem !important; }
+                                                        .essential-map .mapboxgl-ctrl-logo { display: none !important; }
                                                     `}</style>
                                                     <div className="essential-map absolute inset-0">
                                                         <React.Suspense fallback={
@@ -970,17 +964,15 @@ const HeroSlideComponent = ({
                                                         }>
                                                             <MapHub
                                                                 mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}
-                                                                initialZoom={6}
+                                                                initialZoom={5}
                                                                 minimalLabels
+                                                                embedded
+                                                                center={coordinates}
                                                             />
                                                         </React.Suspense>
                                                     </div>
                                                 </>
-                                            ) : (
-                                                <div className="flex items-center justify-center h-full bg-slate-900/80">
-                                                    <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Map on Live</span>
-                                                </div>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
                                 ) : showTideGraph ? (

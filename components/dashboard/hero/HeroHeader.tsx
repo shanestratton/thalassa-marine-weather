@@ -41,6 +41,7 @@ interface HeroHeaderProps {
     hTime?: number;
     forceLabel?: string;
     moonIllumination?: number;
+    precipChance?: number; // 0-100% from WeatherKit hourly
 }
 
 export const HeroHeader: React.FC<HeroHeaderProps> = ({
@@ -53,7 +54,8 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
     isHourly,
     hTime,
     forceLabel,
-    moonIllumination
+    moonIllumination,
+    precipChance
 }) => {
     const bgImage = getWeatherBackgroundImage(cardData.condition, isCardDay, cardData.cloudCover ?? undefined, moonIllumination);
     return (
@@ -88,8 +90,8 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                 {(() => {
                                     const tempStr = cardDisplayValues.airTemp.toString();
                                     const len = tempStr.length;
-                                    // Shrink for 3 chars (100 or -5) or 4 chars (-12)
-                                    const sizeClass = len > 3 ? 'text-3xl md:text-4xl' : len > 2 ? 'text-4xl md:text-5xl' : 'text-5xl md:text-6xl';
+                                    // Big and bold — scale down only for wide numbers
+                                    const sizeClass = len > 3 ? 'text-5xl md:text-6xl' : len > 2 ? 'text-6xl md:text-7xl' : 'text-7xl md:text-8xl';
 
                                     return (
                                         <span className={`${sizeClass} font-mono font-bold tracking-tighter text-ivory drop-shadow-2xl leading-none transition-all duration-300`}>
@@ -124,13 +126,6 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                 </div>
                             </div>
 
-                            {/* 2. Feels Like */}
-                            <div className="flex items-center gap-1.5 justify-end">
-                                <span className={`text-sm font-bold uppercase tracking-wider text-slate-400 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>Feels Like</span>
-                                <span className={`text-sm font-bold text-orange-200 ${!(cardData.feelsLike !== undefined) ? 'opacity-0' : ''} `}>
-                                    {cardData.feelsLike !== undefined ? convertTemp(cardData.feelsLike, units.temp) : '--'}°<span className="text-sm text-orange-200/50 ml-0.5">{units.temp}</span>
-                                </span>
-                            </div>
 
                             {/* 4. Cloud */}
                             <div className="flex items-center gap-1 text-sm font-bold text-gray-300 justify-end translate-y-0.5">
@@ -142,7 +137,13 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             {/* 3. Rain */}
                             <div className="flex items-center gap-1 text-sm font-bold text-cyan-300 justify-end">
                                 <RainIcon className="w-2.5 h-2.5" />
-                                {cardData.precipValue || '0.0 mm'}
+                                {cardIsLive
+                                    ? (cardData.precipValue || '0.0 mm')
+                                    : (precipChance !== undefined ? `${precipChance}%` : (cardData.precipValue || '0.0 mm'))
+                                }
+                                {!cardIsLive && precipChance !== undefined && (
+                                    <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">chance</span>
+                                )}
                             </div>
                         </div>
                     </div>

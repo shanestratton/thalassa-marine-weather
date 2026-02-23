@@ -128,11 +128,12 @@ class ShipLogServiceClass {
     private trackBuffer = new GpsTrackBuffer();
 
     // --- POSITION-BASED COURSE CHANGE DETECTION ---
-    // Instead of reading GPS heading (unreliable at low speed), we calculate
-    // bearing from actual lat/lon positions every 15 seconds.
+    // Uses decoupled position anchor + heading baseline:
+    // lastValidPos: slides forward every tick (creates short recent vector)
+    // baselineHeading: stays locked until a turn ≥22.5° is detected
     private courseCheckIntervalId?: NodeJS.Timeout;
-    private lastBearingCheckPos: { lat: number; lon: number } | null = null;
-    private lastComputedBearing: number | null = null;
+    private lastValidPos: { lat: number; lon: number } | null = null;
+    private baselineHeading: number | null = null;
     private static readonly COURSE_CHECK_INTERVAL_MS = 15_000; // Check every 15 seconds
     private static readonly COURSE_CHANGE_THRESHOLD_DEG = 22.5; // One compass point
     // MIN_MOVEMENT_M is now adaptive via GpsPrecision.getAdaptedThresholds()
@@ -429,8 +430,8 @@ class ShipLogServiceClass {
         this.captureImmediateEntry().catch(() => { });
 
         // Reset position-based bearing tracker for new voyage
-        this.lastBearingCheckPos = null;
-        this.lastComputedBearing = null;
+        this.lastValidPos = null;
+        this.baselineHeading = null;
         this.startCourseChangeDetection();
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
@@ -547,11 +548,16 @@ class ShipLogServiceClass {
 
     /**
      * Start position-based course change detection.
-     * Every 15 seconds, computes bearing from actual lat/lon positions.
-     * If bearing changes >22.5° (one compass point), records a waypoint.
+     * Every 15 seconds, computes a SHORT recent movement vector and
+     * compares it against a locked baseline heading.
      *
-     * This is 100% reliable because it uses position (accurate to ~5m)
-     * instead of GPS heading (unreliable at low speeds).
+     * ALGORITHM (decoupled position anchor + heading baseline):
+     * - lastValidPos: slides forward EVERY tick → creates a short recent vector
+     * - baselineHeading: stays locked until cumulative turn ≥22.5° is detected
+     *
+     * This fixes the old "bearing from origin" bug where long straight legs
+     * diluted the turn signal (e.g. sail 1km N, turn NNE → bearing from
+     * origin barely changes because the 1km leg dominates).
      */
     private startCourseChangeDetection(): void {
         // Clear any existing timer
@@ -567,54 +573,51 @@ class ShipLogServiceClass {
 
             const currentPos = { lat: pos.latitude, lon: pos.longitude };
 
-            // First fix — seed the position
-            if (!this.lastBearingCheckPos) {
-                this.lastBearingCheckPos = currentPos;
+            // 1. Seed the initial position
+            if (!this.lastValidPos) {
+                this.lastValidPos = currentPos;
                 return;
             }
 
-            // Calculate distance moved since last check
-            const R = 6371000; // Earth radius in meters
-            const dLat = (currentPos.lat - this.lastBearingCheckPos.lat) * Math.PI / 180;
-            const dLon = (currentPos.lon - this.lastBearingCheckPos.lon) * Math.PI / 180;
+            // 2. Distance check — filters GPS jitter when stationary
+            const R = 6371000;
+            const dLat = (currentPos.lat - this.lastValidPos.lat) * Math.PI / 180;
+            const dLon = (currentPos.lon - this.lastValidPos.lon) * Math.PI / 180;
             const a = Math.sin(dLat / 2) ** 2 +
-                Math.cos(this.lastBearingCheckPos.lat * Math.PI / 180) *
+                Math.cos(this.lastValidPos.lat * Math.PI / 180) *
                 Math.cos(currentPos.lat * Math.PI / 180) *
                 Math.sin(dLon / 2) ** 2;
             const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-            // Haven't moved enough — skip (filters GPS jitter when stationary)
-            // Threshold adapts: 5m with precision GPS, 10m standard, 20m degraded
             const minMovement = GpsPrecision.getAdaptedThresholds().courseChangeMinMovementM;
             if (distM < minMovement) return;
 
-            // Calculate bearing from last position to current position
-            const currentBearing = bearing(
-                this.lastBearingCheckPos.lat, this.lastBearingCheckPos.lon,
+            // 3. Calculate RECENT bearing — short vector from last position to current
+            const recentBearing = bearing(
+                this.lastValidPos.lat, this.lastValidPos.lon,
                 currentPos.lat, currentPos.lon
             );
 
-            // DON'T update lastBearingCheckPos here — let bearing accumulate
-            // relative to the last committed turn position. This ensures gradual
-            // turns (e.g. 90° over 2 minutes) correctly trigger the threshold
-            // instead of resetting every 15s tick.
+            // 4. CRITICAL: Slide position anchor forward EVERY tick.
+            //    This ensures the bearing vector is always SHORT and RECENT,
+            //    not diluted by long straight legs behind us.
+            this.lastValidPos = currentPos;
 
-            // First bearing — seed it, no waypoint
-            if (this.lastComputedBearing === null) {
-                this.lastComputedBearing = currentBearing;
+            // 5. Seed the baseline heading on first valid movement
+            if (this.baselineHeading === null) {
+                this.baselineHeading = recentBearing;
                 return;
             }
 
-            // Check if bearing changed significantly
-            const delta = headingDelta(this.lastComputedBearing, currentBearing);
+            // 6. Compare recent movement vector against locked baseline
+            const delta = headingDelta(this.baselineHeading, recentBearing);
 
             if (delta >= ShipLogServiceClass.COURSE_CHANGE_THRESHOLD_DEG) {
-                const oldCardinal = ShipLogServiceClass.degreesToCardinal16(this.lastComputedBearing);
-                const newCardinal = ShipLogServiceClass.degreesToCardinal16(currentBearing);
+                const oldCardinal = ShipLogServiceClass.degreesToCardinal16(this.baselineHeading);
+                const newCardinal = ShipLogServiceClass.degreesToCardinal16(recentBearing);
 
-                // NOW reset both position and bearing — committed turn
-                this.lastBearingCheckPos = currentPos;
-                this.lastComputedBearing = currentBearing;
+                // Reset baseline heading to new direction of travel
+                this.baselineHeading = recentBearing;
 
                 log.info(`Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°)`);
 
@@ -626,7 +629,7 @@ class ShipLogServiceClass {
                     'navigation'
                 ).catch(() => { /* best effort */ });
             }
-            // No else — bearing baseline stays at last committed turn
+            // No else — baseline heading stays locked at last committed turn
         }, ShipLogServiceClass.COURSE_CHECK_INTERVAL_MS);
     }
 
@@ -750,8 +753,8 @@ class ShipLogServiceClass {
         await this.saveTrackingState();
 
         // Reset course change detection
-        this.lastBearingCheckPos = null;
-        this.lastComputedBearing = null;
+        this.lastValidPos = null;
+        this.baselineHeading = null;
         if (this.courseCheckIntervalId) {
             clearInterval(this.courseCheckIntervalId);
             this.courseCheckIntervalId = undefined;

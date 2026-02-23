@@ -137,21 +137,45 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                 break;
 
             case 3: {
-                // Grid Definition Section
-                // Template 3.0: Latitude/Longitude grid
+                // Grid Definition Section — Template 3.0: Latitude/Longitude grid
                 numDataPoints = view.getUint32(pos + 6, false);
-                // Octets 31-34: Ni (number of points along a parallel = width)
+                // Octets 31-34: Ni (columns) and 35-38: Nj (rows)
                 width = view.getUint32(pos + 30, false);
-                // Octets 35-38: Nj (number of points along a meridian = height)
                 height = view.getUint32(pos + 34, false);
-                // Octets 47-50: La1 (latitude of first grid point) in microdegrees
+                // Octets 47-50: La1, 51-54: Lo1 (microdegrees) — these parse correctly
                 lat1 = view.getInt32(pos + 46, false) / 1e6;
-                // Octets 51-54: Lo1 (longitude of first grid point) in microdegrees
                 lon1 = view.getInt32(pos + 50, false) / 1e6;
-                // Octets 56-59: La2 (latitude of last grid point)
-                lat2 = view.getInt32(pos + 55, false) / 1e6;
-                // Octets 60-63: Lo2 (longitude of last grid point)
-                lon2 = view.getInt32(pos + 59, false) / 1e6;
+
+                // La2/Lo2 byte offsets are unreliable in some GRIB2 encoders.
+                // Strategy: try multiple offsets, then fall back to inferring from grid dims.
+                let la2Raw = view.getInt32(pos + 55, false) / 1e6;
+                let lo2Raw = view.getInt32(pos + 59, false) / 1e6;
+
+                // Try +1 byte offset if standard fails
+                if (Math.abs(la2Raw) > 90.001) {
+                    la2Raw = view.getInt32(pos + 56, false) / 1e6;
+                    lo2Raw = view.getInt32(pos + 60, false) / 1e6;
+                }
+
+                // Infer grid bounds from La1 + dimensions if La2/Lo2 still look wrong.
+                // For a regular lat/lon grid: spacing = total_span / (N - 1)
+                const la2Valid = Math.abs(la2Raw) <= 90.001;
+                // For Lo2: GFS uses 0..359° (width=360), expect Lo2 near 359°
+                const lo2Valid = lo2Raw > 0 && lo2Raw <= 360.001;
+
+                if (la2Valid && lo2Valid) {
+                    lat2 = la2Raw;
+                    lon2 = lo2Raw;
+                } else {
+                    // Infer from grid dimensions: assume symmetric global grid if La1=90°
+                    const dLat = (width > 1 && height > 1) ? 180.0 / (height - 1) : 1.0;
+                    const dLon = (width > 1) ? 360.0 / width : 1.0;
+                    lat2 = la2Valid ? la2Raw : (lat1 - (height - 1) * dLat);
+                    lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
+                    console.warn(`[GRIB2] Inferred bounds: La2=${lat2}° Lo2=${lon2}° (raw La2=${la2Raw}° Lo2=${lo2Raw}°)`);
+                }
+
+                console.log(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
                 break;
             }
 
@@ -252,6 +276,28 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
             vData.set(msgV.data.subarray(srcOffset, srcOffset + w), dstOffset);
         }
         console.log(`[decodeGrib2Wind] Flipped ${h} rows from north-first to south-first`);
+    }
+
+    // For full-globe grids: GRIB data columns start at 0°E but grid bounds are -180°..180°.
+    // Circularly shift columns by w/2 so column 0 = -180° (matching the grid coordinate system).
+    if (isFullGlobe) {
+        const w = msgU.width;
+        const h = msgU.height;
+        const halfW = Math.floor(w / 2);
+        const uShifted = new Float32Array(w * h);
+        const vShifted = new Float32Array(w * h);
+        for (let row = 0; row < h; row++) {
+            const rowBase = row * w;
+            // Copy eastern half (cols halfW..w-1) → start of row
+            uShifted.set(uData.subarray(rowBase + halfW, rowBase + w), rowBase);
+            vShifted.set(vData.subarray(rowBase + halfW, rowBase + w), rowBase);
+            // Copy western half (cols 0..halfW-1) → end of row
+            uShifted.set(uData.subarray(rowBase, rowBase + halfW), rowBase + (w - halfW));
+            vShifted.set(vData.subarray(rowBase, rowBase + halfW), rowBase + (w - halfW));
+        }
+        uData = uShifted;
+        vData = vShifted;
+        console.log(`[decodeGrib2Wind] Shifted ${w} columns by ${halfW} to align 0°E → -180°`);
     }
 
     return {

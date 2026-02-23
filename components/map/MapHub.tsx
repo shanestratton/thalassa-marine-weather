@@ -28,6 +28,7 @@ import {
     type RouteAnalysis,
 } from '../../services/WeatherRoutingService';
 import { SynopticScrubber } from './SynopticScrubber';
+import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -41,9 +42,13 @@ interface MapHubProps {
     mapStyle?: string;
     /** Remove large country/place labels for a cleaner look */
     minimalLabels?: boolean;
+    /** Embedded mode: no overlays, no interactions, static centered view */
+    embedded?: boolean;
+    /** Override center coordinates (for embedded mode) */
+    center?: { lat: number; lon: number };
 }
 
-type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'pressure' | 'sea' | 'satellite';
+type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'pressure' | 'sea' | 'satellite' | 'velocity';
 
 // ── Free tile sources (no API key required) ──
 const STATIC_TILES: Record<string, string> = {
@@ -51,13 +56,6 @@ const STATIC_TILES: Record<string, string> = {
     satellite: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
 };
 
-// OWM key for wind/temperature tiles
-function getOwmKey(): string {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OWM_API_KEY) {
-        return import.meta.env.VITE_OWM_API_KEY as string;
-    }
-    return localStorage.getItem('owm_api_key') || '';
-}
 
 // Wind speed → nautical color (matches GLSL palette in WindGLEngine)
 function getWindColor(kts: number): string {
@@ -73,7 +71,7 @@ function getWindColor(kts: number): string {
 
 // ── Component ──────────────────────────────────────────────────
 
-export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/navigation-night-v1', minimalLabels = false }) => {
+export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/navigation-night-v1', minimalLabels = false, embedded = false, center }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -105,7 +103,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     // State
     const location = useLocationStore();
     const windState = useWindStore();
-    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('none');
+    const [activeLayer, setActiveLayer] = useState<WeatherLayer>(embedded ? 'velocity' : 'none');
     const [showLayerMenu, setShowLayerMenu] = useState(false);
     const [showPassage, setShowPassage] = useState(false);
     const [mapReady, setMapReady] = useState(false);
@@ -128,12 +126,13 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
-            center: [location.lon, location.lat],
+            center: center ? [center.lon, center.lat] : [location.lon, location.lat],
             zoom: initialZoom,
             attributionControl: false,
-            maxZoom: 18,
-            minZoom: 0,
+            maxZoom: embedded ? initialZoom : 18,
+            minZoom: embedded ? initialZoom : 1,
             projection: 'mercator' as any,
+            interactive: !embedded,
         });
 
         // Disable rotation for mobile UX
@@ -265,6 +264,59 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     'line-opacity': 0.5,
                 },
             });
+
+            // ── Premium coastline overlay using Mapbox native vector tiles ──
+            // These layers sit on TOP of all weather overlays (heatmap, particles)
+            // to provide crisp, high-resolution coastline contours at every zoom.
+
+            // 1. Coastline stroke — traces the exact land/water boundary
+            //    from Mapbox's native 'water' vector tile source-layer.
+            map.addLayer({
+                id: 'coastline-stroke',
+                type: 'line',
+                source: 'composite',
+                'source-layer': 'water',
+                paint: {
+                    'line-color': '#94a3b8',       // slate-400 — visible but not harsh
+                    'line-width': [
+                        'interpolate', ['linear'], ['zoom'],
+                        0, 0.4,    // hair-thin at global zoom
+                        5, 0.8,    // subtle at regional zoom
+                        10, 1.2,   // crisp at local zoom
+                        14, 1.5,   // defined at street zoom
+                    ],
+                    'line-opacity': [
+                        'interpolate', ['linear'], ['zoom'],
+                        0, 0.5,
+                        6, 0.7,
+                        12, 0.85,
+                    ],
+                },
+            });
+
+            // 2. Admin-0 country boundaries — geopolitical context
+            map.addLayer({
+                id: 'country-borders-overlay',
+                type: 'line',
+                source: 'composite',
+                'source-layer': 'admin',
+                filter: [
+                    'all',
+                    ['==', ['get', 'admin_level'], 0],
+                    ['==', ['get', 'maritime'], 0],
+                ],
+                paint: {
+                    'line-color': '#64748b',       // slate-500
+                    'line-width': [
+                        'interpolate', ['linear'], ['zoom'],
+                        0, 0.3,
+                        5, 0.6,
+                        10, 1.0,
+                    ],
+                    'line-opacity': 0.5,
+                    'line-dasharray': [6, 2],
+                },
+            });
         });
 
         // ── Long-Press Handler (pin drop) ──
@@ -309,6 +361,77 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             mapRef.current = null;
         };
     }, [mapboxToken, mapStyle, initialZoom, minimalLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Embedded rain radar with scrubber ──
+    const embeddedRainFrames = useRef<{ path: string; time: number }[]>([]);
+    const embRainNowIdx = useRef(0); // Index of the 'NOW' frame
+    const [embRainIdx, setEmbRainIdx] = useState(-1); // -1 = uninitialised, set to NOW after frames load
+    const [embRainCount, setEmbRainCount] = useState(0);
+    const [embRainPlaying, setEmbRainPlaying] = useState(false);
+
+    // Load rain frames
+    useEffect(() => {
+        if (!embedded || !mapReady || !mapRef.current) return;
+        const m = mapRef.current;
+        (async () => {
+            try {
+                const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+                const data = await res.json();
+                const past = (data?.radar?.past ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+                const forecast = (data?.radar?.nowcast ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+                const allFrames = [...past, ...forecast];
+                embeddedRainFrames.current = allFrames;
+                setEmbRainCount(allFrames.length);
+                // Start at last past frame (current/NOW)
+                const nowIdx = Math.max(0, past.length - 1);
+                embRainNowIdx.current = nowIdx;
+                setEmbRainIdx(nowIdx);
+            } catch (err) {
+                console.warn('[EmbeddedMap] Rain frames failed:', err);
+            }
+        })();
+        return () => {
+            try {
+                if (m.getLayer('embedded-rain')) m.removeLayer('embedded-rain');
+                if (m.getSource('embedded-rain')) m.removeSource('embedded-rain');
+            } catch (_) { /* ok */ }
+        };
+    }, [embedded, mapReady]);
+
+    // Swap rain tile on frame change
+    useEffect(() => {
+        if (!embedded || !mapRef.current) return;
+        const m = mapRef.current;
+        const frames = embeddedRainFrames.current;
+        if (!frames.length || embRainIdx < 0 || embRainIdx >= frames.length) return;
+        const frame = frames[embRainIdx];
+        if (m.getSource('embedded-rain')) {
+            try { m.removeLayer('embedded-rain'); m.removeSource('embedded-rain'); } catch { /* ok */ }
+        }
+        m.addSource('embedded-rain', {
+            type: 'raster',
+            tiles: [`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`],
+            tileSize: 256,
+        });
+        m.addLayer({
+            id: 'embedded-rain',
+            type: 'raster',
+            source: 'embedded-rain',
+            paint: { 'raster-opacity': 0.75, 'raster-contrast': 0.3, 'raster-brightness-min': 0.1 },
+        });
+    }, [embedded, embRainIdx]);
+
+    // Auto-play
+    useEffect(() => {
+        if (!embRainPlaying) return;
+        const timer = setInterval(() => {
+            setEmbRainIdx(prev => {
+                if (prev + 1 >= embRainCount) { setEmbRainPlaying(false); return embRainNowIdx.current; }
+                return prev + 1;
+            });
+        }, 400);
+        return () => clearInterval(timer);
+    }, [embRainPlaying, embRainCount]);
 
     // ── Pin Drop Logic ──
     const dropPin = useCallback((map: mapboxgl.Map, lat: number, lon: number) => {
@@ -397,6 +520,39 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         if (barbsSrc) barbsSrc.setData(result.barbs);
         if (arrowsSrc) arrowsSrc.setData(result.arrows);
         if (tracksSrc) tracksSrc.setData(result.tracks);
+
+        // Update pressure gradient heatmap
+        if (result.heatmapDataUrl && result.heatmapBounds) {
+            const [west, south, east, north] = result.heatmapBounds;
+            const coordinates: [[number, number], [number, number], [number, number], [number, number]] = [
+                [west, north],  // top-left
+                [east, north],  // top-right
+                [east, south],  // bottom-right
+                [west, south],  // bottom-left
+            ];
+
+            const existingSrc = map.getSource('pressure-heatmap') as mapboxgl.ImageSource;
+            if (existingSrc) {
+                existingSrc.updateImage({ url: result.heatmapDataUrl, coordinates });
+            } else {
+                // Create source + layer on first frame
+                map.addSource('pressure-heatmap', {
+                    type: 'image',
+                    url: result.heatmapDataUrl,
+                    coordinates,
+                });
+                // Add raster layer BELOW isobar lines
+                map.addLayer({
+                    id: 'pressure-heatmap-layer',
+                    type: 'raster',
+                    source: 'pressure-heatmap',
+                    paint: {
+                        'raster-opacity': 0.5,
+                        'raster-fade-duration': 0,
+                    },
+                }, 'isobar-lines'); // Insert below the isobar lines layer
+            }
+        }
     }, []);
 
     // Pre-compute all frames in non-blocking batches
@@ -455,14 +611,13 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         }
 
         const animate = (timestamp: number) => {
-            if (timestamp - lastFrameTimeRef.current >= 300) { // 300ms per frame = ~3.3 fps
+            if (timestamp - lastFrameTimeRef.current >= 350) { // 350ms × 25 frames = 8.75s per 12h loop
                 lastFrameTimeRef.current = timestamp;
                 setForecastHour(prev => {
                     const max = cachedFramesRef.current.length;
                     const next = prev + 1;
                     if (next >= max || !cachedFramesRef.current[next]) {
-                        setIsPlaying(false);
-                        return 0;
+                        return 0; // Loop back to start
                     }
                     return next;
                 });
@@ -635,12 +790,12 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
         // Remove isobar layers when switching away from pressure
         const hideIsobars = () => {
-            ['isobar-lines', 'isobar-labels', 'isobar-center-circles', 'isobar-center-labels', 'wind-barb-layer', 'circulation-arrow-layer', 'movement-track-lines', 'movement-track-labels'].forEach(id => {
+            ['isobar-lines', 'isobar-labels', 'isobar-center-circles', 'isobar-center-labels', 'wind-barb-layer', 'circulation-arrow-layer', 'movement-track-lines', 'movement-track-labels', 'pressure-heatmap-layer'].forEach(id => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
             });
         };
         const showIsobars = () => {
-            ['isobar-lines', 'isobar-labels', 'isobar-center-circles', 'isobar-center-labels', 'wind-barb-layer', 'circulation-arrow-layer', 'movement-track-lines', 'movement-track-labels'].forEach(id => {
+            ['isobar-lines', 'isobar-labels', 'isobar-center-circles', 'isobar-center-labels', 'wind-barb-layer', 'circulation-arrow-layer', 'movement-track-lines', 'movement-track-labels', 'pressure-heatmap-layer'].forEach(id => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
             });
         };
@@ -656,21 +811,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             if (currentZoom > 4 || currentZoom < 2.5) {
                 map.flyTo({ zoom: 3, duration: 1200 });
             }
-            // Show OWM pressure color underlay at low opacity for gradient context
-            const owmKey = getOwmKey();
-            if (owmKey) {
-                map.addSource('weather-tiles', {
-                    type: 'raster',
-                    tiles: [`https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid=${owmKey}`],
-                    tileSize: 256,
-                });
-                map.addLayer({
-                    id: 'weather-tiles',
-                    type: 'raster',
-                    source: 'weather-tiles',
-                    paint: { 'raster-opacity': 0.25 },
-                }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
-            }
+
 
             // Initialize isobar sources if they don't exist yet
             if (!map.getSource('isobar-contours')) {
@@ -705,7 +846,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         'text-field': ['get', 'label'],
                         'text-size': 11,
                         'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-                        'symbol-spacing': 250,
+                        'symbol-spacing': 500,
                         'text-keep-upright': true,
                     },
                     paint: {
@@ -1025,6 +1166,9 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         const engine = new WindParticleLayer();
                         engine.setGrid(currentGrid, windHour);
                         m.addLayer(engine);
+                        // Keep coastline overlays on top of weather layers
+                        try { m.moveLayer('coastline-stroke'); } catch (_) { /* ok */ }
+                        try { m.moveLayer('country-borders-overlay'); } catch (_) { /* ok */ }
                         windEngineRef.current = engine;
                         setWindMaxSpeed(engine.getMaxSpeed());
                         console.log(`[Wind GL] Custom layer added — ${currentGrid.width}×${currentGrid.height} grid, max ${engine.getMaxSpeed().toFixed(0)}kt`);
@@ -1036,28 +1180,10 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             map.on('moveend', onFlyEnd);
         }
 
-        // OWM weather layers — temperature, clouds (wind now uses WebGL)
-        const OWM_LAYERS: Record<string, string> = {
-            temperature: 'temp_new',
-            clouds: 'clouds_new',
-        };
-
-        const owmLayer = OWM_LAYERS[activeLayer];
-        if (owmLayer) {
-            const owmKey = getOwmKey();
-            if (owmKey) {
-                map.addSource('weather-tiles', {
-                    type: 'raster',
-                    tiles: [`https://tile.openweathermap.org/map/${owmLayer}/{z}/{x}/{y}.png?appid=${owmKey}`],
-                    tileSize: 256,
-                });
-                map.addLayer({
-                    id: 'weather-tiles',
-                    type: 'raster',
-                    source: 'weather-tiles',
-                    paint: { 'raster-opacity': 0.65 },
-                }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
-            }
+        // Temperature/clouds tile layers — removed with OWM.
+        // These can be re-implemented with an open tile source if needed.
+        if (activeLayer === 'temperature' || activeLayer === 'clouds') {
+            // No tile source currently — show the base map only
             return;
         }
 
@@ -1170,8 +1296,59 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 }
             `}</style>
 
+            {/* ═══ VELOCITY WIND OVERLAY (Leaflet-velocity-ts on Mapbox) ═══ */}
+            <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={activeLayer === 'velocity'} />
+
+            {/* ═══ EMBEDDED RAIN SCRUBBER ═══ */}
+            {embedded && embRainCount > 1 && embRainIdx >= 0 && (
+                <div
+                    className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
+                    style={{ bottom: 8, background: 'rgba(15, 23, 42, 0.85)' }}
+                >
+                    <style>{`
+                        .emb-rain-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+                        .emb-rain-slider::-webkit-slider-runnable-track { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
+                        .emb-rain-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+                    `}</style>
+                    <button
+                        onClick={() => setEmbRainPlaying(!embRainPlaying)}
+                        className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
+                    >
+                        {embRainPlaying ? (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="3" height="8" rx="0.5" /><rect x="6" y="1" width="3" height="8" rx="0.5" /></svg>
+                        ) : (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9" /></svg>
+                        )}
+                    </button>
+                    <input
+                        type="range"
+                        min={0}
+                        max={embRainCount - 1}
+                        value={embRainIdx}
+                        onChange={e => { setEmbRainPlaying(false); setEmbRainIdx(parseInt(e.target.value)); }}
+                        className="emb-rain-slider flex-1 h-3"
+                    />
+                    <span className="text-[10px] font-bold text-white/60 min-w-[32px] text-right font-mono">
+                        {(() => {
+                            const frames = embeddedRainFrames.current;
+                            if (!frames.length) return '--';
+                            const now = Date.now() / 1000;
+                            const ft = frames[embRainIdx]?.time ?? now;
+                            const dm = Math.round((ft - now) / 60);
+                            if (Math.abs(dm) < 3) return 'NOW';
+                            if (Math.abs(dm) >= 60) {
+                                const h = Math.round(dm / 60);
+                                return `${h > 0 ? '+' : ''}${h}h`;
+                            }
+                            return `${dm > 0 ? '+' : ''}${dm}m`;
+                        })()}
+                    </span>
+                </div>
+            )}
+
+
             {/* ═══ LAYER LEGEND STRIP ═══ */}
-            {activeLayer !== 'none' && activeLayer !== 'sea' && activeLayer !== 'satellite' && (() => {
+            {activeLayer !== 'none' && activeLayer !== 'sea' && activeLayer !== 'satellite' && activeLayer !== 'velocity' && (() => {
                 const legends: Record<string, { gradient: string; labels: { text: string; pos: string }[] }> = {
                     rain: {
                         gradient: 'linear-gradient(to bottom, #1a1a2e, #ff00ff, #ff0000, #ff8c00, #ffff00, #00ff00, transparent)',
@@ -1272,12 +1449,12 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             })()}
 
             {/* ═══ LAYER FAB MENU ═══ */}
-            <div className="absolute top-14 right-4 z-10 flex flex-col gap-2">
+            <div className={`absolute z-[500] flex flex-col gap-2 ${embedded ? 'top-2 right-2' : 'top-14 right-4'}`}>
                 <button
                     onClick={() => { setShowLayerMenu(!showLayerMenu); triggerHaptic('light'); }}
-                    className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                    className={`backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
                 >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <svg className={`text-white ${embedded ? 'w-3.5 h-3.5' : 'w-5 h-5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
                     </svg>
                 </button>
@@ -1287,7 +1464,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         {([
                             { key: 'none', label: 'None', icon: '🗺️' },
                             { key: 'rain', label: 'Rain', icon: '🌧️' },
-                            { key: 'wind', label: 'Wind', icon: '💨' },
+                            { key: 'velocity', label: 'Wind', icon: '💨' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
                             { key: 'clouds', label: 'Clouds', icon: '☁️' },
                             { key: 'pressure', label: 'Synoptic', icon: '🌀' },
@@ -1297,11 +1474,11 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                             <button
                                 key={layer.key}
                                 onClick={() => { setActiveLayer(layer.key); setShowLayerMenu(false); triggerHaptic('light'); }}
-                                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors ${activeLayer === layer.key ? 'bg-sky-500/20 text-sky-400' : 'text-gray-400 hover:bg-white/5'
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${activeLayer === layer.key ? 'bg-sky-500/20 text-sky-400' : 'text-gray-400 hover:bg-white/5'
                                     }`}
                             >
-                                <span className="text-base">{layer.icon}</span>
-                                <span className="text-xs font-bold">{layer.label}</span>
+                                <span className="text-xl">{layer.icon}</span>
+                                <span className="text-sm font-bold">{layer.label}</span>
                             </button>
                         ))}
                     </div>
@@ -1309,241 +1486,246 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             </div>
 
             {/* ═══ ACTION FABS ═══ */}
-            <div className="absolute bottom-28 right-4 z-10 flex flex-col gap-2">
-                <button
-                    onClick={() => { setShowPassage(!showPassage); triggerHaptic('light'); }}
-                    className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${showPassage
-                        ? 'bg-sky-600/90 border-sky-500/30'
-                        : 'bg-slate-900/90 border-white/[0.08] hover:bg-slate-800/90'
-                        }`}
-                >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-                    </svg>
-                </button>
+            {!embedded && (
+                <div className="absolute bottom-28 right-4 z-[500] flex flex-col gap-2">
+                    <button
+                        onClick={() => { setShowPassage(!showPassage); triggerHaptic('light'); }}
+                        className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${showPassage
+                            ? 'bg-sky-600/90 border-sky-500/30'
+                            : 'bg-slate-900/90 border-white/[0.08] hover:bg-slate-800/90'
+                            }`}
+                    >
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+                        </svg>
+                    </button>
 
-                {/* Wind Mode Toggle: Global vs Passage */}
-                {activeLayer === 'wind' && (
+                    {/* Wind Mode Toggle: Global vs Passage */}
+                    {activeLayer === 'wind' && (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('medium');
+                                const map = mapRef.current;
+                                if (!map) return;
+                                WindDataController.switchMode(map).then(() => {
+                                    const { grid } = windState;
+                                    if (grid && windEngineRef.current) {
+                                        windEngineRef.current.setGrid(grid, 0);
+                                        windGridRef.current = grid;
+                                        setWindTotalHours(grid.totalHours);
+                                        setWindHour(0);
+                                    }
+                                });
+                            }}
+                            className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${windState.isGlobalMode
+                                ? 'bg-cyan-600/90 border-cyan-500/30'
+                                : 'bg-amber-600/90 border-amber-500/30'
+                                }`}
+                            title={windState.isGlobalMode ? 'Global Live Wind' : 'Passage Wind'}
+                        >
+                            {windState.isGlobalMode ? (
+                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path strokeLinecap="round" d="M3.5 12h17M12 3c-2 2.5-3 5.5-3 9s1 6.5 3 9c2-2.5 3-5.5 3-9s-1-6.5-3-9" />
+                                </svg>
+                            ) : (
+                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.24 7.76l-6.17 2.47-2.47 6.17 6.17-2.47 2.47-6.17z" />
+                                    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                                </svg>
+                            )}
+                        </button>
+                    )}
+
+                    {/* GRIB Download */}
+                    {activeLayer === 'wind' && (
+                        <button
+                            onClick={async () => {
+                                if (isGribDownloading) return;
+                                triggerHaptic('medium');
+                                setIsGribDownloading(true);
+                                setGribProgress(0);
+                                setGribError(null);
+                                try {
+                                    const map = mapRef.current;
+                                    if (!map) throw new Error('Map not ready');
+                                    const b = map.getBounds();
+                                    if (!b) throw new Error('Cannot get map bounds');
+
+                                    const isGlobal = windState.isGlobalMode;
+                                    const north = isGlobal ? 90 : b.getNorth();
+                                    const south = isGlobal ? -90 : b.getSouth();
+                                    const east = isGlobal ? 180 : b.getEast();
+                                    const west = isGlobal ? -180 : b.getWest();
+
+                                    // NOAA NOMADS handles subsetting — just send bounds
+                                    const body = { north, south, east, west };
+
+                                    // Resolve Supabase project URL
+                                    const supabaseUrl =
+                                        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+                                    if (!supabaseUrl) throw new Error('Supabase URL not configured');
+                                    const supabaseKey =
+                                        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+
+                                    const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
+                                    console.log(`[GRIB] POST ${url}`, body);
+                                    setGribProgress(10);
+
+                                    const resp = await fetch(url, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                                        },
+                                        body: JSON.stringify(body),
+                                    });
+
+                                    setGribProgress(50);
+                                    console.log(`[GRIB] Response: ${resp.status} ${resp.statusText}`);
+
+                                    if (!resp.ok) {
+                                        let errDetail = `Server ${resp.status}`;
+                                        try {
+                                            const errJson = await resp.json();
+                                            errDetail = errJson.error || errJson.detail || errDetail;
+                                        } catch {
+                                            errDetail = await resp.text().catch(() => errDetail);
+                                        }
+                                        throw new Error(errDetail);
+                                    }
+
+                                    const buffer = await resp.arrayBuffer();
+                                    console.log(`[GRIB] Received ${buffer.byteLength} bytes`);
+                                    setGribProgress(80);
+
+                                    // Guard: NOAA sometimes returns HTML error pages
+                                    if (buffer.byteLength < 200) {
+                                        const text = new TextDecoder().decode(buffer);
+                                        throw new Error(`NOAA returned invalid data (${buffer.byteLength}B): ${text.substring(0, 100)}`);
+                                    }
+
+                                    // Decode GRIB2 (two messages: UGRD + VGRD)
+                                    const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
+                                    const grib = decodeGrib2Wind(buffer);
+
+                                    // Feed into wind engine — create it if it doesn't exist yet
+                                    let engine = windEngineRef.current;
+                                    if (!engine) {
+                                        const map = mapRef.current;
+                                        if (!map) throw new Error('Map not available for wind layer');
+                                        try { map.removeLayer('wind-particles'); } catch (_) { /* ok */ }
+                                        engine = new WindParticleLayer();
+                                        map.addLayer(engine);
+                                        // Keep coastline overlays on top of weather layers
+                                        try { map.moveLayer('coastline-stroke'); } catch (_) { /* ok */ }
+                                        try { map.moveLayer('country-borders-overlay'); } catch (_) { /* ok */ }
+                                        windEngineRef.current = engine;
+                                        console.log('[GRIB] Created wind-particles layer on-the-fly');
+                                    }
+
+                                    engine.setWindData(grib.u, grib.v, grib.width, grib.height, {
+                                        north: grib.north,
+                                        south: grib.south,
+                                        east: grib.east,
+                                        west: grib.west,
+                                    });
+                                    setWindMaxSpeed(engine.getMaxSpeed());
+
+                                    console.log(`[GRIB] Loaded ${grib.width}×${grib.height} grid (${buffer.byteLength} bytes)`);
+                                    setGribProgress(100);
+                                    triggerHaptic('light');
+                                } catch (err) {
+                                    const msg = err instanceof Error ? err.message : 'Download failed';
+                                    setGribError(msg);
+                                    console.error('[GRIB] Error:', msg, err);
+                                    triggerHaptic('heavy');
+                                    // Auto-clear error after 5 seconds
+                                    setTimeout(() => setGribError(null), 5000);
+                                } finally {
+                                    setIsGribDownloading(false);
+                                }
+                            }}
+                            disabled={isGribDownloading}
+                            className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${isGribDownloading
+                                ? 'bg-sky-700/90 border-sky-500/30 cursor-wait'
+                                : gribError
+                                    ? 'bg-red-800/90 border-red-500/30'
+                                    : 'bg-slate-900/90 border-white/[0.08] hover:bg-slate-800/90'
+                                }`}
+                            title={isGribDownloading ? `Downloading ${gribProgress}%` : gribError ?? 'Download GRIB'}
+                        >
+                            {isGribDownloading ? (
+                                <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                            ) : (
+                                <svg className={`w-5 h-5 ${gribError ? 'text-red-300' : 'text-sky-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                                </svg>
+                            )}
+                        </button>
+                    )}
+
+                    {/* GRIB Error Tooltip */}
+                    {gribError && activeLayer === 'wind' && (
+                        <div className="max-w-[200px] bg-red-900/95 backdrop-blur-xl border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
+                            <p className="text-[10px] font-bold text-red-300 leading-tight">{gribError}</p>
+                        </div>
+                    )}
+
+                    {/* GPS Locate Me */}
                     <button
                         onClick={() => {
                             triggerHaptic('medium');
-                            const map = mapRef.current;
-                            if (!map) return;
-                            WindDataController.switchMode(map).then(() => {
-                                const { grid } = windState;
-                                if (grid && windEngineRef.current) {
-                                    windEngineRef.current.setGrid(grid, 0);
-                                    windGridRef.current = grid;
-                                    setWindTotalHours(grid.totalHours);
-                                    setWindHour(0);
-                                }
-                            });
-                        }}
-                        className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${windState.isGlobalMode
-                            ? 'bg-cyan-600/90 border-cyan-500/30'
-                            : 'bg-amber-600/90 border-amber-500/30'
-                            }`}
-                        title={windState.isGlobalMode ? 'Global Live Wind' : 'Passage Wind'}
-                    >
-                        {windState.isGlobalMode ? (
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <circle cx="12" cy="12" r="9" />
-                                <path strokeLinecap="round" d="M3.5 12h17M12 3c-2 2.5-3 5.5-3 9s1 6.5 3 9c2-2.5 3-5.5 3-9s-1-6.5-3-9" />
-                            </svg>
-                        ) : (
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <circle cx="12" cy="12" r="9" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.24 7.76l-6.17 2.47-2.47 6.17 6.17-2.47 2.47-6.17z" />
-                                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                            </svg>
-                        )}
-                    </button>
-                )}
-
-                {/* GRIB Download */}
-                {activeLayer === 'wind' && (
-                    <button
-                        onClick={async () => {
-                            if (isGribDownloading) return;
-                            triggerHaptic('medium');
-                            setIsGribDownloading(true);
-                            setGribProgress(0);
-                            setGribError(null);
-                            try {
-                                const map = mapRef.current;
-                                if (!map) throw new Error('Map not ready');
-                                const b = map.getBounds();
-                                if (!b) throw new Error('Cannot get map bounds');
-
-                                const isGlobal = windState.isGlobalMode;
-                                const north = isGlobal ? 90 : b.getNorth();
-                                const south = isGlobal ? -90 : b.getSouth();
-                                const east = isGlobal ? 180 : b.getEast();
-                                const west = isGlobal ? -180 : b.getWest();
-
-                                // NOAA NOMADS handles subsetting — just send bounds
-                                const body = { north, south, east, west };
-
-                                // Resolve Supabase project URL
-                                const supabaseUrl =
-                                    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-                                if (!supabaseUrl) throw new Error('Supabase URL not configured');
-                                const supabaseKey =
-                                    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
-
-                                const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
-                                console.log(`[GRIB] POST ${url}`, body);
-                                setGribProgress(10);
-
-                                const resp = await fetch(url, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                                    },
-                                    body: JSON.stringify(body),
-                                });
-
-                                setGribProgress(50);
-                                console.log(`[GRIB] Response: ${resp.status} ${resp.statusText}`);
-
-                                if (!resp.ok) {
-                                    let errDetail = `Server ${resp.status}`;
-                                    try {
-                                        const errJson = await resp.json();
-                                        errDetail = errJson.error || errJson.detail || errDetail;
-                                    } catch {
-                                        errDetail = await resp.text().catch(() => errDetail);
-                                    }
-                                    throw new Error(errDetail);
-                                }
-
-                                const buffer = await resp.arrayBuffer();
-                                console.log(`[GRIB] Received ${buffer.byteLength} bytes`);
-                                setGribProgress(80);
-
-                                // Guard: NOAA sometimes returns HTML error pages
-                                if (buffer.byteLength < 200) {
-                                    const text = new TextDecoder().decode(buffer);
-                                    throw new Error(`NOAA returned invalid data (${buffer.byteLength}B): ${text.substring(0, 100)}`);
-                                }
-
-                                // Decode GRIB2 (two messages: UGRD + VGRD)
-                                const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
-                                const grib = decodeGrib2Wind(buffer);
-
-                                // Feed into wind engine — create it if it doesn't exist yet
-                                let engine = windEngineRef.current;
-                                if (!engine) {
+                            if (!navigator.geolocation) return;
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    const { latitude, longitude } = pos.coords;
                                     const map = mapRef.current;
-                                    if (!map) throw new Error('Map not available for wind layer');
-                                    try { map.removeLayer('wind-particles'); } catch (_) { /* ok */ }
-                                    engine = new WindParticleLayer();
-                                    map.addLayer(engine);
-                                    windEngineRef.current = engine;
-                                    console.log('[GRIB] Created wind-particles layer on-the-fly');
-                                }
-
-                                engine.setWindData(grib.u, grib.v, grib.width, grib.height, {
-                                    north: grib.north,
-                                    south: grib.south,
-                                    east: grib.east,
-                                    west: grib.west,
-                                });
-                                setWindMaxSpeed(engine.getMaxSpeed());
-
-                                console.log(`[GRIB] Loaded ${grib.width}×${grib.height} grid (${buffer.byteLength} bytes)`);
-                                setGribProgress(100);
-                                triggerHaptic('light');
-                            } catch (err) {
-                                const msg = err instanceof Error ? err.message : 'Download failed';
-                                setGribError(msg);
-                                console.error('[GRIB] Error:', msg, err);
-                                triggerHaptic('heavy');
-                                // Auto-clear error after 5 seconds
-                                setTimeout(() => setGribError(null), 5000);
-                            } finally {
-                                setIsGribDownloading(false);
-                            }
+                                    if (map) {
+                                        map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
+                                        dropPin(map, latitude, longitude);
+                                    }
+                                    LocationStore.setFromGPS(latitude, longitude);
+                                    onLocationSelect?.(latitude, longitude);
+                                },
+                                (err) => console.warn('GPS error:', err.message),
+                                { enableHighAccuracy: true, timeout: 10000 }
+                            );
                         }}
-                        disabled={isGribDownloading}
-                        className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${isGribDownloading
-                            ? 'bg-sky-700/90 border-sky-500/30 cursor-wait'
-                            : gribError
-                                ? 'bg-red-800/90 border-red-500/30'
-                                : 'bg-slate-900/90 border-white/[0.08] hover:bg-slate-800/90'
-                            }`}
-                        title={isGribDownloading ? `Downloading ${gribProgress}%` : gribError ?? 'Download GRIB'}
+                        className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                     >
-                        {isGribDownloading ? (
-                            <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                            </svg>
-                        ) : (
-                            <svg className={`w-5 h-5 ${gribError ? 'text-red-300' : 'text-sky-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                            </svg>
-                        )}
+                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <circle cx="12" cy="12" r="3" />
+                            <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                        </svg>
                     </button>
-                )}
 
-                {/* GRIB Error Tooltip */}
-                {gribError && activeLayer === 'wind' && (
-                    <div className="max-w-[200px] bg-red-900/95 backdrop-blur-xl border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
-                        <p className="text-[10px] font-bold text-red-300 leading-tight">{gribError}</p>
-                    </div>
-                )}
-
-                {/* GPS Locate Me */}
-                <button
-                    onClick={() => {
-                        triggerHaptic('medium');
-                        if (!navigator.geolocation) return;
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                const { latitude, longitude } = pos.coords;
-                                const map = mapRef.current;
-                                if (map) {
-                                    map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
-                                    dropPin(map, latitude, longitude);
-                                }
-                                LocationStore.setFromGPS(latitude, longitude);
-                                onLocationSelect?.(latitude, longitude);
-                            },
-                            (err) => console.warn('GPS error:', err.message),
-                            { enableHighAccuracy: true, timeout: 10000 }
-                        );
-                    }}
-                    className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                >
-                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <circle cx="12" cy="12" r="3" />
-                        <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-                    </svg>
-                </button>
-
-                {/* Recenter on last pin */}
-                <button
-                    onClick={() => {
-                        if (mapRef.current) {
-                            mapRef.current.flyTo({ center: [location.lon, location.lat], zoom: 10, duration: 1000 });
-                        }
-                        triggerHaptic('light');
-                    }}
-                    className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                    </svg>
-                </button>
-            </div>
+                    {/* Recenter on last pin */}
+                    <button
+                        onClick={() => {
+                            if (mapRef.current) {
+                                mapRef.current.flyTo({ center: [location.lon, location.lat], zoom: 10, duration: 1000 });
+                            }
+                            triggerHaptic('light');
+                        }}
+                        className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                    >
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                        </svg>
+                    </button>
+                </div>
+            )}
 
             {/* ═══ PASSAGE PLANNER PANEL ═══ */}
-            {
+            {!embedded &&
                 showPassage && (
-                    <div className="absolute bottom-16 left-0 right-0 z-20 mx-2 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-t-3xl shadow-2xl shadow-black/50 max-h-[50vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300">
+                    <div className="absolute bottom-16 left-0 right-0 z-[500] mx-2 bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-t-3xl shadow-2xl shadow-black/50 max-h-[50vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300">
 
                         {/* Header */}
                         <div className="px-5 pt-4 pb-2 flex items-center gap-3 shrink-0">
@@ -1671,7 +1853,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             {/* ═══ WIND TIMELINE SCRUBBER ═══ */}
             {activeLayer === 'wind' && windReady && (
-                <div className="absolute left-4 right-4 z-20" style={{ bottom: 90 }}>
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 90 }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setWindPlaying(!windPlaying); triggerHaptic('light'); }}
@@ -1707,7 +1889,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             {/* ═══ RAIN TIMELINE SCRUBBER ═══ */}
             {activeLayer === 'rain' && rainFrameCount > 1 && (
-                <div className="absolute left-4 right-4 z-20" style={{ bottom: 90 }}>
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 90 }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setRainPlaying(!rainPlaying); triggerHaptic('light'); }}

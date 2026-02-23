@@ -69,10 +69,19 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(({
             fillRef.current.style.width = `${pct}%`;
         }
         if (labelRef.current) {
-            labelRef.current.textContent = frame === 0 ? 'Now' : `+${frame}h`;
+            // Convert frame index to forecast hours
+            // With interpolated frames: totalFrames covers 12h, so each frame = 12/(totalFrames-1) hours
+            const forecastHrs = maxFrame > 0 ? (frame / maxFrame) * 12 : 0;
+            if (frame === 0) {
+                labelRef.current.textContent = 'Now';
+            } else if (forecastHrs % 1 === 0) {
+                labelRef.current.textContent = `+${forecastHrs}h`;
+            } else {
+                labelRef.current.textContent = `+${forecastHrs.toFixed(1)}h`;
+            }
         }
         if (sublabelRef.current) {
-            sublabelRef.current.textContent = frame <= 24 ? 'Today' : 'Tomorrow';
+            sublabelRef.current.textContent = 'Forecast';
         }
     }, [maxFrame]);
 
@@ -148,7 +157,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(({
 
     return (
         <div
-            className="absolute left-4 right-4 z-20"
+            className="absolute left-4 right-4 z-[500]"
             style={{ bottom: 90 }}
         >
             <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
@@ -209,10 +218,10 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(({
                 {/* Time label */}
                 <div className="shrink-0 text-right min-w-[52px]">
                     <p ref={labelRef} className="text-xs font-black text-white">
-                        {forecastHour === 0 ? 'Now' : `+${forecastHour}h`}
+                        {forecastHour === 0 ? 'Now' : `+${(totalFrames > 1 ? (forecastHour / (totalFrames - 1)) * 12 : forecastHour).toFixed(1)}h`}
                     </p>
                     <p ref={sublabelRef} className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">
-                        {forecastHour <= 24 ? 'Today' : 'Tomorrow'}
+                        Forecast
                     </p>
                 </div>
             </div>

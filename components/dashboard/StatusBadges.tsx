@@ -49,7 +49,7 @@ const SOURCE_CONFIG: Record<string, { abbr: string; color: string; label: string
     beacon: { abbr: '', color: 'text-emerald-400', label: 'BEACON' },   // Name used instead of abbr
     stormglass: { abbr: 'SG', color: 'text-amber-400', label: 'StormGlass API' },
     openmeteo: { abbr: 'OM', color: 'text-blue-400', label: 'Open-Meteo' },
-    tomorrow: { abbr: 'T.io', color: 'text-sky-400', label: 'Tomorrow.io' },
+    weatherkit: { abbr: 'WK', color: 'text-emerald-400', label: 'Apple Weather' },
 };
 
 const SOURCE_DOT_COLORS: Record<string, string> = {
@@ -57,7 +57,7 @@ const SOURCE_DOT_COLORS: Record<string, string> = {
     beacon: 'bg-emerald-400',
     stormglass: 'bg-amber-400',
     openmeteo: 'bg-blue-400',
-    tomorrow: 'bg-sky-400',
+    weatherkit: 'bg-emerald-400',
 };
 
 // Metric display names for the provenance table

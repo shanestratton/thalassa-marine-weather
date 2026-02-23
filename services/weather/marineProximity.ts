@@ -36,10 +36,11 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
         { lat: lat, lon: lon - LON_OFFSET, label: 'West' }
     ];
 
-    // 2. Construct API URL
-    // ALWAYS use the Marine API for "Proximity Checks" because we specifically need the GFS Wave model 
-    // which is best accessed via the marine endpoint to avoid model-domain mismatch errors.
-    const baseUrl = "https://marine-api.open-meteo.com/v1/marine";
+    // 2. Construct API URL — commercial only (App Store compliance)
+    if (!isCommercial) {
+        return { hasMarineData: false, nearestWaterDistanceKm: 9999 };
+    }
+    const baseUrl = "https://customer-api.open-meteo.com/v1/marine";
 
     const lats = points.map(p => p.lat.toFixed(4)).join(',');
     const lons = points.map(p => p.lon.toFixed(4)).join(',');
@@ -50,10 +51,9 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
         daily: "wave_height_max",
         timezone: "auto",
         forecast_days: "3",
-        // models: "gfs_wave" // REMOVED: Caused 400 Error. Let API use default (best_match).
     });
 
-    // if (isCommercial) params.append("apikey", apiKey!); // Disable API Key for Marine Endpoint check to avoid complexity
+    if (isCommercial) params.append("apikey", apiKey!);
 
     try {
         const res = await CapacitorHttp.get({

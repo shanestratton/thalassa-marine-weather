@@ -161,9 +161,9 @@ export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | n
     );
 });
 
-export const DetailedMetricsWidget = ({ current, units, hourly }: { current: WeatherMetrics, units: UnitPreferences, hourly?: HourlyForecast[] }) => {
+export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: { current: WeatherMetrics, units: UnitPreferences, hourly?: HourlyForecast[], locationType?: 'coastal' | 'offshore' | 'inland' }) => {
     const { settings, updateSettings } = useThalassa();
-    const activeWidgets = settings.detailsWidgets || ['pressure', 'humidity', 'precip', 'dewPoint', 'cloud', 'visibility', 'chill', 'swell'];
+    const activeWidgets = settings.detailsWidgets || ['wave', 'wavePeriod', 'pressure', 'humidity', 'precip', 'dewPoint', 'cloud', 'visibility', 'chill', 'swell'];
 
     // DnD Sensors
     const sensors = useSensors(
@@ -267,16 +267,22 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${current.humidity || 0}%` }}></div></div>}
             />
         ),
-        precip: (
-            <DetailTile
-                label="Precipitation"
-                value={precipValue || '0'}
-                unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
-                colorClass="text-cyan-300"
-                icon={<RainIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">{precipValue ? 'Accumulating' : 'Dry Conditions'}</span>}
-            />
-        ),
+        precip: (() => {
+            // Extract rain chance from current hour
+            const now = Date.now();
+            const currentHourly = hourly?.find(h => Math.abs(new Date(h.time).getTime() - now) < 90 * 60_000);
+            const chance = currentHourly?.precipChance;
+            return (
+                <DetailTile
+                    label="Precipitation"
+                    value={precipValue || '0'}
+                    unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
+                    colorClass="text-cyan-300"
+                    icon={<RainIcon className="w-4 h-4" />}
+                    subContent={<span className="text-[9px] text-gray-400">{chance !== undefined ? `${chance}% chance this hour` : (precipValue ? 'Accumulating' : 'Dry Conditions')}</span>}
+                />
+            );
+        })(),
         dewPoint: (
             <DetailTile
                 label="Dew Point"
@@ -325,6 +331,26 @@ export const DetailedMetricsWidget = ({ current, units, hourly }: { current: Wea
                 colorClass="text-indigo-300"
                 icon={<WaveIcon className="w-4 h-4" />}
                 subContent={<span className="text-[9px] text-gray-400 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
+            />
+        ),
+        wave: (
+            <DetailTile
+                label={locationType === 'offshore' ? 'Swell' : 'Wave'}
+                value={current.waveHeight !== null && current.waveHeight !== undefined ? String(current.waveHeight) : '--'}
+                unit={units.waveHeight || 'ft'}
+                colorClass="text-blue-300"
+                icon={<WaveIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-400">{current.swellDirection ? `From ${current.swellDirection}` : 'Combined Sea'}</span>}
+            />
+        ),
+        wavePeriod: (
+            <DetailTile
+                label={locationType === 'offshore' ? 'Swell Per.' : 'Wave Per.'}
+                value={`${current.swellPeriod || '--'}`}
+                unit="s"
+                colorClass="text-blue-300"
+                icon={<CloudIcon className="w-4 h-4" />}
+                subContent={<span className="text-[9px] text-gray-400">Peak Energy</span>}
             />
         ),
         uv: (

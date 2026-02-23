@@ -3,7 +3,7 @@ import { MarineWeatherReport, WeatherModel, BuoyStation } from '../../types';
 import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
-import { fetchTomorrowIoRealtime, TomorrowIoObservation } from './api/tomorrowio';
+import { fetchWeatherKitFull, WeatherKitFullResponse } from './api/weatherkit';
 import { saveToCache, getFromCache } from './cache';
 import { degreesToCardinal } from '../../utils';
 
@@ -13,7 +13,7 @@ export { getApiKeySuffix, isStormglassKeyPresent, debugStormglassConnection, che
 export { reverseGeocode, parseLocation } from './api/geocoding';
 export { fetchOpenMeteo } from './api/openmeteo';
 export { fetchActiveBuoys } from './api/buoys';
-export { fetchTomorrowIoRealtime } from './api/tomorrowio';
+export { fetchWeatherKitRealtime, fetchWeatherKitFull, fetchMinutelyRain } from './api/weatherkit';
 
 // Alias for compatibility
 export const fetchStormglassData = fetchStormGlassWeather;
@@ -21,14 +21,14 @@ export const fetchStormglassData = fetchStormGlassWeather;
 // --- MAIN ORCHESTRATORS ---
 
 /**
- * Location-Type-Aware Weather Strategy
+ * 3-Tier Weather Data Architecture
  * 
- * Routes API calls based on location type:
- * | Location | Live Source      | Forecast     | Marine Forecast | Minutely Rain |
- * |----------|-----------------|--------------|-----------------|---------------|
- * | Inland   | Tomorrow.io     | Open-Meteo   | —               | Tomorrow.io   |
- * | Coastal  | Tomorrow.io     | Open-Meteo   | StormGlass      | Tomorrow.io   |
- * | Offshore | StormGlass      | Open-Meteo   | StormGlass      | —             |
+ * Routes API calls based on distance to shore:
+ * | Tier | Distance  | Atmospheric       | Marine/Ocean       |
+ * |------|-----------|-------------------|--------------------|
+ * | 1    | Any       | Open-Meteo → WebGL| (separate flow)    |
+ * | 2    | ≤ 20nm    | Apple WeatherKit  | StormGlass (waves) |
+ * | 3    | > 20nm    | StormGlass 100%   | StormGlass 100%    |
  * 
  * All API calls fired in parallel via Promise.allSettled for speed.
  */
@@ -39,14 +39,15 @@ export const fetchWeatherByStrategy = async (
     locationType?: 'coastal' | 'offshore' | 'inland'
 ): Promise<MarineWeatherReport> => {
 
-    const needsTomorrowLive = locationType !== 'offshore';
+    const isOffshore = locationType === 'offshore';
+    const needsWeatherKit = !isOffshore; // Tier 2: WeatherKit for coastal/inland
     const needsStormGlass = locationType !== 'inland';
 
     // --- PARALLEL API CALLS ---
     const promises: [
-        Promise<MarineWeatherReport>,                       // Open-Meteo (always)
+        Promise<MarineWeatherReport>,                       // Open-Meteo (always — forecast backbone)
         Promise<MarineWeatherReport | null>,                 // StormGlass (coastal/offshore)
-        Promise<TomorrowIoObservation | null>,               // Tomorrow.io realtime (inland/coastal)
+        Promise<WeatherKitFullResponse | null>,             // WeatherKit full (Tier 2: coastal/inland)
     ] = [
             // 1. Open-Meteo: Atmospheric forecast backbone (all locations)
             fetchOpenMeteo(lat, lon, name, false, 'best_match'),
@@ -54,26 +55,34 @@ export const fetchWeatherByStrategy = async (
             // 2. StormGlass: Marine forecast + offshore live (coastal/offshore only)
             needsStormGlass
                 ? fetchStormGlassWeather(lat, lon, name, locationType).catch((e) => {
-                    console.warn('[Strategy] StormGlass failed, continuing with OpenMeteo only:', e);
+                    console.warn('[Strategy] StormGlass failed, continuing with other sources:', e);
                     return null;
                 })
                 : Promise.resolve(null),
 
-            // 3. Tomorrow.io: Live observations (inland/coastal)
-            needsTomorrowLive
-                ? fetchTomorrowIoRealtime(lat, lon).catch((e) => {
-                    console.warn('[Strategy] Tomorrow.io realtime failed:', e);
+            // 3. WeatherKit: Full atmospheric payload (Tier 2: coastal/inland)
+            //    Requests: currentWeather + forecastHourly + forecastDaily + forecastNextHour
+            needsWeatherKit
+                ? fetchWeatherKitFull(lat, lon).catch((e) => {
+                    console.warn('[Strategy] WeatherKit failed:', e);
                     return null;
                 })
                 : Promise.resolve(null),
         ];
 
-    const [omResult, sgResult, tioResult] = await Promise.allSettled(promises);
+    const [omResult, sgResult, wkResult] = await Promise.allSettled(promises);
 
     // --- EXTRACT RESULTS ---
     const openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
-    const tomorrowObs = tioResult.status === 'fulfilled' ? tioResult.value : null;
+    const weatherKitFull = wkResult.status === 'fulfilled' ? wkResult.value : null;
+    const weatherKitObs = weatherKitFull?.observation ?? null;
+
+    // --- DIAGNOSTIC LOGGING ---
+    console.log(`[Strategy] API Results for "${name}" (type: ${locationType || 'auto'}):`);
+    console.log(`  OpenMeteo:   ${omResult.status === 'fulfilled' ? (openMeteoReport ? '✅ OK' : '⚠️ null') : '❌ ' + (omResult as PromiseRejectedResult).reason}`);
+    console.log(`  StormGlass:  ${!needsStormGlass ? '⏭️ skipped' : sgResult.status === 'fulfilled' ? (stormGlassReport ? '✅ OK' : '⚠️ null') : '❌ ' + (sgResult as PromiseRejectedResult).reason}`);
+    console.log(`  WeatherKit:  ${!needsWeatherKit ? '⏭️ skipped (offshore)' : wkResult.status === 'fulfilled' ? (weatherKitFull ? `✅ obs=${!!weatherKitObs} hourly=${weatherKitFull.hourly?.length || 0} daily=${weatherKitFull.daily?.length || 0}` : '⚠️ returned null (edge function failed?)') : '❌ ' + (wkResult as PromiseRejectedResult).reason}`);
 
     // --- DETERMINE BASE REPORT ---
     // Priority: StormGlass (marine-rich) > OpenMeteo (atmospheric) 
@@ -100,147 +109,145 @@ export const fetchWeatherByStrategy = async (
 
     baseReport.locationType = computedLocationType as 'coastal' | 'offshore' | 'inland';
 
-    // --- MERGE TOMORROW.IO LIVE DATA ---
-    // Tomorrow.io provides station-blended observed data — more accurate than model data
-    // for temperature, wind, humidity, pressure, conditions
-    // IMPORTANT: Skip for offshore locations — Tomorrow.io has no station data offshore
-    // and its modelled values are inferior to StormGlass marine-specific models.
-    if (tomorrowObs && baseReport && computedLocationType !== 'offshore') {
+    // --- MERGE WEATHERKIT LIVE DATA (Tier 2) ---
+    // WeatherKit provides premium station-blended observations — more accurate than model data
+    // for temperature, wind, humidity, pressure, conditions.
+    // IMPORTANT: Skip for offshore (Tier 3) — WeatherKit has no ocean station data.
+    if (weatherKitObs && baseReport && computedLocationType !== 'offshore') {
         const current = { ...baseReport.current };
         const sources = (current as any).sources || {};
 
-        // Temperature: Tomorrow.io observed > StormGlass modelled
-        if (tomorrowObs.temperature !== null) {
-            current.airTemperature = tomorrowObs.temperature;
+        // Temperature: WeatherKit observed > StormGlass modelled
+        if (weatherKitObs.temperature !== null) {
+            current.airTemperature = weatherKitObs.temperature;
             sources['airTemperature'] = {
-                value: tomorrowObs.temperature,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.temperature,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // Feels-like temperature
-        if (tomorrowObs.temperatureApparent !== null) {
-            current.feelsLike = tomorrowObs.temperatureApparent;
+        if (weatherKitObs.temperatureApparent !== null) {
+            current.feelsLike = weatherKitObs.temperatureApparent;
             sources['feelsLike'] = {
-                value: tomorrowObs.temperatureApparent,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.temperatureApparent,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // Humidity
-        if (tomorrowObs.humidity !== null) {
-            current.humidity = tomorrowObs.humidity;
+        if (weatherKitObs.humidity !== null) {
+            current.humidity = weatherKitObs.humidity;
             sources['humidity'] = {
-                value: tomorrowObs.humidity,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.humidity,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // Dew Point
-        if (tomorrowObs.dewPoint !== null) {
-            current.dewPoint = tomorrowObs.dewPoint;
+        if (weatherKitObs.dewPoint !== null) {
+            current.dewPoint = weatherKitObs.dewPoint;
             sources['dewPoint'] = {
-                value: tomorrowObs.dewPoint,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.dewPoint,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
-        // Wind: Tomorrow.io observed > StormGlass modelled
-        // BUT: Don't overwrite beacon wind data (beacons added later in enhanceWithBeaconData)
-        if (tomorrowObs.windSpeed !== null) {
-            current.windSpeed = Math.round(tomorrowObs.windSpeed);
+        // Wind: WeatherKit observed > StormGlass modelled
+        if (weatherKitObs.windSpeed !== null) {
+            current.windSpeed = Math.round(weatherKitObs.windSpeed);
             sources['windSpeed'] = {
                 value: current.windSpeed,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
-        if (tomorrowObs.windGust !== null) {
-            current.windGust = Math.round(tomorrowObs.windGust);
+        if (weatherKitObs.windGust !== null) {
+            current.windGust = Math.round(weatherKitObs.windGust);
             sources['windGust'] = {
                 value: current.windGust,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
-        if (tomorrowObs.windDirection !== null) {
-            current.windDegree = tomorrowObs.windDirection;
-            current.windDirection = degreesToCardinal(tomorrowObs.windDirection);
+        if (weatherKitObs.windDirection !== null) {
+            current.windDegree = weatherKitObs.windDirection;
+            current.windDirection = degreesToCardinal(weatherKitObs.windDirection);
             sources['windDirection'] = {
                 value: current.windDirection,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // Pressure
-        if (tomorrowObs.pressure !== null) {
-            current.pressure = tomorrowObs.pressure;
+        if (weatherKitObs.pressure !== null) {
+            current.pressure = weatherKitObs.pressure;
             sources['pressure'] = {
-                value: tomorrowObs.pressure,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.pressure,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
-        // Visibility (Tomorrow.io returns km, convert to nm for consistency if needed)
-        if (tomorrowObs.visibility !== null) {
-            current.visibility = tomorrowObs.visibility;
+        // Visibility
+        if (weatherKitObs.visibility !== null) {
+            current.visibility = weatherKitObs.visibility;
             sources['visibility'] = {
-                value: tomorrowObs.visibility,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.visibility,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // Cloud Cover
-        if (tomorrowObs.cloudCover !== null) {
-            current.cloudCover = tomorrowObs.cloudCover;
+        if (weatherKitObs.cloudCover !== null) {
+            current.cloudCover = weatherKitObs.cloudCover;
             sources['cloudCover'] = {
-                value: tomorrowObs.cloudCover,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.cloudCover,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
         // UV Index
-        if (tomorrowObs.uvIndex !== null) {
-            current.uvIndex = tomorrowObs.uvIndex;
+        if (weatherKitObs.uvIndex !== null) {
+            current.uvIndex = weatherKitObs.uvIndex;
             sources['uvIndex'] = {
-                value: tomorrowObs.uvIndex,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.uvIndex,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
-        // Condition text from Tomorrow.io
-        if (tomorrowObs.condition && tomorrowObs.condition !== 'Unknown') {
-            current.condition = tomorrowObs.condition;
+        // Condition text from WeatherKit
+        if (weatherKitObs.condition && weatherKitObs.condition !== 'Unknown') {
+            current.condition = weatherKitObs.condition;
         }
 
         // Precipitation intensity
-        if (tomorrowObs.precipitationIntensity !== null) {
-            current.precipitation = tomorrowObs.precipitationIntensity;
+        if (weatherKitObs.precipitationIntensity !== null) {
+            current.precipitation = weatherKitObs.precipitationIntensity;
             sources['precipitation'] = {
-                value: tomorrowObs.precipitationIntensity,
-                source: 'tomorrow',
-                sourceColor: 'sky',
-                sourceName: 'Tomorrow.io',
+                value: weatherKitObs.precipitationIntensity,
+                source: 'weatherkit',
+                sourceColor: 'emerald',
+                sourceName: 'Apple Weather',
             };
         }
 
@@ -248,18 +255,92 @@ export const fetchWeatherByStrategy = async (
         baseReport = { ...baseReport, current };
     }
 
-    // --- ENRICH WITH OPEN-METEO FORECAST DATA ---
-    // If base is StormGlass but we have OpenMeteo, merge forecast/hourly data
-    if (stormGlassReport && openMeteoReport && baseReport === stormGlassReport) {
-        // StormGlass is the base — but Open-Meteo may have better hourly/daily forecast
-        // Keep StormGlass marine forecast (swell, waves) but use OpenMeteo atmospheric forecast
-        // The StormGlass report already fetches OpenMeteo hybrid context inline,
-        // so hourly data should come through. No additional merge needed here.
+    // --- ENRICH WITH WEATHERKIT FORECAST DATA (Tier 2) ---
+    // For coastal/inland, WeatherKit provides the 10-day atmospheric outlook.
+    // Merge WeatherKit hourly/daily over the base, preserving StormGlass marine fields.
+    if (weatherKitFull && baseReport && computedLocationType !== 'offshore') {
+        // Hourly: Overlay WeatherKit atmospheric data, keeping StormGlass wave/swell columns
+        if (weatherKitFull.hourly.length > 0) {
+            const wkHourlyMap = new Map(weatherKitFull.hourly.map(h => [h.time, h]));
+            baseReport.hourly = baseReport.hourly.map(baseH => {
+                const wkH = wkHourlyMap.get(baseH.time);
+                if (!wkH) return baseH;
+                return {
+                    ...baseH,
+                    // Atmospheric from WeatherKit (more accurate)
+                    temperature: wkH.temperature,
+                    condition: wkH.condition,
+                    windSpeed: wkH.windSpeed,
+                    windGust: wkH.windGust ?? baseH.windGust,
+                    windDirection: wkH.windDirection ?? baseH.windDirection,
+                    windDegree: wkH.windDegree ?? baseH.windDegree,
+                    feelsLike: wkH.feelsLike ?? baseH.feelsLike,
+                    precipitation: wkH.precipitation ?? baseH.precipitation,
+                    cloudCover: wkH.cloudCover ?? baseH.cloudCover,
+                    uvIndex: wkH.uvIndex ?? baseH.uvIndex,
+                    pressure: wkH.pressure ?? baseH.pressure,
+                    humidity: wkH.humidity ?? baseH.humidity,
+                    visibility: wkH.visibility ?? baseH.visibility,
+                    dewPoint: wkH.dewPoint ?? baseH.dewPoint,
+                    // Marine from StormGlass (preserved — WeatherKit doesn't provide waves)
+                    waveHeight: baseH.waveHeight,
+                    swellPeriod: baseH.swellPeriod,
+                    waterTemperature: baseH.waterTemperature,
+                    currentSpeed: baseH.currentSpeed,
+                    currentDirection: baseH.currentDirection,
+                };
+            });
+
+            // If WeatherKit has MORE hours than base, append them
+            if (weatherKitFull.hourly.length > baseReport.hourly.length) {
+                const baseTimeSet = new Set(baseReport.hourly.map(h => h.time));
+                const extra = weatherKitFull.hourly.filter(h => !baseTimeSet.has(h.time));
+                baseReport.hourly.push(...extra);
+            }
+        }
+
+        // Daily: Overlay WeatherKit atmospheric data, keeping StormGlass wave data
+        if (weatherKitFull.daily.length > 0) {
+            const wkDailyMap = new Map(weatherKitFull.daily.map(d => [d.isoDate || d.date, d]));
+            baseReport.forecast = baseReport.forecast.map(baseD => {
+                const wkD = wkDailyMap.get(baseD.isoDate || baseD.date);
+                if (!wkD) return baseD;
+                return {
+                    ...baseD,
+                    // Atmospheric from WeatherKit
+                    highTemp: wkD.highTemp,
+                    lowTemp: wkD.lowTemp,
+                    condition: wkD.condition,
+                    windSpeed: wkD.windSpeed,
+                    windGust: wkD.windGust ?? baseD.windGust,
+                    precipitation: wkD.precipitation ?? baseD.precipitation,
+                    cloudCover: wkD.cloudCover ?? baseD.cloudCover,
+                    uvIndex: wkD.uvIndex ?? baseD.uvIndex,
+                    sunrise: wkD.sunrise ?? baseD.sunrise,
+                    sunset: wkD.sunset ?? baseD.sunset,
+                    humidity: wkD.humidity ?? baseD.humidity,
+                    // Marine from StormGlass (preserved)
+                    waveHeight: baseD.waveHeight,
+                    swellPeriod: baseD.swellPeriod,
+                    waterTemperature: baseD.waterTemperature,
+                    currentSpeed: baseD.currentSpeed,
+                    currentDirection: baseD.currentDirection,
+                };
+            });
+
+            // If WeatherKit has MORE days than base, append them
+            if (weatherKitFull.daily.length > baseReport.forecast.length) {
+                const baseDateSet = new Set(baseReport.forecast.map(d => d.isoDate || d.date));
+                const extra = weatherKitFull.daily.filter(d => !baseDateSet.has(d.isoDate || d.date));
+                baseReport.forecast.push(...extra);
+            }
+        }
     }
 
     // Update model description for logging
     const sourcesParts: string[] = [];
-    if (tomorrowObs && computedLocationType !== 'offshore') sourcesParts.push('tio-live');
+    if (weatherKitObs && computedLocationType !== 'offshore') sourcesParts.push('wk-live');
+    if (weatherKitFull?.hourly?.length) sourcesParts.push('wk-fcst');
     if (stormGlassReport) sourcesParts.push('sg');
     if (openMeteoReport) sourcesParts.push('om');
     baseReport.modelUsed = sourcesParts.join('+') || baseReport.modelUsed;

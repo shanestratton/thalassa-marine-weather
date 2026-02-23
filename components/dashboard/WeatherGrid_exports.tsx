@@ -11,8 +11,41 @@ import { useUI } from '../../context/UIContext';
 
 export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     const { setPage } = useUI();
+    const [dismissed, setDismissed] = React.useState<Set<string>>(() => {
+        // Restore dismissed alerts from sessionStorage (resets on app restart for safety)
+        try {
+            const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
+            return stored ? new Set(JSON.parse(stored)) : new Set();
+        } catch { return new Set(); }
+    });
 
-    if (!alerts || alerts.length === 0) {
+    // Critical warnings that CANNOT be dismissed (life/vessel safety)
+    const CRITICAL_PATTERNS = [
+        'STORM WARNING', 'GALE WARNING', 'DANGEROUS SEAS',
+        'FREEZING SPRAY', 'FREEZE WARNING', 'EXCESSIVE HEAT',
+        'DENSE FOG', 'STORM WATCH', 'GALE WATCH',
+    ];
+    const isCritical = (alert: string) =>
+        CRITICAL_PATTERNS.some(p => alert.toUpperCase().includes(p));
+
+    // Filter out dismissed non-critical alerts
+    const activeAlerts = (alerts || []).filter(a =>
+        isCritical(a) || !dismissed.has(a)
+    );
+    const dismissableCount = activeAlerts.filter(a => !isCritical(a)).length;
+
+    const handleDismiss = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const toDismiss = (alerts || []).filter(a => !isCritical(a));
+        const newDismissed = new Set([...dismissed, ...toDismiss]);
+        setDismissed(newDismissed);
+        try {
+            sessionStorage.setItem('thalassa_dismissed_alerts',
+                JSON.stringify([...newDismissed]));
+        } catch { /* non-critical */ }
+    };
+
+    if (!activeAlerts || activeAlerts.length === 0) {
         return (
             <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-3 backdrop-blur-md mb-2">
                 <div className="p-1.5 bg-emerald-500/20 rounded-full">
@@ -27,20 +60,31 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     }
 
     return (
-        <button
-            onClick={() => setPage('warnings')}
-            className="w-full bg-red-500 hover:bg-red-600 transition-colors border border-red-400/50 rounded-xl p-3 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 cursor-pointer mb-2 group"
-        >
-            <div className="flex items-center gap-2.5">
+        <div className="w-full bg-red-500 border border-red-400/50 rounded-xl p-3 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 mb-2 group relative">
+            <button
+                onClick={() => setPage('warnings')}
+                className="flex items-center gap-2.5 flex-1 cursor-pointer"
+            >
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
                 <span className="text-white font-bold uppercase tracking-wider text-sm">
-                    Warnings Active
+                    {activeAlerts.length === 1 ? activeAlerts[0] : `${activeAlerts.length} Warnings Active`}
                 </span>
+            </button>
+            <div className="flex items-center gap-2">
+                {dismissableCount > 0 && (
+                    <button
+                        onClick={handleDismiss}
+                        className="bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
+                        title="Dismiss non-critical warnings"
+                    >
+                        OK
+                    </button>
+                )}
+                <div className="bg-white text-red-600 font-bold text-sm w-6 h-6 flex items-center justify-center rounded-full shadow-md">
+                    {activeAlerts.length}
+                </div>
             </div>
-            <div className="bg-white text-red-600 font-bold text-sm w-6 h-6 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform">
-                {alerts.length}
-            </div>
-        </button>
+        </div>
     );
 };
 
