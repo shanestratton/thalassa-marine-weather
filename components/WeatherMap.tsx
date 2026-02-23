@@ -13,6 +13,8 @@ import { useMapMarkers } from '../hooks/useMapMarkers';
 import { fetchActiveBuoys } from '../services/weatherService';
 import { GlobalWindLayer } from './map/GlobalWindLayer';
 import { useWindHeatMap } from '../hooks/useWindHeatMap';
+import { WindVelocityLayer } from './map/WindVelocityLayer';
+import { OfflineTileControl } from './map/OfflineTileControl';
 
 
 
@@ -83,7 +85,8 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     const heatMapCanvasRef = useRef<HTMLCanvasElement>(null);
 
     // Add 'buoys' to the activeLayer state
-    const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys'>(initialLayer);
+    const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys' | 'velocity'>(initialLayer as MapLayer | 'buoys' | 'velocity');
+    const tileLayerRef = useRef<L.TileLayer | null>(null);
     const [selectedStop, setSelectedStop] = useState<Waypoint | null>(null);
     const [rawTargetPos, setRawTargetPos] = useState<{ lat: number, lon: number } | null>(null);
     const [buoys, setBuoys] = useState<BuoyStation[]>([]);
@@ -101,7 +104,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     // --- HOOKS ---
     // Enable wrapping ONLY if on Buoys layer (and not specifically restricted for another reason)
-    const enableWrapping = activeLayer === 'buoys' || activeLayer === 'global-wind' || !restrictBounds;
+    const enableWrapping = activeLayer === 'buoys' || activeLayer === 'global-wind' || activeLayer === 'velocity' || !restrictBounds;
     const { mapInstance, mapReady } = useLeafletMap(mapContainerRef, centerLat, centerLon, enableZoom, mapboxToken, showZoomControl, enableWrapping);
 
     // DEBUG LOGGING
@@ -110,7 +113,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     }, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
 
     // Only enable weather overlay if NOT on Buoys or Global Wind layer
-    const isWeatherVisible = showWeather && activeLayer !== 'buoys' && activeLayer !== 'global-wind';
+    const isWeatherVisible = showWeather && activeLayer !== 'buoys' && activeLayer !== 'global-wind' && activeLayer !== 'velocity';
 
     // Weather Overlay (particles)
     useWeatherOverlay(weatherCanvasRef, mapInstance, activeLayer as 'wind' | 'waves' | 'rain' | 'global-wind', activeMetrics, isWeatherVisible);
@@ -266,7 +269,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         }
 
         // Unlocked Mode: Active if on Buoys/Global-Wind layer OR explicitly unrestricted
-        if (activeLayer === 'buoys' || activeLayer === 'global-wind' || !restrictBounds) {
+        if (activeLayer === 'buoys' || activeLayer === 'global-wind' || activeLayer === 'velocity' || !restrictBounds) {
             // --- UNLOCKED MODE (Global Selection / Global Wind) ---
             // Infinite Wrapping: MaxBounds is NULL (disabled)
             map.setMaxBounds(undefined); // Allow infinite scroll
@@ -292,6 +295,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             } else if (activeLayer === 'global-wind') {
                 // Global Wind: Start at synoptic zoom centered on user
                 map.setView([centerLat, centerLon], 4, { animate: true });
+            } else if (activeLayer === 'velocity') {
+                // Velocity Wind: Start at synoptic zoom centered on user
+                map.setView([centerLat, centerLon], 5, { animate: true });
             }
 
         } else {
@@ -415,6 +421,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             >
                                 <RadioTowerIcon className="w-3 h-3" /> Stations
                             </button>
+                            <button
+                                onClick={() => { setActiveLayer('velocity'); setPendingSelection(null); }}
+                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                            >
+                                <WindIcon className="w-3 h-3" /> Velocity
+                            </button>
                         </div>
                     )}
                 </div>
@@ -440,6 +452,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
                 {/* Global Wind Streamlines Layer */}
                 <GlobalWindLayer map={mapInstance.current} visible={isGlobalWindVisible} />
+
+                {/* Velocity Wind Particles Layer (leaflet-velocity-ts) */}
+                <WindVelocityLayer map={mapInstance.current} visible={activeLayer === 'velocity'} />
+
+                {/* Offline Tile Caching Control */}
+                <OfflineTileControl map={mapInstance.current} tileLayer={tileLayerRef.current} />
 
                 <div className="absolute inset-0 z-20 pointer-events-none overflow-hidden">
                     {/* Route Line */}
@@ -495,7 +513,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     ))}
                 </div>
 
-                {!minimal && activeLayer !== 'buoys' && <MapLegend layer={activeLayer} />}
+                {!minimal && activeLayer !== 'buoys' && activeLayer !== 'velocity' && <MapLegend layer={activeLayer as 'wind' | 'rain' | 'global-wind'} />}
 
                 {selectedStop && (<StopDetailView waypoint={selectedStop} onClose={() => setSelectedStop(null)} />)}
 

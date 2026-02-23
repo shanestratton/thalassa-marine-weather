@@ -1295,8 +1295,37 @@ const VoyageCard: React.FC<{
     // Detect imported/community tracks (not official device data)
     const isImported = voyage.entries.some(e => e.source && e.source !== 'device');
 
-    const startName = first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' ? first.waypointName : null;
-    const endName = last?.waypointName && last.waypointName !== 'Voyage Start' && last.waypointName !== 'Latest Position' ? last.waypointName : null;
+    // Reverse-geocode start and end locations for card title
+    const [startLocName, setStartLocName] = useState<string | null>(null);
+    const [endLocName, setEndLocName] = useState<string | null>(null);
+
+    useEffect(() => {
+        const geocode = async (lat: number, lon: number): Promise<string | null> => {
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10`);
+                if (!res.ok) return null;
+                const data = await res.json();
+                // Try suburb → city → town → county → state
+                const addr = data.address || {};
+                return addr.suburb || addr.city || addr.town || addr.village || addr.county || addr.state || null;
+            } catch { return null; }
+        };
+
+        if (first?.latitude && first.latitude !== 0) {
+            geocode(first.latitude, first.longitude ?? 0).then(name => { if (name) setStartLocName(name); });
+        }
+        if (last?.latitude && last.latitude !== 0 && last !== first) {
+            geocode(last.latitude, last.longitude ?? 0).then(name => { if (name) setEndLocName(name); });
+        }
+    }, [first?.latitude, first?.longitude, last?.latitude, last?.longitude]);
+
+    // Use geocoded names, fall back to waypoint names, then DMS coords
+    const formatFallback = (e: ShipLogEntry | undefined) => {
+        if (!e || !e.latitude) return null;
+        return `${Math.abs(e.latitude).toFixed(1)}°${e.latitude >= 0 ? 'N' : 'S'}`;
+    };
+    const startLabel = startLocName || formatFallback(first);
+    const endLabel = endLocName || formatFallback(last);
 
     const voyageFilteredEntries = voyage.entries.filter(e => filteredEntries.some(f => f.id === e.id));
 
@@ -1355,9 +1384,9 @@ const VoyageCard: React.FC<{
                             <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
                         </div>
                     </div>
-                    {(startName || endName) && (
+                    {(startLabel || endLabel) && (
                         <div className="text-sm text-slate-300 mb-1 truncate">
-                            {startName || '—'} → {endName || '—'}
+                            {startLabel || '—'} → {endLabel || '…'}
                         </div>
                     )}
                     <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import { calculateDistance } from '../../../utils/math'; // Added
 import { determineLocationType } from '../locationType'; // Added
 import { mergeWeatherData } from './dataSourceMerger'; // Added for source tracking
 import { findAndFetchNearestBeacon } from './beaconService'; // Added for buoy data
+import { apiCacheGet, apiCacheSet } from '../apiCache';
 
 const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: string): Promise<AstroEntry[]> => {
     const end = new Date();
@@ -65,6 +66,10 @@ export const fetchStormGlassWeather = async (
     const apiKey = getApiKey();
     if (!apiKey) throw new Error("API Key Missing");
 
+    // 1b. CHECK CACHE (3h TTL — model data updates every 6h)
+    const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon);
+    if (cached) return cached;
+
     // 2. Parallel Fetching (PERFORMANCE CRITICAL)
     // We launch all independent requests simultaneously.
 
@@ -81,9 +86,10 @@ export const fetchStormGlassWeather = async (
     const fetchHybridContext = async () => {
         try {
             const omKey = getOpenMeteoKey();
-            const baseUrl = omKey ? "https://customer-api.open-meteo.com/v1" : "https://api.open-meteo.com/v1";
-            // FIXED: Commercial API serves marine data via the main 'forecast' endpoint, not 'marine'.
-            const marineBaseUrl = omKey ? "https://customer-api.open-meteo.com/v1/forecast" : "https://marine-api.open-meteo.com/v1/marine";
+            if (!omKey) return null; // No free fallback — App Store compliance
+            const baseUrl = "https://customer-api.open-meteo.com/v1";
+            // Commercial API serves marine data via the main 'forecast' endpoint, not 'marine'.
+            const marineBaseUrl = "https://customer-api.open-meteo.com/v1/forecast";
 
             // FIX: Added hourly=uv_index to support Current Card UV display
             // FIX: Changed timezone=UTC to timezone=auto to get location's offset
@@ -309,6 +315,9 @@ export const fetchStormGlassWeather = async (
 
     } else {
     }
+
+    // Cache the final report (3h TTL)
+    apiCacheSet('stormglass', lat, lon, mergedReport);
 
     return mergedReport;
 };

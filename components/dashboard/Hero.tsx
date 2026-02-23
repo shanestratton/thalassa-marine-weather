@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { HeroSlide } from './HeroSlide';
 import { HeroSlideSkeleton } from './Skeletons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
-import { MinutelyRain } from '../../services/weather/api/tomorrowio';
+import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
 

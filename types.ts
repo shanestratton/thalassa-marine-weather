@@ -53,7 +53,7 @@ export interface BeaconObservation {
     currentDegree?: number | null;
 }
 
-export type DataSource = 'buoy' | 'stormglass' | 'tomorrow';
+export type DataSource = 'buoy' | 'stormglass' | 'weatherkit';
 export type SourceColor = 'emerald' | 'amber' | 'sky' | 'white';
 
 export interface MetricSource {
@@ -443,6 +443,7 @@ export interface HourlyForecast {
     waterTemperature?: number | null;
     cape?: number | null;
     dewPoint?: number | null;
+    precipChance?: number; // 0-100% probability from WeatherKit
 }
 
 export interface Tide {

@@ -24,7 +24,8 @@ export const renderHeroWidget = (
     trends?: Record<string, 'rising' | 'falling' | 'steady' | undefined>,
     align: 'left' | 'center' | 'right' = 'left',
     sources?: SourceMap,
-    compact?: boolean
+    compact?: boolean,
+    locationType?: 'coastal' | 'offshore' | 'inland'
 ) => {
     const valSize = compact ? 'text-lg' : 'text-2xl';
     const subSize = compact ? 'text-[10px]' : 'text-sm';
@@ -100,13 +101,16 @@ export const renderHeroWidget = (
                     </div>
                 </div>
             );
-        case 'wave':
+        case 'wave': {
+            const isOffshore = locationType === 'offshore';
+            const label = isOffshore ? 'Swell' : 'Wave';
+            const period = data.swellPeriod ? `${Math.round(data.swellPeriod)}s` : '--';
             return (
                 <div className={`flex flex-col h-full justify-end ${alignClass}`}>
                     {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Wave</span>
+                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>{label}</span>
                         {renderTrend(trend, true)}
                     </div>
                     {/* Main value + period badge on same line */}
@@ -115,11 +119,12 @@ export const renderHeroWidget = (
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.length}</span>
                         <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-blue-300 border border-white/5 ml-1`}>
                             <ClockIcon className="w-2.5 h-2.5" />
-                            <span>{data.swellPeriod ? `${Math.round(data.swellPeriod)}s` : '--'}</span>
+                            <span>PER. {period}</span>
                         </div>
                     </div>
                 </div>
             );
+        }
         case 'pressure':
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
@@ -433,7 +438,7 @@ export const STATIC_WIDGET_CLASS = "flex-1 min-w-[32%] md:min-w-[30%] bg-white/[
 export const getSourceIndicatorColor = (sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'): string => {
     switch (sourceColor) {
         case 'emerald': return 'bg-emerald-500';  // Buoy
-        case 'sky': return 'bg-sky-500';          // Tomorrow.io
+        case 'sky': return 'bg-sky-500';          // WeatherKit
         case 'amber': return 'bg-amber-500';      // StormGlass
         default: return 'bg-gray-500';            // Fallback
     }

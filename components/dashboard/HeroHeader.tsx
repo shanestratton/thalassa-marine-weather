@@ -100,23 +100,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {(() => {
                         const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
                         const len = tempStr.length;
-                        const sizeClass = len > 3 ? 'text-2xl' : len > 2 ? 'text-3xl' : 'text-4xl';
-                        const feelsLike = data.feelsLike !== null && data.feelsLike !== undefined
-                            ? convertTemp(data.feelsLike, units.temp) : null;
+                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
                         return (
-                            <>
-                                <span
-                                    className={`${sizeClass} font-mono font-medium tracking-tighter ${getTempColor()} leading-none`}
-                                    aria-label={`Temperature ${tempStr} degrees`}
-                                >
-                                    {tempStr}°
-                                </span>
-                                {feelsLike !== null && (
-                                    <span className="text-[9px] font-mono text-white/40 mt-0.5 leading-none">
-                                        Feels Like {feelsLike}°
-                                    </span>
-                                )}
-                            </>
+                            <span
+                                className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
+                                aria-label={`Temperature ${tempStr} degrees`}
+                            >
+                                {tempStr}°
+                            </span>
                         );
                     })()}
                 </div>
@@ -131,16 +122,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
                                     style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                                 />
-                                <span className="text-xl leading-none">{conditionIcon}</span>
-                                <span className="text-ivory text-2xl font-mono font-medium tracking-tight leading-none">
+                                <span className="text-2xl leading-none">{conditionIcon}</span>
+                                <span className="text-ivory text-3xl font-mono font-bold tracking-tight leading-none">
                                     {oneWordCondition}
                                 </span>
                             </div>
-                            {data.dewPoint !== null && data.dewPoint !== undefined && (
-                                <span className="text-[10px] font-mono text-white/50 mt-0.5 leading-none">
-                                    Dew Point {Math.round(data.dewPoint)}°
-                                </span>
-                            )}
                         </>
                     ) : (
                         <>
@@ -148,8 +134,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 {dateLabel}
                             </span>
                             <div className="flex items-center gap-2">
-                                <span className="text-lg leading-none">{conditionIcon}</span>
-                                <span className="text-ivory text-xl font-mono font-medium tracking-tight leading-none">
+                                <span className="text-xl leading-none">{conditionIcon}</span>
+                                <span className="text-ivory text-2xl font-mono font-bold tracking-tight leading-none">
                                     {oneWordCondition}
                                 </span>
                             </div>
@@ -163,11 +149,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 </div>
 
                 {/* RIGHT: Hi/Lo + Chevron */}
-                <button
+                <div
                     onClick={onToggleExpand}
-                    className="flex-[1] flex items-center justify-end gap-2 pr-3 cursor-pointer touch-none select-none"
+                    className={`flex-[1] flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
-                    aria-label={isExpanded ? 'Collapse instrument grid' : 'Expand instrument grid'}
+                    role={onToggleExpand ? 'button' : undefined}
+                    aria-label={onToggleExpand ? (isExpanded ? 'Collapse instrument grid' : 'Expand instrument grid') : undefined}
                 >
                     {/* Hi/Lo temps stacked */}
                     <div className="flex flex-col items-end gap-0.5">
@@ -184,13 +171,15 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </span>
                         </div>
                     </div>
-                    {/* Ghostly chevron */}
-                    <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
-                        <ChevronIcon
-                            className={`w-3.5 h-3.5 text-white/40 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
-                        />
-                    </div>
-                </button>
+                    {/* Ghostly chevron — hidden for inland (no expand available) */}
+                    {onToggleExpand && (
+                        <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
+                            <ChevronIcon
+                                className={`w-3.5 h-3.5 text-white/40 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                            />
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

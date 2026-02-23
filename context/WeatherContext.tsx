@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 // geminiService dynamically imported to avoid bundling @google/generative-ai (158KB) in main chunk
 import { fetchFastWeather, fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from '../services/weatherService';
-import { fetchTomorrowIoRealtime } from '../services/weather/api/tomorrowio';
+import { fetchWeatherKitRealtime } from '../services/weather/api/weatherkit';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
@@ -14,7 +14,7 @@ import { getErrorMessage } from '../utils/logger';
 
 import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
-const CACHE_VERSION = 'v19.1-CACHE-CLEAR';
+const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
 // Keys imported from nativeStorage to stay in sync
 
 // INTELLIGENT UPDATE INTERVALS
@@ -487,9 +487,9 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             try {
                 // Use the new strategy-based orchestrator:
-                // Inland/Coastal: Tomorrow.io live + Open-Meteo forecast
-                // Offshore: StormGlass live + Open-Meteo forecast
-                // Marine forecast: StormGlass (coastal/offshore)
+                // Tier 2 (Inland/Coastal ≤20nm): WeatherKit atmo + StormGlass marine
+                // Tier 3 (Offshore >20nm): StormGlass 100%
+                // Forecast backbone: Open-Meteo (all locations)
                 currentReport = await fetchWeatherByStrategy(
                     resolvedCoords.lat,
                     resolvedCoords.lon,
@@ -524,11 +524,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentReport = { ...currentReport, coordinates: coords };
             }
 
-            // BEACON ENHANCEMENT & MULTI-SOURCE LOGGING  
-            // Fetch NOAA buoy data (if within 10nm) and log source breakdown
-            if (currentReport && currentReport.coordinates) {
-                currentReport = await enhanceWithBeaconData(currentReport, currentReport.coordinates);
-            }
+            // BEACON ENHANCEMENT — DISABLED
+            // Buoy data was too unreliable. WeatherKit handles atmospheric data,
+            // StormGlass handles marine data (waves, swell, water temp, currents).
+            // if (currentReport && currentReport.coordinates) {
+            //     currentReport = await enhanceWithBeaconData(currentReport, currentReport.coordinates);
+            // }
 
             if (currentReport) {
                 setWeatherData(currentReport);
@@ -845,7 +846,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, [locationMode, selectLocation, setWeatherData, updateSettings]);
 
     // --- LIVE OVERLAY (5min) ---
-    // Lightweight temp/conditions poll using Tomorrow.io only.
+    // Lightweight temp/conditions poll using Apple WeatherKit.
     // Patches current metrics without triggering full StormGlass/OpenMeteo refresh.
     useEffect(() => {
         const liveTimer = setInterval(async () => {
@@ -854,12 +855,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             const report = weatherDataRef.current;
             if (!report?.coordinates) return;
-            // Skip for offshore — Tomorrow.io has no station data there
+            // Skip for offshore — WeatherKit has no ocean station data there
             if (report.locationType === 'offshore') return;
 
             const { lat, lon } = report.coordinates;
             try {
-                const obs = await fetchTomorrowIoRealtime(lat, lon);
+                const obs = await fetchWeatherKitRealtime(lat, lon);
                 if (!obs || obs.temperature === null) return;
 
                 // Only patch if we still have the same report (no full refresh happened)
@@ -869,33 +870,33 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 const patched = { ...current.current } as any;
                 const sources = { ...(patched.sources || {}) };
 
-                const tioSource = (val: number | null) => ({
+                const wkSource = (val: number | null) => ({
                     value: val,
-                    source: 'tomorrow' as const,
-                    sourceColor: 'sky',
-                    sourceName: 'Tomorrow.io',
+                    source: 'weatherkit' as const,
+                    sourceColor: 'emerald',
+                    sourceName: 'Apple Weather',
                 });
 
                 // Patch live metrics
                 if (obs.temperature !== null) {
                     patched.airTemperature = obs.temperature;
-                    sources['airTemperature'] = tioSource(obs.temperature);
+                    sources['airTemperature'] = wkSource(obs.temperature);
                 }
                 if (obs.temperatureApparent !== null) {
                     patched.feelsLike = obs.temperatureApparent;
-                    sources['feelsLike'] = tioSource(obs.temperatureApparent);
+                    sources['feelsLike'] = wkSource(obs.temperatureApparent);
                 }
                 if (obs.humidity !== null) {
                     patched.humidity = obs.humidity;
-                    sources['humidity'] = tioSource(obs.humidity);
+                    sources['humidity'] = wkSource(obs.humidity);
                 }
                 if (obs.dewPoint !== null) {
                     patched.dewPoint = obs.dewPoint;
-                    sources['dewPoint'] = tioSource(obs.dewPoint);
+                    sources['dewPoint'] = wkSource(obs.dewPoint);
                 }
                 if (obs.pressure !== null) {
                     patched.pressure = obs.pressure;
-                    sources['pressure'] = tioSource(obs.pressure);
+                    sources['pressure'] = wkSource(obs.pressure);
                 }
                 if (obs.condition && obs.condition !== 'Unknown') {
                     patched.condition = obs.condition;

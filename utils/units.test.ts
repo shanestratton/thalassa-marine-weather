@@ -82,9 +82,9 @@ describe('convertTemp', () => {
 
 describe('convertDistance', () => {
     it('returns "--" for null', () => expect(convertDistance(null, 'nm')).toBe('--'));
-    it('nm passes through', () => expect(convertDistance(10, 'nm')).toBe('10.0'));
-    it('converts to km', () => expect(convertDistance(10, 'km')).toBe('18.5'));
-    it('converts to mi', () => expect(convertDistance(10, 'mi')).toBe('11.5'));
+    it('km passes through', () => expect(convertDistance(10, 'km')).toBe('10.0'));
+    it('converts to nm', () => expect(convertDistance(18.52, 'nm')).toBe('10.0'));
+    it('converts to mi', () => expect(convertDistance(16.0934, 'mi')).toBe('10.0'));
 });
 
 describe('convertMetersTo', () => {
