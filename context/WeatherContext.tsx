@@ -901,11 +901,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                 // Wind — was missing! Wind stayed stale from initial fetch.
                 if (obs.windSpeed !== null) {
-                    patched.windSpeed = Math.round(obs.windSpeed);
+                    patched.windSpeed = parseFloat(obs.windSpeed.toFixed(1));
                     sources['windSpeed'] = wkSource(patched.windSpeed);
                 }
                 if (obs.windGust !== null) {
-                    patched.windGust = Math.round(obs.windGust);
+                    patched.windGust = parseFloat(obs.windGust.toFixed(1));
                     sources['windGust'] = wkSource(patched.windGust);
                 }
                 if (obs.windDirection !== null) {

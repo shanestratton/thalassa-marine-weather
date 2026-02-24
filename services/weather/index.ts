@@ -185,7 +185,7 @@ export const fetchWeatherByStrategy = async (
 
         // Wind: WeatherKit observed > StormGlass modelled
         if (weatherKitObs.windSpeed !== null) {
-            current.windSpeed = Math.round(weatherKitObs.windSpeed);
+            current.windSpeed = parseFloat(weatherKitObs.windSpeed.toFixed(1));
             sources['windSpeed'] = {
                 value: current.windSpeed,
                 source: 'weatherkit',
@@ -194,7 +194,7 @@ export const fetchWeatherByStrategy = async (
             };
         }
         if (weatherKitObs.windGust !== null) {
-            current.windGust = Math.round(weatherKitObs.windGust);
+            current.windGust = parseFloat(weatherKitObs.windGust.toFixed(1));
             sources['windGust'] = {
                 value: current.windGust,
                 source: 'weatherkit',
