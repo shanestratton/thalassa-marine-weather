@@ -4,14 +4,17 @@
  * Takes a bathymetric-safe route (from bathymetricRouter) and optimizes it through
  * a time-dependent weather corridor, producing an ETA-aware, weather-optimized route.
  *
- * Integration sequence:
- *   1. bathymetricRouter → depth-safe centerline (static, ~400ms)
- *   2. weatherRouter → weather-optimized route along corridor (dynamic, ~3-5s)
- *   3. Result merged back into VoyagePlan
+ * Returns both:
+ *   1. Updated VoyagePlan (for the traditional results view)
+ *   2. SpatiotemporalPayload (for the 4D canvas visualization)
  */
 
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
+import type { SpatiotemporalPayload } from '../types/spatiotemporal';
+
+// Re-export the type for convenience
+export type { SpatiotemporalPayload };
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -29,37 +32,10 @@ interface WeatherRouteRequest {
     lateral_steps?: number;
 }
 
-interface WeatherWaypoint {
-    lat: number;
-    lon: number;
-    name: string;
-    depth_m?: number;
-    lateral_offset_nm: number;
-    weather_at_arrival: {
-        windSpeed: number;
-        windDir: number;
-        waveHeight: number;
-        swellPeriod?: number;
-    };
-}
-
-interface WeatherRouteResponse {
-    waypoints: WeatherWaypoint[];
-    distance_nm: number;
-    eta_hours: number;
-    cost_score: number;
-    computation_ms: number;
-    mesh_stats: {
-        total_nodes: number;
-        rows: number;
-        cols: number;
-        corridor_width_nm: number;
-        weather_grid_points: number;
-        forecast_hours: number;
-    };
-    vessel_type: string;
-    departure_time: string;
-    error?: string;
+/** The result of a weather routing call — both the updated plan and raw payload */
+export interface WeatherRouteResult {
+    plan: VoyagePlan;
+    payload: SpatiotemporalPayload;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -72,49 +48,40 @@ const getSupabaseKey = (): string =>
 
 /**
  * Fetch the user's polar data from Supabase (if available).
- * Returns null if no polar data exists or user not logged in.
  */
 async function fetchUserPolarData(): Promise<PolarData | null> {
     if (!supabase) return null;
-
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return null;
-
         const { data, error } = await supabase
             .from('vessel_polars')
             .select('polar_data')
             .eq('user_id', user.id)
             .single();
-
         if (data && !error && data.polar_data) {
             return data.polar_data as PolarData;
         }
-    } catch {
-        // No polar data available
-    }
+    } catch { /* No polar data */ }
     return null;
 }
 
-// ── Service ───────────────────────────────────────────────────────
+// ── Core Fetch ────────────────────────────────────────────────────
 
 /**
- * Send the bathymetric centerline to the weather router for optimization.
- *
- * Returns null if the service is unavailable (non-critical — the
- * bathymetric route still works without weather optimization).
+ * Fetch the spatiotemporal weather route from the edge function.
  */
 export async function fetchWeatherRoute(
     centerline: { lat: number; lon: number; depth_m?: number; name?: string }[],
     departureTime: string,
     vessel: VesselProfile,
     polarData?: PolarData | null,
-): Promise<WeatherRouteResponse | null> {
+): Promise<SpatiotemporalPayload | null> {
     const supabaseUrl = getSupabaseUrl();
     const supabaseKey = getSupabaseKey();
 
     if (!supabaseUrl) {
-        console.warn('[WeatherRouter] No Supabase URL configured — skipping weather routing');
+        console.warn('[WeatherRouter] No Supabase URL configured — skipping');
         return null;
     }
 
@@ -123,7 +90,7 @@ export async function fetchWeatherRoute(
         centerline,
         departure_time: departureTime,
         vessel: {
-            type: vessel.type === 'observer' ? 'power' : vessel.type, // Observer = power
+            type: vessel.type === 'observer' ? 'power' : vessel.type,
             cruising_speed_kts: vessel.cruisingSpeed || 6,
             max_wind_kts: vessel.maxWindSpeed || 30,
             max_wave_m: vessel.maxWaveHeight || 3,
@@ -135,7 +102,6 @@ export async function fetchWeatherRoute(
 
     try {
         console.log(`[WeatherRouter] Requesting weather-optimized route for ${centerline.length} waypoints`);
-        console.log(`[WeatherRouter] Vessel: ${vessel.type} @ ${vessel.cruisingSpeed} kts, departure: ${departureTime}`);
 
         const resp = await fetch(url, {
             method: 'POST',
@@ -144,7 +110,7 @@ export async function fetchWeatherRoute(
                 ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(45_000), // 45s timeout (weather fetch is slow)
+            signal: AbortSignal.timeout(45_000),
         });
 
         if (!resp.ok) {
@@ -153,8 +119,19 @@ export async function fetchWeatherRoute(
             return null;
         }
 
-        const data: WeatherRouteResponse = await resp.json();
-        console.log(`[WeatherRouter] ✓ ${data.waypoints.length} WPs, ${data.distance_nm} NM, ETA: ${data.eta_hours}h (${data.computation_ms}ms)`);
+        const data: SpatiotemporalPayload = await resp.json();
+
+        if (data.error) {
+            console.error(`[WeatherRouter] Routing error:`, data.error);
+            return null;
+        }
+
+        console.log(
+            `[WeatherRouter] ✓ ${data.track?.length} track points, ` +
+            `${data.summary?.total_distance_nm} NM, ` +
+            `ETA: ${data.summary?.total_duration_hours}h ` +
+            `(${data.summary?.computation_ms}ms)`
+        );
         return data;
 
     } catch (err) {
@@ -167,34 +144,33 @@ export async function fetchWeatherRoute(
     }
 }
 
+// ── Merge into VoyagePlan ─────────────────────────────────────────
+
 /**
- * Merge the weather-optimized route into the voyage plan.
- *
- * Updates waypoints with weather-routed positions, adds per-waypoint
- * weather forecasts, and updates ETA/distance.
+ * Merge the spatiotemporal payload into a VoyagePlan for legacy UI.
  */
 export function mergeWeatherRoute(
     voyagePlan: VoyagePlan,
-    weatherRoute: WeatherRouteResponse,
+    payload: SpatiotemporalPayload,
 ): VoyagePlan {
     const merged = { ...voyagePlan };
+    const { summary, track, mesh_stats } = payload;
 
-    // Map weather waypoints to Waypoint type, excluding departure/arrival
-    const weatherWPs = weatherRoute.waypoints.slice(1, -1);
-
-    const newWaypoints: Waypoint[] = weatherWPs.map((wwp, i) => ({
-        name: wwp.name || `WP-${String(i + 1).padStart(2, '0')}`,
-        coordinates: { lat: wwp.lat, lon: wwp.lon },
-        depth_m: wwp.depth_m,
-        windSpeed: Math.round(wwp.weather_at_arrival.windSpeed),
-        waveHeight: Math.round(wwp.weather_at_arrival.waveHeight * 3.281), // m → ft
+    // Map track points to Waypoints (skip departure/arrival endpoints)
+    const innerTrack = track.slice(1, -1);
+    const newWaypoints: Waypoint[] = innerTrack.map((pt, i) => ({
+        name: pt.name || `WP-${String(i + 1).padStart(2, '0')}`,
+        coordinates: { lat: pt.coordinates[1], lon: pt.coordinates[0] }, // GeoJSON → lat/lon
+        depth_m: pt.conditions.depth_m ?? undefined,
+        windSpeed: Math.round(pt.conditions.wind_spd_kts),
+        waveHeight: Math.round(pt.conditions.wave_ht_m * 3.281), // m → ft
     }));
 
     merged.waypoints = newWaypoints;
-    merged.distanceApprox = `${weatherRoute.distance_nm} NM`;
+    merged.distanceApprox = `${summary.total_distance_nm} NM`;
 
-    // Update duration with weather-routed ETA
-    const etaH = weatherRoute.eta_hours;
+    // Duration formatting
+    const etaH = summary.total_duration_hours;
     if (etaH < 24) {
         merged.durationApprox = `${Math.round(etaH)} hours`;
     } else {
@@ -203,35 +179,37 @@ export function mergeWeatherRoute(
         merged.durationApprox = `${days} day${days > 1 ? 's' : ''} ${hours}h`;
     }
 
-    // Add weather routing reasoning
-    const etaStr = merged.durationApprox;
-    const meshInfo = weatherRoute.mesh_stats;
+    // Routing reasoning
     merged.routeReasoning = (merged.routeReasoning || '') +
-        ` Weather-optimized for ${weatherRoute.vessel_type} vessel using ${meshInfo.weather_grid_points} forecast points over ${meshInfo.forecast_hours}h. ` +
-        `Corridor: ±${meshInfo.corridor_width_nm} NM, ${meshInfo.total_nodes} mesh nodes evaluated. ` +
-        `Weather-adjusted ETA: ${etaStr}. Route cost score: ${weatherRoute.cost_score} (lower is better).`;
+        ` Weather-optimized for ${summary.vessel_type} vessel using ${mesh_stats.weather_grid_points} forecast points over ${mesh_stats.forecast_hours}h. ` +
+        `Corridor: ±${mesh_stats.corridor_width_nm} NM, ${mesh_stats.total_nodes} mesh nodes evaluated. ` +
+        `Weather-adjusted ETA: ${merged.durationApprox}. Route cost score: ${summary.cost_score} (lower is better).`;
 
     return merged;
 }
 
+// ── Main Entry Point ──────────────────────────────────────────────
+
 /**
- * Convenience: fetch weather route and merge into voyage plan.
- * Non-blocking — returns original plan if routing fails.
+ * Fetch weather route, merge into voyage plan, and return both.
  *
- * This is the main entry point, called after bathymetric routing.
+ * Returns { plan, payload } so the UI can show both:
+ *   - Traditional VoyageResults (from plan)
+ *   - 4D Passage Canvas (from payload)
+ *
+ * Non-blocking — returns original plan if routing fails.
  */
 export async function enhanceVoyagePlanWithWeather(
     voyagePlan: VoyagePlan,
     vessel: VesselProfile,
     departureTime: string,
 ): Promise<VoyagePlan> {
-    // Need waypoints with coordinates to route
     if (!voyagePlan.waypoints || voyagePlan.waypoints.length < 1) {
         console.warn('[WeatherRouter] No waypoints to route — skipping');
         return voyagePlan;
     }
 
-    // Build centerline from the existing bathymetric waypoints
+    // Build centerline
     const centerline: { lat: number; lon: number; depth_m?: number; name?: string }[] = [];
 
     if (voyagePlan.originCoordinates) {
@@ -266,30 +244,32 @@ export async function enhanceVoyagePlanWithWeather(
         return voyagePlan;
     }
 
-    // Try to fetch user's polar data for sail vessels
+    // Polar data for sail vessels
     let polarData: PolarData | null = null;
     if (vessel.type === 'sail') {
         try {
             polarData = await fetchUserPolarData();
-            if (polarData) {
-                console.log('[WeatherRouter] Using user polar data for sail routing');
-            }
-        } catch {
-            // Non-critical
-        }
+            if (polarData) console.log('[WeatherRouter] Using user polar data');
+        } catch { /* Non-critical */ }
     }
 
-    const weatherRoute = await fetchWeatherRoute(
-        centerline,
-        departureTime,
-        vessel,
-        polarData,
-    );
+    const payload = await fetchWeatherRoute(centerline, departureTime, vessel, polarData);
 
-    if (!weatherRoute || weatherRoute.error) {
+    if (!payload) {
         console.warn('[WeatherRouter] Weather routing unavailable — using bathymetric route');
         return voyagePlan;
     }
 
-    return mergeWeatherRoute(voyagePlan, weatherRoute);
+    // Store the payload on the plan for the 4D canvas to pick up
+    const merged = mergeWeatherRoute(voyagePlan, payload);
+    (merged as any).__spatiotemporalPayload = payload;
+    return merged;
+}
+
+/**
+ * Extract the spatiotemporal payload from an enhanced voyage plan
+ * (stashed by enhanceVoyagePlanWithWeather).
+ */
+export function getSpatiotemporalPayload(plan: VoyagePlan): SpatiotemporalPayload | null {
+    return (plan as any).__spatiotemporalPayload ?? null;
 }

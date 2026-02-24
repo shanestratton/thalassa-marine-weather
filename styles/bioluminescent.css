@@ -1,0 +1,300 @@
+/* ══════════════════════════════════════════════════════════════════════
+   BIOLUMINESCENT DARK MODE — Thalassa Passage Planning Design System
+   
+   A cinematic, hardware-accelerated design language for ocean routing.
+   Glassmorphism panels float over full-bleed WebGL maps.
+   Neon accents glow against the oceanic abyss.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Core Theme Variables ────────────────────────────────────────── */
+:root {
+  --ocean-abyss: #040d1a;
+  --ocean-deep: #061525;
+  --ocean-mid: #0a1e33;
+  --neon-cyan: #00f0ff;
+  --neon-cyan-muted: #00b8c7;
+  --neon-cyan-dim: rgba(0, 240, 255, 0.15);
+  --neon-purple: #b026ff;
+  --neon-purple-dim: rgba(176, 38, 255, 0.15);
+  --neon-amber: #ffb800;
+  --neon-red: #ff3b5c;
+  --neon-green: #00ff88;
+  --glass-bg: rgba(10, 20, 35, 0.55);
+  --glass-bg-dense: rgba(8, 16, 28, 0.75);
+  --glass-border: rgba(0, 240, 255, 0.12);
+  --glass-border-bright: rgba(0, 240, 255, 0.25);
+  --glass-glow: rgba(0, 240, 255, 0.06);
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-dim: #64748b;
+}
+
+/* ── Typography ──────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.bio-header {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.bio-label {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.bio-data {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.35);
+}
+
+.bio-data--warning {
+  color: var(--neon-amber);
+  text-shadow: 0 0 8px rgba(255, 184, 0, 0.35);
+}
+
+.bio-data--danger {
+  color: var(--neon-red);
+  text-shadow: 0 0 8px rgba(255, 59, 92, 0.35);
+}
+
+/* ── Glassmorphism Panels ────────────────────────────────────────── */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.55),
+    inset 0 0 24px var(--glass-glow);
+  pointer-events: auto;
+  color: var(--text-primary);
+}
+
+.glass-panel--dense {
+  background: var(--glass-bg-dense);
+}
+
+.glass-panel--bright {
+  border-color: var(--glass-border-bright);
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.55),
+    0 0 24px rgba(0, 240, 255, 0.08),
+    inset 0 0 24px var(--glass-glow);
+}
+
+/* ── Temporal Scrubber ───────────────────────────────────────────── */
+.temporal-scrubber {
+  background: var(--glass-bg-dense);
+  backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  border-top: 1px solid var(--glass-border);
+  box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.6);
+}
+
+/* Track */
+.neon-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+.neon-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Thumb */
+.neon-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 0 12px var(--neon-cyan),
+    0 0 24px rgba(0, 240, 255, 0.5),
+    inset 0 0 4px rgba(255, 255, 255, 0.8);
+  margin-top: -10px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.neon-slider:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+  box-shadow:
+    0 0 18px var(--neon-cyan),
+    0 0 36px rgba(0, 240, 255, 0.7),
+    inset 0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+/* Firefox */
+.neon-slider::-moz-range-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+.neon-slider::-moz-range-thumb {
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 12px var(--neon-cyan);
+}
+
+/* ── Sparkline Micro-Chart ───────────────────────────────────────── */
+.sparkline-container {
+  position: relative;
+  width: 100%;
+  height: 40px;
+}
+
+.sparkline-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sparkline-line {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sparkline-area {
+  opacity: 0.15;
+}
+
+.sparkline-cursor {
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+/* ── Ghost Ship ──────────────────────────────────────────────────── */
+.ghost-ship {
+  width: 32px;
+  height: 32px;
+  filter: drop-shadow(0 0 12px var(--neon-cyan)) drop-shadow(0 0 24px rgba(0, 240, 255, 0.4));
+  transition: transform 0.05s linear;
+}
+
+.ghost-ship-pulse {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.4) 0%, transparent 70%);
+  animation: ghost-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ghost-pulse {
+  0%, 100% { transform: scale(0.8); opacity: 0.6; }
+  50% { transform: scale(1.4); opacity: 0.2; }
+}
+
+/* ── Route Line Neon Glow Layers ─────────────────────────────────── */
+/* These are applied via Mapbox/MapLibre layer paint properties */
+/* Halo: { line-color: #00f0ff, line-width: 12, line-blur: 8, line-opacity: 0.35 } */
+/* Core: { line-color: #ffffff, line-width: 2.5, line-opacity: 0.95 }              */
+
+/* ── Play Button ─────────────────────────────────────────────────── */
+.play-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  background: transparent;
+  color: var(--neon-cyan);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.play-btn:hover {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.45);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.2);
+}
+
+.play-btn:active {
+  transform: scale(0.92);
+}
+
+/* ── Handoff Indicator Rings ─────────────────────────────────────── */
+.handoff-ring {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 240, 255, 0.4);
+  animation: handoff-glow 3s ease-in-out infinite;
+}
+
+@keyframes handoff-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.2); border-color: rgba(0, 240, 255, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(0, 240, 255, 0.5); border-color: rgba(0, 240, 255, 0.6); }
+}
+
+/* ── Status Pill ─────────────────────────────────────────────────── */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.status-pill--computing {
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  color: var(--neon-cyan);
+}
+
+.status-pill--ready {
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.2);
+  color: var(--neon-green);
+}
+
+/* ── Utility Animations ──────────────────────────────────────────── */
+@keyframes bio-fadein {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bio-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.bio-animate-in {
+  animation: bio-fadein 0.4s ease-out both;
+}
+
+.bio-pulse {
+  animation: bio-pulse 2s ease-in-out infinite;
+}
