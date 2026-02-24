@@ -118,6 +118,461 @@ const LIGHT_AIR_PENALTY_SAIL = 1.5;     // 50% slower in < 5 kts (sail)
 const GALE_PENALTY = 3.0;              // Massive penalty near limits
 const IMPASSABLE = 999999;              // Effectively blocks the node
 
+// Coastal pilotage corridor constants
+const SEAMARK_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — chart data rarely changes
+const CHANNEL_BUFFER_DEG = 0.00005;  // ~5.5m safety buffer for vessel beam
+const CHANNEL_BBOX_RADIUS_NM = 5;   // How far from marina to search for seamarks
+const OVERPASS_TIMEOUT = 25;         // Overpass API timeout in seconds
+
+// ══════════════════════════════════════════════════════════════════════
+// SAFE-WATER CORRIDOR — Maritime Pilotage (Law of the Sea)
+//
+// Architecture:
+//   Phase 1: Dynamic seamark ingestion from OpenStreetMap (Overpass API)
+//   Phase 2: IALA Region B polygon builder (port/starboard gate pairing)
+//   Phase 3: A* cost function override (strict geometric boundary)
+//
+// This ensures the vessel follows marked channels when departing or
+// arriving at a marina, before handing off to the open-ocean corridor.
+// ══════════════════════════════════════════════════════════════════════
+
+/** OSM seamark element from Overpass API */
+interface SeamarkElement {
+    type: 'node' | 'way' | 'relation';
+    id: number;
+    lat?: number;
+    lon?: number;
+    tags: Record<string, string>;
+    bounds?: { minlat: number; minlon: number; maxlat: number; maxlon: number };
+    geometry?: { lat: number; lon: number }[];
+}
+
+/** A navigational mark with position and IALA classification */
+interface NavMark {
+    lat: number;
+    lon: number;
+    type: string;        // seamark:type (e.g. 'beacon_lateral', 'buoy_lateral')
+    category: string;    // 'port' | 'starboard' | 'cardinal' | 'safe_water' | 'unknown'
+    name: string;
+    distFromOrigin: number; // nm from marina — computed after ingestion
+}
+
+/** A gate formed by pairing port and starboard marks */
+interface ChannelGate {
+    port: NavMark;
+    starboard: NavMark;
+    centerLat: number;
+    centerLon: number;
+    widthNM: number;
+    distFromOrigin: number;
+}
+
+/** The navigable polygon + ordered gates for A* constraint */
+interface SafeWaterCorridor {
+    polygon: [number, number][];  // [lon, lat][] ring (closed)
+    gates: ChannelGate[];
+    handshakePoint: { lat: number; lon: number }; // Where channel meets open water
+    valid: boolean;
+}
+
+// Seamark cache (in-memory for the Edge Function lifecycle)
+const seamarkCache = new Map<string, { data: SeamarkElement[]; fetchedAt: number }>();
+
+// ── Phase 1: Dynamic Seamark Ingestion ─────────────────────────────
+
+/**
+ * Fetch navigational marks from Overpass API for a bounding box around a point.
+ * Returns lateral beacons, buoys, cardinal marks, and safe water marks.
+ * Cached for 24h — chart data rarely changes.
+ */
+async function fetchSeamarks(
+    lat: number,
+    lon: number,
+    radiusNM: number = CHANNEL_BBOX_RADIUS_NM,
+): Promise<SeamarkElement[]> {
+    // Build bounding box (~5nm around the marina)
+    const latDelta = radiusNM / 60;    // 1nm ≈ 1 minute of latitude
+    const lonDelta = radiusNM / (60 * Math.cos(lat * DEG_TO_RAD));
+    const bbox = `${(lat - latDelta).toFixed(4)},${(lon - lonDelta).toFixed(4)},${(lat + latDelta).toFixed(4)},${(lon + lonDelta).toFixed(4)}`;
+
+    // Check cache
+    const cacheKey = bbox;
+    const cached = seamarkCache.get(cacheKey);
+    if (cached && (Date.now() - cached.fetchedAt) < SEAMARK_CACHE_TTL_MS) {
+        console.log(`[Pilotage] Seamark cache HIT: ${cached.data.length} elements`);
+        return cached.data;
+    }
+
+    const query = `
+    [out:json][timeout:${OVERPASS_TIMEOUT}];
+    (
+      node["seamark:type"](${bbox});
+      way["seamark:type"](${bbox});
+      relation["seamark:type"](${bbox});
+    );
+    out geom;
+    `;
+
+    try {
+        console.log(`[Pilotage] Fetching seamarks for bbox ${bbox}...`);
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            body: query,
+        });
+
+        if (!res.ok) {
+            console.warn(`[Pilotage] Overpass API error: ${res.status}`);
+            return [];
+        }
+
+        const data = await res.json();
+        const elements: SeamarkElement[] = data.elements || [];
+        console.log(`[Pilotage] ✅ Fetched ${elements.length} seamark elements`);
+
+        // Cache it
+        seamarkCache.set(cacheKey, { data: elements, fetchedAt: Date.now() });
+        return elements;
+    } catch (err) {
+        console.warn(`[Pilotage] Overpass fetch failed:`, err);
+        return [];
+    }
+}
+
+// ── Phase 2: IALA Channel Polygon Builder ──────────────────────────
+
+/**
+ * Classify an OSM seamark element into port/starboard/cardinal/safe_water.
+ *
+ * IALA Region B (Australia, Americas, Japan, Korea, Philippines):
+ *   - Red = port (left when returning from sea)
+ *   - Green = starboard (right when returning from sea)
+ *
+ * We detect the colour from seamark:beacon_lateral:colour or
+ * seamark:buoy_lateral:colour tags.
+ */
+function classifyMark(tags: Record<string, string>): string {
+    const seamarkType = tags['seamark:type'] || '';
+
+    // Cardinal marks
+    if (seamarkType.includes('cardinal')) return 'cardinal';
+    if (seamarkType.includes('safe_water')) return 'safe_water';
+
+    // Lateral marks — check colour
+    if (seamarkType.includes('lateral')) {
+        const colour = tags['seamark:beacon_lateral:colour']
+            || tags['seamark:buoy_lateral:colour']
+            || tags['seamark:lateral:colour']
+            || '';
+        const category = tags['seamark:beacon_lateral:category']
+            || tags['seamark:buoy_lateral:category']
+            || '';
+
+        // IALA Region B: red = port, green = starboard
+        if (colour === 'red' || category === 'port') return 'port';
+        if (colour === 'green' || category === 'starboard') return 'starboard';
+
+        // Fallback: try to detect from shape
+        if (tags['seamark:beacon_lateral:shape'] === 'cylinder') return 'port';      // Can shape (red)
+        if (tags['seamark:beacon_lateral:shape'] === 'cone') return 'starboard';     // Cone shape (green)
+    }
+
+    return 'unknown';
+}
+
+/**
+ * Parse Overpass elements into classified NavMarks with distance from origin.
+ */
+function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon: number): NavMark[] {
+    const marks: NavMark[] = [];
+
+    for (const el of elements) {
+        const tags = el.tags || {};
+        const seamarkType = tags['seamark:type'] || '';
+
+        // Only process navigational marks (lateral, cardinal, safe_water)
+        if (!seamarkType.includes('lateral') &&
+            !seamarkType.includes('cardinal') &&
+            !seamarkType.includes('safe_water')) continue;
+
+        // Get position
+        let lat = el.lat;
+        let lon = el.lon;
+        if (!lat || !lon) {
+            // Ways and relations may have bounds instead
+            if (el.bounds) {
+                lat = (el.bounds.minlat + el.bounds.maxlat) / 2;
+                lon = (el.bounds.minlon + el.bounds.maxlon) / 2;
+            } else if (el.geometry && el.geometry.length > 0) {
+                lat = el.geometry[0].lat;
+                lon = el.geometry[0].lon;
+            } else continue;
+        }
+
+        marks.push({
+            lat,
+            lon,
+            type: seamarkType,
+            category: classifyMark(tags),
+            name: tags['name'] || tags['seamark:name'] || `Mark ${el.id}`,
+            distFromOrigin: haversineNM(originLat, originLon, lat, lon),
+        });
+    }
+
+    return marks;
+}
+
+/**
+ * Build a safe-water corridor polygon from paired port/starboard marks.
+ *
+ * Algorithm:
+ *   1. Separate marks into port and starboard lists
+ *   2. Sort both by distance from marina (ascending)
+ *   3. Pair closest port/starboard marks into sequential gates
+ *   4. Build polygon: port_1 → port_2 → ... → port_n → stb_n → ... → stb_1
+ *   5. Close the polygon
+ *
+ * The polygon represents the navigable deep-water channel.
+ * The "handshake point" is the center of the outermost gate —
+ * where pilotage ends and open-ocean routing begins.
+ */
+function buildSafeWaterCorridor(
+    marks: NavMark[],
+    originLat: number,
+    originLon: number,
+): SafeWaterCorridor {
+    const portMarks = marks.filter(m => m.category === 'port').sort((a, b) => a.distFromOrigin - b.distFromOrigin);
+    const stbMarks = marks.filter(m => m.category === 'starboard').sort((a, b) => a.distFromOrigin - b.distFromOrigin);
+
+    console.log(`[Pilotage] Port marks: ${portMarks.length}, Starboard marks: ${stbMarks.length}`);
+
+    // Need at least 2 pairs to form a meaningful channel
+    if (portMarks.length < 2 || stbMarks.length < 2) {
+        console.warn(`[Pilotage] Insufficient lateral marks for channel polygon`);
+        return {
+            polygon: [],
+            gates: [],
+            handshakePoint: { lat: originLat, lon: originLon },
+            valid: false,
+        };
+    }
+
+    // Pair port and starboard marks into gates
+    // Use the shorter list length
+    const numGates = Math.min(portMarks.length, stbMarks.length);
+    const gates: ChannelGate[] = [];
+
+    for (let i = 0; i < numGates; i++) {
+        const p = portMarks[i];
+        const s = stbMarks[i];
+        gates.push({
+            port: p,
+            starboard: s,
+            centerLat: (p.lat + s.lat) / 2,
+            centerLon: (p.lon + s.lon) / 2,
+            widthNM: haversineNM(p.lat, p.lon, s.lat, s.lon),
+            distFromOrigin: (p.distFromOrigin + s.distFromOrigin) / 2,
+        });
+    }
+
+    gates.sort((a, b) => a.distFromOrigin - b.distFromOrigin);
+
+    // Build polygon: port side out, starboard side back
+    // Include origin point to close the marina end
+    const polygonPoints: [number, number][] = [];
+
+    // Origin (marina) to first port mark
+    polygonPoints.push([originLon, originLat]);
+
+    // Port side outbound (increasing distance)
+    for (const gate of gates) {
+        polygonPoints.push([gate.port.lon, gate.port.lat]);
+    }
+
+    // Starboard side inbound (decreasing distance)
+    for (let i = gates.length - 1; i >= 0; i--) {
+        polygonPoints.push([gates[i].starboard.lon, gates[i].starboard.lat]);
+    }
+
+    // Close the polygon (back to origin)
+    polygonPoints.push([originLon, originLat]);
+
+    // Handshake point = center of the outermost gate
+    const lastGate = gates[gates.length - 1];
+    const handshakePoint = { lat: lastGate.centerLat, lon: lastGate.centerLon };
+
+    console.log(`[Pilotage] ✅ Channel polygon: ${polygonPoints.length} vertices, ${gates.length} gates`);
+    console.log(`[Pilotage] Handshake point: ${handshakePoint.lat.toFixed(4)}, ${handshakePoint.lon.toFixed(4)} (${lastGate.distFromOrigin.toFixed(2)} nm from marina)`);
+
+    return {
+        polygon: polygonPoints,
+        gates,
+        handshakePoint,
+        valid: true,
+    };
+}
+
+// ── Phase 3: Point-in-Polygon & A* Constraint ─────────────────────
+
+/**
+ * Ray-casting point-in-polygon test.
+ * Returns true if the point (lon, lat) is inside the polygon ring.
+ *
+ * Uses the crossing number algorithm: cast a ray from the point
+ * eastward and count how many edges it crosses. Odd = inside.
+ */
+function pointInPolygon(lon: number, lat: number, polygon: [number, number][]): boolean {
+    let inside = false;
+    const n = polygon.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+        const xi = polygon[i][0], yi = polygon[i][1];
+        const xj = polygon[j][0], yj = polygon[j][1];
+        if (((yi > lat) !== (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+/**
+ * Generate a high-resolution corridor mesh inside the channel polygon.
+ *
+ * Unlike the ocean mesh (±30nm with 2 lateral steps), the channel mesh
+ * follows the gate centerlines with tight lateral sampling bounded by
+ * the polygon.
+ *
+ * Returns ordered waypoints through the channel: origin → gate centers → handshake.
+ */
+function generateChannelCenterline(
+    corridor: SafeWaterCorridor,
+    originLat: number,
+    originLon: number,
+): CenterlineWaypoint[] {
+    if (!corridor.valid || corridor.gates.length === 0) return [];
+
+    const waypoints: CenterlineWaypoint[] = [];
+
+    // Start at origin (marina berth)
+    waypoints.push({ lat: originLat, lon: originLon, name: 'Marina' });
+
+    // Add gate centers as waypoints (ordered by distance)
+    for (let i = 0; i < corridor.gates.length; i++) {
+        const gate = corridor.gates[i];
+        waypoints.push({
+            lat: gate.centerLat,
+            lon: gate.centerLon,
+            name: `Gate ${i + 1} (${gate.widthNM.toFixed(3)} nm)`,
+        });
+    }
+
+    // Add handshake point (transition to open ocean)
+    waypoints.push({
+        lat: corridor.handshakePoint.lat,
+        lon: corridor.handshakePoint.lon,
+        name: 'Channel Exit',
+    });
+
+    return waypoints;
+}
+
+/**
+ * Build a complete departure or arrival corridor:
+ *   1. Fetch seamarks from Overpass API
+ *   2. Parse and classify marks (IALA Region B)
+ *   3. Build channel polygon
+ *   4. Generate channel centerline
+ *
+ * Returns the safe-water corridor and its centerline waypoints.
+ */
+async function buildCoastalCorridor(
+    lat: number,
+    lon: number,
+    label: string = 'departure',
+): Promise<{ corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[] }> {
+    console.log(`[Pilotage] Building ${label} corridor at ${lat.toFixed(4)}, ${lon.toFixed(4)}...`);
+
+    const elements = await fetchSeamarks(lat, lon);
+    const marks = parseNavMarks(elements, lat, lon);
+
+    console.log(`[Pilotage] ${marks.length} navigational marks classified:`);
+    const categoryCounts: Record<string, number> = {};
+    for (const m of marks) {
+        categoryCounts[m.category] = (categoryCounts[m.category] || 0) + 1;
+    }
+    for (const [cat, count] of Object.entries(categoryCounts)) {
+        console.log(`  ${cat}: ${count}`);
+    }
+
+    const corridor = buildSafeWaterCorridor(marks, lat, lon);
+    const centerline = generateChannelCenterline(corridor, lat, lon);
+
+    return { corridor, centerline };
+}
+
+/**
+ * Stitch a 3-leg route:
+ *   Leg 1: Departure channel (marina → handshake point)
+ *   Leg 2: Open ocean (handshake → arrival handshake)
+ *   Leg 3: Arrival channel (handshake point → destination marina)
+ *
+ * If no channel data is available for departure/arrival (e.g. offshore
+ * anchorage), the corresponding leg is skipped and the ocean leg
+ * extends to the origin/destination directly.
+ */
+function stitchThreeLegCenterline(
+    departureCorridor: { corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[] },
+    oceanCenterline: CenterlineWaypoint[],
+    arrivalCorridor: { corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[] },
+): {
+    centerline: CenterlineWaypoint[];
+    departureCorridor: SafeWaterCorridor | null;
+    arrivalCorridor: SafeWaterCorridor | null;
+    legBoundaries: { departureEndIdx: number; arrivalStartIdx: number };
+} {
+    const stitched: CenterlineWaypoint[] = [];
+
+    // Leg 1: Departure channel
+    const hasDeparture = departureCorridor.corridor.valid && departureCorridor.centerline.length > 1;
+    if (hasDeparture) {
+        for (const wp of departureCorridor.centerline) {
+            stitched.push(wp);
+        }
+        console.log(`[Stitcher] Departure leg: ${departureCorridor.centerline.length} waypoints`);
+    }
+
+    const departureEndIdx = stitched.length;
+
+    // Leg 2: Ocean (skip first/last if they duplicate the handshake points)
+    const oceanStart = hasDeparture ? 1 : 0; // Skip first ocean WP if departure provides handshake
+    const hasArrival = arrivalCorridor.corridor.valid && arrivalCorridor.centerline.length > 1;
+    const oceanEnd = hasArrival ? oceanCenterline.length - 1 : oceanCenterline.length;
+
+    for (let i = oceanStart; i < oceanEnd; i++) {
+        stitched.push(oceanCenterline[i]);
+    }
+
+    const arrivalStartIdx = stitched.length;
+
+    // Leg 3: Arrival channel (reversed — ocean to marina)
+    if (hasArrival) {
+        // Arrival centerline is origin→gates→exit, but we enter from exit→gates→origin
+        const reversed = [...arrivalCorridor.centerline].reverse();
+        for (const wp of reversed) {
+            stitched.push(wp);
+        }
+        console.log(`[Stitcher] Arrival leg: ${arrivalCorridor.centerline.length} waypoints`);
+    }
+
+    console.log(`[Stitcher] ✅ Stitched route: ${stitched.length} total waypoints (D:${departureEndIdx}/A:${arrivalStartIdx})`);
+
+    return {
+        centerline: stitched,
+        departureCorridor: hasDeparture ? departureCorridor.corridor : null,
+        arrivalCorridor: hasArrival ? arrivalCorridor.corridor : null,
+        legBoundaries: { departureEndIdx, arrivalStartIdx },
+    };
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // SPHERICAL GEOMETRY
 // ══════════════════════════════════════════════════════════════════════
@@ -821,6 +1276,12 @@ function corridorAStar(
     weatherGrid: WeatherGrid,
     goalLat: number,
     goalLon: number,
+    pilotageConstraints?: {
+        departureCorridor: SafeWaterCorridor | null;
+        arrivalCorridor: SafeWaterCorridor | null;
+        legBoundaries: { departureEndIdx: number; arrivalStartIdx: number };
+        nodesPerRow: number;
+    },
 ): { path: MeshNode[]; totalTimeH: number; totalCost: number } | null {
     const N = nodes.length;
 
@@ -863,6 +1324,28 @@ function corridorAStar(
         for (const nid of neighbors) {
             const fromNode = nodes[current.nodeId];
             const toNode = nodes[nid];
+
+            // ── PILOTAGE CHECK: Strict boundary enforcement ──
+            // If this node is in a coastal leg with a channel polygon,
+            // reject any node outside the safe-water corridor.
+            if (pilotageConstraints) {
+                const { departureCorridor, arrivalCorridor, legBoundaries, nodesPerRow } = pilotageConstraints;
+                const nodeRow = Math.floor(nid / nodesPerRow);
+
+                // Check if node is in departure leg
+                if (nodeRow < legBoundaries.departureEndIdx && departureCorridor?.valid) {
+                    if (!pointInPolygon(toNode.lon, toNode.lat, departureCorridor.polygon)) {
+                        continue; // Outside channel — grounding risk — skip
+                    }
+                }
+
+                // Check if node is in arrival leg
+                if (nodeRow >= legBoundaries.arrivalStartIdx && arrivalCorridor?.valid) {
+                    if (!pointInPolygon(toNode.lon, toNode.lat, arrivalCorridor.polygon)) {
+                        continue; // Outside channel — grounding risk — skip
+                    }
+                }
+            }
 
             // Distance between nodes
             const distNM = haversineNM(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
@@ -1046,35 +1529,94 @@ Deno.serve(async (req: Request) => {
 
         const t0 = Date.now();
 
-        // ── Step 1: Generate corridor mesh ──
-        const meshNodes = generateCorridorMesh(centerline, corridorWidth, lateralSteps);
+        // ══════════════════════════════════════════════════════════════
+        // STEP 0: Build Coastal Corridors (Departure & Arrival)
+        //
+        // Fetch seamarks from Overpass API for both ends of the route,
+        // build IALA channel polygons, and generate coastal centerlines.
+        // This runs in parallel for both departure and arrival.
+        // ══════════════════════════════════════════════════════════════
 
-        // ── Step 2: Build adjacency graph ──
-        const adjacency = buildAdjacencyList(meshNodes, nodesPerRow, centerline.length);
+        const departureWp = centerline[0];
+        const arrivalWp = centerline[centerline.length - 1];
 
-        // ── Step 3: Fetch weather grid ──
-        // Estimate max passage time for weather forecast window
-        const totalDistNM = centerline.reduce((sum, wp, i) => {
+        const [departureCorridor, arrivalCorridor] = await Promise.all([
+            buildCoastalCorridor(departureWp.lat, departureWp.lon, 'departure')
+                .catch(err => {
+                    console.warn(`[WeatherRouter] Departure corridor failed:`, err);
+                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: departureWp.lat, lon: departureWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[] };
+                }),
+            buildCoastalCorridor(arrivalWp.lat, arrivalWp.lon, 'arrival')
+                .catch(err => {
+                    console.warn(`[WeatherRouter] Arrival corridor failed:`, err);
+                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: arrivalWp.lat, lon: arrivalWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[] };
+                }),
+        ]);
+
+        // ══════════════════════════════════════════════════════════════
+        // STEP 1: Stitch 3-Leg Centerline
+        //
+        // departure channel → ocean centerline → arrival channel
+        // If no channel data, the ocean leg extends to origin/dest.
+        // ══════════════════════════════════════════════════════════════
+
+        const stitched = stitchThreeLegCenterline(departureCorridor, centerline, arrivalCorridor);
+        const routeCenterline = stitched.centerline;
+
+        const routingMode = (stitched.departureCorridor || stitched.arrivalCorridor)
+            ? 'stitched_pilotage' : 'ocean_only';
+
+        console.log(`[WeatherRouter] Routing mode: ${routingMode}`);
+        if (stitched.departureCorridor) {
+            console.log(`[WeatherRouter] Departure: ${stitched.departureCorridor.gates.length} gates, exits at ${stitched.departureCorridor.handshakePoint.lat.toFixed(4)}, ${stitched.departureCorridor.handshakePoint.lon.toFixed(4)}`);
+        }
+        if (stitched.arrivalCorridor) {
+            console.log(`[WeatherRouter] Arrival: ${stitched.arrivalCorridor.gates.length} gates, enters at ${stitched.arrivalCorridor.handshakePoint.lat.toFixed(4)}, ${stitched.arrivalCorridor.handshakePoint.lon.toFixed(4)}`);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // STEP 2: Generate Corridor Mesh (using stitched centerline)
+        // ══════════════════════════════════════════════════════════════
+
+        const meshNodes = generateCorridorMesh(routeCenterline, corridorWidth, lateralSteps);
+
+        // ══════════════════════════════════════════════════════════════
+        // STEP 3: Build Adjacency Graph
+        // ══════════════════════════════════════════════════════════════
+
+        const adjacency = buildAdjacencyList(meshNodes, nodesPerRow, routeCenterline.length);
+
+        // ══════════════════════════════════════════════════════════════
+        // STEP 4: Fetch Weather Grid
+        // ══════════════════════════════════════════════════════════════
+
+        const totalDistNM = routeCenterline.reduce((sum, wp, i) => {
             if (i === 0) return 0;
-            return sum + haversineNM(centerline[i - 1].lat, centerline[i - 1].lon, wp.lat, wp.lon);
+            return sum + haversineNM(routeCenterline[i - 1].lat, routeCenterline[i - 1].lon, wp.lat, wp.lon);
         }, 0);
         const maxHours = Math.min(240, Math.ceil(totalDistNM / vessel.cruising_speed_kts * 1.5));
 
         const weatherGrid = await fetchWeatherGrid(meshNodes, departureDate, maxHours);
 
-        // ── Step 4: Run 4D A* ──
-        // Start: center node of first row
-        const startCenter = lateralSteps; // Index of center node in first row
+        // ══════════════════════════════════════════════════════════════
+        // STEP 5: Run 4D A* with Pilotage Constraints
+        //
+        // The A* now receives the channel polygons and leg boundaries.
+        // Nodes in departure/arrival legs that fall outside their
+        // respective channel polygons are treated as IMPASSABLE.
+        // Ocean leg nodes are unconstrained (weather-optimized).
+        // ══════════════════════════════════════════════════════════════
+
+        const startCenter = lateralSteps;
         const startIds = [startCenter];
 
-        // Goal: ALL nodes in the last row (any lateral position)
-        const lastRowStart = (centerline.length - 1) * nodesPerRow;
+        const lastRowStart = (routeCenterline.length - 1) * nodesPerRow;
         const goalIds = new Set<number>();
         for (let c = 0; c < nodesPerRow; c++) {
             goalIds.add(lastRowStart + c);
         }
 
-        const goalWp = centerline[centerline.length - 1];
+        const goalWp = routeCenterline[routeCenterline.length - 1];
         const result = corridorAStar(
             meshNodes,
             adjacency,
@@ -1084,6 +1626,13 @@ Deno.serve(async (req: Request) => {
             weatherGrid,
             goalWp.lat,
             goalWp.lon,
+            // Pilotage constraints — only if we have channel data
+            (stitched.departureCorridor || stitched.arrivalCorridor) ? {
+                departureCorridor: stitched.departureCorridor,
+                arrivalCorridor: stitched.arrivalCorridor,
+                legBoundaries: stitched.legBoundaries,
+                nodesPerRow,
+            } : undefined,
         );
 
         const computeMs = Date.now() - t0;
@@ -1164,7 +1713,7 @@ Deno.serve(async (req: Request) => {
                 total_duration_hours: Math.round(result.totalTimeH * 10) / 10,
                 cost_score: Math.round(result.totalCost * 100) / 100,
                 computation_ms: computeMs,
-                routing_mode: 'stitched_spatiotemporal',
+                routing_mode: routingMode,
                 vessel_type: vessel.type,
                 departure_time: departureDate.toISOString(),
             },
@@ -1177,11 +1726,23 @@ Deno.serve(async (req: Request) => {
             track,
             mesh_stats: {
                 total_nodes: meshNodes.length,
-                rows: centerline.length,
+                rows: routeCenterline.length,
                 cols: nodesPerRow,
                 corridor_width_nm: corridorWidth,
                 weather_grid_points: weatherGrid.data.size,
                 forecast_hours: weatherGrid.hoursAvailable,
+            },
+            pilotage: {
+                departure: stitched.departureCorridor ? {
+                    gates: stitched.departureCorridor.gates.length,
+                    handshake: stitched.departureCorridor.handshakePoint,
+                    polygon_vertices: stitched.departureCorridor.polygon.length,
+                } : null,
+                arrival: stitched.arrivalCorridor ? {
+                    gates: stitched.arrivalCorridor.gates.length,
+                    handshake: stitched.arrivalCorridor.handshakePoint,
+                    polygon_vertices: stitched.arrivalCorridor.polygon.length,
+                } : null,
             },
         });
 
