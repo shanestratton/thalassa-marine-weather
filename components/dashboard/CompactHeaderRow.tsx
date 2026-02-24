@@ -49,6 +49,7 @@ export const CompactHeaderRow = ({
             {/* WARNINGS BUTTON - Expands to fill available space */}
             <button
                 onClick={() => setPage('warnings')}
+                aria-label={hasWarnings ? `${activeAlerts.length} active weather warnings` : 'No active weather warnings'}
                 className={`${hasWarnings
                     ? 'bg-red-500 hover:bg-red-600 border-red-400/50'
                     : 'bg-emerald-500/10 border-emerald-500/20'
@@ -76,7 +77,7 @@ export const CompactHeaderRow = ({
 
 
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon */}
-            <div className={`bg-slate-800/60 ${t.border.default} rounded-xl px-3 h-[40px] flex items-center gap-3 backdrop-blur-md flex-shrink-0`}>
+            <div className={`bg-slate-800/60 ${t.border.default} rounded-xl px-3 h-[40px] flex items-center gap-3 backdrop-blur-md flex-shrink-0`} role="status" aria-label="Celestial data">
                 {/* Sunrise */}
                 {sunrise && (
                     <div className="flex items-center gap-1.5">
@@ -99,7 +100,7 @@ export const CompactHeaderRow = ({
 
                 {/* Moon Phase - Just emoji */}
                 {moonPhase && (
-                    <span className="text-base leading-none">
+                    <span className="text-base leading-none" aria-label="Moon phase">
                         {moonPhase}
                     </span>
                 )}

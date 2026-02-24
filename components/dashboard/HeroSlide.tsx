@@ -147,6 +147,8 @@ const HeroSlideComponent = ({
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
+    // Detect when tides SHOULD be available but aren't (API failure / key issue)
+    const tidesExpectedButMissing = locationType === 'coastal' && !isLandlocked && (!tides || tides.length === 0);
     // In essential mode, show map for any coastal location — independent of tide availability
     const showMapInstead = isEssentialMode && (locationType === 'coastal' || locationType === 'inland' || isLandlocked);
     const showGrid = !showTideGraph && !showMapInstead; // Explicit switch
@@ -1009,6 +1011,21 @@ const HeroSlideComponent = ({
                                                 ) : (
                                                     <div className="h-full w-full" />
                                                 )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : tidesExpectedButMissing && !showMapInstead ? (
+                                    /* COASTAL BUT TIDES UNAVAILABLE — graceful degradation */
+                                    <div className="relative w-full h-full flex flex-col gap-2">
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] backdrop-blur-xl ${isCardDay ? 'border-white/[0.06]' : 'border-indigo-300/[0.06]'}`}>
+                                            <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
+                                                <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                                                    <span className="text-lg">🌊</span>
+                                                </div>
+                                                <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">Tides Temporarily Unavailable</p>
+                                                <p className="text-[10px] text-white/30 leading-relaxed max-w-[200px]">
+                                                    Tide data source is currently unreachable. Data will restore automatically on next refresh.
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
