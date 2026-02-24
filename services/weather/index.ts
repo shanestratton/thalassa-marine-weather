@@ -4,6 +4,7 @@ import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
 import { fetchWeatherKitFull, WeatherKitFullResponse, buildReportFromWeatherKit } from './api/weatherkit';
+import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache } from './cache';
 import { degreesToCardinal } from '../../utils';
 
@@ -44,8 +45,8 @@ export const fetchWeatherByStrategy = async (
     const isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
 
-    // --- PARALLEL API CALLS (all three simultaneously) ---
-    const [wkResult, sgResult, omResult] = await Promise.allSettled([
+    // --- PARALLEL API CALLS (all four simultaneously) ---
+    const [wkResult, sgResult, omResult, tideResult] = await Promise.allSettled([
         // 1. WeatherKit: PRIMARY atmospheric source
         fetchWeatherKitFull(lat, lon).catch((e) => {
             console.warn('[Strategy] WeatherKit failed:', e);
@@ -65,12 +66,19 @@ export const fetchWeatherByStrategy = async (
             console.warn('[Strategy] OpenMeteo failed:', e);
             return null;
         }),
+
+        // 4. WorldTides: Direct tide fetch (24h cached — always fires)
+        fetchRealTides(lat, lon).catch((e) => {
+            console.warn('[Strategy] WorldTides failed:', e);
+            return null;
+        }),
     ]);
 
     // --- EXTRACT RESULTS ---
     const weatherKitFull = wkResult.status === 'fulfilled' ? wkResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
     const openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+    const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
 
     // --- DIAGNOSTIC LOGGING ---
     console.log(`[Strategy] API Results for "${name}" (type: ${locationType || 'auto'}):`);
@@ -188,14 +196,40 @@ export const fetchWeatherByStrategy = async (
         if (stormGlassReport.isLandlocked != null) report.isLandlocked = stormGlassReport.isLandlocked;
     }
 
-    // --- FALLBACK: Tides + location from OpenMeteo if StormGlass didn't provide them ---
-    // OpenMeteo also calls fetchRealTides() internally. If StormGlass failed/was skipped,
-    // OpenMeteo's tides are still available.
-    if ((!report.tides || report.tides.length === 0) && openMeteoReport) {
-        if (openMeteoReport.tides?.length) report.tides = openMeteoReport.tides;
-        if (openMeteoReport.tideHourly?.length) report.tideHourly = openMeteoReport.tideHourly;
-        if (openMeteoReport.tideGUIDetails) report.tideGUIDetails = openMeteoReport.tideGUIDetails;
+    // --- APPLY TIDES (WorldTides — direct, first-class) ---
+    // Tides are fetched directly from WorldTides API, not as a side effect
+    // of StormGlass or OpenMeteo. 24h cached — harmonic predictions are deterministic.
+    if (tideData?.tides?.length) {
+        report.tides = tideData.tides;
+        if (tideData.guiDetails) report.tideGUIDetails = tideData.guiDetails;
+
+        // Generate dense hourly tide data for the graph (cosine interpolation)
+        const sorted = [...tideData.tides].sort((a, b) =>
+            new Date(a.time).getTime() - new Date(b.time).getTime()
+        );
+        const interpolated: { time: string; height: number }[] = [];
+        for (let i = 0; i < sorted.length - 1; i++) {
+            const tStart = new Date(sorted[i].time).getTime();
+            const tEnd = new Date(sorted[i + 1].time).getTime();
+            const hStart = sorted[i].height;
+            const hEnd = sorted[i + 1].height;
+            for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
+                const ratio = (t - tStart) / (tEnd - tStart);
+                const height = (hStart + hEnd) / 2 + (hStart - hEnd) / 2 * Math.cos(ratio * Math.PI);
+                interpolated.push({ time: new Date(t).toISOString(), height });
+            }
+        }
+        if (interpolated.length > 0) {
+            report.tideHourly = interpolated.map(p => ({ time: p.time, height: p.height }));
+        }
+    } else if (stormGlassReport?.tides?.length) {
+        // Fallback: StormGlass may have tides if WorldTides failed
+        report.tides = stormGlassReport.tides;
+        if (stormGlassReport.tideHourly?.length) report.tideHourly = stormGlassReport.tideHourly;
+        if (stormGlassReport.tideGUIDetails) report.tideGUIDetails = stormGlassReport.tideGUIDetails;
     }
+
+    // --- INHERIT LOCATION METADATA FROM OPENMETEO (if StormGlass didn't provide) ---
     if (report.distToLandKm == null && openMeteoReport?.distToLandKm != null) {
         report.distToLandKm = openMeteoReport.distToLandKm;
     }
