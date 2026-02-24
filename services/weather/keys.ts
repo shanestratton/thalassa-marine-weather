@@ -2,18 +2,28 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { getErrorMessage } from '../../utils/logger';
 
+/**
+ * API Key Resolution
+ *
+ * Architecture:
+ * - WorldTides, StormGlass, Gemini: Keys live in Supabase Secrets,
+ *   accessed via Edge Function proxies. Client-side keys are only
+ *   used as a fallback if the proxy is unavailable.
+ * - Mapbox, Transistor: Client-side SDK keys (secured by domain/device)
+ * - Supabase: Anon key (secured by RLS)
+ * - Open-Meteo: Commercial API with generous limits
+ */
+
 export const getApiKey = () => {
-    // Priority: 1. Runtime Env (Vite), 2. Hardcoded (if any, dangerous), 3. Null
+    // StormGlass key — check env var (for direct fallback only)
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY) {
         return import.meta.env.VITE_STORMGLASS_API_KEY;
     }
-    // Fallback or Node process env
     if (typeof process !== 'undefined' && process.env && process.env.VITE_STORMGLASS_API_KEY && process.env.VITE_STORMGLASS_API_KEY.length > 20) {
         return process.env.VITE_STORMGLASS_API_KEY;
     }
-
-    // HARDCODED FALLBACK (Restoring functionality)
-    return "d5cfe8a6-da85-11f0-9b8c-0242ac130003-d5cfe950-da85-11f0-9b8c-0242ac130003";
+    // No hardcoded fallback — key lives in Supabase Secrets
+    return null;
 };
 
 export const getOpenMeteoKey = () => {
@@ -24,16 +34,15 @@ export const getOpenMeteoKey = () => {
 };
 
 export const getWorldTidesKey = () => {
+    // WorldTides key — check env var (for direct fallback only)
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORLDTIDES_API_KEY) {
         return import.meta.env.VITE_WORLDTIDES_API_KEY;
     }
-    // Fallback or Node process env
     if (typeof process !== 'undefined' && process.env && process.env.VITE_WORLDTIDES_API_KEY && process.env.VITE_WORLDTIDES_API_KEY.length > 10) {
         return process.env.VITE_WORLDTIDES_API_KEY;
     }
-
-    // HARDCODED FALLBACK (Ensuring tide functionality on device)
-    return "5b7fde99-1a0c-4008-ba31-11cd7de55d95";
+    // No hardcoded fallback — key lives in Supabase Secrets
+    return null;
 };
 
 export const getMapboxKey = () => {
@@ -43,13 +52,9 @@ export const getMapboxKey = () => {
     return null;
 };
 
-
-
-
-
 export const getApiKeySuffix = () => {
     const key = getApiKey();
-    if (!key) return "MISSING";
+    if (!key) return "PROXY";
     return `...${key.slice(-4)}`;
 };
 
@@ -59,16 +64,16 @@ export const isStormglassKeyPresent = () => {
 };
 
 export const isWorldTidesKeyPresent = () => {
-    const key = getWorldTidesKey();
-    return !!key && key.length > 5;
+    // Always true now — proxy provides the key server-side
+    return true;
 };
 
 // Returns RAW string for debugging UI
 export const debugStormglassConnection = async (): Promise<string> => {
     const key = getApiKey();
-    if (!key) return "Error: No API Key found in Environment.";
+    if (!key) return "Mode: Supabase Edge Proxy (key server-side)";
 
-    const url = 'https://api.stormglass.io/v2/weather/point?lat=0&lng=0&params=windSpeed'; // Minimal request
+    const url = 'https://api.stormglass.io/v2/weather/point?lat=0&lng=0&params=windSpeed';
     try {
         const options = {
             url: url,
@@ -76,15 +81,13 @@ export const debugStormglassConnection = async (): Promise<string> => {
         };
         const res = await CapacitorHttp.get(options);
 
-        // Check quota headers if available
-        // SG headers: 'x-quota-total', 'x-quota-remaining'
         const headers = res.headers;
         let quotaInfo = "";
         if (headers && headers['x-quota-remaining']) {
             quotaInfo = ` | Quota: ${headers['x-quota-remaining']}/${headers['x-quota-total']}`;
         }
 
-        if (res.status === 200) return `Success: Connected${quotaInfo}`;
+        if (res.status === 200) return `Success: Connected (direct)${quotaInfo}`;
         if (res.status === 402 || res.status === 429) return `Error: Quota Exceeded${quotaInfo}`;
         if (res.status === 401 || res.status === 403) return "Error: Invalid API Key";
         return `Error: HTTP ${res.status}`;
@@ -95,7 +98,7 @@ export const debugStormglassConnection = async (): Promise<string> => {
 
 export const checkStormglassStatus = async (): Promise<{ status: 'OK' | 'ERROR' | 'MISSING_KEY', message: string, code?: number }> => {
     const key = getApiKey();
-    if (!key) return { status: 'MISSING_KEY', message: 'No API Key configured' };
+    if (!key) return { status: 'OK', message: 'Using Supabase Edge Proxy' };
 
     try {
         const options = {
