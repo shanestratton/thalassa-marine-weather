@@ -7,6 +7,28 @@ import { fetchWeatherKitFull, WeatherKitFullResponse } from './api/weatherkit';
 import { saveToCache, getFromCache } from './cache';
 import { degreesToCardinal } from '../../utils';
 
+// ── Condition Severity Ranking ────────────────────────────────
+// Used to pick the "worst" condition between observation and hourly forecast.
+// Higher number = more severe weather. When the observation says "Partly Cloudy"
+// but the hourly forecast says "Rain", we show "Rain" because it's more likely
+// to be what the user is actually experiencing.
+const CONDITION_SEVERITY: Record<string, number> = {
+    'Clear': 0, 'Mostly Clear': 1, 'Partly Cloudy': 2,
+    'Mostly Cloudy': 3, 'Cloudy': 4, 'Overcast': 4,
+    'Haze': 5, 'Fog': 6, 'Breezy': 6, 'Windy': 7,
+    'Drizzle': 8, 'Light Rain': 9, 'Rain': 10, 'Showers': 10,
+    'Heavy Rain': 11, 'Freezing Drizzle': 11, 'Freezing Rain': 12,
+    'Sleet': 12, 'Snow': 12, 'Heavy Snow': 13, 'Blizzard': 14,
+    'Thunderstorm': 15, 'Isolated Thunderstorms': 14, 'Scattered Thunderstorms': 15,
+    'Severe Storms': 16, 'Tropical Storm': 17, 'Hurricane': 18,
+};
+
+function pickWorstCondition(a: string, b: string): string {
+    const sevA = CONDITION_SEVERITY[a] ?? 2;
+    const sevB = CONDITION_SEVERITY[b] ?? 2;
+    return sevB > sevA ? b : a;
+}
+
 // --- RE-EXPORTS (Maintain API Compatibility) ---
 export { MAJOR_BUOYS } from './config';
 export { getApiKeySuffix, isStormglassKeyPresent, debugStormglassConnection, checkStormglassStatus } from './keys';
@@ -236,8 +258,28 @@ export const fetchWeatherByStrategy = async (
         }
 
         // Condition text from WeatherKit
+        // Strategy: Use the "worst" condition between obs and hourly forecast for the current hour.
+        // WeatherKit's currentWeather observation can lag reality by 5-15 min,
+        // but the hourly forecast for the current hour often correctly identifies precipitation.
         if (weatherKitObs.condition && weatherKitObs.condition !== 'Unknown') {
-            current.condition = weatherKitObs.condition;
+            let bestCondition = weatherKitObs.condition;
+
+            // Cross-reference with WeatherKit hourly forecast for current hour
+            if (weatherKitFull?.hourly?.length) {
+                const now = new Date();
+                const currentHourStr = now.toISOString().slice(0, 13); // "2026-02-25T05"
+                const currentHourly = weatherKitFull.hourly.find(h =>
+                    h.time && h.time.startsWith(currentHourStr)
+                );
+                if (currentHourly?.condition) {
+                    // Use whichever condition is "worse" (rain > cloudy > clear)
+                    bestCondition = pickWorstCondition(bestCondition, currentHourly.condition);
+                }
+            }
+
+            current.condition = bestCondition;
+            // Regenerate description from updated condition so the whole card is consistent
+            current.description = `${bestCondition}. Wind ${current.windSpeed ?? '--'} kts ${current.windDirection || ''}`;
         }
 
         // Precipitation intensity

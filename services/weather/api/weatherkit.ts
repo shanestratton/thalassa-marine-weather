@@ -121,6 +121,15 @@ const fractionToPercent = (v: number | null | undefined): number | null =>
 const mToKm = (v: number | null | undefined): number | null =>
     v != null ? v / 1000 : null;
 
+/** Round an ISO timestamp to the nearest minute and format as HH:MM */
+function roundToNearestMinute(isoStr: string): string {
+    const d = new Date(isoStr);
+    // Round: if seconds >= 30, bump to next minute
+    if (d.getSeconds() >= 30) d.setMinutes(d.getMinutes() + 1);
+    d.setSeconds(0, 0);
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 // ── Response Mappers ──────────────────────────────────────────
 
 /** Map Apple currentWeather → WeatherKitObservation */
@@ -198,8 +207,8 @@ function mapDailyForecast(forecastDaily: any): ForecastDay[] {
             precipitation: d.precipitationAmount ?? undefined,
             cloudCover: fractionToPercent(d.daytimeForecast?.cloudCover) ?? undefined,
             uvIndex: d.maxUvIndex ?? undefined,
-            sunrise: d.sunrise ? new Date(d.sunrise).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : undefined,
-            sunset: d.sunset ? new Date(d.sunset).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : undefined,
+            sunrise: d.sunrise ? roundToNearestMinute(d.sunrise) : undefined,
+            sunset: d.sunset ? roundToNearestMinute(d.sunset) : undefined,
             humidity: fractionToPercent(d.daytimeForecast?.humidity) ?? undefined,
             pressure: d.restOfDayForecast?.pressureTrend ?? undefined,
         };
