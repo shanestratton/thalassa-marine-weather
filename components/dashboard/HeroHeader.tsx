@@ -67,8 +67,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         }
     }, [isLive, sources]);
 
-    // Map weather condition to single word
-    const oneWordCondition = useMemo(() => {
+    // Map weather condition to category for icon selection
+    const conditionCategory = useMemo(() => {
         const c = (data.condition || '').toLowerCase();
         if (c.includes('thunder') || c.includes('storm')) return 'Storm';
         if (c.includes('pour') || c.includes('heavy rain')) return 'Pouring';
@@ -85,7 +85,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         return 'Cloudy';
     }, [data.condition, isDay]);
 
-    const conditionIcon = getConditionIcon(oneWordCondition);
+    // Use exact WeatherKit condition text for display, icon from category
+    const displayCondition = data.condition || 'Cloudy';
+    const conditionIcon = getConditionIcon(conditionCategory);
 
     return (
         <div
@@ -123,8 +125,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                                 />
                                 <span className="text-2xl leading-none">{conditionIcon}</span>
-                                <span className="text-ivory text-3xl font-mono font-bold tracking-tight leading-none">
-                                    {oneWordCondition}
+                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-xl' : 'text-2xl'} font-mono font-bold tracking-tight leading-none`}>
+                                    {displayCondition}
                                 </span>
                             </div>
                         </>
@@ -135,8 +137,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </span>
                             <div className="flex items-center gap-2">
                                 <span className="text-xl leading-none">{conditionIcon}</span>
-                                <span className="text-ivory text-2xl font-mono font-bold tracking-tight leading-none">
-                                    {oneWordCondition}
+                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-lg' : 'text-xl'} font-mono font-bold tracking-tight leading-none`}>
+                                    {displayCondition}
                                 </span>
                             </div>
                             {timeLabel && (
