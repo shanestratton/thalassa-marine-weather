@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
     MapPinIcon, MapIcon, RouteIcon, CalendarIcon,
@@ -10,6 +10,8 @@ import { SlideToAction } from './ui/SlideToAction';
 import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { t } from '../theme';
+import { getSpatiotemporalPayload } from '../services/weatherRouter';
+import PassageCanvas from './passage/PassageCanvas';
 
 
 
@@ -51,10 +53,28 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     const [departureTime, setDepartureTime] = useState('06:00');
     const [suggestingDeparture, setSuggestingDeparture] = useState(false);
     const [suggestedReasoning, setSuggestedReasoning] = useState<string | null>(null);
+    const [is4DCanvasOpen, setIs4DCanvasOpen] = useState(false);
     const formRef = React.useRef<HTMLFormElement>(null);
+
+    // Extract spatiotemporal payload from the enhanced voyage plan
+    const spatiotemporalPayload = useMemo(() => {
+        if (!voyagePlan) return null;
+        return getSpatiotemporalPayload(voyagePlan);
+    }, [voyagePlan]);
 
     return (
         <div className="relative flex-1 h-full bg-slate-950 overflow-hidden flex flex-col">
+
+            {/* ═══ 4D PASSAGE CANVAS (FULL SCREEN PORTAL) ═══ */}
+            {is4DCanvasOpen && spatiotemporalPayload && createPortal(
+                <div className="fixed inset-0 z-[3000]" style={{ background: '#040d1a' }}>
+                    <PassageCanvas
+                        payload={spatiotemporalPayload}
+                        onClose={() => setIs4DCanvasOpen(false)}
+                    />
+                </div>,
+                document.body
+            )}
 
             {/* ═══ HEADER ═══ */}
             <div className="shrink-0 px-4 pt-3 pb-2">
@@ -164,6 +184,22 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                 <LockIcon className="w-3 h-3 text-sky-400" />
                                                 <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium</span>
                                             </div>
+                                        )}
+                                        {spatiotemporalPayload && (
+                                            <button
+                                                onClick={() => setIs4DCanvasOpen(true)}
+                                                className="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all"
+                                                style={{
+                                                    background: 'rgba(0, 240, 255, 0.08)',
+                                                    borderColor: 'rgba(0, 240, 255, 0.25)',
+                                                    color: '#00f0ff',
+                                                    textShadow: '0 0 8px rgba(0,240,255,0.3)',
+                                                }}
+                                                aria-label="Open 4D route visualization"
+                                            >
+                                                <MapIcon className="w-4 h-4" />
+                                                <span className="text-[10px] font-bold uppercase tracking-widest">4D Route</span>
+                                            </button>
                                         )}
                                         <button
                                             onClick={clearVoyagePlan}

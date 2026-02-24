@@ -1098,29 +1098,59 @@ Deno.serve(async (req: Request) => {
         // ── Step 5: Simplify path ──
         const simplified = simplifyPath(result.path, 3.0);
 
-        // ── Build response ──
-        const waypoints = simplified.map((node, i) => ({
-            lat: Math.round(node.lat * 10000) / 10000,
-            lon: Math.round(node.lon * 10000) / 10000,
-            name: i === 0 ? 'Departure'
-                : i === simplified.length - 1 ? 'Arrival'
-                    : `WP-${String(i).padStart(2, '0')}`,
-            depth_m: node.depth_m,
-            lateral_offset_nm: node.lateralOffset * (corridorWidth / lateralSteps),
-            weather_at_arrival: interpolateWeather(
+        // ── Build spatiotemporal track ──
+        // Each point has: coordinates, distance, time offset, and conditions
+        // This enables the frontend 4D scrubber to interpolate position + weather
+        let cumulativeDistNM = 0;
+        const track = simplified.map((node, i) => {
+            if (i > 0) {
+                cumulativeDistNM += haversineNM(
+                    simplified[i - 1].lat, simplified[i - 1].lon,
+                    node.lat, node.lon,
+                );
+            }
+            // Approximate time offset based on fraction of total time
+            const timeFraction = (result.path.length <= 1) ? 0
+                : i / (simplified.length - 1);
+            const timeOffsetH = result.totalTimeH * timeFraction;
+
+            const wx = interpolateWeather(
                 weatherGrid,
                 node.lat, node.lon,
-                result.totalTimeH * (i / simplified.length), // Approximate ETA
-            ),
-        }));
-
-        // Calculate weather-routed distance
-        let routeDistNM = 0;
-        for (let i = 1; i < simplified.length; i++) {
-            routeDistNM += haversineNM(
-                simplified[i - 1].lat, simplified[i - 1].lon,
-                simplified[i].lat, simplified[i].lon,
+                timeOffsetH,
             );
+
+            return {
+                coordinates: [
+                    Math.round(node.lon * 10000) / 10000,
+                    Math.round(node.lat * 10000) / 10000,
+                ] as [number, number],     // GeoJSON order: [lng, lat]
+                distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
+                time_offset_hours: Math.round(timeOffsetH * 10) / 10,
+                name: i === 0 ? 'Departure'
+                    : i === simplified.length - 1 ? 'Arrival'
+                        : `WP-${String(i).padStart(2, '0')}`,
+                lateral_offset_nm: node.lateralOffset * (corridorWidth / lateralSteps),
+                conditions: {
+                    depth_m: node.depth_m ?? null,
+                    wind_spd_kts: Math.round(wx.windSpeed * 10) / 10,
+                    wind_dir_deg: Math.round(wx.windDir),
+                    wave_ht_m: Math.round(wx.waveHeight * 10) / 10,
+                    swell_period_s: wx.swellPeriod ? Math.round(wx.swellPeriod * 10) / 10 : null,
+                },
+            };
+        });
+
+        const routeDistNM = cumulativeDistNM;
+
+        // Bounding box for instant map camera framing [minLon, minLat, maxLon, maxLat]
+        let bbMinLat = Infinity, bbMaxLat = -Infinity;
+        let bbMinLon = Infinity, bbMaxLon = -Infinity;
+        for (const pt of track) {
+            bbMinLon = Math.min(bbMinLon, pt.coordinates[0]);
+            bbMaxLon = Math.max(bbMaxLon, pt.coordinates[0]);
+            bbMinLat = Math.min(bbMinLat, pt.coordinates[1]);
+            bbMaxLat = Math.max(bbMaxLat, pt.coordinates[1]);
         }
 
         console.log(`[WeatherRouter] ── COMPLETE ─────────────────────────────`);
@@ -1129,11 +1159,22 @@ Deno.serve(async (req: Request) => {
         console.log(`[WeatherRouter] Computed in ${computeMs}ms`);
 
         return jsonResponse({
-            waypoints,
-            distance_nm: Math.round(routeDistNM * 10) / 10,
-            eta_hours: Math.round(result.totalTimeH * 10) / 10,
-            cost_score: Math.round(result.totalCost * 100) / 100,
-            computation_ms: computeMs,
+            summary: {
+                total_distance_nm: Math.round(routeDistNM * 10) / 10,
+                total_duration_hours: Math.round(result.totalTimeH * 10) / 10,
+                cost_score: Math.round(result.totalCost * 100) / 100,
+                computation_ms: computeMs,
+                routing_mode: 'stitched_spatiotemporal',
+                vessel_type: vessel.type,
+                departure_time: departureDate.toISOString(),
+            },
+            bounding_box: [
+                Math.round(bbMinLon * 100) / 100,
+                Math.round(bbMinLat * 100) / 100,
+                Math.round(bbMaxLon * 100) / 100,
+                Math.round(bbMaxLat * 100) / 100,
+            ],
+            track,
             mesh_stats: {
                 total_nodes: meshNodes.length,
                 rows: centerline.length,
@@ -1142,8 +1183,6 @@ Deno.serve(async (req: Request) => {
                 weather_grid_points: weatherGrid.data.size,
                 forecast_hours: weatherGrid.hoursAvailable,
             },
-            vessel_type: vessel.type,
-            departure_time: departureDate.toISOString(),
         });
 
     } catch (err) {
