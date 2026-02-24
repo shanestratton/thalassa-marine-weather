@@ -553,6 +553,7 @@ export interface VoyagePlan {
         contactPhone?: string;
     };
     bestDepartureWindow?: {
+        dateTimeISO?: string;
         timeRange: string;
         reasoning: string;
     };

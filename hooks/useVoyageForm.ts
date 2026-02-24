@@ -189,8 +189,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         e.stopPropagation();
         if ('geolocation' in navigator) {
             navigator.geolocation.getCurrentPosition(async (position) => {
-                const name = await reverseGeocode(position.coords.latitude, position.coords.longitude);
-                setOrigin(name || `WP ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const name = await reverseGeocode(lat, lon);
+                // Always embed coordinates so the routing pipeline uses the exact GPS position
+                const coordSuffix = `(${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+                setOrigin(name ? `${name} ${coordSuffix}` : `WP ${coordSuffix}`);
             });
         }
     };
@@ -209,7 +213,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // Fallback to WP format
             }
         }
-        const displayName = resolvedName || `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
+        // CRITICAL: Always embed exact coordinates in the display string
+        // This ensures the routing pipeline (Gemini + bathymetric + weather)
+        // uses the precise GPS position, not a vague name lookup.
+        const coordSuffix = `(${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        const displayName = resolvedName
+            ? `${resolvedName} ${coordSuffix}`
+            : `WP ${coordSuffix}`;
 
         if (mapSelectionTarget === 'origin') {
             setOrigin(displayName);

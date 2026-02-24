@@ -226,9 +226,15 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         if (weatherContext) {
             contextString = `\nREAL-TIME WEATHER CONTEXT (Use this to assess viability/timing):\n${JSON.stringify(weatherContext, null, 2)}\n`;
         }
+        const today = new Date().toISOString().split('T')[0];
 
         const prompt = `Act as a professional Master Mariner. Plan a marine voyage for a ${length}ft ${type} vessel named "${name}" from "${origin}" to "${destination}" via "${via || 'direct'}" departing ${departureDate}.
         ${contextString}
+        CRITICAL INSTRUCTIONS:
+        1. COORDINATES: If the origin or destination contains GPS coordinates in parentheses like "Port Name (-22.2765, 166.4377)", you MUST use those EXACT coordinates for originCoordinates/destinationCoordinates. Do NOT substitute with city-center or generic port coordinates.
+        2. DEPARTURE WINDOW: Today is ${today}. The bestDepartureWindow MUST specify a CONCRETE date and time within the next 10 days based on actual weather patterns for this route and season. Give a specific ISO datetime (e.g. "2026-02-26T06:00:00Z"), NOT vague advice like "March" or "next season". Consider: synoptic weather patterns, trade wind cycles, frontal systems, and tidal windows. If departing now would be acceptable, say so with confidence.
+        3. PRECISION: All waypoint coordinates must be in open navigable water, not on land.
+
         TONE: Professional, concise, safety-focused.
         RETURN PURE JSON ONLY. NO MARKDOWN. STRICTLY ADHERE TO THIS SCHEMA:
         {
@@ -261,8 +267,9 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             "contactPhone": "string"
           },
           "bestDepartureWindow": {
-            "timeRange": "string",
-            "reasoning": "string"
+            "dateTimeISO": "string (ISO 8601 datetime within next 10 days, e.g. 2026-02-26T06:00:00Z — THIS IS REQUIRED AND MUST BE A SPECIFIC DATE)",
+            "timeRange": "string (e.g. '06:00 - 10:00 local' — the optimal window on that day)",
+            "reasoning": "string (WHY this specific date/time: reference wind forecast, fronts, tides, swell. Be concrete, e.g. 'SE trade winds ease to 12-15kts after frontal passage on the 26th, with 1.2m SE swell. Ebb tide at 0600 assists departure from the channel.')"
           },
           "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, seasonal weather patterns, safe harbours en route, and any relevant maritime geography.)"
         }`;
