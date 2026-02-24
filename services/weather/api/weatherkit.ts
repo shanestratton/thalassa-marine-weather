@@ -109,6 +109,10 @@ function getSupabaseKey(): string {
 const kmhToMs = (v: number | null | undefined): number | null =>
     v != null ? v / 3.6 : null;
 
+/** Apple km/h → knots (internal unit convention) */
+const kmhToKnots = (v: number | null | undefined): number | null =>
+    v != null ? v * 0.539957 : null;
+
 /** Apple m/s wind speed → knots for display */
 const msToKnots = (v: number | null | undefined): number =>
     v != null ? Math.round(v * 1.94384) : 0;
@@ -139,9 +143,9 @@ function mapCurrentWeather(cw: any): WeatherKitObservation {
         temperature: cw.temperature ?? null,
         temperatureApparent: cw.temperatureApparent ?? null,
         humidity: fractionToPercent(cw.humidity),
-        windSpeed: kmhToMs(cw.windSpeed),
+        windSpeed: kmhToKnots(cw.windSpeed),     // MUST be knots — internal convention
         windDirection: cw.windDirection ?? null,
-        windGust: kmhToMs(cw.windGust),
+        windGust: kmhToKnots(cw.windGust),        // MUST be knots — internal convention
         pressure: cw.pressure ?? null,
         visibility: mToKm(cw.visibility),
         cloudCover: fractionToPercent(cw.cloudCover),
