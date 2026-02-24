@@ -19,11 +19,14 @@
  *   └─────────────────────────────────────────────┘
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import SpatiotemporalMap from './SpatiotemporalMap';
 import TemporalScrubber from './TemporalScrubber';
 import PassageHUD from './PassageHUD';
 import { useGhostShip } from '../../hooks/passage/useGhostShip';
+import { WindStore } from '../../stores/WindStore';
+import { fetchWW3Grid } from '../../services/ww3CacheClient';
+import { fetchGlobalWindField } from '../../services/weather/windField';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import '../../styles/bioluminescent.css';
 
@@ -225,6 +228,44 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
     const maxTime = payload.summary.total_duration_hours;
 
+    // ── Auto-load wind data for particles ──
+    // Try WW3 pre-cache first, fall back to global wind field
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadWindData() {
+            WindStore.setLoading(true);
+            console.log('[PassageCanvas] Loading wind/wave data for particles...');
+
+            // Try WW3 cache first (wave visualization)
+            const ww3Grid = await fetchWW3Grid(Math.ceil(maxTime));
+            if (!cancelled && ww3Grid) {
+                WindStore.setGrid(ww3Grid);
+                console.log(`[PassageCanvas] ✓ WW3 wave data loaded: ${ww3Grid.totalHours} timesteps`);
+                return;
+            }
+
+            // Fallback: global wind field (Open-Meteo)
+            const windGrid = await fetchGlobalWindField();
+            if (!cancelled && windGrid) {
+                WindStore.setGrid(windGrid);
+                console.log(`[PassageCanvas] ✓ Global wind data loaded: ${windGrid.totalHours} timesteps`);
+                return;
+            }
+
+            if (!cancelled) {
+                WindStore.setLoading(false);
+                console.warn('[PassageCanvas] No wind data available for particle layer');
+            }
+        }
+
+        loadWindData();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [maxTime]);
+
     return (
         <div style={{
             position: 'relative',
@@ -238,6 +279,9 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 track={payload.track}
                 ghostShip={ghostShip}
                 boundingBox={payload.bounding_box}
+                corridorWidthNM={payload.mesh_stats.corridor_width_nm}
+                vesselType={payload.summary.vessel_type as 'sail' | 'power'}
+                currentTimeHours={currentTimeHours}
             />
 
             {/* ═══ LAYER 2: UI Overlay ═══ */}

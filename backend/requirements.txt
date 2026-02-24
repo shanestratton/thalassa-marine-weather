@@ -1,5 +1,6 @@
-# Thalassa Backend — Bathymetric Routing Engine
-# ───────────────────────────────────────────────
+# Thalassa Backend — Bathymetric Routing & Wave Forecast Engine
+# ──────────────────────────────────────────────────────────────
+# Core
 xarray>=2024.1.0
 dask[complete]>=2024.1.0
 zarr>=2.16.0
@@ -7,3 +8,11 @@ netCDF4>=1.6.0
 numcodecs>=0.12.0
 numpy>=1.26.0
 scipy>=1.12.0
+
+# WW3 Pre-Cache Pipeline (GRIB2 decode)
+cfgrib>=0.9.10
+eccodes>=1.6.0
+requests>=2.31.0
+
+# Supabase upload (for ww3_precache.py)
+supabase>=2.0.0
