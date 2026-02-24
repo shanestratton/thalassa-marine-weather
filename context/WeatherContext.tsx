@@ -7,7 +7,7 @@ import { fetchWeatherKitRealtime } from '../services/weather/api/weatherkit';
 import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
-import { calculateDistance } from '../utils';
+import { calculateDistance, degreesToCardinal } from '../utils';
 import { enhanceWithBeaconData } from '../services/beaconIntegration';
 import { EnvironmentService } from '../services/EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
@@ -877,7 +877,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     sourceName: 'Apple Weather',
                 });
 
-                // Patch live metrics
+                // Patch ALL live metrics from WeatherKit observation
                 if (obs.temperature !== null) {
                     patched.airTemperature = obs.temperature;
                     sources['airTemperature'] = wkSource(obs.temperature);
@@ -898,8 +898,46 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     patched.pressure = obs.pressure;
                     sources['pressure'] = wkSource(obs.pressure);
                 }
+
+                // Wind — was missing! Wind stayed stale from initial fetch.
+                if (obs.windSpeed !== null) {
+                    patched.windSpeed = Math.round(obs.windSpeed);
+                    sources['windSpeed'] = wkSource(patched.windSpeed);
+                }
+                if (obs.windGust !== null) {
+                    patched.windGust = Math.round(obs.windGust);
+                    sources['windGust'] = wkSource(patched.windGust);
+                }
+                if (obs.windDirection !== null) {
+                    patched.windDegree = obs.windDirection;
+                    patched.windDirection = degreesToCardinal(obs.windDirection);
+                    sources['windDirection'] = wkSource(obs.windDirection);
+                }
+
+                // Cloud cover, visibility, UV
+                if (obs.cloudCover !== null) {
+                    patched.cloudCover = obs.cloudCover;
+                    sources['cloudCover'] = wkSource(obs.cloudCover);
+                }
+                if (obs.visibility !== null) {
+                    patched.visibility = obs.visibility;
+                    sources['visibility'] = wkSource(obs.visibility);
+                }
+                if (obs.uvIndex !== null) {
+                    patched.uvIndex = obs.uvIndex;
+                    sources['uvIndex'] = wkSource(obs.uvIndex);
+                }
+
+                // Condition + description
                 if (obs.condition && obs.condition !== 'Unknown') {
                     patched.condition = obs.condition;
+                    patched.description = `${obs.condition}. Wind ${patched.windSpeed ?? '--'} kts ${patched.windDirection || ''}`;
+                }
+
+                // Precipitation intensity
+                if (obs.precipitationIntensity !== null) {
+                    patched.precipitation = obs.precipitationIntensity;
+                    sources['precipitation'] = wkSource(obs.precipitationIntensity);
                 }
 
                 patched.sources = sources;
