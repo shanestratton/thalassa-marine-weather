@@ -1,5 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
-import { HourlyForecast, ForecastDay } from '../../../types';
+import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -415,3 +415,123 @@ export const fetchMinutelyRainWithSummary = async (
     };
 };
 
+// ── WeatherKit → MarineWeatherReport Builder ──────────────────
+// Builds a complete MarineWeatherReport directly from WeatherKit data.
+// This is the PRIMARY source — no more layering on top of OpenMeteo.
+// Marine fields (wave, swell, water temp, currents) are zero/null here
+// and get filled by StormGlass in the orchestrator.
+
+/**
+ * Build a full MarineWeatherReport from WeatherKit data.
+ * All atmospheric fields (temp, wind, pressure, cloud, etc.) come from Apple.
+ * Marine fields default to zero/null — StormGlass fills them.
+ */
+export function buildReportFromWeatherKit(
+    wk: WeatherKitFullResponse,
+    lat: number,
+    lon: number,
+    name: string,
+): MarineWeatherReport {
+    const obs = wk.observation;
+    const today = wk.daily[0];
+
+    // Source tracking helper
+    const wkSource = (val: number | string | null) => ({
+        value: val,
+        source: 'weatherkit' as const,
+        sourceColor: 'emerald' as const,
+        sourceName: 'Apple Weather',
+    });
+
+    // Build sources map — every atmospheric field from WeatherKit
+    const sources: Record<string, any> = {};
+    if (obs) {
+        if (obs.temperature !== null) sources['airTemperature'] = wkSource(obs.temperature);
+        if (obs.temperatureApparent !== null) sources['feelsLike'] = wkSource(obs.temperatureApparent);
+        if (obs.humidity !== null) sources['humidity'] = wkSource(obs.humidity);
+        if (obs.dewPoint !== null) sources['dewPoint'] = wkSource(obs.dewPoint);
+        if (obs.windSpeed !== null) sources['windSpeed'] = wkSource(obs.windSpeed);
+        if (obs.windGust !== null) sources['windGust'] = wkSource(obs.windGust);
+        if (obs.windDirection !== null) sources['windDirection'] = wkSource(degreesToCardinalSimple(obs.windDirection));
+        if (obs.pressure !== null) sources['pressure'] = wkSource(obs.pressure);
+        if (obs.visibility !== null) sources['visibility'] = wkSource(obs.visibility);
+        if (obs.cloudCover !== null) sources['cloudCover'] = wkSource(obs.cloudCover);
+        if (obs.uvIndex !== null) sources['uvIndex'] = wkSource(obs.uvIndex);
+        if (obs.precipitationIntensity !== null) sources['precipitation'] = wkSource(obs.precipitationIntensity);
+    }
+
+    // Cross-reference observation with hourly for best condition
+    let condition = obs?.condition ?? 'Unknown';
+    if (wk.hourly.length > 0) {
+        const now = new Date();
+        const currentHourStr = now.toISOString().slice(0, 13);
+        const currentHourly = wk.hourly.find(h => h.time?.startsWith(currentHourStr));
+        if (currentHourly?.condition && obs?.condition) {
+            // Use severity ranking — same logic as orchestrator
+            const SEVERITY: Record<string, number> = {
+                'Clear': 0, 'Mostly Clear': 1, 'Partly Cloudy': 2,
+                'Mostly Cloudy': 3, 'Cloudy': 4, 'Overcast': 4,
+                'Haze': 5, 'Fog': 6, 'Breezy': 6, 'Windy': 7,
+                'Drizzle': 8, 'Light Rain': 9, 'Rain': 10, 'Showers': 10,
+                'Heavy Rain': 11, 'Freezing Rain': 12, 'Sleet': 12,
+                'Snow': 12, 'Heavy Snow': 13, 'Blizzard': 14,
+                'Thunderstorm': 15, 'Severe Storms': 16,
+            };
+            const sevObs = SEVERITY[obs.condition] ?? 2;
+            const sevHourly = SEVERITY[currentHourly.condition] ?? 2;
+            if (sevHourly > sevObs) condition = currentHourly.condition;
+        }
+    }
+
+    const current: SourcedWeatherMetrics = {
+        airTemperature: obs?.temperature ?? null,
+        feelsLike: obs?.temperatureApparent ?? null,
+        windSpeed: obs?.windSpeed != null ? parseFloat(obs.windSpeed.toFixed(1)) : null,
+        windGust: obs?.windGust != null ? parseFloat(obs.windGust.toFixed(1)) : null,
+        windDirection: obs?.windDirection != null ? degreesToCardinalSimple(obs.windDirection) : '---',
+        windDegree: obs?.windDirection ?? undefined,
+        waveHeight: null,        // StormGlass fills
+        swellPeriod: null,       // StormGlass fills
+        swellDirection: undefined,
+        waterTemperature: null,  // StormGlass fills
+        currentSpeed: 0,         // StormGlass fills
+        currentDirection: 0,     // StormGlass fills
+        condition,
+        description: `${condition}. Wind ${obs?.windSpeed != null ? parseFloat(obs.windSpeed.toFixed(1)) : '--'} kts ${obs?.windDirection != null ? degreesToCardinalSimple(obs.windDirection) : ''}`,
+        pressure: obs?.pressure ?? null,
+        cloudCover: obs?.cloudCover ?? null,
+        visibility: obs?.visibility ?? null,
+        humidity: obs?.humidity ?? null,
+        dewPoint: obs?.dewPoint ?? null,
+        uvIndex: obs?.uvIndex ?? 0,
+        precipitation: obs?.precipitationIntensity ?? null,
+        sunrise: today?.sunrise ?? '--:--',
+        sunset: today?.sunset ?? '--:--',
+        highTemp: today?.highTemp,
+        lowTemp: today?.lowTemp,
+        moonPhase: '',
+        moonIllumination: 0,
+        day: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+        date: new Date().toLocaleDateString('en-US'),
+        isDay: true, // Will be computed by consumer from sunrise/sunset
+        isEstimated: false,
+        cape: null, // OpenMeteo fills (thunderstorm energy)
+        sources,
+    } as SourcedWeatherMetrics;
+
+    return {
+        locationName: name,
+        coordinates: { lat, lon },
+        current,
+        hourly: wk.hourly,
+        forecast: wk.daily,
+        tides: [],
+        tideHourly: [],
+        boatingAdvice: '',
+        alerts: [],
+        generatedAt: new Date().toISOString(),
+        modelUsed: 'weatherkit',
+        timeZone: undefined, // Will be set by OpenMeteo or StormGlass
+        utcOffset: undefined,
+    };
+}
