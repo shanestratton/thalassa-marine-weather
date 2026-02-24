@@ -88,17 +88,41 @@ export const fetchWeatherByStrategy = async (
     console.log(`  WorldTides:  ${tideResult.status === 'fulfilled' ? (tideData?.tides?.length ? `✅ ${tideData.tides.length} extremes` : '⚠️ no tides') : '❌ ' + (tideResult as PromiseRejectedResult).reason}`);
 
     // --- BUILD BASE REPORT ---
-    // Priority: WeatherKit (primary) > StormGlass (offshore fallback) > OpenMeteo (last resort)
+    // WeatherKit is base for ALL locations (model-based forecasts work globally).
+    // For offshore, StormGlass overrides the current observation (marine-tuned GFS).
     let report: MarineWeatherReport;
 
-    if (weatherKitFull && !isOffshore) {
-        // ✅ PRIMARY PATH: Build report directly from WeatherKit
+    if (weatherKitFull) {
+        // ✅ PRIMARY PATH: Build report from WeatherKit (works globally)
         report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
         console.log(`[Strategy] Base: WeatherKit (${weatherKitFull.observation?.condition || 'no obs'})`);
+
+        // OFFSHORE BLEND: WeatherKit's currentWeather observation is unreliable at sea
+        // (sparse station data). Override current atmospheric fields with StormGlass.
+        // WeatherKit hourly/daily forecasts are model-based and remain valid.
+        if (isOffshore && stormGlassReport) {
+            const sg = stormGlassReport.current;
+            const current = { ...report.current };
+            // StormGlass atmospheric override for current observation only
+            if (sg.airTemperature != null) current.airTemperature = sg.airTemperature;
+            if (sg.feelsLike != null) current.feelsLike = sg.feelsLike;
+            if (sg.windSpeed != null) current.windSpeed = sg.windSpeed;
+            if (sg.windGust != null) current.windGust = sg.windGust;
+            if (sg.windDirection) current.windDirection = sg.windDirection;
+            if (sg.windDegree != null) current.windDegree = sg.windDegree;
+            if (sg.pressure != null) current.pressure = sg.pressure;
+            if (sg.humidity != null) current.humidity = sg.humidity;
+            if (sg.cloudCover != null) current.cloudCover = sg.cloudCover;
+            if (sg.visibility != null) current.visibility = sg.visibility;
+            if (sg.condition) current.condition = sg.condition;
+            if (sg.description) current.description = sg.description;
+            report.current = current;
+            console.log('[Strategy] Offshore blend: SG current obs → WK forecasts');
+        }
     } else if (stormGlassReport) {
-        // Offshore or WeatherKit failed — use StormGlass
+        // WeatherKit failed — use StormGlass as full fallback
         report = stormGlassReport;
-        console.log('[Strategy] Base: StormGlass (WeatherKit unavailable or offshore)');
+        console.log('[Strategy] Base: StormGlass (WeatherKit unavailable)');
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
         report = openMeteoReport;
