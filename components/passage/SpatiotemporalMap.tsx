@@ -35,6 +35,13 @@ const OCEAN_STYLE: StyleSpecification = {
             tileSize: 256,
             attribution: '&copy; <a href="https://carto.com">CARTO</a>',
         },
+        'carto-labels': {
+            type: 'raster',
+            tiles: [
+                'https://basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png',
+            ],
+            tileSize: 256,
+        },
     },
     layers: [
         {
@@ -44,9 +51,21 @@ const OCEAN_STYLE: StyleSpecification = {
             minzoom: 0,
             maxzoom: 19,
             paint: {
-                'raster-brightness-max': 0.65,
-                'raster-contrast': 0.2,
-                'raster-saturation': -0.3,
+                'raster-brightness-max': 0.70,
+                'raster-contrast': 0.25,
+                'raster-saturation': -0.2,
+            },
+        },
+        {
+            id: 'carto-labels-tiles',
+            type: 'raster',
+            source: 'carto-labels',
+            minzoom: 0,
+            maxzoom: 19,
+            paint: {
+                'raster-brightness-max': 1.0,
+                'raster-brightness-min': 0.0,
+                'raster-opacity': 0.85,
             },
         },
     ],

@@ -35,6 +35,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const [source, setSource] = useState<'database' | 'file_import' | 'manual'>('manual');
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [loadingExisting, setLoadingExisting] = useState(true);
 
     // Smart Polars state
@@ -96,24 +97,43 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const savePolar = useCallback(async (data: PolarData, model: string, src: string) => {
-        if (!supabase) return;
+        if (!supabase) {
+            console.warn('[Polars] No Supabase client — cannot save');
+            return;
+        }
         setSaving(true);
+        setSaveError(null);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
+            const { data: authData, error: authError } = await supabase.auth.getUser();
+            if (authError || !authData?.user) {
+                console.warn('[Polars] Not authenticated:', authError?.message);
+                setSaveError('Not signed in');
+                setSaving(false);
+                return;
+            }
 
             const { error } = await supabase
                 .from('vessel_polars')
                 .upsert({
-                    user_id: user.id,
+                    user_id: authData.user.id,
                     boat_model: model,
                     source: src,
                     polar_data: data,
                     updated_at: new Date().toISOString(),
                 }, { onConflict: 'user_id' });
 
-            if (!error) setLastSaved(new Date().toLocaleTimeString());
-        } catch { /* best effort */ }
+            if (error) {
+                console.error('[Polars] Save failed:', error.message, error.details, error.hint);
+                setSaveError(error.message);
+            } else {
+                console.log('[Polars] ✓ Saved:', model, src);
+                setLastSaved(new Date().toLocaleTimeString());
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Unknown error';
+            console.error('[Polars] Save exception:', msg);
+            setSaveError(msg);
+        }
         setSaving(false);
     }, []);
 
@@ -193,6 +213,22 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                 </div>
                 <div className="flex justify-center">
                     <PolarChart data={polarData} overlayData={smartPolarData} />
+                </div>
+
+                {/* Save status */}
+                <div className="flex items-center justify-center gap-2 mt-3">
+                    {saving && (
+                        <span className="flex items-center gap-1.5 text-[10px] text-sky-400">
+                            <div className="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin" />
+                            Saving…
+                        </span>
+                    )}
+                    {lastSaved && !saving && (
+                        <span className="text-[10px] text-emerald-400">✓ Saved {lastSaved}</span>
+                    )}
+                    {saveError && !saving && (
+                        <span className="text-[10px] text-red-400">⚠ {saveError}</span>
+                    )}
                 </div>
             </div>
 

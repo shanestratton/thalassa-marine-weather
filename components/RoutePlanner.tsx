@@ -336,26 +336,78 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     try {
                                         const { fetchVoyagePlan } = await import('../services/geminiService');
                                         const dummyVessel = vessel || { name: 'Vessel', type: 'sail' as const, length: 30, displacement: 5000, draft: 2, beam: 10, maxWindSpeed: 20, maxWaveHeight: 5, cruisingSpeed: 6 };
-                                        const result = await fetchVoyagePlan(origin, destination, dummyVessel, departureDate);
-                                        if (result.bestDepartureWindow) {
-                                            // Try to parse the AI-suggested time into the date/time fields
-                                            const timeMatch = result.bestDepartureWindow.timeRange?.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
-                                            if (timeMatch) {
-                                                let hr = parseInt(timeMatch[1]);
-                                                const min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-                                                if (timeMatch[3]?.toLowerCase() === 'pm' && hr < 12) hr += 12;
-                                                if (timeMatch[3]?.toLowerCase() === 'am' && hr === 12) hr = 0;
-                                                setDepartureTime(`${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}`);
+
+                                        // Fetch weather context for smarter departure suggestion
+                                        let weatherCtx: Record<string, unknown> | undefined;
+                                        try {
+                                            const coordMatch = origin.match(/\(([+-]?\d+\.?\d*),\s*([+-]?\d+\.?\d*)\)/);
+                                            if (coordMatch) {
+                                                const { fetchFastWeather } = await import('../services/weatherService');
+                                                const wx = await fetchFastWeather("Departure-Context", {
+                                                    lat: parseFloat(coordMatch[1]),
+                                                    lon: parseFloat(coordMatch[2]),
+                                                });
+                                                if (wx) {
+                                                    weatherCtx = {
+                                                        current: wx.current,
+                                                        tides: wx.tides?.slice(0, 8),
+                                                        forecastSample: wx.hourly?.slice(0, 48).map((h) => ({
+                                                            time: h.time,
+                                                            wind: h.windSpeed,
+                                                            gust: h.windGust,
+                                                            wave: h.waveHeight,
+                                                            dir: h.windDirection,
+                                                        })),
+                                                    };
+                                                }
                                             }
-                                            setSuggestedReasoning(result.bestDepartureWindow.reasoning || null);
+                                        } catch { /* non-critical */ }
+
+                                        const result = await fetchVoyagePlan(origin, destination, dummyVessel, departureDate, undefined, undefined, undefined, weatherCtx);
+                                        if (result.bestDepartureWindow) {
+                                            const bdw = result.bestDepartureWindow;
+
+                                            // Primary: parse the ISO datetime (new precise field)
+                                            if (bdw.dateTimeISO) {
+                                                try {
+                                                    const dt = new Date(bdw.dateTimeISO);
+                                                    if (!isNaN(dt.getTime())) {
+                                                        setDepartureDate(dt.toISOString().split('T')[0]);
+                                                        setDepartureTime(
+                                                            `${String(dt.getUTCHours()).padStart(2, '0')}:${String(dt.getUTCMinutes()).padStart(2, '0')}`
+                                                        );
+                                                    }
+                                                } catch { /* fallthrough */ }
+                                            }
+
+                                            // Fallback: parse timeRange for the time only
+                                            if (!bdw.dateTimeISO) {
+                                                const timeMatch = bdw.timeRange?.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
+                                                if (timeMatch) {
+                                                    let hr = parseInt(timeMatch[1]);
+                                                    const min = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                                                    if (timeMatch[3]?.toLowerCase() === 'pm' && hr < 12) hr += 12;
+                                                    if (timeMatch[3]?.toLowerCase() === 'am' && hr === 12) hr = 0;
+                                                    setDepartureTime(`${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}`);
+                                                }
+                                            }
+
+                                            // Show reasoning with the suggested date
+                                            const dateStr = bdw.dateTimeISO
+                                                ? new Date(bdw.dateTimeISO).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                                                : '';
+                                            const prefix = dateStr ? `📅 ${dateStr}\n` : '';
+                                            setSuggestedReasoning(`${prefix}${bdw.reasoning || ''}`);
                                         }
-                                    } catch { /* silently fail */ }
+                                    } catch (e) {
+                                        console.error('[DepartureSuggest] Error:', e);
+                                    }
                                     setSuggestingDeparture(false);
                                 }}
                                 className="w-full h-10 bg-gradient-to-r from-teal-500/10 to-cyan-500/10 border border-teal-500/20 rounded-xl flex items-center justify-center gap-2 text-teal-300 hover:from-teal-500/20 hover:to-cyan-500/20 transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                                 {suggestingDeparture ? (
-                                    <span className="text-xs font-bold uppercase tracking-widest animate-pulse">Analysing Weather Windows…</span>
+                                    <span className="text-xs font-bold uppercase tracking-widest animate-pulse">Analysing 10-Day Forecast…</span>
                                 ) : (
                                     <>
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -369,7 +421,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             {/* AI Reasoning display */}
                             {suggestedReasoning && (
                                 <div className="bg-teal-500/5 border border-teal-500/15 rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-2">
-                                    <p className="text-[11px] text-teal-300/80 leading-relaxed">
+                                    <p className="text-[11px] text-teal-300/80 leading-relaxed whitespace-pre-line">
                                         <span className="font-bold text-teal-300">⚡ AI: </span>{suggestedReasoning}
                                     </p>
                                 </div>
