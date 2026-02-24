@@ -65,12 +65,16 @@ export const fetchStormGlassWeather = async (
     const start = new Date().toISOString();
     const end = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 Days
 
-    // QUOTA OPTIMIZATION: Only request marine-specific params.
-    // Atmospheric data (windSpeed, airTemp, pressure, cloud, etc.) comes from WeatherKit.
-    // StormGlass is used ONLY for marine fields that Apple doesn't provide.
+    // QUOTA OPTIMIZATION: Request marine-only params for coastal/inland (WeatherKit handles atmo).
+    // For OFFSHORE, request full atmospheric + marine since WeatherKit has no ocean station data.
+    const marineParams = 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection';
+    const atmosphericParams = 'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
+
     const weatherParams = {
         lat, lng: lon,
-        params: 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection',
+        params: existingLocationType === 'offshore'
+            ? `${atmosphericParams},${marineParams}`  // Full suite for offshore
+            : marineParams,                            // Marine-only for coastal/inland
         start, end,
         source: 'sg'
     };
