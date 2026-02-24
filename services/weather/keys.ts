@@ -59,8 +59,8 @@ export const getApiKeySuffix = () => {
 };
 
 export const isStormglassKeyPresent = () => {
-    const key = getApiKey();
-    return !!key && key.length > 10;
+    // Always true — key lives in Supabase Secrets, accessed via proxy-stormglass
+    return true;
 };
 
 export const isWorldTidesKeyPresent = () => {

@@ -1,22 +1,14 @@
 import { MarineWeatherReport, StormGlassHour, StormGlassTideData, BeaconObservation } from '../../../types';
-import { getApiKey, checkStormglassStatus, getOpenMeteoKey } from '../keys';
+import { getOpenMeteoKey } from '../keys';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
 
 import { mapStormGlassToReport, AstroEntry } from '../transformers';
-import { calculateDistance } from '../../../utils/math'; // Added
-import { determineLocationType } from '../locationType'; // Added
-import { mergeWeatherData } from './dataSourceMerger'; // Added for source tracking
-import { findAndFetchNearestBeacon } from './beaconService'; // Added for buoy data
+import { calculateDistance } from '../../../utils/math';
+import { determineLocationType } from '../locationType';
+import { mergeWeatherData } from './dataSourceMerger';
+import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
-
-const fetchAstronomy = async (lat: number, lon: number, days: number, apiKey: string): Promise<AstroEntry[]> => {
-    const end = new Date();
-    end.setDate(end.getDate() + days);
-    return fetchSG<{ data: AstroEntry[] }>('astronomy/point', {
-        lat, lng: lon, end: end.toISOString()
-    }, apiKey).then(r => r.data).catch(() => []);
-};
 
 // FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
 // This restores the Tide Graph without needing the expensive SeaLevel API.
@@ -62,11 +54,8 @@ export const fetchStormGlassWeather = async (
     existingLocationType?: 'coastal' | 'offshore' | 'inland'
 ): Promise<MarineWeatherReport> => {
 
-    // 1. Validate Key
-    const apiKey = getApiKey();
-    if (!apiKey) throw new Error("API Key Missing");
-
-    // 1b. CHECK CACHE (3h TTL — model data updates every 6h)
+    // 1. CHECK CACHE (3h TTL — model data updates every 6h)
+    // API key lives server-side in Supabase Secrets — no client-side check needed.
     const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon);
     if (cached) return cached;
 
@@ -76,9 +65,12 @@ export const fetchStormGlassWeather = async (
     const start = new Date().toISOString();
     const end = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 Days
 
+    // QUOTA OPTIMIZATION: Only request marine-specific params.
+    // Atmospheric data (windSpeed, airTemp, pressure, cloud, etc.) comes from WeatherKit.
+    // StormGlass is used ONLY for marine fields that Apple doesn't provide.
     const weatherParams = {
         lat, lng: lon,
-        params: 'windSpeed,gust,windDirection,waveHeight,wavePeriod,waveDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection,humidity',
+        params: 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection',
         start, end,
         source: 'sg'
     };
@@ -130,7 +122,7 @@ export const fetchStormGlassWeather = async (
 
     let weatherRes: { hours: StormGlassHour[] };
     try {
-        weatherRes = await fetchSG<{ hours: StormGlassHour[] }>('weather/point', weatherParams, apiKey);
+        weatherRes = await fetchSG<{ hours: StormGlassHour[] }>('weather/point', weatherParams);
     } catch (e: unknown) {
         throw e;
     }
@@ -139,17 +131,17 @@ export const fetchStormGlassWeather = async (
     // If these fail, we log warning but continue with defaults
 
 
-    const [tidesRes, astronomy, hybridData] = await Promise.all([
+    // QUOTA OPTIMIZATION: astronomy/point removed — WeatherKit provides sunrise/sunset.
+    // This saves 1 StormGlass API request per fetch.
+    const [tidesRes, hybridData] = await Promise.all([
         fetchRealTides(lat, lon).catch(e => {
             return { tides: [], guiDetails: undefined };
-        }),
-        fetchAstronomy(lat, lon, 10, apiKey).catch(e => {
-            return [];
         }),
         fetchHybridContext().catch(e => {
             return null;
         })
     ]);
+    const astronomy: AstroEntry[] = []; // Empty — WeatherKit provides this data now
 
     // INJECT HYBRID HOURLY UV INTO STORMGLASS HOURS
     // This polyfills the missing 'uvIndex' param we had to remove.
