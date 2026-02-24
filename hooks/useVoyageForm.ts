@@ -139,16 +139,30 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const { fetchVoyagePlan } = await import('../services/geminiService');
             const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
 
-            // Enhance with bathymetric routing (depth-safe waypoints)
-            // Non-blocking: if the edge function fails, the AI plan is used as-is
+            // ── Enhancement Pipeline (non-blocking, sequential) ──
+            // Step 1: Bathymetric routing — depth-safe waypoints
+            let enhancedPlan = result;
             try {
                 const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
-                const enhanced = await enhanceVoyagePlanWithBathymetry(result, vessel);
-                saveVoyagePlan(enhanced);
+                enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
             } catch (bathyErr) {
                 console.warn('[VoyageForm] Bathymetric enhancement unavailable:', bathyErr);
-                saveVoyagePlan(result);
             }
+
+            // Step 2: Weather routing — corridor optimization with time-dependent weather
+            // Only run on passages > 20 NM (short trips don't benefit from weather routing)
+            const distMatch = (enhancedPlan.distanceApprox || '').match(/(\d+)/);
+            const distNM = distMatch ? parseInt(distMatch[0], 10) : 0;
+            if (distNM > 20 && enhancedPlan.waypoints?.length >= 2) {
+                try {
+                    const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
+                    enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
+                } catch (wxErr) {
+                    console.warn('[VoyageForm] Weather routing unavailable:', wxErr);
+                }
+            }
+
+            saveVoyagePlan(enhancedPlan);
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');
         } finally {
