@@ -240,40 +240,117 @@ async function fetchSeamarks(
 
 // ── Phase 2: IALA Channel Polygon Builder ──────────────────────────
 
+// ── IALA Region Detection ──────────────────────────────────────
+
+type IALARegion = 'A' | 'B';
+
+/**
+ * Determine the IALA Maritime Buoyage Region for a given coordinate.
+ *
+ * IALA Region A (Red to Port):
+ *   Europe, Africa, Australia/NZ, most of Asia, Middle East,
+ *   India, Russia, South America (Pacific coast)
+ *
+ * IALA Region B (Red to Starboard — "Red Right Returning"):
+ *   North America, Central America, Caribbean, South America (Atlantic coast),
+ *   Japan, South Korea, Philippines
+ *
+ * The function uses bounding-box checks for Region B territories.
+ * Everything else defaults to Region A.
+ */
+function determineIALARegion(lat: number, lon: number): IALARegion {
+    // ── Region B territories ──
+
+    // North America (continental US, Canada, Mexico)
+    if (lat > 14 && lat < 72 && lon > -170 && lon < -50) return 'B';
+
+    // Central America & Caribbean
+    if (lat > 5 && lat <= 14 && lon > -110 && lon < -60) return 'B';
+
+    // Caribbean islands (wider box)
+    if (lat > 10 && lat < 28 && lon > -90 && lon < -59) return 'B';
+
+    // South America — Atlantic coast (east of Andes, roughly lon > -60)
+    // Brazil, Argentina, Uruguay, Venezuela, Guyana, Suriname
+    if (lat > -56 && lat < 14 && lon > -60 && lon < -30) return 'B';
+
+    // Japan
+    if (lat > 24 && lat < 46 && lon > 122 && lon < 154) return 'B';
+
+    // South Korea
+    if (lat > 33 && lat < 39 && lon > 124 && lon < 132) return 'B';
+
+    // Philippines
+    if (lat > 4 && lat < 22 && lon > 116 && lon < 128) return 'B';
+
+    // US Pacific territories (Hawaii, Guam, etc.)
+    // Hawaii
+    if (lat > 18 && lat < 23 && lon > -161 && lon < -154) return 'B';
+    // Guam / Mariana Islands
+    if (lat > 13 && lat < 21 && lon > 144 && lon < 146) return 'B';
+
+    // Everything else: Region A
+    return 'A';
+}
+
 /**
  * Classify an OSM seamark element into port/starboard/cardinal/safe_water.
  *
- * IALA Region B (Australia, Americas, Japan, Korea, Philippines):
- *   - Red = port (left when returning from sea)
- *   - Green = starboard (right when returning from sea)
+ * The classification depends on the IALA Maritime Buoyage Region:
  *
- * We detect the colour from seamark:beacon_lateral:colour or
- * seamark:buoy_lateral:colour tags.
+ *   Region A (Europe, Australia, Africa, most of Asia):
+ *     Red = Port (left when entering from sea)
+ *     Green = Starboard (right when entering from sea)
+ *
+ *   Region B (Americas, Japan, Korea, Philippines):
+ *     Red = Starboard (right when entering — "Red Right Returning")
+ *     Green = Port (left when entering)
+ *
+ * We detect colour from seamark:beacon_lateral:colour or
+ * seamark:buoy_lateral:colour tags, then apply the region-specific mapping.
  */
-function classifyMark(tags: Record<string, string>): string {
+function classifyMark(tags: Record<string, string>, region: IALARegion): string {
     const seamarkType = tags['seamark:type'] || '';
 
-    // Cardinal marks
+    // Cardinal marks — same in both regions
     if (seamarkType.includes('cardinal')) return 'cardinal';
     if (seamarkType.includes('safe_water')) return 'safe_water';
 
-    // Lateral marks — check colour
+    // Lateral marks — colour depends on IALA region
     if (seamarkType.includes('lateral')) {
-        const colour = tags['seamark:beacon_lateral:colour']
-            || tags['seamark:buoy_lateral:colour']
-            || tags['seamark:lateral:colour']
-            || '';
+        // Check explicit category tags first (these are authoritative)
         const category = tags['seamark:beacon_lateral:category']
             || tags['seamark:buoy_lateral:category']
             || '';
 
-        // IALA Region B: red = port, green = starboard
-        if (colour === 'red' || category === 'port') return 'port';
-        if (colour === 'green' || category === 'starboard') return 'starboard';
+        if (category === 'port') return 'port';
+        if (category === 'starboard') return 'starboard';
 
-        // Fallback: try to detect from shape
-        if (tags['seamark:beacon_lateral:shape'] === 'cylinder') return 'port';      // Can shape (red)
-        if (tags['seamark:beacon_lateral:shape'] === 'cone') return 'starboard';     // Cone shape (green)
+        // Fall back to colour + IALA region mapping
+        const colour = tags['seamark:beacon_lateral:colour']
+            || tags['seamark:buoy_lateral:colour']
+            || tags['seamark:lateral:colour']
+            || '';
+
+        if (colour) {
+            if (region === 'A') {
+                // Region A: Red = Port, Green = Starboard
+                if (colour === 'red') return 'port';
+                if (colour === 'green') return 'starboard';
+            } else {
+                // Region B: Red = Starboard, Green = Port
+                if (colour === 'red') return 'starboard';
+                if (colour === 'green') return 'port';
+            }
+        }
+
+        // Fallback: detect from shape (same meaning in both regions)
+        // Cylinder/Can = Port, Cone/Triangle = Starboard
+        const shape = tags['seamark:beacon_lateral:shape']
+            || tags['seamark:buoy_lateral:shape']
+            || '';
+        if (shape === 'cylinder' || shape === 'can') return 'port';
+        if (shape === 'cone' || shape === 'conical') return 'starboard';
     }
 
     return 'unknown';
@@ -281,8 +358,12 @@ function classifyMark(tags: Record<string, string>): string {
 
 /**
  * Parse Overpass elements into classified NavMarks with distance from origin.
+ * Automatically detects the IALA region from the origin coordinates.
  */
 function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon: number): NavMark[] {
+    const region = determineIALARegion(originLat, originLon);
+    console.log(`[Pilotage] IALA Region: ${region} (${region === 'A' ? 'Red=Port' : 'Red=Starboard "RRR"'})`);
+
     const marks: NavMark[] = [];
 
     for (const el of elements) {
@@ -312,7 +393,7 @@ function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon:
             lat,
             lon,
             type: seamarkType,
-            category: classifyMark(tags),
+            category: classifyMark(tags, region),
             name: tags['name'] || tags['seamark:name'] || `Mark ${el.id}`,
             distFromOrigin: haversineNM(originLat, originLon, lat, lon),
         });
