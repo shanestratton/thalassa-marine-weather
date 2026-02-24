@@ -168,6 +168,8 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = ({
                         setIsPlaying(false);
                         onChange(parseFloat(e.target.value));
                     }}
+                    aria-label="Forecast timeline position"
+                    aria-valuetext={computing ? 'Computing route' : formatTime(currentHour)}
                     className="neon-slider"
                     style={{ position: 'relative', zIndex: 10 }}
                     disabled={computing || maxTimeHours === 0}

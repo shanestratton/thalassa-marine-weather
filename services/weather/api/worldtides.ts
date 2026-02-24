@@ -95,6 +95,8 @@ export const fetchWorldTides = async (
                 station: stationInfo
             } as WorldTidesResponse;
         } else {
+            const errorBody = typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data);
+            console.warn(`[WorldTides] API error: HTTP ${res.status} — ${errorBody}`);
             return null;
         }
     } catch (e) {

@@ -45,7 +45,7 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
             return result;
         }
     } catch (err) {
-        // Silently ignored — non-critical failure
+        console.warn('[Tides] WorldTides fetch failed:', err instanceof Error ? err.message : err);
     }
 
     // FALLBACK: Network Failure / No Data

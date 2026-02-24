@@ -82,6 +82,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     {onBack && (
                         <button
                             onClick={onBack}
+                            aria-label="Go back"
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         >
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -252,6 +253,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 </div>
                                 <input type="text" value={origin} onChange={e => setOrigin(e.target.value)}
                                     placeholder="Type port name or tap map…"
+                                    aria-label="Departure port or location"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button type="button" onClick={() => openMap('origin')}
@@ -272,6 +274,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 </div>
                                 <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
                                     placeholder="Type destination or tap map…"
+                                    aria-label="Destination port or location"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2">
                                     <button type="button" onClick={() => openMap('destination')}
@@ -288,6 +291,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 </div>
                                 <input type="text" value={via} onChange={e => setVia(e.target.value)}
                                     placeholder="Via waypoint (optional)"
+                                    aria-label="Via waypoint"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-20 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button type="button" onClick={() => openMap('via')}
@@ -311,6 +315,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </div>
                                     <input type="date" min={minDate} value={departureDate}
                                         onChange={(e) => { const d = e.target.value; if (!minDate || d >= minDate) setDepartureDate(d); }}
+                                        aria-label="Departure date"
                                         className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }} />
                                 </div>
@@ -320,6 +325,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </div>
                                     <input type="time" value={departureTime}
                                         onChange={(e) => setDepartureTime(e.target.value)}
+                                        aria-label="Departure time"
                                         className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-teal-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }} />
                                 </div>
