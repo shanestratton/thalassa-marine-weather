@@ -376,11 +376,20 @@ async function fetchWeatherGrid(
         const results = await Promise.allSettled(
             batch.map(async (pt) => {
                 try {
-                    // Call our own WeatherKit proxy edge function
-                    const url = `${supabaseUrl}/functions/v1/weatherkit?lat=${pt.lat}&lon=${pt.lon}&datasets=forecastHourly`;
+                    // Call our own WeatherKit proxy edge function (POST with JSON body)
+                    const url = `${supabaseUrl}/functions/v1/fetch-weatherkit`;
                     const resp = await fetch(url, {
-                        headers: { "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY") || ""}` },
-                        signal: AbortSignal.timeout(8000),
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || ""}`,
+                        },
+                        body: JSON.stringify({
+                            lat: pt.lat,
+                            lon: pt.lon,
+                            dataSets: ['forecastHourly'],
+                        }),
+                        signal: AbortSignal.timeout(10000),
                     });
 
                     if (!resp.ok) return null;
@@ -390,13 +399,12 @@ async function fetchWeatherGrid(
 
                     const samples: WeatherSample[] = hourly.map((h: {
                         forecastStart: string;
-                        windSpeed?: number;
-                        windDirection?: number;
-                        // WaveWatch III data may not be in WeatherKit — use defaults
+                        windSpeed?: number;      // km/h from WeatherKit
+                        windDirection?: number;   // degrees
                     }) => ({
-                        windSpeed: (h.windSpeed || 0) * 1.944, // m/s → kts
+                        windSpeed: ((h.windSpeed || 0) / 1.852), // km/h → kts
                         windDir: h.windDirection || 0,
-                        waveHeight: 0, // Will be filled from NOMADS if available
+                        waveHeight: 0, // Will be filled from Pierson-Moskowitz model
                         swellPeriod: undefined,
                     }));
 
