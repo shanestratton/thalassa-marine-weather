@@ -524,6 +524,7 @@ export interface Waypoint {
     coordinates?: { lat: number, lon: number };
     windSpeed?: number;
     waveHeight?: number;
+    depth_m?: number;  // Bathymetric depth in metres (from ETOPO COG)
 }
 
 export interface VoyagePlan {
@@ -555,6 +556,7 @@ export interface VoyagePlan {
         timeRange: string;
         reasoning: string;
     };
+    routeReasoning?: string;
 }
 
 // --- SHIP'S LOG (GPS-BASED TRACKING) ---

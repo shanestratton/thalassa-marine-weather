@@ -30,9 +30,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react()],
     define: {
-      // Polyfill process.env for browser compatibility
-      // We set it to an empty object, but specific keys below will be replaced by string literals
-      'process.env': {},
+      // IMPORTANT: Do NOT set 'process.env': {} — this clobbers React's internal
+      // process.env.NODE_ENV detection and causes hooks to fail in lazy-loaded chunks.
+      // Instead, define individual keys only.
+      'process.env.NODE_ENV': JSON.stringify(mode),
 
       // --- API KEY INJECTION ---
       // We inject these keys directly into the build so the client can use them.

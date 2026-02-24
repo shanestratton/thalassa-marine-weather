@@ -411,613 +411,619 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // ── Render ──
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pt-4 animate-in fade-in duration-300 h-full flex flex-col overflow-hidden" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
+        <div className="relative h-full bg-slate-950 overflow-hidden">
+            <div className="flex flex-col h-full">
 
-            {/* ═══ HEADER ═══ */}
-            <div className="flex items-center gap-3 mb-5 shrink-0">
-                <button
-                    onClick={onBack}
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                >
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
-                <div className="flex-1">
-                    <h1 className="text-lg font-black text-white tracking-wide">Maintenance</h1>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Tasks & Expiry</p>
-                </div>
-
-                {/* Status summary pills */}
-                <div className="flex items-center gap-1.5">
-                    {counts.red > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-black">{counts.red}</span>
-                    )}
-                    {counts.yellow > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black">{counts.yellow}</span>
-                    )}
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black">{counts.green}</span>
-                </div>
-
-                {/* Export PDF Button */}
-                <button
-                    onClick={() => {
-                        triggerHaptic('light');
-                        setShowExportModal(true);
-                    }}
-                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
-                    title="Export PDF"
-                >
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                    </svg>
-                </button>
-            </div>
-
-            {/* ═══ ENGINE HOURS CARD ═══ */}
-            <div className="mb-5 shrink-0">
-                <button
-                    onClick={() => {
-                        setIsEditingHours(true);
-                        setTimeout(() => hoursInputRef.current?.focus(), 100);
-                    }}
-                    className="w-full bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-cyan-500/20 transition-all active:scale-[0.98]"
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 rounded-xl bg-sky-500/20">
-                                <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="text-[10px] text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
-                                {isEditingHours ? (
-                                    <input
-                                        ref={hoursInputRef}
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={engineHoursInput}
-                                        onChange={e => setEngineHoursInput(e.target.value)}
-                                        onBlur={saveEngineHours}
-                                        onKeyDown={e => { if (e.key === 'Enter') saveEngineHours(); }}
-                                        onClick={e => e.stopPropagation()}
-                                        className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-none w-40"
-                                        autoFocus
-                                    />
-                                ) : (
-                                    <p className="text-3xl font-black text-white tracking-wider">{engineHours.toLocaleString()}</p>
-                                )}
-                            </div>
-                        </div>
-                        {!isEditingHours && (
-                            <svg className="w-5 h-5 text-sky-400/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                            </svg>
-                        )}
-                    </div>
-                </button>
-            </div>
-
-            {/* ═══ CATEGORY FILTER CHIPS ═══ */}
-            <div className="grid grid-cols-3 gap-2 pb-3 mb-4 shrink-0">
-                <button
-                    onClick={() => setSelectedCategory('all')}
-                    className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'all'
-                        ? 'bg-white/15 text-white border border-white/20'
-                        : 'bg-white/5 text-gray-500 border border-white/5'
-                        }`}
-                >
-                    All ({tasks.length})
-                </button>
-                {CATEGORIES.map(cat => {
-                    const count = tasks.filter(t => t.category === cat.id).length;
-                    return (
+                {/* ═══ HEADER ═══ */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-3">
                         <button
-                            key={cat.id}
-                            onClick={() => setSelectedCategory(cat.id)}
-                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === cat.id
+                            onClick={onBack}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                        >
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
+                        <div className="flex-1">
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Maintenance</h1>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Tasks & Expiry</p>
+                        </div>
+
+                        {/* Status summary pills */}
+                        <div className="flex items-center gap-1.5">
+                            {counts.red > 0 && (
+                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-black">{counts.red}</span>
+                            )}
+                            {counts.yellow > 0 && (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black">{counts.yellow}</span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black">{counts.green}</span>
+                        </div>
+
+                        {/* Export PDF Button */}
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setShowExportModal(true);
+                            }}
+                            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
+                            title="Export PDF"
+                        >
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                {/* ═══ ENGINE HOURS CARD ═══ */}
+                <div className="shrink-0 px-4 pb-3">
+                    <button
+                        onClick={() => {
+                            setIsEditingHours(true);
+                            setTimeout(() => hoursInputRef.current?.focus(), 100);
+                        }}
+                        className="w-full bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-cyan-500/20 transition-all active:scale-[0.98]"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-xl bg-sky-500/20">
+                                    <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
+                                    {isEditingHours ? (
+                                        <input
+                                            ref={hoursInputRef}
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={engineHoursInput}
+                                            onChange={e => setEngineHoursInput(e.target.value)}
+                                            onBlur={saveEngineHours}
+                                            onKeyDown={e => { if (e.key === 'Enter') saveEngineHours(); }}
+                                            onClick={e => e.stopPropagation()}
+                                            className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-none w-40"
+                                            autoFocus
+                                        />
+                                    ) : (
+                                        <p className="text-3xl font-black text-white tracking-wider">{engineHours.toLocaleString()}</p>
+                                    )}
+                                </div>
+                            </div>
+                            {!isEditingHours && (
+                                <svg className="w-5 h-5 text-sky-400/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                                </svg>
+                            )}
+                        </div>
+                    </button>
+                </div>
+
+                {/* ═══ CATEGORY FILTER CHIPS ═══ */}
+                <div className="shrink-0 px-4 pb-3">
+                    <div className="grid grid-cols-3 gap-2">
+                        <button
+                            onClick={() => setSelectedCategory('all')}
+                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'all'
                                 ? 'bg-white/15 text-white border border-white/20'
                                 : 'bg-white/5 text-gray-500 border border-white/5'
                                 }`}
                         >
-                            {cat.icon} {cat.label} ({count})
+                            All ({tasks.length})
                         </button>
-                    );
-                })}
-            </div>
-
-            {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
-            <div className="flex-1 overflow-y-auto space-y-2 pb-4 min-h-0 -webkit-overflow-scrolling-touch">
-                {loading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        {CATEGORIES.map(cat => {
+                            const count = tasks.filter(t => t.category === cat.id).length;
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => setSelectedCategory(cat.id)}
+                                    className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === cat.id
+                                        ? 'bg-white/15 text-white border border-white/20'
+                                        : 'bg-white/5 text-gray-500 border border-white/5'
+                                        }`}
+                                >
+                                    {cat.icon} {cat.label} ({count})
+                                </button>
+                            );
+                        })}
                     </div>
-                ) : tasksWithStatus.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-gray-500 text-sm font-bold">No maintenance tasks yet</p>
-                        <p className="text-gray-600 text-xs mt-1">Tap + to add your first task</p>
-                    </div>
-                ) : (
-                    tasksWithStatus.map(task => (
-                        <SwipeableTaskCard
-                            key={task.id}
-                            task={task}
-                            categories={CATEGORIES}
-                            lightColors={LIGHT_COLORS}
-                            triggerLabels={TRIGGER_LABELS}
-                            onTap={() => {
-                                triggerHaptic('light');
-                                setSheetTask(task);
-                            }}
-                            onDelete={() => handleDeleteTask(task.id)}
-                        />
-                    ))
-                )}
-            </div>
+                </div>
 
-            {/* ═══ ADD TASK BUTTON (fixed at bottom) ═══ */}
-            <div className="shrink-0 pt-3 pb-[env(safe-area-inset-bottom,0px)]">
-                <SlideToAction
-                    label="Slide to Add Task"
-                    thumbIcon={
-                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                    }
-                    onConfirm={() => {
-                        triggerHaptic('medium');
-                        setShowAddForm(true);
-                    }}
-                    theme="sky"
-                />
-            </div>
-
-            {/* ═══════════════════════════════════════════ */}
-            {/* LOG SERVICE BOTTOM SHEET */}
-            {/* ═══════════════════════════════════════════ */}
-            {sheetTask && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setSheetTask(null)}>
-                    {/* Backdrop */}
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                    {/* Sheet */}
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Close X */}
-                        <button
-                            onClick={() => setSheetTask(null)}
-                            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                        >
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-
-                        {/* Task info */}
-                        <div className="flex items-center gap-3 mb-5">
-                            <div className={`w-3 h-3 rounded-full ${LIGHT_COLORS[sheetTask.status].dot}`} />
-                            <div className="flex-1">
-                                <h3 className="text-lg font-black text-white">{sheetTask.title}</h3>
-                                <p className={`text-xs font-bold ${LIGHT_COLORS[sheetTask.status].text}`}>
-                                    {sheetTask.statusLabel}
-                                </p>
-                            </div>
+                {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-2">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-
-                        {/* Engine hours snapshot — only for engine-based tasks */}
-                        {sheetTask.trigger_type === 'engine_hours' && (
-                            <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
-                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
-                                <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
-                            </div>
-                        )}
-
-                        {/* Notes */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                Notes (Optional)
-                            </label>
-                            <textarea
-                                value={sheetNotes}
-                                onChange={e => setSheetNotes(e.target.value)}
-                                placeholder="Found slight weeping on raw water pump gasket..."
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl p-3 text-sm text-white placeholder-gray-600 resize-none h-20 outline-none focus:border-sky-500/30"
+                    ) : tasksWithStatus.length === 0 ? (
+                        <div className="text-center py-12">
+                            <p className="text-gray-500 text-sm font-bold">No maintenance tasks yet</p>
+                            <p className="text-gray-600 text-xs mt-1">Tap + to add your first task</p>
+                        </div>
+                    ) : (
+                        tasksWithStatus.map(task => (
+                            <SwipeableTaskCard
+                                key={task.id}
+                                task={task}
+                                categories={CATEGORIES}
+                                lightColors={LIGHT_COLORS}
+                                triggerLabels={TRIGGER_LABELS}
+                                onTap={() => {
+                                    triggerHaptic('light');
+                                    setSheetTask(task);
+                                }}
+                                onDelete={() => handleDeleteTask(task.id)}
                             />
-                        </div>
+                        ))
+                    )}
+                </div>
 
-                        {/* Cost */}
-                        <div className="mb-6">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                Cost (Optional)
-                            </label>
-                            <div className="flex items-center gap-2">
-                                <span className="text-gray-500 font-bold">$</span>
+                {/* ═══ ADD TASK BUTTON (fixed at bottom) ═══ */}
+                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                    <SlideToAction
+                        label="Slide to Add Task"
+                        thumbIcon={
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                        }
+                        onConfirm={() => {
+                            triggerHaptic('medium');
+                            setShowAddForm(true);
+                        }}
+                        theme="sky"
+                    />
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* LOG SERVICE BOTTOM SHEET */}
+                {/* ═══════════════════════════════════════════ */}
+                {sheetTask && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setSheetTask(null)}>
+                        {/* Backdrop */}
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+                        {/* Sheet */}
+                        <div
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Close X */}
+                            <button
+                                onClick={() => setSheetTask(null)}
+                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+
+                            {/* Task info */}
+                            <div className="flex items-center gap-3 mb-5">
+                                <div className={`w-3 h-3 rounded-full ${LIGHT_COLORS[sheetTask.status].dot}`} />
+                                <div className="flex-1">
+                                    <h3 className="text-lg font-black text-white">{sheetTask.title}</h3>
+                                    <p className={`text-xs font-bold ${LIGHT_COLORS[sheetTask.status].text}`}>
+                                        {sheetTask.statusLabel}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Engine hours snapshot — only for engine-based tasks */}
+                            {sheetTask.trigger_type === 'engine_hours' && (
+                                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
+                                    <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                    Notes (Optional)
+                                </label>
+                                <textarea
+                                    value={sheetNotes}
+                                    onChange={e => setSheetNotes(e.target.value)}
+                                    placeholder="Found slight weeping on raw water pump gasket..."
+                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl p-3 text-sm text-white placeholder-gray-600 resize-none h-20 outline-none focus:border-sky-500/30"
+                                />
+                            </div>
+
+                            {/* Cost */}
+                            <div className="mb-6">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                    Cost (Optional)
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-gray-500 font-bold">$</span>
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={sheetCost}
+                                        onChange={e => setSheetCost(e.target.value)}
+                                        placeholder="0.00"
+                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => loadHistory(sheetTask.id)}
+                                    className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-400 hover:bg-white/10 transition-colors"
+                                >
+                                    History
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        openEditForm(sheetTask);
+                                    }}
+                                    className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
+                                >
+                                    ✎ Edit
+                                </button>
+                                <button
+                                    onClick={handleLogService}
+                                    disabled={sheetSaving}
+                                    className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-[0.97] disabled:opacity-50"
+                                >
+                                    {sheetSaving ? (
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                                    ) : (
+                                        '✓ Log Service'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* ADD TASK FORM (Bottom Sheet) */}
+                {/* ═══════════════════════════════════════════ */}
+                {showAddForm && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+                        <div
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Close X */}
+                            <button
+                                onClick={() => setShowAddForm(false)}
+                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                            <h3 className="text-lg font-black text-white mb-5">New Maintenance Task</h3>
+
+                            {/* Title */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
                                 <input
                                     type="text"
-                                    inputMode="decimal"
-                                    value={sheetCost}
-                                    onChange={e => setSheetCost(e.target.value)}
-                                    placeholder="0.00"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                    value={newTitle}
+                                    onChange={e => setNewTitle(e.target.value)}
+                                    placeholder="Main Engine Oil Change"
+                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
                                 />
                             </div>
-                        </div>
 
-                        {/* Action buttons */}
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => loadHistory(sheetTask.id)}
-                                className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-400 hover:bg-white/10 transition-colors"
-                            >
-                                History
-                            </button>
-                            <button
-                                onClick={() => {
-                                    openEditForm(sheetTask);
-                                }}
-                                className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
-                            >
-                                ✎ Edit
-                            </button>
-                            <button
-                                onClick={handleLogService}
-                                disabled={sheetSaving}
-                                className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-[0.97] disabled:opacity-50"
-                            >
-                                {sheetSaving ? (
-                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                                ) : (
-                                    '✓ Log Service'
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ═══════════════════════════════════════════ */}
-            {/* ADD TASK FORM (Bottom Sheet) */}
-            {/* ═══════════════════════════════════════════ */}
-            {showAddForm && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Close X */}
-                        <button
-                            onClick={() => setShowAddForm(false)}
-                            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                        >
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <h3 className="text-lg font-black text-white mb-5">New Maintenance Task</h3>
-
-                        {/* Title */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                            <input
-                                type="text"
-                                value={newTitle}
-                                onChange={e => setNewTitle(e.target.value)}
-                                placeholder="Main Engine Oil Change"
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                            />
-                        </div>
-
-                        {/* Notes */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                            <textarea
-                                value={newDescription}
-                                onChange={e => setNewDescription(e.target.value)}
-                                placeholder="Don't forget to check the bottom for rust..."
-                                rows={2}
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
-                            />
-                        </div>
-
-                        {/* Category chips */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {CATEGORIES.map(cat => (
-                                    <button
-                                        key={cat.id}
-                                        onClick={() => setNewCategory(cat.id)}
-                                        className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-500 border border-white/5'
-                                            }`}
-                                    >
-                                        {cat.icon} {cat.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Trigger type */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                    <button
-                                        key={t}
-                                        onClick={() => setNewTrigger(t)}
-                                        className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-500 border border-white/5'
-                                            }`}
-                                    >
-                                        {TRIGGER_LABELS[t]}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Interval — only for engine hours */}
-                        {newTrigger === 'engine_hours' && (
-                            <>
-                                <div className="mb-4">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                        Interval (Hours)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={newInterval}
-                                        onChange={e => setNewInterval(e.target.value)}
-                                        placeholder="200"
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                    />
-                                </div>
-
-                                <div className="mb-6">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={newDueHours}
-                                        onChange={e => setNewDueHours(e.target.value)}
-                                        placeholder={String(engineHours + 200)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                    />
-                                </div>
-                            </>
-                        )}
-
-                        {/* Next due — for time-based triggers */}
-                        {newTrigger !== 'engine_hours' && (
-                            <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
-                                <input
-                                    type="date"
-                                    value={newDueDate}
-                                    onChange={e => setNewDueDate(e.target.value)}
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                            {/* Notes */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <textarea
+                                    value={newDescription}
+                                    onChange={e => setNewDescription(e.target.value)}
+                                    placeholder="Don't forget to check the bottom for rust..."
+                                    rows={2}
+                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
                                 />
-                                <p className="text-[10px] text-gray-600 mt-1">
-                                    Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
-                                </p>
                             </div>
-                        )}
 
-                        {/* Save */}
-                        <button
-                            onClick={handleAddTask}
-                            disabled={!newTitle.trim()}
-                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
-                        >
-                            Create Task
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* ═══════════════════════════════════════════ */}
-            {/* EDIT TASK MODAL */}
-            {/* ═══════════════════════════════════════════ */}
-            {showEditForm && editTask && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <button onClick={() => { setShowEditForm(false); setEditTask(null); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-
-                        <h3 className="text-lg font-black text-white mb-5">Edit Task</h3>
-
-                        {/* Task Name */}
-                        <div className="mb-3">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                            <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                        </div>
-
-                        {/* Notes */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                            <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
-                        </div>
-
-                        {/* Category */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {CATEGORIES.map(cat => (
-                                    <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                        {cat.icon} {cat.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Trigger type */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                    <button key={t} onClick={() => setNewTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                        {TRIGGER_LABELS[t]}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Engine hours interval */}
-                        {newTrigger === 'engine_hours' && (
-                            <>
-                                <div className="mb-4">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
-                                    <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                            {/* Category chips */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {CATEGORIES.map(cat => (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => setNewCategory(cat.id)}
+                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                }`}
+                                        >
+                                            {cat.icon} {cat.label}
+                                        </button>
+                                    ))}
                                 </div>
+                            </div>
+
+                            {/* Trigger type */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                        <button
+                                            key={t}
+                                            onClick={() => setNewTrigger(t)}
+                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                }`}
+                                        >
+                                            {TRIGGER_LABELS[t]}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Interval — only for engine hours */}
+                            {newTrigger === 'engine_hours' && (
+                                <>
+                                    <div className="mb-4">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                            Interval (Hours)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={newInterval}
+                                            onChange={e => setNewInterval(e.target.value)}
+                                            placeholder="200"
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                        />
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={newDueHours}
+                                            onChange={e => setNewDueHours(e.target.value)}
+                                            placeholder={String(engineHours + 200)}
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Next due — for time-based triggers */}
+                            {newTrigger !== 'engine_hours' && (
                                 <div className="mb-6">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                    <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
+                                    <input
+                                        type="date"
+                                        value={newDueDate}
+                                        onChange={e => setNewDueDate(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                    />
+                                    <p className="text-[10px] text-gray-600 mt-1">
+                                        Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
+                                    </p>
                                 </div>
-                            </>
-                        )}
+                            )}
 
-                        {/* Due date — for non-engine triggers */}
-                        {newTrigger !== 'engine_hours' && (
-                            <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
-                                <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                            </div>
-                        )}
-
-                        <button
-                            onClick={handleEditTask}
-                            disabled={!newTitle.trim()}
-                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
-                        >
-                            Save Changes
-                        </button>
+                            {/* Save */}
+                            <button
+                                onClick={handleAddTask}
+                                disabled={!newTitle.trim()}
+                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                            >
+                                Create Task
+                            </button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* ═══════════════════════════════════════════ */}
-            {/* HISTORY OVERLAY */}
-            {/* ═══════════════════════════════════════════ */}
-            {showHistory && (
-                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Close X */}
-                        <button
-                            onClick={() => setShowHistory(false)}
-                            className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                {/* ═══════════════════════════════════════════ */}
+                {/* EDIT TASK MODAL */}
+                {/* ═══════════════════════════════════════════ */}
+                {showEditForm && editTask && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                        <div
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            onClick={e => e.stopPropagation()}
                         >
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <h3 className="text-lg font-black text-white mb-4">Service History</h3>
+                            <button onClick={() => { setShowEditForm(false); setEditTask(null); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
 
-                        {historyItems.length === 0 ? (
-                            <p className="text-gray-500 text-sm text-center py-8">No service history recorded</p>
-                        ) : (
-                            <div className="space-y-3">
-                                {historyItems.map(h => (
-                                    <div key={h.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <p className="text-sm font-bold text-white">
-                                                {new Date(h.completed_at).toLocaleDateString()}
-                                            </p>
-                                            {h.engine_hours_at_service !== null && (
-                                                <span className="text-[10px] text-sky-400 font-bold">
-                                                    @ {h.engine_hours_at_service?.toLocaleString()} hrs
-                                                </span>
+                            <h3 className="text-lg font-black text-white mb-5">Edit Task</h3>
+
+                            {/* Task Name */}
+                            <div className="mb-3">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
+                                <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                            </div>
+
+                            {/* Notes */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                            </div>
+
+                            {/* Category */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {CATEGORIES.map(cat => (
+                                        <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                            {cat.icon} {cat.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Trigger type */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                        <button key={t} onClick={() => setNewTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                            {TRIGGER_LABELS[t]}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Engine hours interval */}
+                            {newTrigger === 'engine_hours' && (
+                                <>
+                                    <div className="mb-4">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
+                                        <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                    </div>
+                                    <div className="mb-6">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                        <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Due date — for non-engine triggers */}
+                            {newTrigger !== 'engine_hours' && (
+                                <div className="mb-6">
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
+                                    <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                </div>
+                            )}
+
+                            <button
+                                onClick={handleEditTask}
+                                disabled={!newTitle.trim()}
+                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                            >
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* HISTORY OVERLAY */}
+                {/* ═══════════════════════════════════════════ */}
+                {showHistory && (
+                    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                        <div
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Close X */}
+                            <button
+                                onClick={() => setShowHistory(false)}
+                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                            <h3 className="text-lg font-black text-white mb-4">Service History</h3>
+
+                            {historyItems.length === 0 ? (
+                                <p className="text-gray-500 text-sm text-center py-8">No service history recorded</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {historyItems.map(h => (
+                                        <div key={h.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <p className="text-sm font-bold text-white">
+                                                    {new Date(h.completed_at).toLocaleDateString()}
+                                                </p>
+                                                {h.engine_hours_at_service !== null && (
+                                                    <span className="text-[10px] text-sky-400 font-bold">
+                                                        @ {h.engine_hours_at_service?.toLocaleString()} hrs
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {h.notes && <p className="text-xs text-gray-400 mt-1">{h.notes}</p>}
+                                            {h.cost !== null && h.cost > 0 && (
+                                                <p className="text-xs text-amber-400 font-bold mt-1">${h.cost.toFixed(2)}</p>
                                             )}
                                         </div>
-                                        {h.notes && <p className="text-xs text-gray-400 mt-1">{h.notes}</p>}
-                                        {h.cost !== null && h.cost > 0 && (
-                                            <p className="text-xs text-amber-400 font-bold mt-1">${h.cost.toFixed(2)}</p>
-                                        )}
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* EXPORT PDF MODAL */}
+                {/* ═══════════════════════════════════════════ */}
+                {showExportModal && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center" onClick={() => setShowExportModal(false)}>
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+                        <div
+                            className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-3xl p-6 animate-in fade-in zoom-in-95 duration-200"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <h3 className="text-lg font-black text-white mb-1">Export PDF</h3>
+                            <p className="text-xs text-gray-500 mb-5">Choose a report format:</p>
+
+                            {/* Option A: Blank Checklist */}
+                            <button
+                                onClick={() => handleExport('checklist')}
+                                disabled={exporting}
+                                className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-cyan-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-sky-500/20 rounded-xl">
+                                        <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                                        </svg>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                    <div>
+                                        <p className="text-sm font-black text-white">Print Blank Checklist</p>
+                                        <p className="text-[10px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
+                                    </div>
+                                </div>
+                            </button>
+
+                            {/* Option B: Service History */}
+                            <button
+                                onClick={() => handleExport('history')}
+                                disabled={exporting}
+                                className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-amber-500/20 rounded-xl">
+                                        <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-black text-white">Export Service History</p>
+                                        <p className="text-[10px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
+                                    </div>
+                                </div>
+                            </button>
+
+                            {exporting && (
+                                <div className="flex items-center justify-center gap-2 mt-4">
+                                    <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                                    <span className="text-xs text-sky-400 font-bold">Generating PDF...</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
-
-            {/* ═══════════════════════════════════════════ */}
-            {/* EXPORT PDF MODAL */}
-            {/* ═══════════════════════════════════════════ */}
-            {showExportModal && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center" onClick={() => setShowExportModal(false)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                    <div
-                        className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-3xl p-6 animate-in fade-in zoom-in-95 duration-200"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <h3 className="text-lg font-black text-white mb-1">Export PDF</h3>
-                        <p className="text-xs text-gray-500 mb-5">Choose a report format:</p>
-
-                        {/* Option A: Blank Checklist */}
-                        <button
-                            onClick={() => handleExport('checklist')}
-                            disabled={exporting}
-                            className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-cyan-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-sky-500/20 rounded-xl">
-                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Print Blank Checklist</p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {/* Option B: Service History */}
-                        <button
-                            onClick={() => handleExport('history')}
-                            disabled={exporting}
-                            className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-amber-500/20 rounded-xl">
-                                    <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Export Service History</p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {exporting && (
-                            <div className="flex items-center justify-center gap-2 mt-4">
-                                <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs text-sky-400 font-bold">Generating PDF...</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 };

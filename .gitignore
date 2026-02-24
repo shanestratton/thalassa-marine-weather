@@ -27,3 +27,8 @@ dist-ssr
 
 .vercel
 .env*.local
+
+# Bathymetry data (large binary files)
+tiles/
+*.tif
+*.tiff

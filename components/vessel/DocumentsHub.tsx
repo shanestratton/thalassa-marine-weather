@@ -13,6 +13,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
 import { triggerHaptic } from '../../utils/system';
+import { SlideToAction } from '../ui/SlideToAction';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -268,184 +269,202 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // ── Render ──
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pt-4 animate-in fade-in duration-300 h-full flex flex-col overflow-hidden" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
+        <div className="relative h-full bg-slate-950 overflow-hidden">
+            <div className="flex flex-col h-full">
 
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-5 shrink-0">
-                <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
-                </button>
-                <div className="flex-1">
-                    <h2 className="text-lg font-black text-white">Ship's Documents</h2>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                        {documents.length} Documents
-                        {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
-                        {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
-                    </p>
-                </div>
-            </div>
-
-            {/* Search */}
-            <div className="mb-4 shrink-0">
-                <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search documents..."
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                />
-            </div>
-
-            {/* Category filters */}
-            <div className="shrink-0 mb-4">
-                <div className="grid grid-cols-3 gap-2">
-                    <button
-                        onClick={() => setSelectedCategory('all')}
-                        className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === 'all' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                    >
-                        All
-                    </button>
-                    {CATEGORIES.map(cat => (
-                        <button
-                            key={cat.id}
-                            onClick={() => setSelectedCategory(cat.id)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                        >
-                            {cat.icon} {cat.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Documents list (scrollable, grouped) */}
-            <div className="flex-1 overflow-y-auto space-y-5 pb-2 min-h-0">
-                {loading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                ) : filtered.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-gray-500 text-sm font-bold">{searchQuery ? 'No documents match' : 'No documents filed'}</p>
-                        <p className="text-gray-600 text-xs mt-1">Tap + to add your first document</p>
-                    </div>
-                ) : selectedCategory !== 'all' ? (
-                    /* Flat list when category selected */
-                    <div className="space-y-2">
-                        {filtered.map(doc => (
-                            <SwipeableDocCard
-                                key={doc.id}
-                                doc={doc}
-                                onTap={() => handleOpenDoc(doc)}
-                                onDelete={() => handleDelete(doc.id)}
-                            />
-                        ))}
-                    </div>
-                ) : (
-                    /* Grouped by category */
-                    grouped.map(group => (
-                        <div key={group.id}>
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-xs">{group.icon}</span>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
-                                <span className="text-[9px] text-gray-600 font-bold">({group.docs.length})</span>
-                            </div>
-                            <div className="space-y-2">
-                                {group.docs.map(doc => (
-                                    <SwipeableDocCard
-                                        key={doc.id}
-                                        doc={doc}
-                                        onTap={() => handleOpenDoc(doc)}
-                                        onDelete={() => handleDelete(doc.id)}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-
-            {/* Add Document button (fixed at bottom) */}
-            <div className="shrink-0 pt-3 pb-[env(safe-area-inset-bottom,0px)]">
-                <button
-                    onClick={() => { triggerHaptic('light'); openAddForm(); }}
-                    className="w-full py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-emerald-600/30 hover:to-teal-600/30 transition-all active:scale-[0.98]"
-                >
-                    <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
-                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                    </div>
-                    <span className="text-sm font-black text-emerald-400 uppercase tracking-[0.15em]">Add Document</span>
-                </button>
-            </div>
-
-            {/* ═══ ADD / EDIT DOCUMENT MODAL ═══ */}
-            {showForm && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowForm(false); resetForm(); }}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <button onClick={() => { setShowForm(false); resetForm(); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                {/* Header */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-3">
+                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
-
-                        <h3 className="text-lg font-black text-white mb-5">{editDoc ? 'Edit Document' : 'Add Document'}</h3>
-
-                        {/* Document Name */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
-                            <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        <div className="flex-1">
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Documents</h1>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                {documents.length} Documents
+                                {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
+                                {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
+                            </p>
                         </div>
-
-                        {/* Category */}
-                        <div className="mb-4">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {CATEGORIES.map(cat => (
-                                    <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                        {cat.icon} {cat.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Dates */}
-                        <div className="grid grid-cols-2 gap-3 mb-4">
-                            <div>
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
-                                <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
-                                <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30" />
-                            </div>
-                        </div>
-
-                        {/* Notes */}
-                        <div className="mb-6">
-                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                            <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
-                        </div>
-
-                        <button
-                            onClick={handleSave}
-                            disabled={!formName.trim()}
-                            className={`w-full py-3.5 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
-                                ? 'bg-gradient-to-r from-sky-600 to-cyan-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
-                                : 'bg-gradient-to-r from-emerald-600 to-teal-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500'
-                                }`}
-                        >
-                            {editDoc ? 'Save Changes' : 'Add Document'}
-                        </button>
                     </div>
                 </div>
-            )}
+
+                {/* Search */}
+                <div className="shrink-0 px-4 pb-3">
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search documents..."
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                    />
+                </div>
+
+                {/* Category filters */}
+                <div className="shrink-0 px-4 pb-3">
+                    <div className="grid grid-cols-3 gap-2">
+                        <button
+                            onClick={() => setSelectedCategory('all')}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === 'all' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                        >
+                            All
+                        </button>
+                        {CATEGORIES.map(cat => (
+                            <button
+                                key={cat.id}
+                                onClick={() => setSelectedCategory(cat.id)}
+                                className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                            >
+                                {cat.icon} {cat.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Documents list (scrollable, grouped) */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
+                            <div className="relative w-20 h-20 mb-5">
+                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
+                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
+                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
+                                </svg>
+                            </div>
+                            <p className="text-base font-bold text-white mb-1">
+                                {searchQuery ? 'No Documents Match' : 'No Documents Filed'}
+                            </p>
+                            <p className="text-sm text-white/50 max-w-[240px] text-center">
+                                {searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
+                            </p>
+                        </div>
+                    ) : selectedCategory !== 'all' ? (
+                        /* Flat list when category selected */
+                        <div className="space-y-2">
+                            {filtered.map(doc => (
+                                <SwipeableDocCard
+                                    key={doc.id}
+                                    doc={doc}
+                                    onTap={() => handleOpenDoc(doc)}
+                                    onDelete={() => handleDelete(doc.id)}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        /* Grouped by category */
+                        grouped.map(group => (
+                            <div key={group.id}>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xs">{group.icon}</span>
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
+                                    <span className="text-[9px] text-gray-600 font-bold">({group.docs.length})</span>
+                                </div>
+                                <div className="space-y-2">
+                                    {group.docs.map(doc => (
+                                        <SwipeableDocCard
+                                            key={doc.id}
+                                            doc={doc}
+                                            onTap={() => handleOpenDoc(doc)}
+                                            onDelete={() => handleDelete(doc.id)}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Add Document CTA (fixed at bottom) */}
+                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                    <SlideToAction
+                        label="Slide to Add Document"
+                        thumbIcon={
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                        }
+                        onConfirm={() => {
+                            triggerHaptic('medium');
+                            openAddForm();
+                        }}
+                        theme="teal"
+                    />
+                </div>
+
+                {/* ═══ ADD / EDIT DOCUMENT MODAL ═══ */}
+                {showForm && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowForm(false); resetForm(); }}>
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                        <div
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <button onClick={() => { setShowForm(false); resetForm(); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+
+                            <h3 className="text-lg font-black text-white mb-5">{editDoc ? 'Edit Document' : 'Add Document'}</h3>
+
+                            {/* Document Name */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
+                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                            </div>
+
+                            {/* Category */}
+                            <div className="mb-4">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {CATEGORIES.map(cat => (
+                                        <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                            {cat.icon} {cat.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Dates */}
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <div>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
+                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
+                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30" />
+                                </div>
+                            </div>
+
+                            {/* Notes */}
+                            <div className="mb-6">
+                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                            </div>
+
+                            <button
+                                onClick={handleSave}
+                                disabled={!formName.trim()}
+                                className={`w-full py-3.5 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
+                                    ? 'bg-gradient-to-r from-sky-600 to-cyan-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
+                                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500'
+                                    }`}
+                            >
+                                {editDoc ? 'Save Changes' : 'Add Document'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

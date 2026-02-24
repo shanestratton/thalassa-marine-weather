@@ -35,9 +35,17 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         };
 
         const maxIntensity = Math.max(...data.map(d => d.intensity), 0.1);
-        const hasRain = data.some(d => d.intensity > 0);
-        const firstRainIdx = data.findIndex(d => d.intensity > 0);
-        const isCurrentlyRaining = data[0]?.intensity > 0;
+
+        // If Apple's summary explicitly says "no rain/precipitation", treat as dry
+        // regardless of trace data. Also require a meaningful threshold (0.1 mm/hr)
+        // to avoid showing rain UI for negligible noise values.
+        const summaryIndicatesNoRain = rainSummary
+            ? /\bno\b/i.test(rainSummary) && /rain|precip|shower/i.test(rainSummary)
+            : false;
+        const RAIN_THRESHOLD = 0.1; // mm/hr — ignore trace amounts below this
+        const hasRain = !summaryIndicatesNoRain && data.some(d => d.intensity >= RAIN_THRESHOLD);
+        const firstRainIdx = data.findIndex(d => d.intensity >= RAIN_THRESHOLD);
+        const isCurrentlyRaining = (data[0]?.intensity ?? 0) >= RAIN_THRESHOLD && !summaryIndicatesNoRain;
 
         // Find first dry minute after rain
         const firstDryAfterRain = isCurrentlyRaining
@@ -149,8 +157,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                         )}
                     </div>
 
-                    {/* Mini Bar Chart (compact preview) */}
-                    {data && data.length > 0 && (
+                    {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain */}
+                    {data && data.length > 0 && analysis.hasRain && (
                         <div className="flex items-end gap-[1px] w-full mt-1 h-[22px]">
                             {data.map((point, i) => {
                                 const normalizedHeight = analysis.maxIntensity > 0

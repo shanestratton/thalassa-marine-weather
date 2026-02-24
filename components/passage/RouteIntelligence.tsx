@@ -10,6 +10,7 @@ import {
     WindIcon, WaveIcon, ClockIcon, SunIcon, MoonIcon,
     AlertTriangleIcon, MapPinIcon, ArrowRightIcon
 } from '../Icons';
+import { fmtCoord } from '../../utils/coords';
 
 interface RouteIntelligenceProps {
     voyagePlan: VoyagePlan;
@@ -164,7 +165,7 @@ export const RouteIntelligence: React.FC<RouteIntelligenceProps> = ({
                                 <div>
                                     <h4 className="text-sm font-bold text-white">{fc.waypoint.name}</h4>
                                     <div className="text-sm text-slate-400 font-mono">
-                                        {fc.waypoint.coordinates?.lat.toFixed(3)}°N, {Math.abs(fc.waypoint.coordinates?.lon || 0).toFixed(3)}°W
+                                        {fmtCoord(fc.waypoint.coordinates?.lat, fc.waypoint.coordinates?.lon)}
                                     </div>
                                 </div>
                             </div>

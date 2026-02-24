@@ -2,6 +2,7 @@ import React from 'react';
 import { t } from '../../theme';
 import { VoyagePlan, VesselProfile } from '../../types';
 import { MapPinIcon, PhoneIcon, RadioTowerIcon, AlertTriangleIcon, WindIcon, CrosshairIcon } from '../Icons';
+import { fmtCoord } from '../../utils/coords';
 
 interface EmergencyPlanProps {
     voyagePlan: VoyagePlan;
@@ -108,7 +109,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                                         <div>
                                             <h5 className="text-sm font-bold text-white">{harbor.name}</h5>
                                             <p className="text-sm text-gray-400 font-mono">
-                                                {harbor.coordinates.lat.toFixed(4)}°N {Math.abs(harbor.coordinates.lon).toFixed(4)}°W
+                                                {fmtCoord(harbor.coordinates.lat, harbor.coordinates.lon, 4)}
                                             </p>
                                         </div>
                                         <span className="text-sm font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
