@@ -22,24 +22,47 @@ import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
-const VoyagePlanner = React.lazy(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
-const SettingsView = React.lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
-const UpgradeModal = React.lazy(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
-const VesselHub = React.lazy(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
-const InventoryPage = React.lazy(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
-const MaintenancePage = React.lazy(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
-const EquipmentPage = React.lazy(() => import('./components/vessel/EquipmentList').then(m => ({ default: m.EquipmentList })));
-const DocumentsPage = React.lazy(() => import('./components/vessel/DocumentsHub').then(m => ({ default: m.DocumentsHub })));
-const NmeaGatewayPage = React.lazy(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
-const PolarPage = React.lazy(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
-const WeatherMap = React.lazy(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
-const MapHub = React.lazy(() => import('./components/map/MapHub').then(m => ({ default: m.MapHub })));
-const OnboardingWizard = React.lazy(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
-const WarningDetails = React.lazy(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
-const AnchorWatchPage = React.lazy(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
-const ChatPage = React.lazy(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
-const LogPage = React.lazy(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
-const DiaryPage = React.lazy(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
+// Retry wrapper: if a dynamic import fails (stale Vite module hash after HMR/restart),
+// reload the page once to fetch fresh module URLs. Prevents "Failed to fetch dynamically
+// imported module" errors from crashing the app.
+function lazyRetry<T extends React.ComponentType<any>>(
+    factory: () => Promise<{ default: T }>,
+): React.LazyExoticComponent<T> {
+    return React.lazy(() =>
+        factory().catch((err: Error) => {
+            // Only retry once per session to avoid infinite reload loops
+            const key = 'lazyRetryReloaded';
+            if (!sessionStorage.getItem(key)) {
+                sessionStorage.setItem(key, '1');
+                window.location.reload();
+                // Return a never-resolving promise to stop React rendering during reload
+                return new Promise<{ default: T }>(() => { });
+            }
+            // If we already retried, re-throw so ErrorBoundary catches it
+            sessionStorage.removeItem(key);
+            throw err;
+        })
+    );
+}
+
+const VoyagePlanner = lazyRetry(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
+const SettingsView = lazyRetry(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
+const UpgradeModal = lazyRetry(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
+const VesselHub = lazyRetry(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
+const InventoryPage = lazyRetry(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
+const MaintenancePage = lazyRetry(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
+const EquipmentPage = lazyRetry(() => import('./components/vessel/EquipmentList').then(m => ({ default: m.EquipmentList })));
+const DocumentsPage = lazyRetry(() => import('./components/vessel/DocumentsHub').then(m => ({ default: m.DocumentsHub })));
+const NmeaGatewayPage = lazyRetry(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
+const PolarPage = lazyRetry(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
+const WeatherMap = lazyRetry(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
+const MapHub = lazyRetry(() => import('./components/map/MapHub').then(m => ({ default: m.MapHub })));
+const OnboardingWizard = lazyRetry(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
+const WarningDetails = lazyRetry(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
+const AnchorWatchPage = lazyRetry(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
+const ChatPage = lazyRetry(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
+const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
+const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -229,8 +252,8 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat'}>
-                        <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['voyage', 'settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route'}>
+                        <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
                                     <div key={currentView} className="page-enter contents">
@@ -294,7 +317,7 @@ const App: React.FC = () => {
                                         {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
                                         {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
+                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>

@@ -7,11 +7,13 @@ import {
     RadioTowerIcon, WaveIcon, WindIcon, ClockIcon, CrosshairIcon, BoatIcon, AlertTriangleIcon, FlagIcon, PhoneIcon, ServerIcon, ShareIcon
 } from './Icons';
 import { calculateDistance } from '../utils/math';
+import { fmtLat, fmtLon, fmtCoord } from '../utils/coords';
 import { ResourceCalculator } from './passage/ResourceCalculator';
 import { PassageTimeline } from './passage/PassageTimeline';
 import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
 import { printPassageBrief } from '../utils/pdfExport';
+import { downloadRouteGPX } from '../utils/gpxRouteExport';
 
 
 // --- MICRO COMPONENTS ---
@@ -106,7 +108,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     <div className="flex flex-col min-w-0 flex-1">
                         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Departing</span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">{(voyagePlan.origin && typeof voyagePlan.origin === 'string') ? voyagePlan.origin.split(',')[0] : "Unknown"}</span>
-                        <span className="text-[10px] text-gray-500 font-mono mt-1">{voyagePlan.originCoordinates?.lat.toFixed(2)}°N, {Math.abs(voyagePlan.originCoordinates?.lon || 0).toFixed(2)}°W</span>
+                        <span className="text-[10px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}</span>
                     </div>
 
                     {/* Connecting Route Line */}
@@ -125,7 +127,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     <div className="flex flex-col text-right items-end min-w-0 flex-1">
                         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Arriving</span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">{(voyagePlan.destination && typeof voyagePlan.destination === 'string') ? voyagePlan.destination.split(',')[0] : "Unknown"}</span>
-                        <span className="text-[10px] text-gray-500 font-mono mt-1">{voyagePlan.destinationCoordinates?.lat.toFixed(2)}°N, {Math.abs(voyagePlan.destinationCoordinates?.lon || 0).toFixed(2)}°W</span>
+                        <span className="text-[10px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon, 2)}</span>
                     </div>
                 </div>
 
@@ -141,7 +143,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </div>
                         <div className="text-right">
                             <span className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</span>
-                            <span className="text-[10px] text-gray-500 block">Great Circle</span>
+                            <span className="text-[10px] text-gray-500 block">Nautical Miles</span>
                         </div>
                     </div>
 
@@ -192,6 +194,24 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </div>
                 </div>
             </div>
+            {/* ═══ ROUTE STRATEGY — Why this route? ═══ */}
+            {voyagePlan.routeReasoning && (
+                <div className="px-6 md:px-8 pb-2">
+                    <div className="bg-sky-500/5 border border-sky-500/15 rounded-xl px-4 py-3">
+                        <div className="flex items-start gap-2.5">
+                            <div className="p-1 bg-sky-500/10 rounded-md mt-0.5 shrink-0">
+                                <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-[10px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
+                                <p className="text-[12px] text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ═══════════════════════════════════════════════════════════════════
                 COLLAPSIBLE ACCORDIONS — All sections below
@@ -243,14 +263,15 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     icon={<ServerIcon className="w-5 h-5" />}
                     accent="sky"
                     defaultOpen={false}
-                    badge={`${(voyagePlan.waypoints?.length || 0) + 2} checkpoints`}
+                    badge={`${(voyagePlan.waypoints?.length || 0) + 2} waypoints`}
                 >
                     <div className="overflow-x-auto -mx-5 px-5">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="text-[10px] text-gray-500 uppercase tracking-widest border-b border-white/10">
-                                    <th className="pb-3 pl-2 font-bold">Checkpoint / ETA</th>
+                                    <th className="pb-3 pl-2 font-bold">Waypoint / ETA</th>
                                     <th className="pb-3 font-bold">Position</th>
+                                    <th className="pb-3 font-bold">Depth</th>
                                     <th className="pb-3 font-bold">Wind</th>
                                     <th className="pb-3 font-bold">Sea State</th>
                                     <th className="pb-3 font-bold">Notes</th>
@@ -266,9 +287,10 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     <td className="py-3.5">
                                         <div className="text-white">{(voyagePlan.origin && typeof voyagePlan.origin === 'string') ? voyagePlan.origin.split(',')[0] : "Origin"}</div>
                                         <div className="text-[10px] text-gray-500 opacity-60">
-                                            {voyagePlan.originCoordinates?.lat.toFixed(3)}N, {Math.abs(voyagePlan.originCoordinates?.lon || 0).toFixed(3)}W
+                                            {fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon)}
                                         </div>
                                     </td>
+                                    <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-gray-400 max-w-[200px] truncate">
@@ -293,10 +315,19 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             <td className="py-3.5">
                                                 {wp.coordinates ? (
                                                     <>
-                                                        <div>{wp.coordinates.lat.toFixed(3)}N</div>
-                                                        <div className="opacity-60">{Math.abs(wp.coordinates.lon).toFixed(3)}W</div>
+                                                        <div>{fmtLat(wp.coordinates.lat)}</div>
+                                                        <div className="opacity-60">{fmtLon(wp.coordinates.lon)}</div>
                                                     </>
                                                 ) : "--"}
+                                            </td>
+                                            <td className="py-3.5">
+                                                {wp.depth_m !== undefined ? (
+                                                    <div className={`flex items-center gap-1 font-mono text-xs ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>
+                                                        ⚓ {wp.depth_m}m
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-500 italic">--</span>
+                                                )}
                                             </td>
                                             <td className="py-3.5">
                                                 <div className="flex items-center gap-1.5 text-sky-300">
@@ -331,9 +362,10 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     <td className="py-3.5">
                                         <div className="text-white">{(voyagePlan.destination && typeof voyagePlan.destination === 'string') ? voyagePlan.destination.split(',')[0] : "Destination"}</div>
                                         <div className="text-[10px] text-gray-500 opacity-60">
-                                            {voyagePlan.destinationCoordinates?.lat.toFixed(3)}N, {Math.abs(voyagePlan.destinationCoordinates?.lon || 0).toFixed(3)}W
+                                            {fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon)}
                                         </div>
                                     </td>
+                                    <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-gray-500 italic">--</td>
                                     <td className="py-3.5 text-emerald-400 font-bold text-xs uppercase tracking-wider">
@@ -372,7 +404,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
 
                                     <div className="flex-1 min-w-0">
                                         <h4 className="text-sm font-bold text-white tracking-wide truncate mb-1 pr-4">{wp.name}</h4>
-                                        <span className="text-[10px] font-mono text-gray-400 block mb-2">{wp.coordinates?.lat.toFixed(3)}N {Math.abs(wp.coordinates?.lon || 0).toFixed(3)}W</span>
+                                        <span className="text-[10px] font-mono text-gray-400 block mb-2">{fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}</span>
 
                                         {/* Conditions Mini-Grid */}
                                         <div className="grid grid-cols-2 gap-2">
@@ -386,6 +418,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
                                                     <WaveIcon className="w-3 h-3 text-blue-400" />
                                                     <span className="text-[10px] text-gray-300 font-medium">{wp.waveHeight}ft</span>
+                                                </div>
+                                            )}
+                                            {wp.depth_m !== undefined && (
+                                                <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
+                                                    <span className={`text-[10px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>⚓ {wp.depth_m}m</span>
                                                 </div>
                                             )}
                                         </div>
@@ -534,62 +571,64 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 </AccordionSection>
 
                 {/* CUSTOMS & IMMIGRATION (if applicable) */}
-                {voyagePlan.customs?.required && (
-                    <AccordionSection
-                        title="Customs & Immigration"
-                        subtitle="International Clearance Requirements"
-                        icon={<FlagIcon className="w-5 h-5" />}
-                        accent="indigo"
-                        defaultOpen={false}
-                        badge={`${voyagePlan.customs.departingCountry || 'Origin'} → ${voyagePlan.customs.destinationCountry || 'Destination'}`}
-                    >
-                        <div className="space-y-5">
-                            {/* Departure Section */}
-                            {voyagePlan.customs.departureProcedures && (
-                                <div className="border-b border-indigo-500/20 pb-4">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
-                                            <FlagIcon className="w-4 h-4" />
+                {
+                    voyagePlan.customs?.required && (
+                        <AccordionSection
+                            title="Customs & Immigration"
+                            subtitle="International Clearance Requirements"
+                            icon={<FlagIcon className="w-5 h-5" />}
+                            accent="indigo"
+                            defaultOpen={false}
+                            badge={`${voyagePlan.customs.departingCountry || 'Origin'} → ${voyagePlan.customs.destinationCountry || 'Destination'}`}
+                        >
+                            <div className="space-y-5">
+                                {/* Departure Section */}
+                                {voyagePlan.customs.departureProcedures && (
+                                    <div className="border-b border-indigo-500/20 pb-4">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
+                                                <FlagIcon className="w-4 h-4" />
+                                            </div>
+                                            <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
+                                                Clearance Outbound: {voyagePlan.customs.departingCountry || "Origin"}
+                                            </h4>
                                         </div>
-                                        <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
-                                            Clearance Outbound: {voyagePlan.customs.departingCountry || "Origin"}
-                                        </h4>
-                                    </div>
-                                    <p className="text-sm text-gray-300 leading-relaxed pl-1">
-                                        {voyagePlan.customs.departureProcedures}
-                                    </p>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col md:flex-row gap-6">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
-                                            <FlagIcon className="w-4 h-4" />
-                                        </div>
-                                        <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
-                                            International Arrival: {voyagePlan.customs.destinationCountry || "Border Crossing"}
-                                        </h4>
-                                    </div>
-                                    <p className="text-sm text-gray-300 leading-relaxed pl-1">
-                                        {voyagePlan.customs.procedures}
-                                    </p>
-                                </div>
-                                {voyagePlan.customs.contactPhone && (
-                                    <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-indigo-500/20 pt-4 md:pt-0 md:pl-6">
-                                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">Port Authority / Customs</span>
-                                        <div className="flex items-center gap-2 text-white font-mono text-lg">
-                                            <PhoneIcon className="w-4 h-4 text-emerald-400" />
-                                            <a href={`tel:${voyagePlan.customs.contactPhone}`} className="hover:text-emerald-300 transition-colors">
-                                                {voyagePlan.customs.contactPhone}
-                                            </a>
-                                        </div>
+                                        <p className="text-sm text-gray-300 leading-relaxed pl-1">
+                                            {voyagePlan.customs.departureProcedures}
+                                        </p>
                                     </div>
                                 )}
+
+                                <div className="flex flex-col md:flex-row gap-6">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
+                                                <FlagIcon className="w-4 h-4" />
+                                            </div>
+                                            <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
+                                                International Arrival: {voyagePlan.customs.destinationCountry || "Border Crossing"}
+                                            </h4>
+                                        </div>
+                                        <p className="text-sm text-gray-300 leading-relaxed pl-1">
+                                            {voyagePlan.customs.procedures}
+                                        </p>
+                                    </div>
+                                    {voyagePlan.customs.contactPhone && (
+                                        <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-indigo-500/20 pt-4 md:pt-0 md:pl-6">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">Port Authority / Customs</span>
+                                            <div className="flex items-center gap-2 text-white font-mono text-lg">
+                                                <PhoneIcon className="w-4 h-4 text-emerald-400" />
+                                                <a href={`tel:${voyagePlan.customs.contactPhone}`} className="hover:text-emerald-300 transition-colors">
+                                                    {voyagePlan.customs.contactPhone}
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </AccordionSection>
-                )}
+                        </AccordionSection>
+                    )
+                }
 
                 {/* PRE-DEPARTURE SYSTEMS CHECK */}
                 <AccordionSection
@@ -662,18 +701,27 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </div>
                 </button>
 
-                {/* PDF EXPORT */}
-                <button
-                    onClick={() => printPassageBrief({ voyagePlan, vessel })}
-                    className="w-full bg-gradient-to-r from-sky-500/10 to-blue-600/10 border border-sky-500/20 rounded-2xl p-4 flex items-center justify-center gap-3 group hover:from-sky-500/20 hover:to-blue-600/20 transition-all"
-                >
-                    <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
-                    <span className="text-sm font-bold text-sky-300 uppercase tracking-widest">Export Passage Brief (PDF)</span>
-                </button>
-            </div>
+                {/* EXPORT BUTTONS */}
+                <div className="grid grid-cols-2 gap-3">
+                    <button
+                        onClick={() => printPassageBrief({ voyagePlan, vessel })}
+                        className="bg-gradient-to-r from-sky-500/10 to-blue-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-blue-600/20 transition-all"
+                    >
+                        <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
+                        <span className="text-xs font-bold text-sky-300 uppercase tracking-widest">Export Passage Brief (PDF)</span>
+                    </button>
+                    <button
+                        onClick={() => downloadRouteGPX(voyagePlan)}
+                        className="bg-gradient-to-r from-emerald-500/10 to-teal-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-teal-600/20 transition-all"
+                    >
+                        <RouteIcon className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                        <span className="text-xs font-bold text-emerald-300 uppercase tracking-widest">Export GPX Route</span>
+                    </button>
+                </div>
+            </div >
 
             {/* LIABILITY DISCLAIMER */}
-            <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg backdrop-blur-sm mt-4">
+            < div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg backdrop-blur-sm mt-4" >
                 <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
                     <AlertTriangleIcon className="w-5 h-5" />
                 </div>
@@ -686,8 +734,8 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </span>
                     </p>
                 </div>
-            </div>
+            </div >
 
-        </div>
+        </div >
     );
 };

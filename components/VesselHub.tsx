@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { DiaryService } from '../services/DiaryService';
+import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 
 interface VesselHubProps {
@@ -29,6 +30,10 @@ interface OfficeCard {
 }
 
 export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSave }) => {
+    // ── Vessel state ──
+    const { settings: ctx } = useSettings();
+    const isObserver = (ctx as any)?.vessel?.type === 'observer';
+
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
@@ -185,22 +190,28 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                 </div>
 
                 <div className="grid grid-cols-4 gap-2">
-                    {officeCards.map(card => (
-                        <button
-                            key={card.id}
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate(card.page);
-                            }}
-                            className={`bg-gradient-to-br ${card.accentBg} border rounded-xl p-2.5 text-left group hover:scale-[1.03] transition-all active:scale-[0.97]`}
-                        >
-                            <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
-                                <div className={`${card.accentColor}`}>{card.icon}</div>
-                            </div>
-                            <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">{card.label}</h4>
-                            <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-0.5 truncate">{card.sublabel}</p>
-                        </button>
-                    ))}
+                    {officeCards.map(card => {
+                        const disabled = card.id === 'passage' && isObserver;
+                        return (
+                            <button
+                                key={card.id}
+                                onClick={() => {
+                                    if (disabled) return;
+                                    triggerHaptic('light');
+                                    onNavigate(card.page);
+                                }}
+                                className={`bg-gradient-to-br ${disabled ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : `${card.accentBg}`} border rounded-xl p-2.5 text-left group ${disabled ? '' : 'hover:scale-[1.03]'} transition-all active:scale-[0.97]`}
+                            >
+                                <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                                    <div className={`${card.accentColor}`}>{card.icon}</div>
+                                </div>
+                                <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">{card.label}</h4>
+                                <p className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 ${disabled ? 'text-gray-600' : card.accentColor}`}>
+                                    {disabled ? 'Vessel Required' : card.sublabel}
+                                </p>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 

@@ -21,27 +21,33 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }
     }, [updateSettings]);
 
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pb-24 pt-4 animate-in fade-in duration-300 overflow-y-auto h-full">
+        <div className="relative h-full bg-slate-950 overflow-hidden">
+            <div className="flex flex-col h-full">
 
-            {/* ═══ HEADER ═══ */}
-            <div className="flex items-center gap-3 mb-5">
-                <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
-                <div className="flex-1">
-                    <h1 className="text-lg font-black text-white tracking-wide">Polar Manager</h1>
-                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Performance Data</p>
+                {/* ═══ HEADER ═══ */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-3">
+                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
+                        <div className="flex-1">
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Polars</h1>
+                            <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Performance Data</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ═══ POLAR MANAGER CONTENT ═══ */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                    <PolarManagerTab
+                        settings={settings as any}
+                        onSave={handleSave}
+                        onNavigateToNmea={onNavigateToNmea}
+                    />
                 </div>
             </div>
-
-            {/* ═══ POLAR MANAGER CONTENT ═══ */}
-            <PolarManagerTab
-                settings={settings as any}
-                onSave={handleSave}
-                onNavigateToNmea={onNavigateToNmea}
-            />
         </div>
     );
 };

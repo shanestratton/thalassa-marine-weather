@@ -263,7 +263,8 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
           "bestDepartureWindow": {
             "timeRange": "string",
             "reasoning": "string"
-          }
+          },
+          "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, seasonal weather patterns, safe harbours en route, and any relevant maritime geography.)"
         }`;
 
         const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
@@ -292,6 +293,29 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             }
             return wp;
         });
+
+        // ── Wind/Wave Sanity Check ──────────────────────────────────────
+        // Beaufort scale correlation: expected wave height ≈ 0.005 × windSpeed² (ft from kts)
+        // If AI returns waves < 40% of expected minimum, correct to a plausible range
+        data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
+            if (wp.windSpeed != null && wp.waveHeight != null && wp.windSpeed > 0) {
+                const expectedMinWaves = 0.005 * wp.windSpeed * wp.windSpeed; // ft
+                if (wp.waveHeight < expectedMinWaves * 0.4) {
+                    // Physically implausible — correct to ~70% of expected (conservative open-ocean estimate)
+                    wp.waveHeight = Math.round(expectedMinWaves * 0.7 * 10) / 10;
+                }
+            }
+            return wp;
+        });
+
+        // Recalculate max values from corrected waypoints
+        if (data.suitability) {
+            const maxWind = Math.max(...data.waypoints.map((wp: { windSpeed?: number }) => wp.windSpeed ?? 0));
+            const maxWave = Math.max(...data.waypoints.map((wp: { waveHeight?: number }) => wp.waveHeight ?? 0));
+            if (maxWind > 0) data.suitability.maxWindEncountered = maxWind;
+            if (maxWave > 0) data.suitability.maxWaveEncountered = maxWave;
+        }
+
         return data;
 
     } catch (e: unknown) {

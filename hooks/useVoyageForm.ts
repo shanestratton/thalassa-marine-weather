@@ -138,7 +138,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
             const { fetchVoyagePlan } = await import('../services/geminiService');
             const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
-            saveVoyagePlan(result);
+
+            // Enhance with bathymetric routing (depth-safe waypoints)
+            // Non-blocking: if the edge function fails, the AI plan is used as-is
+            try {
+                const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
+                const enhanced = await enhanceVoyagePlanWithBathymetry(result, vessel);
+                saveVoyagePlan(enhanced);
+            } catch (bathyErr) {
+                console.warn('[VoyageForm] Bathymetric enhancement unavailable:', bathyErr);
+                saveVoyagePlan(result);
+            }
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');
         } finally {

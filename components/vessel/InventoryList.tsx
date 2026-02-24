@@ -8,11 +8,12 @@
  * - Quick scan button to open InventoryScanner
  * - Swipe-to-delete (via button)
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { triggerHaptic } from '../../utils/system';
+import { SlideToAction } from '../ui/SlideToAction';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -105,204 +106,205 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     }
 
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pb-24 animate-in fade-in duration-300">
-            {/* Header */}
-            <div className="sticky top-0 z-20 bg-black pt-[max(1rem,env(safe-area-inset-top))] pb-3">
-                <div className="flex items-center gap-3 mb-4">
-                    <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                    </button>
-                    <div className="flex-1">
-                        <h1 className="text-xl font-black text-white tracking-wide">Inventory</h1>
-                        {stats && (
-                            <p className="text-[10px] text-gray-500">
-                                {stats.totalItems} items • {stats.totalQuantity} total units
-                                {stats.lowStock > 0 && <span className="text-amber-400"> • {stats.lowStock} low stock</span>}
+        <div className="relative h-full bg-slate-950 overflow-hidden">
+            <div className="flex flex-col h-full">
+
+                {/* ── Header ── */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-3">
+                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                        <div className="flex-1">
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Inventory</h1>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
+                                {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
                             </p>
-                        )}
+                        </div>
+                        <button
+                            onClick={() => setShowScanner(true)}
+                            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
+                            title="Scan barcode"
+                        >
+                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                            </svg>
+                        </button>
                     </div>
-                    <button
-                        onClick={() => setShowScanner(true)}
-                        className="py-2.5 px-4 bg-gradient-to-r from-sky-600 to-cyan-600 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
-                    >
-                        📷 Scan
-                    </button>
                 </div>
 
-                {/* Search bar */}
-                <div className="relative mb-3">
-                    <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                    </svg>
+                {/* ── Search ── */}
+                <div className="shrink-0 px-4 pb-3">
                     <input
                         type="text"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="Search by name or location…"
-                        className="w-full bg-white/[0.05] border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                        placeholder="Search by name or location..."
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
                     />
-                    {searchQuery && (
-                        <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+                </div>
+
+                {/* ── Category filters ── */}
+                <div className="shrink-0 px-4 pb-3">
+                    <div className="grid grid-cols-4 gap-2">
+                        <button
+                            onClick={() => setActiveCategory(null)}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${!activeCategory ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                        >
+                            All
                         </button>
+                        {CATEGORIES.map(cat => {
+                            const count = items.filter(i => i.category === cat).length;
+                            if (count === 0) return null;
+                            return (
+                                <button
+                                    key={cat}
+                                    onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+                                    className={`py-2 rounded-full text-xs font-bold transition-all text-center ${activeCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                >
+                                    {CATEGORY_ICONS[cat]} {cat}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* ── Item List (scrollable) ── */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-2">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-12">
+                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                    ) : filtered.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
+                            <div className="relative w-20 h-20 mb-5">
+                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
+                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
+                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
+                                </svg>
+                            </div>
+                            <p className="text-base font-bold text-white mb-1">
+                                {searchQuery ? 'No Items Match' : 'No Inventory Yet'}
+                            </p>
+                            <p className="text-sm text-white/50 max-w-[240px] text-center">
+                                {searchQuery ? 'Try a different search term.' : 'Slide below to add your first item, or scan a barcode.'}
+                            </p>
+                        </div>
+                    ) : (
+                        filtered.map(item => {
+                            const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
+                            const isExpanded = expandedId === item.id;
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    className={`bg-slate-800/40 border rounded-lg overflow-hidden transition-all ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
+                                >
+                                    {/* Main row */}
+                                    <button
+                                        onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                                        className="w-full px-3 py-3 flex items-center gap-3 text-left"
+                                    >
+                                        <span className="text-xs shrink-0">{CATEGORY_ICONS[item.category]}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
+                                            {item.location_zone && (
+                                                <p className="text-[10px] text-gray-500 truncate">
+                                                    📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
+                                            <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
+                                                {item.quantity}
+                                            </p>
+                                        </div>
+                                        <svg className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                        </svg>
+                                    </button>
+
+                                    {/* Expanded detail */}
+                                    {isExpanded && (
+                                        <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
+                                            <div className="grid grid-cols-2 gap-2 text-[10px] mb-3">
+                                                <div>
+                                                    <span className="text-gray-500">Category</span>
+                                                    <p className="text-white font-bold">{item.category}</p>
+                                                </div>
+                                                {item.barcode && (
+                                                    <div>
+                                                        <span className="text-gray-500">Barcode</span>
+                                                        <p className="text-white font-mono">{item.barcode}</p>
+                                                    </div>
+                                                )}
+                                                {item.description && (
+                                                    <div className="col-span-2">
+                                                        <span className="text-gray-500">Notes</span>
+                                                        <p className="text-gray-300">{item.description}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => handleQuantityAdjust(item.id, -1)}
+                                                        disabled={item.quantity <= 0}
+                                                        className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                                    >
+                                                        −
+                                                    </button>
+                                                    <span className="text-white font-black text-lg w-8 text-center tabular-nums">{item.quantity}</span>
+                                                    <button
+                                                        onClick={() => handleQuantityAdjust(item.id, 1)}
+                                                        className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleDelete(item.id)}
+                                                    className="px-3 py-2 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+
+                                            {isLow && (
+                                                <p className="text-[10px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
                     )}
                 </div>
 
-                {/* Category filter chips */}
-                <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                    <button
-                        onClick={() => setActiveCategory(null)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 ${!activeCategory ? 'bg-sky-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                            }`}
-                    >
-                        All ({items.length})
-                    </button>
-                    {CATEGORIES.map(cat => {
-                        const count = items.filter(i => i.category === cat).length;
-                        if (count === 0) return null;
-                        return (
-                            <button
-                                key={cat}
-                                onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 ${activeCategory === cat ? 'bg-sky-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                                    }`}
-                            >
-                                {CATEGORY_ICONS[cat]} {cat} ({count})
-                            </button>
-                        );
-                    })}
+                {/* ── SlideToAction CTA (fixed at bottom) ── */}
+                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                    <SlideToAction
+                        label="Slide to Add Item"
+                        thumbIcon={
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                        }
+                        onConfirm={() => {
+                            triggerHaptic('medium');
+                            setShowScanner(true);
+                        }}
+                        theme="orange"
+                    />
                 </div>
             </div>
-
-            {/* ── Item List ── */}
-            {loading ? (
-                <div className="flex items-center justify-center py-20">
-                    <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-            ) : filtered.length === 0 ? (
-                <div className="text-center py-20">
-                    <p className="text-3xl mb-3">{searchQuery ? '🔍' : '📦'}</p>
-                    <p className="text-sm font-bold text-gray-400 mb-1">
-                        {searchQuery ? 'No items match your search' : 'No inventory items yet'}
-                    </p>
-                    <p className="text-xs text-gray-600 mb-4">
-                        {searchQuery ? 'Try a different search term' : 'Scan a barcode or add items manually'}
-                    </p>
-                    {!searchQuery && (
-                        <button
-                            onClick={() => setShowScanner(true)}
-                            className="px-6 py-3 bg-sky-600 text-white rounded-xl text-sm font-bold"
-                        >
-                            📷 Scan First Item
-                        </button>
-                    )}
-                </div>
-            ) : (
-                <div className="space-y-2 mt-2">
-                    {filtered.map(item => {
-                        const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
-                        const isExpanded = expandedId === item.id;
-
-                        return (
-                            <div
-                                key={item.id}
-                                className={`bg-white/[0.03] border rounded-2xl overflow-hidden transition-all ${isLow ? 'border-amber-500/20' : 'border-white/[0.06]'
-                                    }`}
-                            >
-                                {/* Main row */}
-                                <button
-                                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                                    className="w-full px-4 py-3.5 flex items-center gap-3 text-left"
-                                >
-                                    {/* Category icon */}
-                                    <span className="text-lg flex-shrink-0">{CATEGORY_ICONS[item.category]}</span>
-
-                                    {/* Item info */}
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-bold text-white truncate">{item.item_name}</p>
-                                        {item.location_zone && (
-                                            <p className="text-[10px] text-gray-500 truncate">
-                                                📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Quantity badge */}
-                                    <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'
-                                        }`}>
-                                        <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
-                                            {item.quantity}
-                                        </p>
-                                    </div>
-
-                                    {/* Expand chevron */}
-                                    <svg className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                    </svg>
-                                </button>
-
-                                {/* Expanded detail */}
-                                {isExpanded && (
-                                    <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
-                                        <div className="grid grid-cols-2 gap-2 text-[10px] mb-3">
-                                            <div>
-                                                <span className="text-gray-500">Category</span>
-                                                <p className="text-white font-bold">{item.category}</p>
-                                            </div>
-                                            {item.barcode && (
-                                                <div>
-                                                    <span className="text-gray-500">Barcode</span>
-                                                    <p className="text-white font-mono">{item.barcode}</p>
-                                                </div>
-                                            )}
-                                            {item.description && (
-                                                <div className="col-span-2">
-                                                    <span className="text-gray-500">Notes</span>
-                                                    <p className="text-gray-300">{item.description}</p>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Quick quantity controls */}
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() => handleQuantityAdjust(item.id, -1)}
-                                                    disabled={item.quantity <= 0}
-                                                    className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
-                                                >
-                                                    −
-                                                </button>
-                                                <span className="text-white font-black text-lg w-8 text-center tabular-nums">{item.quantity}</span>
-                                                <button
-                                                    onClick={() => handleQuantityAdjust(item.id, 1)}
-                                                    className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
-                                                >
-                                                    +
-                                                </button>
-                                            </div>
-                                            <button
-                                                onClick={() => handleDelete(item.id)}
-                                                className="px-3 py-2 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all"
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-
-                                        {isLow && (
-                                            <p className="text-[10px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
         </div>
     );
 };
