@@ -181,6 +181,26 @@ export const fetchWeatherByStrategy = async (
         // Inherit tides from StormGlass
         if (stormGlassReport.tides?.length) report.tides = stormGlassReport.tides;
         if (stormGlassReport.tideHourly?.length) report.tideHourly = stormGlassReport.tideHourly;
+        if (stormGlassReport.tideGUIDetails) report.tideGUIDetails = stormGlassReport.tideGUIDetails;
+
+        // Inherit location metadata from StormGlass (it does the coastline distance check)
+        if (stormGlassReport.distToLandKm != null) report.distToLandKm = stormGlassReport.distToLandKm;
+        if (stormGlassReport.isLandlocked != null) report.isLandlocked = stormGlassReport.isLandlocked;
+    }
+
+    // --- FALLBACK: Tides + location from OpenMeteo if StormGlass didn't provide them ---
+    // OpenMeteo also calls fetchRealTides() internally. If StormGlass failed/was skipped,
+    // OpenMeteo's tides are still available.
+    if ((!report.tides || report.tides.length === 0) && openMeteoReport) {
+        if (openMeteoReport.tides?.length) report.tides = openMeteoReport.tides;
+        if (openMeteoReport.tideHourly?.length) report.tideHourly = openMeteoReport.tideHourly;
+        if (openMeteoReport.tideGUIDetails) report.tideGUIDetails = openMeteoReport.tideGUIDetails;
+    }
+    if (report.distToLandKm == null && openMeteoReport?.distToLandKm != null) {
+        report.distToLandKm = openMeteoReport.distToLandKm;
+    }
+    if (report.isLandlocked == null && openMeteoReport?.isLandlocked != null) {
+        report.isLandlocked = openMeteoReport.isLandlocked;
     }
 
     // --- ENRICH WITH OPENMETEO CAPE (for wind field map) ---
