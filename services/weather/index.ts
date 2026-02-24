@@ -85,6 +85,7 @@ export const fetchWeatherByStrategy = async (
     console.log(`  WeatherKit:  ${wkResult.status === 'fulfilled' ? (weatherKitFull ? `✅ obs=${!!weatherKitFull.observation} hourly=${weatherKitFull.hourly?.length || 0} daily=${weatherKitFull.daily?.length || 0}` : '⚠️ null') : '❌ ' + (wkResult as PromiseRejectedResult).reason}`);
     console.log(`  StormGlass:  ${!needsStormGlass ? '⏭️ skipped (inland)' : sgResult.status === 'fulfilled' ? (stormGlassReport ? '✅ OK' : '⚠️ null') : '❌ ' + (sgResult as PromiseRejectedResult).reason}`);
     console.log(`  OpenMeteo:   ${omResult.status === 'fulfilled' ? (openMeteoReport ? '✅ OK' : '⚠️ null') : '❌ ' + (omResult as PromiseRejectedResult).reason}`);
+    console.log(`  WorldTides:  ${tideResult.status === 'fulfilled' ? (tideData?.tides?.length ? `✅ ${tideData.tides.length} extremes` : '⚠️ no tides') : '❌ ' + (tideResult as PromiseRejectedResult).reason}`);
 
     // --- BUILD BASE REPORT ---
     // Priority: WeatherKit (primary) > StormGlass (offshore fallback) > OpenMeteo (last resort)
@@ -202,6 +203,7 @@ export const fetchWeatherByStrategy = async (
     if (tideData?.tides?.length) {
         report.tides = tideData.tides;
         if (tideData.guiDetails) report.tideGUIDetails = tideData.guiDetails;
+        console.log(`[Strategy] ✅ Applied ${tideData.tides.length} tides from WorldTides (station: ${tideData.guiDetails?.stationName || 'unknown'})`);
 
         // Generate dense hourly tide data for the graph (cosine interpolation)
         const sorted = [...tideData.tides].sort((a, b) =>
