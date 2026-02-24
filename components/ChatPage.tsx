@@ -1207,7 +1207,8 @@ export const ChatPage: React.FC = () => {
                         </div>
 
 
-                        {/* Looking for Love toggle */}
+                        {/* Looking for Love toggle — temporarily hidden while First Mates is disabled */}
+                        {/* 
                         <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
                             <div className="flex items-center gap-3">
                                 <span className="text-2xl">❤️</span>
@@ -1227,6 +1228,7 @@ export const ChatPage: React.FC = () => {
                                 <div className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-200 ${profileLookingForLove ? 'translate-x-6' : 'translate-x-0'}`} />
                             </button>
                         </div>
+                        */}
 
                         {/* Save button */}
                         <button
@@ -1260,7 +1262,7 @@ export const ChatPage: React.FC = () => {
                         <div className="px-4 py-3 pb-24 space-y-1.5">
                             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20 px-1 mb-2">Channels</p>
                             {channels
-                                .filter(ch => (ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts') || profileLookingForLove)
+                                .filter(ch => ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts')
                                 .sort((a, b) => {
                                     const priority: Record<string, number> = { 'First Mates': 0, 'Lonely Hearts': 0, 'Find Crew': 1, 'General': 2 };
                                     return (priority[a.name] ?? 99) - (priority[b.name] ?? 99);

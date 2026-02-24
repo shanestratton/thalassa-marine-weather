@@ -33,7 +33,7 @@ export const getWorldTidesKey = () => {
     }
 
     // HARDCODED FALLBACK (Ensuring tide functionality on device)
-    return "66fcf5ed-de19-4c37-861c-57455c8ae0a4";
+    return "5b7fde99-1a0c-4008-ba31-11cd7de55d95";
 };
 
 export const getMapboxKey = () => {

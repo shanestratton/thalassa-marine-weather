@@ -257,7 +257,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 zIndex: 10,
                 display: 'flex',
                 flexDirection: 'column',
-                padding: '10px 10px 0 10px',
+                padding: '10px 10px 140px 10px',
             }}>
                 {/* ── Top Row: CommandDeck (left) + Close (right) ── */}
                 <div style={{
