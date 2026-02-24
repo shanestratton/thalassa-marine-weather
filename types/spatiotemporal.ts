@@ -45,12 +45,26 @@ export interface MeshStats {
     forecast_hours: number;
 }
 
+/** Pilotage channel gate info */
+export interface ChannelGateInfo {
+    gates: number;
+    handshake: { lat: number; lon: number };
+    polygon_vertices: number;
+}
+
+/** Pilotage metadata from route-weather */
+export interface PilotageInfo {
+    departure: ChannelGateInfo | null;
+    arrival: ChannelGateInfo | null;
+}
+
 /** The complete spatiotemporal payload from route-weather */
 export interface SpatiotemporalPayload {
     summary: RouteSummary;
     bounding_box: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     track: TrackPoint[];
     mesh_stats: MeshStats;
+    pilotage?: PilotageInfo;
     error?: string;
 }
 

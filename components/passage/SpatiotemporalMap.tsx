@@ -316,6 +316,10 @@ interface SpatiotemporalMapProps {
     vesselType?: 'sail' | 'power';
     /** Current time from scrubber — used to sync wind particles */
     currentTimeHours?: number;
+    /** GeoJSON FeatureCollection of seamark navigation aids */
+    seamarkGeoJSON?: GeoJSON.FeatureCollection | null;
+    /** GeoJSON polygon of the navigable channel corridor */
+    channelPolygonGeoJSON?: GeoJSON.Feature<GeoJSON.Polygon> | null;
 }
 
 const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
@@ -325,6 +329,8 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     corridorWidthNM = 30,
     vesselType = 'sail',
     currentTimeHours = 0,
+    seamarkGeoJSON,
+    channelPolygonGeoJSON,
 }) => {
     const mapRef = useRef<MapRef>(null);
     const windLayerRef = useRef<WindParticleLayer | null>(null);
@@ -444,6 +450,72 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             attributionControl={false}
         >
             <NavigationControl position="top-right" showCompass showZoom />
+
+            {/* ═══ CHANNEL POLYGON (pilotage corridor) ═══ */}
+            {channelPolygonGeoJSON && (
+                <Source id="channel-corridor" type="geojson" data={channelPolygonGeoJSON}>
+                    <Layer
+                        id="channel-fill"
+                        type="fill"
+                        paint={{
+                            'fill-color': '#ffaa00',
+                            'fill-opacity': 0.06,
+                        }}
+                    />
+                    <Layer
+                        id="channel-border"
+                        type="line"
+                        paint={{
+                            'line-color': '#ffaa00',
+                            'line-width': 1.5,
+                            'line-opacity': 0.4,
+                            'line-dasharray': [2, 3],
+                        }}
+                    />
+                </Source>
+            )}
+
+            {/* ═══ SEAMARK MARKERS (port/starboard beacons) ═══ */}
+            {seamarkGeoJSON && (
+                <Source id="local-seamarks" type="geojson" data={seamarkGeoJSON}>
+                    {/* Outer glow */}
+                    <Layer
+                        id="seamarks-glow"
+                        type="circle"
+                        paint={{
+                            'circle-radius': 10,
+                            'circle-color': [
+                                'match',
+                                ['get', 'category'],
+                                'port', '#ff0033',
+                                'starboard', '#00ff66',
+                                '#ffffff',
+                            ],
+                            'circle-blur': 0.8,
+                            'circle-opacity': 0.4,
+                        }}
+                    />
+                    {/* Core dot */}
+                    <Layer
+                        id="seamarks-core"
+                        type="circle"
+                        paint={{
+                            'circle-radius': 4,
+                            'circle-color': [
+                                'match',
+                                ['get', 'category'],
+                                'port', '#ff0033',
+                                'starboard', '#00ff66',
+                                '#ffffff',
+                            ],
+                            'circle-blur': 0.1,
+                            'circle-opacity': 0.9,
+                            'circle-stroke-width': 1,
+                            'circle-stroke-color': 'rgba(255,255,255,0.3)',
+                        }}
+                    />
+                </Source>
+            )}
 
             {/* ═══ CORRIDOR POLYGON (behind route) ═══ */}
             {corridorGeoJSON && (

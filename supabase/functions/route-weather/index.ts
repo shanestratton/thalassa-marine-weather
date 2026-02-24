@@ -1180,21 +1180,41 @@ function trueWindAngle(courseBearing: number, windFromDir: number): number {
 /**
  * Estimate vessel speed given weather conditions and vessel profile.
  *
- * For SAIL vessels:
- *   - Use polar data if available (interpolated)
- *   - Otherwise apply heuristic penalties based on TWA
- *   - Light air (<5 kts): huge penalty
- *   - Upwind (<45°): 60% slower
- *   - Beam reach (60-120°): 15% faster (optimal)
- *   - Running (>135°): slight penalty (dead run is slow)
+ * For SAIL vessels — Polar-First Architecture:
+ *   - Use custom polar data if provided (bilinear interpolation)
+ *   - Otherwise use built-in Tayana 55 default polars
+ *   - No-go zone (TWA < 35°): IMPASSABLE — forces A* to find better angle
+ *   - Close-hauled (35-50°): VMG penalty — progress toward dest is cos(TWA)
+ *   - Beam reach (70-120°): Optimal — fastest point of sail
+ *   - Dead run (150-180°): Moderate — polars drive the speed
  *
  * For POWER vessels:
- *   - Headwind penalty (bow seas slow you down)
- *   - Beam seas: wave slam penalty
- *   - Wave height affects speed regardless of direction
+ *   - Headwind/bow sea penalties
+ *   - Beam sea roll penalty
+ *   - Wave height degradation
  *
- * Returns 0 if conditions exceed vessel limits (IMPASSABLE).
+ * Returns 0 if conditions exceed vessel limits or in no-go zone (IMPASSABLE).
  */
+
+// Default polar data for a ~55ft bluewater cruiser (Tayana 55 class)
+// Speeds in knots indexed by [TWA][TWS]
+// TWA row indices: 40°  60°   80°  100°  120°  140°  160°  180°
+// TWS col indices:  6   10    15    20    25    30
+const TAYANA55_POLARS: PolarData = {
+    angles: [40, 60, 80, 100, 120, 140, 160, 180],
+    windSpeeds: [6, 10, 15, 20, 25, 30],
+    matrix: [
+        [3.2, 4.8, 5.8, 6.2, 6.0, 5.5], // 40° close-hauled
+        [4.0, 5.8, 7.0, 7.5, 7.2, 6.8], // 60° close reach
+        [4.5, 6.5, 7.8, 8.2, 8.0, 7.5], // 80° beam reach
+        [4.2, 6.2, 7.5, 8.0, 7.8, 7.3], // 100° broad beam
+        [3.8, 5.8, 7.2, 7.8, 7.5, 7.0], // 120° broad reach
+        [3.5, 5.2, 6.5, 7.2, 7.0, 6.5], // 140° deep broad
+        [3.0, 4.5, 5.8, 6.5, 6.3, 5.8], // 160° deep run
+        [2.5, 4.0, 5.2, 5.8, 5.5, 5.0], // 180° dead run
+    ],
+};
+
 function estimateSpeed(
     vessel: VesselParams,
     weather: WeatherSample,
@@ -1211,88 +1231,89 @@ function estimateSpeed(
     let speed = vessel.cruising_speed_kts;
 
     if (vessel.type === 'sail') {
-        // ── SAIL ROUTING ──
+        // ── SAIL — Polar-First ──
+        // Select polars: custom → Tayana 55 default
+        const polars = vessel.polar_data || TAYANA55_POLARS;
 
-        // Try polar data first (most accurate)
-        if (vessel.polar_data) {
-            speed = interpolatePolar(vessel.polar_data, twa, tws);
-            if (speed <= 0) speed = 0.5; // Never truly zero, just very slow
-        } else {
-            // Heuristic sail performance model
-            if (tws < 5) {
-                // Light air — barely moving
-                speed *= (1 / LIGHT_AIR_PENALTY_SAIL) * (tws / 5);
-                speed = Math.max(speed, 0.5);
-            } else if (twa < 30) {
-                // No-go zone — can't sail here efficiently
-                speed *= 0.3;
-            } else if (twa < 45) {
-                // Close-hauled — significantly slower
-                speed /= UPWIND_PENALTY_SAIL;
-            } else if (twa >= 60 && twa <= 120) {
-                // Beam reach — optimal angle
-                speed *= (1 / BEAM_WIND_BONUS_SAIL);
-                // Speed increases with wind up to a point
-                const windFactor = Math.min(tws / 15, 1.3);
-                speed *= windFactor;
-            } else if (twa > 150) {
-                // Dead run — slightly slower than beam reach
-                speed *= 0.85;
-            }
+        // NO-GO ZONE: Cannot sail within 35° of the wind.
+        // Forces A* to pick a node with a better angle.
+        if (twa < 35) return 0;
 
-            // Gale conditions — even with wind, it's dangerous
-            if (tws > vessel.max_wind_kts * 0.8) {
-                speed *= 0.5; // Reefed down, survival sailing
-            }
+        // CLOSE-HAULED TACKING (35–50°)
+        // Boat speed from polars, but effective VMG is cos(TWA) × boatSpeed
+        if (twa < 50) {
+            const polarSpeed = interpolatePolar(polars, twa, tws);
+            const vmgFactor = Math.cos(twa * DEG_TO_RAD);
+            speed = polarSpeed * vmgFactor;
+            speed = Math.max(speed, 0.5);
+        }
+        // CLOSE REACH (50–70°)
+        else if (twa < 70) {
+            speed = interpolatePolar(polars, twa, tws);
+            const vmgFactor = 0.8 + 0.2 * ((twa - 50) / 20);
+            speed *= vmgFactor;
+        }
+        // BEAM REACH (70–120°) — optimal, full polar speed
+        else if (twa <= 120) {
+            speed = interpolatePolar(polars, twa, tws);
+        }
+        // BROAD REACH (120–150°)
+        else if (twa <= 150) {
+            speed = interpolatePolar(polars, twa, tws);
+        }
+        // DEAD RUN (150–180°)
+        else {
+            speed = interpolatePolar(polars, twa, tws);
         }
 
-        // Wave penalty for sailing (independent of wind angle)
+        // Light air — not enough to fill sails
+        if (tws < 5) {
+            speed *= Math.max(0.2, tws / 5);
+        }
+
+        // Wave degradation
         if (waveH > 2.0) {
-            speed *= Math.max(0.6, 1 - (waveH - 2.0) * 0.1);
+            speed *= Math.max(0.5, 1 - (waveH - 2.0) * 0.12);
+        }
+
+        // Gale conditions — reefed down
+        if (tws > vessel.max_wind_kts * 0.75) {
+            const excess = (tws - vessel.max_wind_kts * 0.75) / (vessel.max_wind_kts * 0.25);
+            speed *= Math.max(0.3, 1 - excess * 0.7);
         }
 
     } else {
         // ── POWER ROUTING ──
 
-        // Headwind penalty (bow seas)
         if (twa < 45) {
-            // Head seas: motor into wind & waves
-            const headFactor = 1 - (tws / 40) * 0.3; // Up to 30% slower in 40 kt headwind
+            const headFactor = 1 - (tws / 40) * 0.3;
             speed *= Math.max(0.5, headFactor);
-
-            // Wave slam penalty in head seas
             if (waveH > 1.5) {
                 speed *= Math.max(0.6, 1 - (waveH - 1.5) * 0.15);
             }
         } else if (twa > 60 && twa < 120) {
-            // Beam seas — uncomfortable, possible roll penalty
             if (waveH > 2.0) {
                 speed *= Math.max(0.7, 1 - (waveH - 2.0) * 0.1);
             }
         }
-        // Following seas (twa > 120): generally favorable for power
 
-        // General wave height degradation
         if (waveH > 3.0) {
             speed *= Math.max(0.5, 1 - (waveH - 3.0) * 0.15);
         }
-
-        // Fuel efficiency: strong headwinds burn more fuel
-        // (not modeled in speed, but noted for routing preference)
     }
 
-    // Approaching operational limits — steep penalty curve
+    // Near-limits steep penalty
     if (tws > vessel.max_wind_kts * 0.7 || waveH > vessel.max_wave_m * 0.7) {
-        const windMargin = tws / vessel.max_wind_kts;
-        const waveMargin = waveH / vessel.max_wave_m;
-        const dangerFactor = Math.max(windMargin, waveMargin);
+        const dangerFactor = Math.max(tws / vessel.max_wind_kts, waveH / vessel.max_wave_m);
         if (dangerFactor > 0.7) {
             speed *= Math.max(0.3, 1 - (dangerFactor - 0.7) * GALE_PENALTY);
         }
     }
 
-    return Math.max(speed, 0.1); // Never zero — block via IMPASSABLE instead
+    return Math.max(speed, 0.1);
 }
+
+
 
 /**
  * Bilinear interpolation of polar performance data.
