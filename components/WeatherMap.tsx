@@ -15,6 +15,7 @@ import { GlobalWindLayer } from './map/GlobalWindLayer';
 import { useWindHeatMap } from '../hooks/useWindHeatMap';
 import { WindVelocityLayer } from './map/WindVelocityLayer';
 import { OfflineTileControl } from './map/OfflineTileControl';
+import { useNavMeshOverlay } from '../hooks/useNavMeshOverlay';
 
 
 
@@ -90,6 +91,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     const [selectedStop, setSelectedStop] = useState<Waypoint | null>(null);
     const [rawTargetPos, setRawTargetPos] = useState<{ lat: number, lon: number } | null>(null);
     const [buoys, setBuoys] = useState<BuoyStation[]>([]);
+    const [showNavMesh, setShowNavMesh] = useState(false);
 
     // Pending selection for Confirm Mode
     const [pendingSelection, setPendingSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
@@ -132,6 +134,10 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         routeCoordinates,
         waypoints
     );
+
+    // Nav Mesh X-Ray Overlay (developer tool)
+    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+    useNavMeshOverlay(mapInstance, showNavMesh, supabaseUrl);
 
     // Fetch Buoys - Triggered on center change to get local dynamic buoys
     useEffect(() => {
@@ -426,6 +432,13 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <WindIcon className="w-3 h-3" /> Velocity
+                            </button>
+                            <button
+                                onClick={() => setShowNavMesh(v => !v)}
+                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                                title="Toggle Nav Mesh X-Ray"
+                            >
+                                ⊞
                             </button>
                         </div>
                     )}
