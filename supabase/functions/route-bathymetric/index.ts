@@ -1,24 +1,25 @@
 // deno-lint-ignore-file
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
-    env: { get(key: string): string | undefined };
+    env: {
+        get(key: string): string | undefined;
+    };
 };
 
 /**
- * route-bathymetric — Stitched COG-backed Marine Router
+ * route-bathymetric — OSM Graph Dijkstra Marine Router
  *
- * Long passages are split into 3 independent A* legs:
- *   LEG A (departure): High-res from marina → 30 NM offshore
- *   LEG B (ocean):     Downsampled across open water
- *   LEG C (arrival):   High-res from 30 NM offshore → marina
+ * TRAFFIC LIGHT ROUTING SYSTEM:
+ *   🟢 Safe:     Plenty of clearance (depth > draft + 1m)
+ *   🟠 Caution:  Tight clearance (draft < depth < draft + 1m)
+ *   🔴 Danger:   Depth less than hull draft
  *
- * Each leg has its own tiny COG window via HTTP Range requests.
+ * SOFT WALLS: Shallow water gets massive penalty weights instead of
+ * being impassable. The router ALWAYS finds a route — but warns the
+ * captain visually instead of crashing.
+ *
+ * Output: GeoJSON FeatureCollection with segments colored by safety.
  */
-
-// @ts-ignore: Deno ESM import
-import { fromUrl } from "https://esm.sh/geotiff@2.1.3?bundle-deps&target=deno";
-
-// ── CORS ──────────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
@@ -41,377 +42,572 @@ interface RouteRequest {
     destination: { lat: number; lon: number };
     via?: { lat: number; lon: number };
     vessel_draft?: number;
+    region?: string;
 }
-
-interface GridCell { row: number; col: number; }
 
 interface RouteWaypoint {
     lat: number;
     lon: number;
     name: string;
-    depth_m?: number;
+    depth_m: number | null;
+    safety: 'safe' | 'caution' | 'danger';
+}
+
+interface NavGraph {
+    meta: {
+        version: number;
+        region: string;
+        nodes: number;
+        edges: number;
+        total_nm: number;
+        coord_order?: string;      // 'lon_lat' or 'lon_lat_depth'
+        depth_convention?: string;  // 'negative_is_water'
+        markers?: number;
+        obstacles?: number;
+    };
+    nodes: number[][];  // [[lon, lat] or [lon, lat, depth_m], ...]
+    edges: number[][];  // [[from, to, weight], ...]
+    markers?: (number | string)[][];  // [[node_idx, '_class'], ...] for IALA penalties
+    obstacles?: number[][];  // [[lon, lat], ...] for avoidance zones
 }
 
 // ── Constants ─────────────────────────────────────────────────────
 
-const UKC_MARGIN_FACTOR = 1.3;
 const EARTH_RADIUS_NM = 3440.065;
-const DEFAULT_DRAFT = 2.5;
-const SNAP_RADIUS = 60;
-const MAX_A_STAR = 100_000;
-const HEURISTIC_WEIGHT = 1.5;
-const HANDOFF_NM = 30;
-const COASTAL_BUFFER = 2.0;
-const OCEAN_BUFFER = 0.5;
-const STITCH_THRESHOLD_NM = 100;
-const MAX_GRID = 500;
+const MAX_SNAP_NM = 5.0;
+const GRAPH_CACHE_TTL = 3600000;
+const DEFAULT_DRAFT = 2.0;
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
-const COG_URL = `${SUPABASE_URL}/storage/v1/object/public/gebco-tiles/thalassa_bathymetry_global.tif`;
+// ── Soft Wall Penalties ──
+// These are additive costs applied to edges that traverse shallow water.
+// The router will avoid them when deep-water alternatives exist,
+// but will use them as a last resort (rather than refusing the route).
+const CAUTION_PENALTY = 50;     // Tight clearance penalty per edge
+const DANGER_PENALTY = 5000;    // Below-draft penalty per edge
+const LAND_PENALTY = 10000;     // On-land penalty per edge
 
-const DIRS: [number, number][] = [
-    [-1, 0], [1, 0], [0, -1], [0, 1],
-    [-1, -1], [-1, 1], [1, -1], [1, 1],
-];
+// ── Geometry Density Penalty ──
+// Edges longer than this threshold get a small additive penalty.
+// This forces Dijkstra through short waterway edges (which trace river/channel
+// geometry) instead of long seamark shortcuts (which skip geometry).
+// Without this, routes have ~22 waypoints with straight-line segments.
+// With this, routes have 100-300+ waypoints following actual waterways.
+const LONG_EDGE_THRESHOLD_NM = 0.15;  // ~280m — edges shorter than this are free
+const LONG_EDGE_PENALTY_RATE = 0.5;   // additive NM penalty per NM of edge length above threshold
+
+// ── IALA Region A Penalties ──
+// Red to port, green to starboard when HEADING IN (returning to port).
+// Wrong-side penalty discourages routes that pass buoys on the wrong side.
+const IALA_WRONG_SIDE_PENALTY = 2.0;  // NM penalty for passing a buoy on the wrong side
+const OBSTACLE_PROXIMITY_NM = 0.1;    // ~185m check radius for obstacles
+const OBSTACLE_PENALTY = 3.0;         // NM penalty for edge near an obstacle
+
+// ── Channel Preference ──
+// Bonus (cost reduction) for edges that travel between two marker nodes.
+// This strongly incentivizes staying in the marked channel (red/green buoys)
+// instead of veering off into unmarked shallow water.
+const CHANNEL_BONUS = 0.8; // Multiply edge weight by this when between markers (20% discount)
 
 // ── Spherical Math ────────────────────────────────────────────────
 
-const toRad = (deg: number) => (deg * Math.PI) / 180;
-const toDeg = (rad: number) => (rad * 180) / Math.PI;
-
 function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const toRad = (d: number) => d * Math.PI / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return 2 * EARTH_RADIUS_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * EARTH_RADIUS_NM * Math.asin(Math.sqrt(a));
 }
 
-function getBearing(start: { lat: number; lon: number }, end: { lat: number; lon: number }): number {
-    const lat1 = toRad(start.lat);
-    const lat2 = toRad(end.lat);
-    const dLon = toRad(end.lon - start.lon);
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+// ── Safety Classification ─────────────────────────────────────────
+
+function classifySafety(depthM: number | null, draftM: number): 'safe' | 'caution' | 'danger' {
+    if (depthM === null || depthM === undefined) return 'safe'; // No depth data → assume safe
+    // Convention: negative = below sea level (navigable water)
+    const waterDepth = depthM <= 0 ? Math.abs(depthM) : 0; // positive = land = 0 depth
+    if (waterDepth >= draftM + 1.0) return 'safe';
+    if (waterDepth >= draftM) return 'caution';
+    return 'danger';
 }
 
-function projectPoint(start: { lat: number; lon: number }, bearingDeg: number, distNM: number): { lat: number; lon: number } {
-    const lat1 = toRad(start.lat);
-    const lon1 = toRad(start.lon);
-    const brng = toRad(bearingDeg);
-    const d = distNM / EARTH_RADIUS_NM;
-    const lat2 = Math.asin(
-        Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(brng)
-    );
-    const lon2 = lon1 + Math.atan2(
-        Math.sin(brng) * Math.sin(d) * Math.cos(lat1),
-        Math.cos(d) - Math.sin(lat1) * Math.sin(lat2)
-    );
-    return { lat: toDeg(lat2), lon: toDeg(lon2) };
+function depthPenalty(depthM: number | null, draftM: number): number {
+    if (depthM === null || depthM === undefined) return 0;
+    const waterDepth = depthM <= 0 ? Math.abs(depthM) : 0;
+    if (waterDepth >= draftM + 1.0) return 0;        // Safe — no penalty
+    if (waterDepth >= draftM) return CAUTION_PENALTY;  // Caution — moderate penalty
+    if (waterDepth > 0) return DANGER_PENALTY;         // Danger — massive penalty
+    return LAND_PENALTY;                               // Land — extreme penalty
 }
 
-// ── COG Reader ────────────────────────────────────────────────────
+// ── Binary Min-Heap ──────────────────────────────────────────────
 
-async function fetchCogRegion(
-    minLat: number, maxLat: number,
-    minLon: number, maxLon: number,
-    overviewLevel = 0,
-): Promise<{ elevation: Int16Array; rows: number; cols: number; lats: number[]; lons: number[] }> {
-    const tiff = await fromUrl(COG_URL);
-    const image = await tiff.getImage(0);
-    const imgWidth = image.getWidth();
-    const imgHeight = image.getHeight();
-
-    let west: number, south: number, east: number, north: number;
-    try {
-        [west, south, east, north] = image.getBoundingBox();
-    } catch {
-        const tp = image.fileDirectory.ModelTiepoint;
-        const ps = image.fileDirectory.ModelPixelScale;
-        if (tp && ps) {
-            west = tp[3]; north = tp[4];
-            east = tp[3] + ps[0] * imgWidth;
-            south = tp[4] - ps[1] * imgHeight;
-        } else {
-            west = -180; south = -80; east = 180; north = 80;
-        }
-    }
-
-    const xScale = imgWidth / (east - west);
-    const yScale = imgHeight / (north - south);
-    const clampLon = (v: number) => Math.max(west, Math.min(east, v));
-    const clampLat = (v: number) => Math.max(south, Math.min(north, v));
-
-    const x0 = Math.max(0, Math.floor((clampLon(minLon) - west) * xScale));
-    const x1 = Math.min(imgWidth, Math.ceil((clampLon(maxLon) - west) * xScale));
-    const y0 = Math.max(0, Math.floor((north - clampLat(maxLat)) * yScale));
-    const y1 = Math.min(imgHeight, Math.ceil((north - clampLat(minLat)) * yScale));
-
-    const baseCols = x1 - x0;
-    const baseRows = y1 - y0;
-    const ds = Math.pow(2, overviewLevel);
-    const outCols = Math.min(MAX_GRID, Math.ceil(baseCols / ds));
-    const outRows = Math.min(MAX_GRID, Math.ceil(baseRows / ds));
-
-    console.log(`[cog] base=${baseCols}x${baseRows} -> ${outCols}x${outRows} (${ds}x ds)`);
-
-    const rasters = await image.readRasters({
-        window: [x0, y0, x1, y1],
-        width: outCols,
-        height: outRows,
-    });
-
-    const rawData = rasters[0] as Float32Array | Int16Array | Int32Array;
-    const elevation = new Int16Array(rawData.length);
-    for (let i = 0; i < rawData.length; i++) elevation[i] = Math.round(rawData[i]);
-
-    const cols = outCols, rows = outRows;
-
-    // Compute actual geographic bounds from pixel-snapped window
-    // (Critical: readRasters window may differ slightly from requested lat/lon)
-    const globalPxLon = (east - west) / imgWidth;
-    const globalPxLat = (north - south) / imgHeight;
-    const winWest = west + x0 * globalPxLon;
-    const winNorth = north - y0 * globalPxLat;
-    const winEast = west + x1 * globalPxLon;
-    const winSouth = north - y1 * globalPxLat;
-
-    const pxLon = (winEast - winWest) / cols;
-    const pxLat = (winNorth - winSouth) / rows;
-    const lats = new Array(rows);
-    const lons = new Array(cols);
-    for (let r = 0; r < rows; r++) lats[r] = winNorth - (r + 0.5) * pxLat;
-    for (let c = 0; c < cols; c++) lons[c] = winWest + (c + 0.5) * pxLon;
-
-    return { elevation, rows, cols, lats, lons };
-}
-
-// ── Binary Min-Heap ───────────────────────────────────────────────
-
-interface AStarNode { f: number; g: number; r: number; c: number; }
+interface HeapNode { f: number; idx: number; }
 
 class MinHeap {
-    private d: AStarNode[] = [];
+    private d: HeapNode[] = [];
     get length() { return this.d.length; }
-    push(node: AStarNode) {
-        // Simple binary-search insert to maintain sorted order (lowest f first)
-        let lo = 0, hi = this.d.length;
-        while (lo < hi) {
-            const mid = (lo + hi) >> 1;
-            if (this.d[mid].f < node.f) lo = mid + 1;
-            else hi = mid;
+    push(node: HeapNode) {
+        this.d.push(node);
+        let i = this.d.length - 1;
+        while (i > 0) {
+            const p = (i - 1) >> 1;
+            if (this.d[p].f <= this.d[i].f) break;
+            [this.d[p], this.d[i]] = [this.d[i], this.d[p]];
+            i = p;
         }
-        this.d.splice(lo, 0, node);
     }
-    pop(): AStarNode | undefined {
-        return this.d.shift();
+    pop(): HeapNode | undefined {
+        if (!this.d.length) return undefined;
+        const top = this.d[0];
+        const last = this.d.pop()!;
+        if (this.d.length > 0) {
+            this.d[0] = last;
+            let i = 0;
+            while (true) {
+                let s = i;
+                const l = 2 * i + 1, r = 2 * i + 2;
+                if (l < this.d.length && this.d[l].f < this.d[s].f) s = l;
+                if (r < this.d.length && this.d[r].f < this.d[s].f) s = r;
+                if (s === i) break;
+                [this.d[i], this.d[s]] = [this.d[s], this.d[i]];
+                i = s;
+            }
+        }
+        return top;
     }
 }
 
-// ── Weighted A* ───────────────────────────────────────────────────
+// ── Graph Loading & Caching ──────────────────────────────────────
 
-function astar(
-    start: GridCell, end: GridCell,
-    passable: Uint8Array, elevation: Int16Array,
-    lats: number[], lons: number[],
-    rows: number, cols: number, safeDepth: number,
-): GridCell[] | null {
-    const goalLat = lats[end.row], goalLon = lons[end.col];
+interface CachedGraph {
+    graph: NavGraph;
+    adjacency: number[][][]; // adjacency[nodeIdx] = [[neighborIdx, weight], ...]
+    markerClass: Map<number, string>; // node_idx → 'port' | 'starboard' | 'cardinal' etc.
+    obstacles: number[][];  // [[lon, lat], ...] obstacle locations for proximity checks
+    hasDepth: boolean;
+    loadedAt: number;
+}
 
-    const gBest = new Float64Array(rows * cols);
-    gBest.fill(Infinity);
-    gBest[start.row * cols + start.col] = 0;
+const graphCache = new Map<string, CachedGraph>();
 
-    const parent = new Int32Array(rows * cols);
-    parent.fill(-1);
+async function loadGraph(region: string): Promise<CachedGraph> {
+    const cached = graphCache.get(region);
+    if (cached && Date.now() - cached.loadedAt < GRAPH_CACHE_TTL) {
+        return cached;
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const graphUrl = `${supabaseUrl}/storage/v1/object/public/regions/${region}/nav_graph.json`;
+
+    console.log(`[graph] Loading: ${graphUrl}`);
+    const t0 = performance.now();
+
+    const resp = await fetch(graphUrl);
+    if (!resp.ok) throw new Error(`Failed to load graph "${region}": ${resp.status}`);
+
+    const graph: NavGraph = await resp.json();
+    const hasDepth = graph.meta.coord_order === 'lon_lat_depth';
+
+    // Build adjacency
+    const adjacency: number[][][] = new Array(graph.nodes.length);
+    for (let i = 0; i < graph.nodes.length; i++) adjacency[i] = [];
+    for (const edge of graph.edges) {
+        adjacency[edge[0]].push([edge[1], edge[2]]);
+        adjacency[edge[1]].push([edge[0], edge[2]]);
+    }
+
+    // Build marker lookup for IALA penalties
+    const markerClass = new Map<number, string>();
+    if (graph.markers) {
+        for (const m of graph.markers) {
+            markerClass.set(m[0] as number, m[1] as string);
+        }
+        console.log(`[graph] IALA markers: ${markerClass.size} (port/starboard/cardinal)`);
+    }
+
+    // Load obstacle positions for proximity avoidance
+    const obstacles: number[][] = graph.obstacles ?? [];
+    if (obstacles.length > 0) {
+        console.log(`[graph] Obstacles: ${obstacles.length} (danger/special marks)`);
+    }
+
+    console.log(`[graph] Loaded "${region}": ${graph.meta.nodes} nodes, hasDepth=${hasDepth} (${(performance.now() - t0).toFixed(0)}ms)`);
+
+    const entry: CachedGraph = { graph, adjacency, markerClass, obstacles, hasDepth, loadedAt: Date.now() };
+    graphCache.set(region, entry);
+    return entry;
+}
+
+// ── Snap to Graph ────────────────────────────────────────────────
+
+function snapToGraph(lat: number, lon: number, nodes: number[][]): { idx: number; dist: number } {
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < nodes.length; i++) {
+        if (Math.abs(nodes[i][1] - lat) > 0.5 || Math.abs(nodes[i][0] - lon) > 0.5) continue;
+        const d = haversineNM(lat, lon, nodes[i][1], nodes[i][0]);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return { idx: bestIdx, dist: bestDist };
+}
+
+// ── Bearing Calculation for IALA ─────────────────────────────────
+
+function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const lat1r = lat1 * Math.PI / 180;
+    const lat2r = lat2 * Math.PI / 180;
+    const x = Math.sin(dLon) * Math.cos(lat2r);
+    const y = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
+    return ((Math.atan2(x, y) * 180 / Math.PI) + 360) % 360;
+}
+
+// ── Depth-Aware Dijkstra with IALA Penalties ─────────────────────
+
+function dijkstra(
+    startIdx: number,
+    endIdx: number,
+    adjacency: number[][][],
+    nodes: number[][],
+    nodeCount: number,
+    draftM: number,
+    hasDepth: boolean,
+    markerClass: Map<number, string>,
+    obstacles: number[][],
+): { path: number[]; distance: number } | null {
+    const dist = new Float64Array(nodeCount);
+    dist.fill(Infinity);
+    dist[startIdx] = 0;
+
+    const prev = new Int32Array(nodeCount);
+    prev.fill(-1);
 
     const heap = new MinHeap();
-    const h0 = haversineNM(lats[start.row], lons[start.col], goalLat, goalLon);
-    console.log(`[A*] ${cols}x${rows} start(${start.row},${start.col})@${lats[start.row]?.toFixed(2)},${lons[start.col]?.toFixed(2)} -> end(${end.row},${end.col})@${goalLat.toFixed(2)},${goalLon.toFixed(2)} h0=${h0.toFixed(1)}NM pass_s=${passable[start.row * cols + start.col]} pass_e=${passable[end.row * cols + end.col]}`);
-    heap.push({ f: h0 * HEURISTIC_WEIGHT, g: 0, r: start.row, c: start.col });
+    heap.push({ f: 0, idx: startIdx });
 
-    let exp = 0;
-    const t = performance.now();
+    let expanded = 0;
 
     while (heap.length > 0) {
         const node = heap.pop()!;
 
-        if (node.r === end.row && node.c === end.col) {
-            console.log(`[A*] found in ${exp} exp, ${(performance.now() - t).toFixed(0)}ms`);
-            const path: GridCell[] = [];
-            let flat = end.row * cols + end.col;
-            const sf = start.row * cols + start.col;
-            while (flat !== sf && flat !== -1) {
-                path.push({ row: Math.floor(flat / cols), col: flat % cols });
-                flat = parent[flat];
-            }
-            path.push(start);
+        if (node.idx === endIdx) {
+            const path: number[] = [];
+            let cur = endIdx;
+            while (cur !== -1) { path.push(cur); cur = prev[cur]; }
             path.reverse();
-            return path;
+            console.log(`[dijkstra] Found: ${path.length} nodes, ${dist[endIdx].toFixed(1)} cost, ${expanded} expanded`);
+            return { path, distance: dist[endIdx] };
         }
 
-        const fi = node.r * cols + node.c;
-        if (node.g > gBest[fi]) continue;
+        if (node.f > dist[node.idx]) continue;
+        expanded++;
 
-        exp++;
-        if (exp > MAX_A_STAR) {
-            console.warn(`[A*] limit ${MAX_A_STAR} in ${(performance.now() - t).toFixed(0)}ms`);
-            return null;
-        }
-
-        for (const [dr, dc] of DIRS) {
-            const nr = node.r + dr, nc = node.c + dc;
-            if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-            const nf = nr * cols + nc;
-            if (!passable[nf]) continue;
-
-            const step = haversineNM(lats[node.r], lons[node.c], lats[nr], lons[nc]);
-            if (isNaN(step) || step <= 0) continue;
-
-            // Depth penalty — prefer deeper water
-            const depth = -elevation[nf];
-            let depthFactor = 1.0;
-            if (depth < safeDepth * 3) {
-                const t2 = Math.max(0, Math.min(1, (depth - safeDepth) / (safeDepth * 2)));
-                depthFactor = 2.0 - t2;
+        for (const [neighbor, weight] of adjacency[node.idx]) {
+            // Base cost + depth penalty (soft wall)
+            let penalty = 0;
+            if (hasDepth) {
+                const neighborDepth = nodes[neighbor][2] ?? null;
+                penalty = depthPenalty(neighborDepth, draftM);
             }
 
-            const newG = node.g + step * depthFactor;
+            // Geometry density penalty: penalize long edges to force routing
+            // through short waterway edges that trace actual waterway geometry.
+            const edgeDistNM = haversineNM(
+                nodes[node.idx][1], nodes[node.idx][0],
+                nodes[neighbor][1], nodes[neighbor][0],
+            );
+            if (edgeDistNM > LONG_EDGE_THRESHOLD_NM) {
+                penalty += (edgeDistNM - LONG_EDGE_THRESHOLD_NM) * LONG_EDGE_PENALTY_RATE;
+            }
 
-            if (newG < gBest[nf]) {
-                gBest[nf] = newG;
-                parent[nf] = fi;
-                heap.push({ f: newG + haversineNM(lats[nr], lons[nc], goalLat, goalLon) * HEURISTIC_WEIGHT, g: newG, r: nr, c: nc });
+            // IALA Region A directional penalty:
+            // When approaching a port/starboard marker, check if we're passing
+            // it on the correct side. Red to port, green to starboard (heading in).
+            const currentClass = markerClass.get(node.idx);
+            const neighborClass = markerClass.get(neighbor);
+
+            if (neighborClass === 'port' || neighborClass === 'starboard') {
+                const routeBearing = bearingDeg(
+                    nodes[node.idx][1], nodes[node.idx][0],
+                    nodes[neighbor][1], nodes[neighbor][0],
+                );
+                const revBearing = bearingDeg(
+                    nodes[neighbor][1], nodes[neighbor][0],
+                    nodes[node.idx][1], nodes[node.idx][0],
+                );
+                let angleDiff = revBearing - routeBearing;
+                if (angleDiff > 180) angleDiff -= 360;
+                if (angleDiff < -180) angleDiff += 360;
+                const buoySide = angleDiff < 0 ? 'port' : 'starboard';
+                const correctSide = neighborClass === 'port' ? 'port' : 'starboard';
+                if (buoySide !== correctSide) {
+                    penalty += IALA_WRONG_SIDE_PENALTY;
+                }
+            }
+
+            // Cost hierarchy preference:
+            // Fairway-to-fairway: 0.5x (cheap highway — centerline routing)
+            // Channel markers:    0.8x (between red/green buoys)
+            // Virtual grid:       3.0x (already baked into graph edge weights)
+            // Everything else:    1.0x standard
+            let effectiveWeight = weight;
+            if (currentClass === 'fairway' && neighborClass === 'fairway') {
+                effectiveWeight *= 0.5; // Fairway discount — strongest incentive
+            } else if (currentClass && neighborClass &&
+                (currentClass === 'port' || currentClass === 'starboard') &&
+                (neighborClass === 'port' || neighborClass === 'starboard')) {
+                effectiveWeight *= CHANNEL_BONUS; // Channel marker discount
+            }
+
+            // Obstacle avoidance: check proximity to danger/special marks.
+            // Edges passing near obstacles get a penalty.
+            const midLon = (nodes[node.idx][0] + nodes[neighbor][0]) / 2;
+            const midLat = (nodes[node.idx][1] + nodes[neighbor][1]) / 2;
+            for (const obs of obstacles) {
+                const dObs = haversineNM(midLat, midLon, obs[1], obs[0]);
+                if (dObs < OBSTACLE_PROXIMITY_NM) {
+                    penalty += OBSTACLE_PENALTY * (1 - dObs / OBSTACLE_PROXIMITY_NM);
+                    break; // One penalty per edge is enough
+                }
+            }
+
+            const newDist = dist[node.idx] + effectiveWeight + penalty;
+            if (newDist < dist[neighbor]) {
+                dist[neighbor] = newDist;
+                prev[neighbor] = node.idx;
+                heap.push({ f: newDist, idx: neighbor });
             }
         }
     }
 
-    console.warn(`[A*] exhausted ${exp} exp, ${(performance.now() - t).toFixed(0)}ms`);
+    console.warn(`[dijkstra] No path found (expanded ${expanded})`);
     return null;
 }
 
-// ── Line-of-Sight Smoothing ───────────────────────────────────────
+// ── Traffic Light Segmentation ───────────────────────────────────
 
-function losSmooth(path: GridCell[], passable: Uint8Array, rows: number, cols: number): GridCell[] {
-    if (path.length <= 2) return path;
-    const out: GridCell[] = [path[0]];
-    let cur = 0;
-    while (cur < path.length - 1) {
-        let best = cur + 1;
-        for (let chk = path.length - 1; chk > cur + 1; chk--) {
-            if (bresenhamClear(path[cur], path[chk], passable, rows, cols)) { best = chk; break; }
-        }
-        out.push(path[best]);
-        cur = best;
-    }
-    return out;
+interface TrafficSegment {
+    coordinates: [number, number][];
+    safety: 'safe' | 'caution' | 'danger';
+    startIdx: number;
+    endIdx: number;
 }
 
-function bresenhamClear(p1: GridCell, p2: GridCell, passable: Uint8Array, rows: number, cols: number): boolean {
-    let r = p1.row, c = p1.col;
-    const dr = Math.abs(p2.row - p1.row), dc = Math.abs(p2.col - p1.col);
-    const sr = p2.row > p1.row ? 1 : -1, sc = p2.col > p1.col ? 1 : -1;
-    let err = dr - dc;
-    while (true) {
-        if (r < 0 || r >= rows || c < 0 || c >= cols || !passable[r * cols + c]) return false;
-        for (const off of [-1, 1]) {
-            const cr = r + (dc > dr ? off : 0), cc = c + (dr >= dc ? off : 0);
-            if (cr >= 0 && cr < rows && cc >= 0 && cc < cols && !passable[cr * cols + cc]) return false;
-        }
-        if (r === p2.row && c === p2.col) break;
-        const e2 = 2 * err;
-        if (e2 > -dc) { err -= dc; r += sr; }
-        if (e2 < dr) { err += dr; c += sc; }
-    }
-    return true;
-}
+function segmentRoute(
+    waypoints: RouteWaypoint[],
+): TrafficSegment[] {
+    if (waypoints.length < 2) return [];
 
-// ── Grid Utilities ────────────────────────────────────────────────
+    const segments: TrafficSegment[] = [];
+    let currentSafety = waypoints[0].safety;
+    let currentCoords: [number, number][] = [[waypoints[0].lon, waypoints[0].lat]];
+    let startIdx = 0;
 
-function latLonToGrid(lat: number, lon: number, lats: number[], lons: number[]): GridCell {
-    let br = 0, brd = Infinity;
-    for (let i = 0; i < lats.length; i++) { const d = Math.abs(lats[i] - lat); if (d < brd) { br = i; brd = d; } }
-    let bc = 0, bcd = Infinity;
-    for (let i = 0; i < lons.length; i++) { const d = Math.abs(lons[i] - lon); if (d < bcd) { bc = i; bcd = d; } }
-    return { row: br, col: bc };
-}
+    for (let i = 1; i < waypoints.length; i++) {
+        const wpSafety = waypoints[i].safety;
 
-function snapToWater(cell: GridCell, passable: Uint8Array, rows: number, cols: number): GridCell | null {
-    if (passable[cell.row * cols + cell.col]) return cell;
-    for (let rad = 1; rad <= SNAP_RADIUS; rad++) {
-        for (let dr = -rad; dr <= rad; dr++) {
-            for (let dc = -rad; dc <= rad; dc++) {
-                if (Math.abs(dr) !== rad && Math.abs(dc) !== rad) continue;
-                const r = cell.row + dr, c = cell.col + dc;
-                if (r >= 0 && r < rows && c >= 0 && c < cols && passable[r * cols + c]) return { row: r, col: c };
-            }
+        if (wpSafety !== currentSafety) {
+            // Close current segment (include this point as the endpoint)
+            currentCoords.push([waypoints[i].lon, waypoints[i].lat]);
+            segments.push({
+                coordinates: currentCoords,
+                safety: currentSafety,
+                startIdx,
+                endIdx: i,
+            });
+
+            // Start new segment (include this point as the start)
+            currentSafety = wpSafety;
+            currentCoords = [[waypoints[i].lon, waypoints[i].lat]];
+            startIdx = i;
+        } else {
+            currentCoords.push([waypoints[i].lon, waypoints[i].lat]);
         }
     }
-    return null;
+
+    // Close final segment
+    if (currentCoords.length >= 2) {
+        segments.push({
+            coordinates: currentCoords,
+            safety: currentSafety,
+            startIdx,
+            endIdx: waypoints.length - 1,
+        });
+    }
+
+    return segments;
 }
 
-// ── Single Leg Router ─────────────────────────────────────────────
-
-async function routeLeg(
-    from: { lat: number; lon: number },
-    to: { lat: number; lon: number },
-    safeDepth: number, buffer: number, overviewLevel: number, label: string,
-): Promise<RouteWaypoint[]> {
-    const minLat = Math.min(from.lat, to.lat) - buffer;
-    const maxLat = Math.max(from.lat, to.lat) + buffer;
-    const minLon = Math.min(from.lon, to.lon) - buffer;
-    const maxLon = Math.max(from.lon, to.lon) + buffer;
-
-    console.log(`[${label}] bbox [${minLat.toFixed(1)},${maxLat.toFixed(1)}]x[${minLon.toFixed(1)},${maxLon.toFixed(1)}] lvl=${overviewLevel}`);
-
-    const { lats, lons, elevation, rows, cols } = await fetchCogRegion(minLat, maxLat, minLon, maxLon, overviewLevel);
-
-    const passable = new Uint8Array(rows * cols);
-    for (let i = 0; i < elevation.length; i++) passable[i] = elevation[i] <= -safeDepth ? 1 : 0;
-
-    const navPct = (passable.reduce((s, v) => s + v, 0) / passable.length * 100).toFixed(1);
-    console.log(`[${label}] ${cols}x${rows} nav=${navPct}%`);
-
-    let sc = latLonToGrid(from.lat, from.lon, lats, lons);
-    let ec = latLonToGrid(to.lat, to.lon, lats, lons);
-
-    const ss = snapToWater(sc, passable, rows, cols);
-    if (!ss) throw new Error(`${label}: origin landlocked (${from.lat.toFixed(3)},${from.lon.toFixed(3)})`);
-    sc = ss;
-
-    const es = snapToWater(ec, passable, rows, cols);
-    if (!es) throw new Error(`${label}: dest landlocked (${to.lat.toFixed(3)},${to.lon.toFixed(3)})`);
-    ec = es;
-
-    const raw = astar(sc, ec, passable, elevation, lats, lons, rows, cols, safeDepth);
-    if (!raw) throw new Error(`${label}: A* failed`);
-
-    const smooth = losSmooth(raw, passable, rows, cols);
-    console.log(`[${label}] ${raw.length} -> ${smooth.length} after LOS`);
-
-    return smooth.map((cell) => ({
-        lat: lats[cell.row], lon: lons[cell.col], name: "WP",
-        depth_m: -elevation[cell.row * cols + cell.col],
+function buildTrafficFeatureCollection(
+    segments: TrafficSegment[],
+    totalNM: number,
+    elapsed: number,
+    region: string,
+    draftM: number,
+) {
+    const features = segments.map((seg, i) => ({
+        type: "Feature" as const,
+        properties: {
+            safety: seg.safety,
+            segmentIndex: i,
+            pointCount: seg.coordinates.length,
+        },
+        geometry: {
+            type: "LineString" as const,
+            coordinates: seg.coordinates,
+        },
     }));
+
+    return {
+        type: "FeatureCollection" as const,
+        properties: {
+            totalNM: Math.round(totalNM * 10) / 10,
+            elapsed_ms: Math.round(elapsed),
+            router: "osm_graph_dijkstra",
+            region,
+            vessel_draft: draftM,
+            segments: segments.length,
+            hasDanger: segments.some(s => s.safety === 'danger'),
+            hasCaution: segments.some(s => s.safety === 'caution'),
+        },
+        features,
+    };
 }
 
-// ── Route Reasoning ───────────────────────────────────────────────
+// ── Port Egress Tracks ───────────────────────────────────────────
 
-function generateReasoning(wps: RouteWaypoint[], o: { lat: number; lon: number }, d: { lat: number; lon: number }, nm: number, stitched: boolean): string {
-    const b = Math.atan2(d.lon - o.lon, d.lat - o.lat) * 180 / Math.PI;
-    const dir = b < -135 ? "SSW" : b < -90 ? "SW" : b < -45 ? "WNW" : b < 0 ? "NW" : b < 45 ? "NNE" : b < 90 ? "NE" : b < 135 ? "ESE" : "SE";
-    const parts = [`Bathymetric routing: ${nm.toFixed(0)} NM passage heading ${dir}.`];
-    if (stitched) parts.push("Multi-resolution stitched routing: high-res coastal + downsampled ocean crossing.");
-    if (wps.length > 2) parts.push(`${wps.length - 2} intermediate waypoints for safe depth.`);
-    const gc = haversineNM(o.lat, o.lon, d.lat, d.lon);
-    const dev = ((nm / gc) - 1) * 100;
-    if (dev > 10) parts.push(`${dev.toFixed(0)}% deviation from great circle for safety.`);
-    parts.push("Verified against ETOPO 2022 with 30% under-keel margin.");
-    return parts.join(" ");
+interface PortEgressTrack {
+    name: string;
+    matchLat: number;
+    matchLon: number;
+    matchRadiusNM: number;
+    exitMinIdx?: number;
+    egress: { lat: number; lon: number; name: string }[];
 }
 
-// ── Main Handler ──────────────────────────────────────────────────
+const PORT_EGRESS_TRACKS: PortEgressTrack[] = [
+    {
+        name: "Brisbane River",
+        matchLat: -27.430,
+        matchLon: 153.080,
+        matchRadiusNM: 5,
+        exitMinIdx: 32,
+        egress: [
+            { lat: -27.47788, lon: 153.03289, name: "Kangaroo Point" },
+            { lat: -27.47513, lon: 153.03310, name: "Kangaroo Pt N" },
+            { lat: -27.47232, lon: 153.03421, name: "New Farm Reach" },
+            { lat: -27.46892, lon: 153.03722, name: "New Farm" },
+            { lat: -27.46671, lon: 153.04080, name: "Teneriffe" },
+            { lat: -27.46504, lon: 153.04471, name: "Newstead" },
+            { lat: -27.46368, lon: 153.04898, name: "Newstead E" },
+            { lat: -27.46180, lon: 153.05268, name: "Breakfast Creek" },
+            { lat: -27.45845, lon: 153.05566, name: "Brett's Wharf" },
+            { lat: -27.45501, lon: 153.05767, name: "Bulimba Reach W" },
+            { lat: -27.45323, lon: 153.05898, name: "Bulimba Reach" },
+            { lat: -27.45244, lon: 153.06245, name: "Hamilton" },
+            { lat: -27.45078, lon: 153.06456, name: "Hamilton Reach" },
+            { lat: -27.44836, lon: 153.06551, name: "Portside" },
+            { lat: -27.44645, lon: 153.06789, name: "Bretts Wharf E" },
+            { lat: -27.44612, lon: 153.07012, name: "Eagle Farm" },
+            { lat: -27.44600, lon: 153.07287, name: "Eagle Farm E" },
+            { lat: -27.44649, lon: 153.07587, name: "Kingsford Smith" },
+            { lat: -27.44621, lon: 153.07888, name: "Hedley Ave" },
+            { lat: -27.44675, lon: 153.08177, name: "Pinkenba W" },
+            { lat: -27.44751, lon: 153.08400, name: "Pinkenba" },
+            { lat: -27.44768, lon: 153.08677, name: "Pinkenba E" },
+            { lat: -27.44777, lon: 153.08995, name: "Myrtletown" },
+            { lat: -27.44500, lon: 153.09100, name: "Myrtletown N" },
+            { lat: -27.44300, lon: 153.09400, name: "Luggage Pt W" },
+            { lat: -27.43900, lon: 153.09700, name: "Luggage Point" },
+            { lat: -27.43500, lon: 153.10200, name: "Whyte Island" },
+            { lat: -27.42800, lon: 153.10700, name: "Pinkenba Reach" },
+            { lat: -27.42200, lon: 153.11400, name: "Port of Brisbane W" },
+            { lat: -27.41500, lon: 153.12100, name: "Fisherman Islands W" },
+            { lat: -27.40800, lon: 153.13000, name: "Fisherman Islands" },
+            { lat: -27.40200, lon: 153.14000, name: "River Mouth" },
+            { lat: -27.39930, lon: 153.15303, name: "Mud Island" },
+            { lat: -27.37000, lon: 153.17000, name: "NW Channel" },
+            { lat: -27.33000, lon: 153.20000, name: "Moreton Bay" },
+            { lat: -27.29000, lon: 153.23000, name: "Outer Bay" },
+            { lat: -27.25000, lon: 153.25000, name: "Bay Safe Water Mark" },
+        ],
+    },
+];
+
+const BAY_APPROACH: { lat: number; lon: number; name: string }[] = [
+    { lat: -27.380, lon: 153.170, name: "River Mouth Exit" },
+    { lat: -27.350, lon: 153.180, name: "Moreton Bay South" },
+    { lat: -27.280, lon: 153.185, name: "Moreton Bay Central" },
+    { lat: -27.230, lon: 153.190, name: "E of Redcliffe" },
+    { lat: -27.200, lon: 153.180, name: "E of Scarborough" },
+    { lat: -27.180, lon: 153.160, name: "Rounding NE" },
+    { lat: -27.170, lon: 153.130, name: "North Tip" },
+    { lat: -27.180, lon: 153.100, name: "Rounding NW" },
+    { lat: -27.198, lon: 153.098, name: "Newport Approach" },
+    { lat: -27.205, lon: 153.095, name: "Newport Entrance" },
+];
+
+// ── Port Functions ───────────────────────────────────────────────
+
+function findPortEgress(
+    origin: { lat: number; lon: number },
+    destination?: { lat: number; lon: number },
+): { track: RouteWaypoint[]; handoff: { lat: number; lon: number } } | null {
+    for (const port of PORT_EGRESS_TRACKS) {
+        const dist = haversineNM(origin.lat, origin.lon, port.matchLat, port.matchLon);
+        if (dist > port.matchRadiusNM) continue;
+
+        let snapIdx = 0, snapDist = Infinity;
+        for (let i = 0; i < port.egress.length; i++) {
+            const d = haversineNM(origin.lat, origin.lon, port.egress[i].lat, port.egress[i].lon);
+            if (d < snapDist) { snapDist = d; snapIdx = i; }
+        }
+        if (snapDist > 3.0) continue;
+
+        let exitIdx = port.egress.length - 1;
+        if (destination) {
+            const minExit = Math.max(snapIdx, port.exitMinIdx ?? snapIdx);
+            let bestTotal = Infinity, channelDist = 0;
+            for (let i = snapIdx; i < port.egress.length; i++) {
+                if (i > snapIdx) channelDist += haversineNM(port.egress[i - 1].lat, port.egress[i - 1].lon, port.egress[i].lat, port.egress[i].lon);
+                if (i >= minExit) {
+                    const d = haversineNM(port.egress[i].lat, port.egress[i].lon, destination.lat, destination.lon);
+                    if (channelDist + d < bestTotal) { bestTotal = channelDist + d; exitIdx = i; }
+                }
+            }
+        }
+
+        const track: RouteWaypoint[] = [
+            { lat: origin.lat, lon: origin.lon, name: "Origin", depth_m: null, safety: 'safe' },
+        ];
+        for (let i = snapIdx; i <= exitIdx; i++) {
+            track.push({ lat: port.egress[i].lat, lon: port.egress[i].lon, name: port.egress[i].name, depth_m: null, safety: 'safe' });
+        }
+
+        return { track, handoff: { lat: port.egress[exitIdx].lat, lon: port.egress[exitIdx].lon } };
+    }
+    return null;
+}
+
+function findBayApproach(
+    handoff: { lat: number; lon: number },
+    destination: { lat: number; lon: number },
+): RouteWaypoint[] | null {
+    if (!(destination.lat > handoff.lat + 0.05 && destination.lon < handoff.lon - 0.02)) return null;
+
+    let bestIdx = BAY_APPROACH.length - 1, bestDist = Infinity;
+    for (let i = 0; i < BAY_APPROACH.length; i++) {
+        const d = haversineNM(destination.lat, destination.lon, BAY_APPROACH[i].lat, BAY_APPROACH[i].lon);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+
+    const track: RouteWaypoint[] = [];
+    for (let i = 0; i <= bestIdx; i++) {
+        track.push({ lat: BAY_APPROACH[i].lat, lon: BAY_APPROACH[i].lon, name: BAY_APPROACH[i].name, depth_m: null, safety: 'safe' });
+    }
+    track.push({ lat: destination.lat, lon: destination.lon, name: "Destination", depth_m: null, safety: 'safe' });
+    return track;
+}
+
+// ── Main Handler ─────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") return corsResponse(null, 204);
@@ -422,87 +618,123 @@ Deno.serve(async (req: Request) => {
     try {
         const body: RouteRequest = await req.json();
         const { origin, destination, via } = body;
-        const draft = body.vessel_draft ?? DEFAULT_DRAFT;
-        const safeDepth = draft * UKC_MARGIN_FACTOR;
+        const region = body.region || "se_queensland";
+        const draftM = body.vessel_draft ?? DEFAULT_DRAFT;
 
         if (!origin?.lat || !origin?.lon || !destination?.lat || !destination?.lon) {
             return jsonResponse({ error: "Missing origin/destination coordinates" }, 400);
         }
 
-        const gcDist = haversineNM(origin.lat, origin.lon, destination.lat, destination.lon);
-        console.log(`[route] ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} -> ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)} | ${gcDist.toFixed(0)}NM | draft=${draft}m safe=${safeDepth.toFixed(1)}m`);
+        console.log(`[route] ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} -> ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)} | draft=${draftM}m`);
+
+        const { graph, adjacency, hasDepth, markerClass, obstacles } = await loadGraph(region);
 
         let allWP: RouteWaypoint[];
-        let stitched = false;
 
-        if (gcDist > STITCH_THRESHOLD_NM) {
-            // ═══ STITCHED ROUTING ═══
-            stitched = true;
+        // ── Pure graph routing (all routes via Dijkstra) ──
+        const snapStart = snapToGraph(origin.lat, origin.lon, graph.nodes);
+        const snapEnd = snapToGraph(destination.lat, destination.lon, graph.nodes);
 
-            const bearingOut = getBearing(origin, destination);
-            const bearingIn = getBearing(destination, origin);
-            const oceanStart = projectPoint(origin, bearingOut, HANDOFF_NM);
-            const oceanEnd = projectPoint(destination, bearingIn, HANDOFF_NM);
+        if (snapStart.dist > MAX_SNAP_NM || snapEnd.dist > MAX_SNAP_NM) {
+            return jsonResponse({
+                error: `Points too far from navigable waterways (origin: ${snapStart.dist.toFixed(1)}NM, dest: ${snapEnd.dist.toFixed(1)}NM)`,
+            }, 422);
+        }
 
-            console.log(`[route] STITCHED:`);
-            console.log(`  A: origin -> (${oceanStart.lat.toFixed(2)},${oceanStart.lon.toFixed(2)})`);
-            console.log(`  B: ocean crossing`);
-            // Step 2: Fire all three A* calculations SIMULTANEOUSLY
-            const oceanDist = haversineNM(oceanStart.lat, oceanStart.lon, oceanEnd.lat, oceanEnd.lon);
-            const oceanLvl = oceanDist > 500 ? 1 : 0;
+        console.log(`[route] Snapped: origin→node[${snapStart.idx}] (${snapStart.dist.toFixed(2)}NM), dest→node[${snapEnd.idx}] (${snapEnd.dist.toFixed(2)}NM)`);
 
-            console.log(`[route] Launching 3 parallel A* legs...`);
+        if (via) {
+            const snapVia = snapToGraph(via.lat, via.lon, graph.nodes);
+            const leg1 = dijkstra(snapStart.idx, snapVia.idx, adjacency, graph.nodes, graph.nodes.length, draftM, hasDepth, markerClass, obstacles);
+            const leg2 = dijkstra(snapVia.idx, snapEnd.idx, adjacency, graph.nodes, graph.nodes.length, draftM, hasDepth, markerClass, obstacles);
+            if (!leg1 || !leg2) return jsonResponse({ error: "No route found through via point" }, 422);
 
-            const [legA, legB, legC] = await Promise.all([
-                routeLeg(origin, oceanStart, safeDepth, COASTAL_BUFFER, 0, "LEG-A"),
-                routeLeg(oceanStart, oceanEnd, safeDepth, OCEAN_BUFFER, oceanLvl, "LEG-B"),
-                routeLeg(oceanEnd, destination, safeDepth, COASTAL_BUFFER, 0, "LEG-C"),
-            ]);
-
-            // Step 3: Stitch — .slice(1) drops duplicate handoff waypoints
-            allWP = [...legA, ...legB.slice(1), ...legC.slice(1)];
-            console.log(`[route] stitched: ${legA.length}+${legB.length}+${legC.length} = ${allWP.length}`);
-
+            const wp1 = leg1.path.map(idx => {
+                const d = hasDepth ? (graph.nodes[idx][2] ?? null) : null;
+                return { lat: graph.nodes[idx][1], lon: graph.nodes[idx][0], name: "WP", depth_m: d, safety: classifySafety(d, draftM) as 'safe' | 'caution' | 'danger' };
+            });
+            const wp2 = leg2.path.map(idx => {
+                const d = hasDepth ? (graph.nodes[idx][2] ?? null) : null;
+                return { lat: graph.nodes[idx][1], lon: graph.nodes[idx][0], name: "WP", depth_m: d, safety: classifySafety(d, draftM) as 'safe' | 'caution' | 'danger' };
+            });
+            allWP = [
+                { lat: origin.lat, lon: origin.lon, name: "Origin", depth_m: null, safety: 'safe' as const },
+                ...wp1.slice(1), ...wp2.slice(1),
+                { lat: destination.lat, lon: destination.lon, name: "Arrival", depth_m: null, safety: 'safe' as const },
+            ];
         } else {
-            // ═══ SHORT ROUTE ═══
-            const buf = gcDist < 50 ? 2.0 : 1.5;
-            if (via) {
-                const l1 = await routeLeg(origin, via, safeDepth, buf, 0, "VIA-1");
-                const l2 = await routeLeg(via, destination, safeDepth, buf, 0, "VIA-2");
-                allWP = [...l1, ...l2.slice(1)];
-            } else {
-                allWP = await routeLeg(origin, destination, safeDepth, buf, 0, "DIRECT");
-            }
+            const result = dijkstra(snapStart.idx, snapEnd.idx, adjacency, graph.nodes, graph.nodes.length, draftM, hasDepth, markerClass, obstacles);
+            if (!result) return jsonResponse({ error: "No route found" }, 422);
+
+            allWP = [
+                { lat: origin.lat, lon: origin.lon, name: "Origin", depth_m: null, safety: 'safe' as const },
+                ...result.path.map(idx => {
+                    const d = hasDepth ? (graph.nodes[idx][2] ?? null) : null;
+                    return { lat: graph.nodes[idx][1], lon: graph.nodes[idx][0], name: "WP", depth_m: d, safety: classifySafety(d, draftM) as 'safe' | 'caution' | 'danger' };
+                }),
+                { lat: destination.lat, lon: destination.lon, name: "Arrival", depth_m: null, safety: 'safe' as const },
+            ];
         }
 
-        // Name waypoints
-        const waypoints: RouteWaypoint[] = allWP.map((wp, i) => ({
+        // ── Name waypoints ──
+        const waypoints = allWP.map((wp, i) => ({
             ...wp,
-            name: i === 0 ? "Departure" : i === allWP.length - 1 ? "Arrival" : `WP-${String(i).padStart(2, "0")}`,
+            name: i === 0 ? "Departure" : i === allWP.length - 1 ? "Arrival" : wp.name !== "WP" ? wp.name : `WP-${String(i).padStart(2, "0")}`,
         }));
-        waypoints[0] = { lat: origin.lat, lon: origin.lon, name: "Departure" };
-        waypoints[waypoints.length - 1] = { lat: destination.lat, lon: destination.lon, name: "Arrival" };
 
+        // ── Total distance ──
         let totalNM = 0;
-        for (let i = 0; i < waypoints.length - 1; i++) {
-            totalNM += haversineNM(waypoints[i].lat, waypoints[i].lon, waypoints[i + 1].lat, waypoints[i + 1].lon);
+        for (let i = 1; i < waypoints.length; i++) {
+            totalNM += haversineNM(waypoints[i - 1].lat, waypoints[i - 1].lon, waypoints[i].lat, waypoints[i].lon);
         }
 
-        const ms = Math.round(performance.now() - t0);
-        const reasoning = generateReasoning(waypoints, origin, destination, totalNM, stitched);
-        console.log(`[route] DONE ${waypoints.length} WPs, ${totalNM.toFixed(0)}NM, ${ms}ms${stitched ? " (stitched)" : ""}`);
+        const elapsed = performance.now() - t0;
+
+        // ── Traffic Light Segmentation ──
+        const segments = segmentRoute(waypoints);
+        const trafficGeoJSON = buildTrafficFeatureCollection(segments, totalNM, elapsed, region, draftM);
+
+        // ── Also build simple LineString for backwards compat ──
+        const geojson = {
+            type: "Feature" as const,
+            properties: {
+                totalNM: Math.round(totalNM * 10) / 10,
+                waypoints: waypoints.length,
+                elapsed_ms: Math.round(elapsed),
+                router: "osm_graph_dijkstra",
+                region,
+                vessel_draft: draftM,
+                hasDanger: segments.some(s => s.safety === 'danger'),
+                hasCaution: segments.some(s => s.safety === 'caution'),
+            },
+            geometry: {
+                type: "LineString" as const,
+                coordinates: waypoints.map(wp => [wp.lon, wp.lat]),
+            },
+        };
+
+        const safetyBreakdown = {
+            safe: segments.filter(s => s.safety === 'safe').length,
+            caution: segments.filter(s => s.safety === 'caution').length,
+            danger: segments.filter(s => s.safety === 'danger').length,
+        };
+
+        console.log(`[route] ✓ ${waypoints.length} WPs, ${totalNM.toFixed(1)} NM, ${elapsed.toFixed(0)}ms | safety: ${JSON.stringify(safetyBreakdown)}`);
 
         return jsonResponse({
             waypoints,
-            distance_nm: Math.round(totalNM * 10) / 10,
-            computation_ms: ms,
-            routing_mode: stitched ? "stitched" : "direct",
-            route_reasoning: reasoning,
+            totalNM: Math.round(totalNM * 10) / 10,
+            elapsed_ms: Math.round(elapsed),
+            router: "osm_graph_dijkstra",
+            region,
+            vessel_draft: draftM,
+            safety: safetyBreakdown,
+            geojson,                    // Backwards-compatible single LineString
+            trafficGeoJSON,             // NEW: Segmented FeatureCollection for traffic light
         });
 
     } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[route] ${msg}`);
-        return jsonResponse({ error: msg }, 500);
+        console.error("[route] ERROR:", err);
+        return jsonResponse({ error: err instanceof Error ? err.message : String(err) }, 500);
     }
 });

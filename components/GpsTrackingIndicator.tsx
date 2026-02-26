@@ -72,23 +72,23 @@ export const GpsTrackingIndicator: React.FC = () => {
         : 'bg-emerald-500';
 
     return (
-        <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-[950] pointer-events-none">
+        <div className="pointer-events-none">
             {/* Main badge */}
-            <div className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-full ${bgColor} border backdrop-blur-md shadow-lg`}>
+            <div className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${bgColor} border backdrop-blur-md shadow-lg`}>
                 {/* Pulse ring */}
-                <span className="relative flex h-2.5 w-2.5">
+                <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`} />
-                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor}`} />
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${dotColor}`} />
                 </span>
 
                 {/* GPS icon */}
-                <svg className="w-3.5 h-3.5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-3 h-3 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <circle cx="12" cy="12" r="3" />
                     <path strokeLinecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
                 </svg>
 
                 {/* Interval label */}
-                <span className="text-white font-bold text-[11px] tracking-wide leading-none">
+                <span className="text-white font-bold text-[10px] tracking-wide leading-none">
                     {label}
                 </span>
             </div>

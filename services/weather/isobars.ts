@@ -104,13 +104,48 @@ async function fetchPressureGridGfs(
         const cols = lons.length;
         const totalHours = frames.length;
 
-        // Data is already S→N, W→E — use directly as allHourlyPressure
-        const allHourlyPressure: number[][][] = frames;
+        console.log(`[Isobars-GFS] Grid: lats=${rows}(${lats[0]}→${lats[rows - 1]}), lons=${cols}(${lons[0]}→${lons[cols - 1]}), frames=${totalHours}, frame shape=${frames[0]?.length}×${frames[0]?.[0]?.length}`);
+
+        // Sanity check: lat/lon values must be in valid geographic range
+        if (lats.some(l => Math.abs(l) > 90.1) || lons.some(l => Math.abs(l) > 360.1)) {
+            console.warn(`[Isobars-GFS] Invalid lat/lon range — lat [${lats[0]}, ${lats[rows - 1]}], lon [${lons[0]}, ${lons[cols - 1]}]. Falling back to Open-Meteo.`);
+            return null;
+        }
+
+        // ── Smart orientation detection ──
+        // Edge function should return frames[hour][row_lat][col_lon]
+        // but verify by comparing frame dimensions to lat/lon array lengths.
+        const frameRows = frames[0]?.length ?? 0;
+        const frameCols = frames[0]?.[0]?.length ?? 0;
+
+        let allHourlyPressure: number[][][];
+        if (frameRows === rows && frameCols === cols) {
+            // Frame is correctly oriented: frame[lat_row][lon_col]
+            console.log(`[Isobars-GFS] Frame orientation OK (${rows}×${cols})`);
+            allHourlyPressure = frames;
+        } else if (frameRows === cols && frameCols === rows) {
+            // Frame is transposed: frame[lon_col][lat_row] — need to swap
+            console.warn(`[Isobars-GFS] Frame transposed (${frameRows}×${frameCols} vs expected ${rows}×${cols}) — fixing`);
+            allHourlyPressure = frames.map(frame => {
+                const transposed: number[][] = [];
+                for (let r = 0; r < rows; r++) {
+                    const row: number[] = [];
+                    for (let c = 0; c < cols; c++) {
+                        row.push(frame[c]?.[r] ?? 1013.25);
+                    }
+                    transposed.push(row);
+                }
+                return transposed;
+            });
+        } else {
+            // Dimensions don't match either way — use as-is and hope for the best
+            console.warn(`[Isobars-GFS] Frame dimensions (${frameRows}×${frameCols}) don't match lat/lon (${rows}×${cols}) — using as-is`);
+            allHourlyPressure = frames;
+        }
+
         const emptyGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
         const allHourlyWindSpeed: number[][][] = frames.map(() => emptyGrid);
         const allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
-
-        console.log(`[Isobars-GFS] Grid ${cols}×${rows}, ${totalHours} frames, bounds=[${south}→${north}]×[${west}→${east}]`);
 
         // ── Interpolate between GRIB frames for butter-smooth animation ──
         // 5 GRIB frames at 3h intervals → 25 sub-frames at 30-min intervals
@@ -614,9 +649,7 @@ function generateCirculationArrows(
 export async function generateIsobars(
     north: number, south: number, west: number, east: number, zoom: number
 ): Promise<{ grid: PressureGrid; result: IsobarResult } | null> {
-    // TODO: FIX GFS CONTOUR BUG — GFS data is correct (H/L values verified)
-    // but contour lines render as vertical strings. The grid→contour coordinate
-    // mapping is transposed somewhere. Needs console-level debugging.
+    // Try GFS first (higher resolution, NOAA source), fallback to Open-Meteo
     let grid = await fetchPressureGridGfs(north, south, west, east);
 
     if (!grid) {

@@ -468,6 +468,31 @@ class DiaryServiceClass {
         } catch { return null; }
     }
 
+    /** Reverse geocode lat/lon to a human-readable place name via Nominatim */
+    async reverseGeocode(lat: number, lon: number): Promise<string | null> {
+        try {
+            const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=14&addressdetails=1`,
+                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } }
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            // Build a concise location name from address parts
+            const addr = data.address || {};
+            const parts: string[] = [];
+            if (addr.harbour || addr.marina) parts.push(addr.harbour || addr.marina);
+            else if (addr.beach) parts.push(addr.beach);
+            else if (addr.locality || addr.suburb || addr.town || addr.city || addr.village) {
+                parts.push(addr.locality || addr.suburb || addr.town || addr.city || addr.village);
+            }
+            if (addr.state) parts.push(addr.state);
+            else if (addr.county) parts.push(addr.county);
+            return parts.length > 0 ? parts.join(', ') : (data.display_name?.split(',').slice(0, 2).join(',').trim() || null);
+        } catch {
+            return null;
+        }
+    }
+
     // ── Gemini AI ──────────────────────────────────────────────
 
     async enhanceWithGemini(body: string, context: {

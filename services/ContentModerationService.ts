@@ -10,42 +10,22 @@
  * If flagged, the message is soft-deleted within ~1-2 seconds.
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from './supabase';
 
 // --- CONFIG ---
 const MESSAGES_TABLE = 'chat_messages';
 const REPORTS_TABLE = 'chat_reports';
 
-// --- AI SETUP (mirrors geminiService.ts pattern) ---
-
-let aiInstance: GoogleGenerativeAI | null = null;
-
-const getGeminiKey = (): string => {
-    let key = '';
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-        key = import.meta.env.VITE_GEMINI_API_KEY as string;
+const getSupabaseUrl = (): string => {
+    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) {
+        return import.meta.env.VITE_SUPABASE_URL as string;
     }
-    if (!key) {
-        try {
-            if (typeof process !== 'undefined' && process.env) {
-                key = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
-            }
-        } catch { /* browser env */ }
-    }
-    return key;
-};
-
-const getAI = (): GoogleGenerativeAI | null => {
-    if (aiInstance) return aiInstance;
-    const key = getGeminiKey();
-    if (!key || key.length < 10 || key.includes('YOUR_')) return null;
     try {
-        aiInstance = new GoogleGenerativeAI(key);
-        return aiInstance;
-    } catch {
-        return null;
-    }
+        if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
+            return process.env.SUPABASE_URL;
+        }
+    } catch { /* browser env */ }
+    return '';
 };
 
 // --- TYPES ---
@@ -116,7 +96,7 @@ const SPAM_PATTERNS = {
         return upper / text.length > 0.8;
     },
     /** Same character repeated 5+ times */
-    charRepetition: (text: string): boolean => /(.)\1{4,}/.test(text),
+    charRepetition: (text: string): boolean => /(.)\\1{4,}/.test(text),
     /** Same word repeated 3+ times */
     wordRepetition: (text: string): boolean => {
         const words = text.toLowerCase().split(/\s+/);
@@ -174,7 +154,7 @@ export const clientFilter = (text: string): ClientFilterResult => {
 };
 
 
-// --- LAYER 2: ASYNC GEMINI FLASH CLASSIFICATION ---
+// --- LAYER 2: ASYNC GEMINI FLASH CLASSIFICATION (via Edge Proxy) ---
 
 const MODERATION_PROMPT = `You are a content moderation system for a community chat app used by sailors. 
 Your job is to classify messages for safety. The community values inclusivity and helpfulness.
@@ -204,15 +184,15 @@ MESSAGE TO CLASSIFY:
 `;
 
 /**
- * Layer 2: Async Gemini Flash check. Called AFTER the message is posted.
+ * Layer 2: Async Gemini Flash check via Supabase edge proxy. Called AFTER the message is posted.
  * If verdict is "remove" or "escalate", the message is soft-deleted.
- * Typical latency: 500-1500ms. Cost: ~$0.000015 per call.
+ * Typical latency: 500-1500ms.
  */
 export const geminiModerate = async (text: string): Promise<ModerationResult> => {
     const start = Date.now();
-    const ai = getAI();
+    const url = getSupabaseUrl();
 
-    if (!ai) {
+    if (!url) {
         return {
             verdict: 'clean',
             reason: 'AI moderation unavailable',
@@ -223,18 +203,26 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
     }
 
     try {
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        const result = await Promise.race([
-            model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: MODERATION_PROMPT + `"${text}"` }] }],
-                generationConfig: { responseMimeType: 'application/json' },
-            }),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Moderation timeout')), 5000)
-            ),
-        ]);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
 
-        const responseText = result.response.text();
+        const res = await fetch(`${url}/functions/v1/proxy-gemini`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: MODERATION_PROMPT + `"${text}"`,
+                model: 'gemini-2.0-flash',
+                responseMimeType: 'application/json',
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
+
+        const data = await res.json();
+        const responseText = data.text || '';
+
         let parsed: { verdict?: string; reason?: string; confidence?: number; category?: string } | null = null;
 
         try {

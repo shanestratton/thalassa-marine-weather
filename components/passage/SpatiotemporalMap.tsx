@@ -335,6 +335,31 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     const mapRef = useRef<MapRef>(null);
     const windLayerRef = useRef<WindParticleLayer | null>(null);
     const [mapReady, setMapReady] = useState(false);
+    const [fetchedSeamarks, setFetchedSeamarks] = useState<GeoJSON.FeatureCollection | null>(null);
+
+    // ── Fetch seamark markers from Supabase (public bucket) ──
+    useEffect(() => {
+        const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
+            || 'https://pcisdplnodrphauixcau.supabase.co';
+        const url = `${baseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
+        fetch(url)
+            .then(r => r.json())
+            .then((geojson: any) => {
+                setFetchedSeamarks(geojson);
+                console.log(`[4DMap] ✓ Fetched ${geojson.features?.length} seamark markers`);
+            })
+            .catch((err: any) => console.warn('[4DMap] Seamark markers unavailable:', err));
+    }, []);
+
+    // Merge prop-based seamarks with fetched ones
+    const mergedSeamarks = useMemo<GeoJSON.FeatureCollection | null>(() => {
+        if (!fetchedSeamarks && !seamarkGeoJSON) return null;
+        const features = [
+            ...(fetchedSeamarks?.features || []),
+            ...(seamarkGeoJSON?.features || []),
+        ];
+        return { type: 'FeatureCollection', features };
+    }, [fetchedSeamarks, seamarkGeoJSON]);
 
     // ── Route GeoJSON ──
     const routeGeoJSON = useMemo(() => {
@@ -357,15 +382,19 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
 
     // ── Fit bounds on route load ──
     useEffect(() => {
-        if (!mapReady || !mapRef.current || !boundingBox) return;
+        if (!mapReady || !mapRef.current || !boundingBox) {
+            console.log('[SpatiotemporalMap] fitBounds skipped:', { mapReady, hasBBox: !!boundingBox });
+            return;
+        }
 
         const [minLon, minLat, maxLon, maxLat] = boundingBox;
+        console.log('[SpatiotemporalMap] fitBounds:', { minLon, minLat, maxLon, maxLat });
         const bounds: LngLatBoundsLike = [[minLon, minLat], [maxLon, maxLat]];
 
         mapRef.current.fitBounds(bounds, {
-            padding: { top: 100, bottom: 180, left: 290, right: 20 },
+            padding: { top: 80, bottom: 160, left: 20, right: 20 },
             duration: 1800,
-            maxZoom: 10,
+            maxZoom: 13,
         });
     }, [mapReady, boundingBox]);
 
@@ -389,6 +418,8 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
 
         // Feed initial wind data from WindStore (if available)
         feedWindData();
+
+        // Seamarks now rendered via React <Source>/<Layer> JSX (not imperatively)
     }, []);
 
     // Feed wind data from WindStore
@@ -475,43 +506,66 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                 </Source>
             )}
 
-            {/* ═══ SEAMARK MARKERS (port/starboard beacons) ═══ */}
-            {seamarkGeoJSON && (
-                <Source id="local-seamarks" type="geojson" data={seamarkGeoJSON}>
-                    {/* Outer glow */}
+            {/* ═══ SEAMARK MARKERS (from Supabase + pilotage) ═══ */}
+            {mergedSeamarks && (
+                <Source id="all-seamarks" type="geojson" data={mergedSeamarks}>
+                    {/* Outer glow (bioluminescent blur) */}
                     <Layer
                         id="seamarks-glow"
                         type="circle"
+                        minzoom={8}
                         paint={{
-                            'circle-radius': 10,
-                            'circle-color': [
-                                'match',
-                                ['get', 'category'],
-                                'port', '#ff0033',
-                                'starboard', '#00ff66',
-                                '#ffffff',
-                            ],
+                            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 8, 16, 16],
                             'circle-blur': 0.8,
-                            'circle-opacity': 0.4,
+                            'circle-opacity': 0.6,
+                            'circle-color': [
+                                'match', ['get', '_class'],
+                                'port', '#ff1744',
+                                'starboard', '#00e676',
+                                'cardinal_n', '#ffd600',
+                                'cardinal_s', '#ffd600',
+                                'cardinal_e', '#ffd600',
+                                'cardinal_w', '#ffd600',
+                                'cardinal', '#ffd600',
+                                'danger', '#ff6d00',
+                                'safe_water', '#ff1744',
+                                'light', '#ffffff',
+                                'special', '#ffab00',
+                                'mooring', '#40c4ff',
+                                'anchorage', '#40c4ff',
+                                '#888888',
+                            ],
                         }}
                     />
-                    {/* Core dot */}
+                    {/* Core crisp dot */}
                     <Layer
                         id="seamarks-core"
                         type="circle"
+                        minzoom={8}
                         paint={{
-                            'circle-radius': 4,
-                            'circle-color': [
-                                'match',
-                                ['get', 'category'],
-                                'port', '#ff0033',
-                                'starboard', '#00ff66',
-                                '#ffffff',
-                            ],
+                            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 12, 4, 16, 8],
                             'circle-blur': 0.1,
                             'circle-opacity': 0.9,
+                            'circle-color': [
+                                'match', ['get', '_class'],
+                                'port', '#ff1744',
+                                'starboard', '#00e676',
+                                'cardinal_n', '#ffd600',
+                                'cardinal_s', '#ffd600',
+                                'cardinal_e', '#ffd600',
+                                'cardinal_w', '#ffd600',
+                                'cardinal', '#ffd600',
+                                'danger', '#ff6d00',
+                                'safe_water', '#ff1744',
+                                'light', '#ffffff',
+                                'special', '#ffab00',
+                                'mooring', '#40c4ff',
+                                'anchorage', '#40c4ff',
+                                '#888888',
+                            ],
                             'circle-stroke-width': 1,
-                            'circle-stroke-color': 'rgba(255,255,255,0.3)',
+                            'circle-stroke-color': '#000000',
+                            'circle-stroke-opacity': 0.5,
                         }}
                     />
                 </Source>
@@ -583,15 +637,15 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                 </Source>
             )}
 
-            {/* ═══ WAYPOINT MARKERS ═══ */}
-            {track && track.map((pt, i) => (
+            {/* ═══ WAYPOINT MARKERS — Only Departure + Arrival ═══ */}
+            {track && track.length > 0 && [0, track.length - 1].map((i) => (
                 <Marker
                     key={`wp-${i}`}
-                    longitude={pt.coordinates[0]}
-                    latitude={pt.coordinates[1]}
+                    longitude={track[i].coordinates[0]}
+                    latitude={track[i].coordinates[1]}
                     anchor="bottom"
                 >
-                    <WaypointBadge point={pt} index={i} total={track.length} />
+                    <WaypointBadge point={track[i]} index={i} total={track.length} />
                 </Marker>
             ))}
 

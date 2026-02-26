@@ -129,9 +129,8 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
     const gridAngles = data.angles;
 
     return (
-        <div className="relative">
-            <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="mx-auto">
-                <rect x="0" y="0" width={width} height={height} fill="transparent" />
+        <div className="relative w-full h-full">
+            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" className="mx-auto">
 
                 {/* Concentric speed rings */}
                 {Array.from({ length: ringCount }, (_, i) => {

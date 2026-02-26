@@ -255,11 +255,26 @@ Deno.serve(async (req: Request) => {
         const f0 = allFrames[0];
         const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
 
-        // Build lat/lon arrays from grid metadata (N→S scan, convert to S→N for client)
-        const gridNorth = Math.max(f0.lat1, f0.lat2);
-        const gridSouth = Math.min(f0.lat1, f0.lat2);
-        const gridWest = normLon(Math.min(f0.lon1, f0.lon2));
-        const gridEast = normLon(Math.max(f0.lon1, f0.lon2));
+        // ── Build lat/lon arrays from REQUEST BOUNDS + grid dimensions ──
+        // GRIB2 La2/Lo2 parsing is unreliable (byte offset alignment varies
+        // across producers). Instead, use the known request bounds and grid
+        // dimensions (Ni/Nj) which are always correct.
+        //
+        // La1/Lo1 from GRIB2 are typically reliable (first 4 bytes of the
+        // coordinate block), so use La1 as a sanity reference.
+        const gridNorth = north;
+        const gridSouth = south;
+        const gridWest = normLon(west);
+        const gridEast = normLon(east);
+
+        // Use La1 as a sanity check — if it's reasonable, log for debugging
+        const la1Check = f0.lat1;
+        if (Math.abs(la1Check) <= 90) {
+            console.log(`[GRIB2] La1=${la1Check.toFixed(2)} (GRIB), using request bounds: ${gridSouth}→${gridNorth}, ${gridWest}→${gridEast}`);
+        } else {
+            console.warn(`[GRIB2] La1=${la1Check} is out of range, ignoring GRIB coords`);
+        }
+
         const dy = f0.height > 1 ? (gridNorth - gridSouth) / (f0.height - 1) : 1;
         const dx = f0.width > 1 ? Math.abs(gridEast - gridWest) / (f0.width - 1) : 1;
 

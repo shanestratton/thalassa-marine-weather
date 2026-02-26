@@ -40,10 +40,15 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             }
 
             if (data && data.features && data.features.length > 0) {
-                // Prefer place/locality over natural_feature (e.g. prefer "Redcliffe" over "Moreton Bay")
-                // But fall back to natural_feature for genuinely offshore points
-                const preferredTypes = ['place', 'locality', 'neighborhood', 'district'];
-                const place = data.features.find((f: any) => preferredTypes.includes(f.place_type?.[0]))
+                // Prefer more specific types (suburb/neighborhood) over city-level (place)
+                // Mapbox returns features ordered by relevance, but we want the most granular match
+                const preferredTypes = ['neighborhood', 'locality', 'district', 'place'];
+                const place = data.features
+                    .sort((a: any, b: any) => {
+                        const ai = preferredTypes.indexOf(a.place_type?.[0]);
+                        const bi = preferredTypes.indexOf(b.place_type?.[0]);
+                        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                    })[0]
                     || data.features[0];
                 // Mapbox Context: find country and region
                 const context = place.context || [];

@@ -4,7 +4,9 @@
  */
 import React, { useState } from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
-import { LengthUnit, WeightUnit, SpeedUnit, VolumeUnit, VesselDimensionUnits } from '../../types';
+import { LengthUnit, WeightUnit, SpeedUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
+import { YachtDatabaseSearch } from './YachtDatabaseSearch';
+import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: {
@@ -88,6 +90,31 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         });
     };
 
+    const handleYachtSelect = (entry: PolarDatabaseEntry) => {
+        // Update vessel model + auto-fill LOA
+        const currentVessel: Partial<VesselProfile> = settings.vessel || {};
+        onSave({
+            vessel: {
+                name: currentVessel.name || 'My Boat',
+                type: currentVessel.type || 'sail',
+                beam: currentVessel.beam || Math.round(entry.loa * 0.32),
+                draft: currentVessel.draft || Math.round(entry.loa * 0.16),
+                displacement: currentVessel.displacement || Math.round(Math.pow(entry.loa, 3) / 2.5),
+                maxWaveHeight: currentVessel.maxWaveHeight || Math.round(entry.loa * 0.35),
+                cruisingSpeed: currentVessel.cruisingSpeed || Math.round(Math.sqrt(entry.loa) * 1.2 * 10) / 10,
+                fuelCapacity: currentVessel.fuelCapacity || 0,
+                waterCapacity: currentVessel.waterCapacity || 0,
+                ...currentVessel,
+                model: entry.model,
+                length: entry.loa,
+            },
+            // Save polar data to settings (persisted via Capacitor Preferences)
+            polarData: entry.polar,
+            polarBoatModel: entry.model,
+            polarSource_type: 'database',
+        });
+    };
+
     return (
         <div className="w-full max-w-2xl mx-auto overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
             <Section title="Vessel Configuration">
@@ -104,13 +131,15 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <input type="text" value={settings.vessel?.name || ''} onChange={(e) => updateVessel('name', e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium" />
                     </div>
                 </Row>
-                <Row>
-                    <div className="w-full">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Make / Model</label>
-                        <input type="text" value={settings.vessel?.model || ''} onChange={(e) => updateVessel('model', e.target.value)} placeholder="e.g. Tayana 55" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium" />
-                    </div>
-                </Row>
             </Section>
+
+            {/* Yacht Database Search — replaces the old Make/Model text input */}
+            <div className="mx-4 mb-4">
+                <YachtDatabaseSearch
+                    selectedModel={settings.polarBoatModel || settings.vessel?.model}
+                    onSelect={handleYachtSelect}
+                />
+            </div>
 
             {/* Hull Dimensions */}
             <div className="mx-4 mb-4">

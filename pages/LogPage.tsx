@@ -48,7 +48,7 @@ const AnchorIcon = ({ className }: { className?: string }) => (
 );
 
 
-export const LogPage: React.FC = () => {
+export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const {
         state,
         dispatch,
@@ -225,6 +225,16 @@ export const LogPage: React.FC = () => {
                     <div className="shrink-0 px-4 pt-3 pb-2">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
+                                {onBack && (
+                                    <button
+                                        onClick={onBack}
+                                        className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                                        </svg>
+                                    </button>
+                                )}
                                 <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Ship's Log</h1>
                                 {isTracking && (
                                     <span
@@ -334,7 +344,7 @@ export const LogPage: React.FC = () => {
                     })()}
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 pb-4 snap-y snap-proximity scroll-pt-2">
+                    <div className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}>
                         {/* Live Recording Card */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);

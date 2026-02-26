@@ -40,7 +40,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }
                 </div>
 
                 {/* ═══ POLAR MANAGER CONTENT ═══ */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                <div className="flex-1 overflow-hidden px-4 min-h-0" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                     <PolarManagerTab
                         settings={settings as any}
                         onSave={handleSave}

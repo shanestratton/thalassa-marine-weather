@@ -21,6 +21,7 @@ import { App } from '@capacitor/app';
 import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
+import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/logger';
 
@@ -515,6 +516,32 @@ class ShipLogServiceClass {
         });
         this.bgUnsubscribers.push(unsubLoc);
 
+        // 1b. NMEA/EXTERNAL GPS — Higher-accuracy positions from the vessel's
+        //     chartplotter, Bad Elf GPS Pro Plus, or any NMEA TCP source.
+        //     When active, these override the phone GPS (better accuracy).
+        const unsubNmea = NmeaGpsProvider.onPosition((nmeaPos) => {
+            // Convert NmeaGpsPosition to CachedPosition shape for compatibility
+            this.lastBgLocation = {
+                latitude: nmeaPos.latitude,
+                longitude: nmeaPos.longitude,
+                accuracy: nmeaPos.accuracy,
+                heading: nmeaPos.heading,
+                speed: nmeaPos.speed / 1.94384, // SOG kts → m/s (BgGeo uses m/s)
+                timestamp: nmeaPos.timestamp,
+                receivedAt: Date.now(),
+                altitude: null,
+            } as CachedPosition;
+
+            // Feed accuracy into precision tracker
+            GpsPrecision.feed(nmeaPos.accuracy);
+
+            // Buffer for track thinning
+            if (this.trackingState.isTracking && !this.trackingState.isPaused) {
+                this.trackBuffer.push(this.lastBgLocation);
+            }
+        });
+        this.bgUnsubscribers.push(unsubNmea);
+
         // 2. HEARTBEAT — Fires every 60s when stationary (even backgrounded).
         //    Check if a log entry is due and capture it. This is the safety net
         //    that fires even when JS timers are suspended by iOS.
@@ -649,7 +676,22 @@ class ShipLogServiceClass {
      * This is the ONLY place that should resolve GPS for log entries.
      */
     private async getBestPosition(): Promise<CachedPosition | null> {
-        // Check cached position freshness
+        // Prefer NMEA/external GPS if available (higher accuracy)
+        const nmeaPos = NmeaGpsProvider.getPosition();
+        if (nmeaPos) {
+            return {
+                latitude: nmeaPos.latitude,
+                longitude: nmeaPos.longitude,
+                accuracy: nmeaPos.accuracy,
+                heading: nmeaPos.heading,
+                speed: nmeaPos.speed / 1.94384, // SOG kts → m/s
+                timestamp: nmeaPos.timestamp,
+                receivedAt: Date.now(),
+                altitude: null,
+            } as CachedPosition;
+        }
+
+        // Check cached phone GPS position freshness
         if (this.lastBgLocation) {
             const age = Date.now() - this.lastBgLocation.receivedAt;
             if (age < GPS_STALE_LIMIT_MS) {

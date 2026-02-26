@@ -110,7 +110,7 @@ export async function fetchWeatherRoute(
                 ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(45_000),
+            signal: AbortSignal.timeout(120_000),
         });
 
         if (!resp.ok) {
@@ -132,11 +132,18 @@ export async function fetchWeatherRoute(
             `ETA: ${data.summary?.total_duration_hours}h ` +
             `(${data.summary?.computation_ms}ms)`
         );
+        // Debug: log track coordinates to diagnose crossing-earth issue
+        if (data.track) {
+            console.log('[WeatherRouter] Track coordinates [lon, lat]:');
+            data.track.forEach((pt: any, i: number) => {
+                console.log(`  [${i}] ${pt.name || 'unnamed'}: [${pt.coordinates[0].toFixed(4)}, ${pt.coordinates[1].toFixed(4)}]`);
+            });
+        }
         return data;
 
     } catch (err) {
         if (err instanceof Error && err.name === 'TimeoutError') {
-            console.warn('[WeatherRouter] Request timed out (45s) — skipping');
+            console.warn('[WeatherRouter] Request timed out (120s) — skipping');
         } else {
             console.error('[WeatherRouter] Error:', err);
         }
@@ -209,34 +216,54 @@ export async function enhanceVoyagePlanWithWeather(
         return voyagePlan;
     }
 
-    // Build centerline
+    // Build centerline — prefer detailed routeGeoJSON from bathymetric enhancement
+    // over sparse AI waypoints, so routes follow actual waterway geometry
     const centerline: { lat: number; lon: number; depth_m?: number; name?: string }[] = [];
 
-    if (voyagePlan.originCoordinates) {
-        centerline.push({
-            lat: voyagePlan.originCoordinates.lat,
-            lon: voyagePlan.originCoordinates.lon,
-            name: voyagePlan.origin,
-        });
-    }
-
-    for (const wp of voyagePlan.waypoints) {
-        if (wp.coordinates) {
+    const routeGeoJSON = (voyagePlan as any).routeGeoJSON;
+    if (routeGeoJSON?.geometry?.coordinates?.length >= 2) {
+        // Use the detailed graph route coordinates (hundreds of points along waterways)
+        const coords: [number, number][] = routeGeoJSON.geometry.coordinates;
+        console.log(`[WeatherRouter] Using routeGeoJSON centerline with ${coords.length} points`);
+        for (const [lon, lat] of coords) {
+            centerline.push({ lat, lon });
+        }
+        // Attach origin/destination names to endpoints
+        if (voyagePlan.origin && centerline.length > 0) {
+            centerline[0].name = voyagePlan.origin;
+        }
+        if (voyagePlan.destination && centerline.length > 1) {
+            centerline[centerline.length - 1].name = voyagePlan.destination;
+        }
+    } else {
+        // Fallback: use sparse AI waypoints
+        console.log('[WeatherRouter] No routeGeoJSON — using sparse AI waypoints as centerline');
+        if (voyagePlan.originCoordinates) {
             centerline.push({
-                lat: wp.coordinates.lat,
-                lon: wp.coordinates.lon,
-                depth_m: wp.depth_m,
-                name: wp.name,
+                lat: voyagePlan.originCoordinates.lat,
+                lon: voyagePlan.originCoordinates.lon,
+                name: voyagePlan.origin,
             });
         }
-    }
 
-    if (voyagePlan.destinationCoordinates) {
-        centerline.push({
-            lat: voyagePlan.destinationCoordinates.lat,
-            lon: voyagePlan.destinationCoordinates.lon,
-            name: voyagePlan.destination,
-        });
+        for (const wp of voyagePlan.waypoints) {
+            if (wp.coordinates) {
+                centerline.push({
+                    lat: wp.coordinates.lat,
+                    lon: wp.coordinates.lon,
+                    depth_m: wp.depth_m,
+                    name: wp.name,
+                });
+            }
+        }
+
+        if (voyagePlan.destinationCoordinates) {
+            centerline.push({
+                lat: voyagePlan.destinationCoordinates.lat,
+                lon: voyagePlan.destinationCoordinates.lon,
+                name: voyagePlan.destination,
+            });
+        }
     }
 
     if (centerline.length < 2) {
@@ -253,11 +280,86 @@ export async function enhanceVoyagePlanWithWeather(
         } catch { /* Non-critical */ }
     }
 
-    const payload = await fetchWeatherRoute(centerline, departureTime, vessel, polarData);
+    // Decimate centerline for weather API (max ~100 points) — API can't handle thousands
+    // Keep full detail centerline for fallback track rendering
+    const MAX_WEATHER_POINTS = 100;
+    let weatherCenterline = centerline;
+    if (centerline.length > MAX_WEATHER_POINTS) {
+        const step = (centerline.length - 1) / (MAX_WEATHER_POINTS - 1);
+        weatherCenterline = [];
+        for (let i = 0; i < MAX_WEATHER_POINTS; i++) {
+            weatherCenterline.push(centerline[Math.round(i * step)]);
+        }
+        console.log(`[WeatherRouter] Decimated centerline: ${centerline.length} → ${weatherCenterline.length} points for weather API`);
+    }
+
+    const payload = await fetchWeatherRoute(weatherCenterline, departureTime, vessel, polarData);
 
     if (!payload) {
-        console.warn('[WeatherRouter] Weather routing unavailable — using bathymetric route');
-        return voyagePlan;
+        console.warn('[WeatherRouter] Weather routing unavailable — building fallback 4D payload from centerline');
+        // Build a basic spatiotemporal payload from the centerline so the 4D canvas still works
+        const fallbackTrack = centerline.map((pt, i) => {
+            const prevPt = i > 0 ? centerline[i - 1] : pt;
+            const segDist = i > 0
+                ? Math.sqrt(Math.pow((pt.lat - prevPt.lat) * 60, 2) + Math.pow((pt.lon - prevPt.lon) * 60 * Math.cos(pt.lat * Math.PI / 180), 2))
+                : 0;
+            return {
+                coordinates: [pt.lon, pt.lat] as [number, number],
+                distance_from_start_nm: segDist,
+                time_offset_hours: segDist / (vessel.cruisingSpeed || 6),
+                name: pt.name || `WP-${String(i).padStart(2, '0')}`,
+                lateral_offset_nm: 0,
+                conditions: {
+                    depth_m: pt.depth_m ?? null,
+                    wind_spd_kts: 0,
+                    wind_dir_deg: 0,
+                    wave_ht_m: 0,
+                    swell_period_s: null,
+                },
+            };
+        });
+
+        // Accumulate distances
+        let cumDist = 0;
+        for (let i = 1; i < fallbackTrack.length; i++) {
+            const prev = centerline[i - 1];
+            const cur = centerline[i];
+            const segDist = Math.sqrt(
+                Math.pow((cur.lat - prev.lat) * 60, 2) +
+                Math.pow((cur.lon - prev.lon) * 60 * Math.cos(cur.lat * Math.PI / 180), 2)
+            );
+            cumDist += segDist;
+            fallbackTrack[i].distance_from_start_nm = cumDist;
+            fallbackTrack[i].time_offset_hours = cumDist / (vessel.cruisingSpeed || 6);
+        }
+
+        const lons = centerline.map(p => p.lon);
+        const lats = centerline.map(p => p.lat);
+        const fallbackPayload: SpatiotemporalPayload = {
+            summary: {
+                total_distance_nm: Math.round(cumDist * 10) / 10,
+                total_duration_hours: Math.round((cumDist / (vessel.cruisingSpeed || 6)) * 10) / 10,
+                cost_score: 0,
+                computation_ms: 0,
+                routing_mode: 'fallback_centerline',
+                vessel_type: vessel.type,
+                departure_time: departureTime,
+            },
+            bounding_box: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+            track: fallbackTrack,
+            mesh_stats: {
+                total_nodes: centerline.length,
+                rows: 1,
+                cols: centerline.length,
+                corridor_width_nm: 0,
+                weather_grid_points: 0,
+                forecast_hours: 0,
+            },
+        };
+
+        const merged = mergeWeatherRoute(voyagePlan, fallbackPayload);
+        (merged as any).__spatiotemporalPayload = fallbackPayload;
+        return merged;
     }
 
     // Store the payload on the plan for the 4D canvas to pick up

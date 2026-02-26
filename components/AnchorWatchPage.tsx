@@ -657,20 +657,26 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
         return (
             <div ref={keyboardScrollRef} className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`} style={{ overscrollBehaviorY: 'none' }}>
-                {/* ── Header — compact with segmented toggle ── */}
-                <div className="shrink-0 px-4 py-2 flex items-center justify-between" style={{ background: 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.8) 100%)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <div className="flex items-center gap-2">
-                        <span className="text-amber-400 text-lg">⚓</span>
-                        <span className="text-base font-black text-white tracking-tight">Anchor Watch</span>
-                    </div>
-                    {/* Segmented toggle: Anchor | Shore */}
-                    <div className="flex bg-slate-800/60 rounded-lg p-0.5 border border-white/[0.06]">
-                        <button className="px-3 py-1 rounded-md text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                            Anchor
-                        </button>
+                {/* ── Header — consistent with other vessel pages ── */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            {onBack && (
+                                <button
+                                    onClick={onBack}
+                                    className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                                    </svg>
+                                </button>
+                            )}
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Anchor Watch</h1>
+                        </div>
+                        {/* Shore toggle */}
                         <button
                             onClick={() => setShowShoreModal(true)}
-                            className="px-3 py-1 rounded-md text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors"
+                            className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/[0.06] hover:text-slate-300 transition-colors"
                         >
                             Shore
                         </button>

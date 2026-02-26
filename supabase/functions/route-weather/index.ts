@@ -80,6 +80,7 @@ interface MeshNode {
     centerIdx: number;      // Which centerline segment this belongs to
     lateralOffset: number;  // -2, -1, 0, +1, +2 (port to starboard)
     depth_m?: number;
+    isLand?: boolean;       // True if node is above sea level (GEBCO)
 }
 
 /** Weather sample at a point in spacetime */
@@ -569,7 +570,7 @@ async function buildCoastalCorridor(
     lat: number,
     lon: number,
     label: string = 'departure',
-): Promise<{ corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[] }> {
+): Promise<{ corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[]; marks: NavMark[] }> {
     console.log(`[Pilotage] Building ${label} corridor at ${lat.toFixed(4)}, ${lon.toFixed(4)}...`);
 
     const elements = await fetchSeamarks(lat, lon);
@@ -587,7 +588,7 @@ async function buildCoastalCorridor(
     const corridor = buildSafeWaterCorridor(marks, lat, lon);
     const centerline = generateChannelCenterline(corridor, lat, lon);
 
-    return { corridor, centerline };
+    return { corridor, centerline, marks };
 }
 
 /**
@@ -785,6 +786,355 @@ function generateCorridorMesh(
 
     console.log(`[WeatherRouter] Generated corridor mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols)`);
     return nodes;
+}
+
+/**
+ * Variable-width corridor mesh — same structure as generateCorridorMesh,
+ * but each row uses its own corridor width. This allows tight corridors
+ * near marinas (coastal legs) and wide corridors in open ocean.
+ *
+ * IMPORTANT: All rows still have the same number of columns (nodesPerRow)
+ * so the adjacency graph structure is preserved.
+ */
+function generateCorridorMeshVariable(
+    centerline: CenterlineWaypoint[],
+    perRowCorridorWidth: number[],
+    lateralSteps: number = DEFAULT_LATERAL_STEPS,
+): MeshNode[] {
+    const nodes: MeshNode[] = [];
+    let nodeId = 0;
+
+    for (let ci = 0; ci < centerline.length; ci++) {
+        const wp = centerline[ci];
+        const rowCorridorWidth = perRowCorridorWidth[ci] ?? DEFAULT_CORRIDOR_WIDTH_NM;
+        const stepNM = rowCorridorWidth / lateralSteps;
+
+        // Calculate the perpendicular bearing at this waypoint
+        let perpBearing: number;
+
+        if (ci === 0) {
+            const fwdBearing = bearing(wp.lat, wp.lon, centerline[ci + 1].lat, centerline[ci + 1].lon);
+            perpBearing = (fwdBearing + 90) % 360;
+        } else if (ci === centerline.length - 1) {
+            const fwdBearing = bearing(centerline[ci - 1].lat, centerline[ci - 1].lon, wp.lat, wp.lon);
+            perpBearing = (fwdBearing + 90) % 360;
+        } else {
+            const bIn = bearing(centerline[ci - 1].lat, centerline[ci - 1].lon, wp.lat, wp.lon);
+            const bOut = bearing(wp.lat, wp.lon, centerline[ci + 1].lat, centerline[ci + 1].lon);
+            const avgBearing = averageBearing(bIn, bOut);
+            perpBearing = (avgBearing + 90) % 360;
+        }
+
+        // Generate lateral offsets: -N ... 0 ... +N
+        for (let offset = -lateralSteps; offset <= lateralSteps; offset++) {
+            let lat: number, lon: number;
+
+            if (offset === 0) {
+                lat = wp.lat;
+                lon = wp.lon;
+            } else {
+                const distNM = Math.abs(offset) * stepNM;
+                const offsetBearing = offset > 0 ? perpBearing : (perpBearing + 180) % 360;
+                const dest = destinationPoint(wp.lat, wp.lon, offsetBearing, distNM);
+                lat = dest.lat;
+                lon = dest.lon;
+            }
+
+            nodes.push({
+                id: nodeId++,
+                lat,
+                lon,
+                centerIdx: ci,
+                lateralOffset: offset,
+                depth_m: offset === 0 ? wp.depth_m : undefined,
+            });
+        }
+    }
+
+    // Log row widths for debugging
+    const coastalRows = perRowCorridorWidth.filter(w => w < DEFAULT_CORRIDOR_WIDTH_NM).length;
+    console.log(`[WeatherRouter] Generated variable mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols, ${coastalRows} coastal rows)`);
+    return nodes;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GEBCO LAND MASK — Elevation-based land detection
+//
+// Uses the same Cloud-Optimized GeoTIFF (GEBCO/ETOPO) that powers
+// route-bathymetric. Each mesh node is checked against actual terrain
+// elevation: if above sea level → isLand = true → A* skips it.
+//
+// This replaces the unreliable weather-based heuristic that guessed
+// land from zero wind/waves (failed in calm conditions and near rivers).
+// ══════════════════════════════════════════════════════════════════════
+
+// @ts-ignore: Deno ESM import
+import { fromUrl } from "https://esm.sh/geotiff@2.1.3?bundle-deps&target=deno";
+
+const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
+const LANDMASK_COG_URL = `${SUPABASE_URL_ENV}/storage/v1/object/public/gebco-tiles/thalassa_bathymetry_global.tif`;
+const LANDMASK_MAX_GRID = 300;
+
+/**
+ * Fetch GEBCO elevation data for a bounding box.
+ * Returns a grid of elevation values (negative = underwater, positive = land).
+ *
+ * Uses HTTP Range requests via the COG format — only downloads the
+ * tiles covering the bounding box, not the entire global file.
+ */
+async function fetchElevationGrid(
+    minLat: number, maxLat: number,
+    minLon: number, maxLon: number,
+): Promise<{ elevation: Int16Array; rows: number; cols: number; lats: number[]; lons: number[] } | null> {
+    try {
+        const tiff = await fromUrl(LANDMASK_COG_URL);
+        const image = await tiff.getImage(0);
+        const imgWidth = image.getWidth();
+        const imgHeight = image.getHeight();
+
+        let west: number, south: number, east: number, north: number;
+        try {
+            [west, south, east, north] = image.getBoundingBox();
+        } catch {
+            const tp = image.fileDirectory.ModelTiepoint;
+            const ps = image.fileDirectory.ModelPixelScale;
+            if (tp && ps) {
+                west = tp[3]; north = tp[4];
+                east = tp[3] + ps[0] * imgWidth;
+                south = tp[4] - ps[1] * imgHeight;
+            } else {
+                west = -180; south = -80; east = 180; north = 80;
+            }
+        }
+
+        const xScale = imgWidth / (east - west);
+        const yScale = imgHeight / (north - south);
+        const clampLon = (v: number) => Math.max(west, Math.min(east, v));
+        const clampLat = (v: number) => Math.max(south, Math.min(north, v));
+
+        const x0 = Math.max(0, Math.floor((clampLon(minLon) - west) * xScale));
+        const x1 = Math.min(imgWidth, Math.ceil((clampLon(maxLon) - west) * xScale));
+        const y0 = Math.max(0, Math.floor((north - clampLat(maxLat)) * yScale));
+        const y1 = Math.min(imgHeight, Math.ceil((north - clampLat(minLat)) * yScale));
+
+        const baseCols = x1 - x0;
+        const baseRows = y1 - y0;
+
+        // Downsample for performance — we just need land/water, not precise depth
+        const ds = Math.max(1, Math.ceil(Math.max(baseCols, baseRows) / LANDMASK_MAX_GRID));
+        const outCols = Math.min(LANDMASK_MAX_GRID, Math.ceil(baseCols / ds));
+        const outRows = Math.min(LANDMASK_MAX_GRID, Math.ceil(baseRows / ds));
+
+        if (outCols < 2 || outRows < 2) return null;
+
+        const rasters = await image.readRasters({
+            window: [x0, y0, x1, y1],
+            width: outCols,
+            height: outRows,
+        });
+
+        const rawData = rasters[0] as Float32Array | Int16Array | Int32Array;
+        const elevation = new Int16Array(rawData.length);
+        for (let i = 0; i < rawData.length; i++) elevation[i] = Math.round(rawData[i]);
+
+        // Build coordinate arrays
+        const globalPxLon = (east - west) / imgWidth;
+        const globalPxLat = (north - south) / imgHeight;
+        const winWest = west + x0 * globalPxLon;
+        const winNorth = north - y0 * globalPxLat;
+        const winEast = west + x1 * globalPxLon;
+        const winSouth = north - y1 * globalPxLat;
+
+        const pxLon = (winEast - winWest) / outCols;
+        const pxLat = (winNorth - winSouth) / outRows;
+        const lats = new Array(outRows);
+        const lons = new Array(outCols);
+        for (let r = 0; r < outRows; r++) lats[r] = winNorth - (r + 0.5) * pxLat;
+        for (let c = 0; c < outCols; c++) lons[c] = winWest + (c + 0.5) * pxLon;
+
+        console.log(`[LandMask] GEBCO grid ${outCols}×${outRows} (${ds}× ds) for [${minLat.toFixed(2)},${minLon.toFixed(2)}]→[${maxLat.toFixed(2)},${maxLon.toFixed(2)}]`);
+        return { elevation, rows: outRows, cols: outCols, lats, lons };
+    } catch (err) {
+        console.warn(`[LandMask] Failed to fetch GEBCO elevation:`, err);
+        return null;
+    }
+}
+
+/**
+ * Apply GEBCO land mask to corridor mesh nodes.
+ *
+ * For each mesh node, finds the nearest elevation grid cell.
+ * If elevation > 0m (above sea level), marks the node as land.
+ */
+async function applyLandMask(nodes: MeshNode[]): Promise<number> {
+    if (nodes.length === 0) return 0;
+
+    // Compute bounding box of all mesh nodes
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLon = Infinity, maxLon = -Infinity;
+    for (const node of nodes) {
+        if (node.lat < minLat) minLat = node.lat;
+        if (node.lat > maxLat) maxLat = node.lat;
+        if (node.lon < minLon) minLon = node.lon;
+        if (node.lon > maxLon) maxLon = node.lon;
+    }
+    // Add 0.1° buffer (~11km) to ensure edge nodes are covered
+    minLat -= 0.1; maxLat += 0.1;
+    minLon -= 0.1; maxLon += 0.1;
+
+    const grid = await fetchElevationGrid(minLat, maxLat, minLon, maxLon);
+    if (!grid) {
+        console.warn(`[LandMask] No elevation data — land detection disabled`);
+        return 0;
+    }
+
+    // Cache the elevation grid for edge collision checking in A*
+    _elevationCache = grid;
+
+    const { elevation, rows, cols, lats, lons } = grid;
+    let landCount = 0;
+
+    for (const node of nodes) {
+        // Find nearest grid cell (simple nearest-neighbor lookup)
+        let bestRow = 0, bestRowDist = Infinity;
+        for (let r = 0; r < rows; r++) {
+            const d = Math.abs(lats[r] - node.lat);
+            if (d < bestRowDist) { bestRow = r; bestRowDist = d; }
+        }
+        let bestCol = 0, bestColDist = Infinity;
+        for (let c = 0; c < cols; c++) {
+            const d = Math.abs(lons[c] - node.lon);
+            if (d < bestColDist) { bestCol = c; bestColDist = d; }
+        }
+
+        const elev = elevation[bestRow * cols + bestCol];
+        if (elev > 0) {
+            node.isLand = true;
+            landCount++;
+        }
+    }
+
+    console.log(`[LandMask] ⛰️  ${landCount} land nodes blocked out of ${nodes.length} total (${(landCount / nodes.length * 100).toFixed(1)}%)`);
+    return landCount;
+}
+
+// ── Elevation Grid Cache (for edge collision checking in A*) ──
+let _elevationCache: {
+    elevation: Int16Array;
+    rows: number;
+    cols: number;
+    lats: number[];
+    lons: number[];
+} | null = null;
+
+/**
+ * Check if a straight-line segment between two points crosses land.
+ *
+ * Samples the line at ~0.1 NM (~185m) intervals and checks each
+ * sample point against the cached GEBCO elevation grid.
+ * Returns true if ANY sample point is above sea level.
+ *
+ * This is the "line of sight" check that prevents A* from
+ * connecting two water nodes via a path that crosses land.
+ */
+function segmentCrossesLand(
+    lat1: number, lon1: number,
+    lat2: number, lon2: number,
+): boolean {
+    if (!_elevationCache) return false;
+
+    const { elevation, rows, cols, lats, lons } = _elevationCache;
+
+    // Skip very short edges — node checks are sufficient
+    const dLat = Math.abs(lat2 - lat1);
+    const dLon = Math.abs(lon2 - lon1);
+    if (dLat < 0.001 && dLon < 0.001) return false;  // < ~110m
+
+    // Use grid bounds for O(1) index lookup instead of linear search
+    const latMax = lats[0], latMin = lats[rows - 1];  // lats are N→S
+    const lonMin = lons[0], lonMax = lons[cols - 1];
+    const latRange = latMax - latMin;
+    const lonRange = lonMax - lonMin;
+    if (latRange <= 0 || lonRange <= 0) return false;
+
+    // Sample at ~0.1 NM intervals, capped at 50 for performance
+    const distDeg = Math.sqrt(dLat * dLat + dLon * dLon);
+    const numSamples = Math.min(50, Math.max(3, Math.ceil(distDeg / 0.0015)));
+
+    for (let s = 1; s < numSamples; s++) {
+        const t = s / numSamples;
+        const sLat = lat1 + (lat2 - lat1) * t;
+        const sLon = lon1 + (lon2 - lon1) * t;
+
+        // Direct index computation (O(1) instead of O(N))
+        const ri = Math.round((latMax - sLat) / latRange * (rows - 1));
+        const ci = Math.round((sLon - lonMin) / lonRange * (cols - 1));
+
+        // Bounds check
+        if (ri < 0 || ri >= rows || ci < 0 || ci >= cols) continue;
+
+        if (elevation[ri * cols + ci] > 0) {
+            return true;  // 🔴 Crosses land!
+        }
+    }
+    return false;
+}
+
+/**
+ * Densify a centerline by adding intermediate waypoints along long segments.
+ *
+ * Coastal legs (near departure/arrival) use ~0.1 NM (~185m) spacing
+ * so the A* mesh can navigate winding rivers and tight passages.
+ * Ocean legs use ~3 NM spacing (enough for corridor weather optimization).
+ *
+ * @param maxStepCoastalNM - Maximum spacing for coastal departures (~0.1 NM)
+ * @param maxStepOceanNM   - Maximum spacing for ocean legs (~3 NM)
+ * @param coastalRadiusNM  - Distance from origin/destination treated as coastal
+ */
+function densifyCenterline(
+    centerline: CenterlineWaypoint[],
+    originLat: number,
+    originLon: number,
+    destLat: number,
+    destLon: number,
+    maxStepCoastalNM: number = 0.15,
+    maxStepOceanNM: number = 3.0,
+    coastalRadiusNM: number = 15.0,
+): CenterlineWaypoint[] {
+    if (centerline.length < 2) return centerline;
+
+    const dense: CenterlineWaypoint[] = [centerline[0]];
+
+    for (let i = 1; i < centerline.length; i++) {
+        const prev = centerline[i - 1];
+        const cur = centerline[i];
+        const segDist = haversineNM(prev.lat, prev.lon, cur.lat, cur.lon);
+
+        // Determine if this segment is coastal or ocean
+        const distFromOrigin = haversineNM(prev.lat, prev.lon, originLat, originLon);
+        const distToDest = haversineNM(cur.lat, cur.lon, destLat, destLon);
+        const isCoastal = distFromOrigin < coastalRadiusNM || distToDest < coastalRadiusNM;
+        const maxStep = isCoastal ? maxStepCoastalNM : maxStepOceanNM;
+
+        if (segDist > maxStep) {
+            // Subdivide this segment
+            const steps = Math.ceil(segDist / maxStep);
+            for (let s = 1; s < steps; s++) {
+                const t = s / steps;
+                dense.push({
+                    lat: prev.lat + (cur.lat - prev.lat) * t,
+                    lon: prev.lon + (cur.lon - prev.lon) * t,
+                    name: `auto-${i}-${s}`,
+                });
+            }
+        }
+        dense.push(cur);
+    }
+
+    if (dense.length !== centerline.length) {
+        console.log(`[WeatherRouter] Densified centerline: ${centerline.length} → ${dense.length} waypoints`);
+    }
+    return dense;
 }
 
 /** Average two bearings, handling wrap-around */
@@ -1462,6 +1812,20 @@ function corridorAStar(
                 current.gTime,
             );
 
+            // ── LAND DETECTION: GEBCO elevation-based landmask ──
+            // 1. Node check: is the destination node above sea level?
+            if (toNode.isLand) {
+                continue; // 🔴 Node is on land
+            }
+
+            // 2. Edge check: does the straight line between from→to cross land?
+            //    Only check long edges (>1 NM) where teleportation is the risk.
+            //    Short edges between nearby bathymetric waypoints can trust
+            //    node-level checks — close water nodes likely have water between them.
+            if (distNM > 1.0 && segmentCrossesLand(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon)) {
+                continue; // 🔴 Edge crosses land
+            }
+
             // Estimate speed through this weather
             const speed = estimateSpeed(vessel, weather, courseBrg);
 
@@ -1646,14 +2010,15 @@ Deno.serve(async (req: Request) => {
             buildCoastalCorridor(departureWp.lat, departureWp.lon, 'departure')
                 .catch(err => {
                     console.warn(`[WeatherRouter] Departure corridor failed:`, err);
-                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: departureWp.lat, lon: departureWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[] };
+                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: departureWp.lat, lon: departureWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[], marks: [] as NavMark[] };
                 }),
             buildCoastalCorridor(arrivalWp.lat, arrivalWp.lon, 'arrival')
                 .catch(err => {
                     console.warn(`[WeatherRouter] Arrival corridor failed:`, err);
-                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: arrivalWp.lat, lon: arrivalWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[] };
+                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: arrivalWp.lat, lon: arrivalWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[], marks: [] as NavMark[] };
                 }),
         ]);
+        console.log(`[WeatherRouter] ⏱ Step 0 (Overpass): ${Date.now() - t0}ms`);
 
         // ══════════════════════════════════════════════════════════════
         // STEP 1: Stitch 3-Leg Centerline
@@ -1678,9 +2043,40 @@ Deno.serve(async (req: Request) => {
 
         // ══════════════════════════════════════════════════════════════
         // STEP 2: Generate Corridor Mesh (using stitched centerline)
+        //
+        // For coastal legs (departure/arrival), use a tight corridor
+        // (0.5 NM) so nodes stay within the navigable channel.
+        // For ocean legs, use the full corridor width (30 NM).
         // ══════════════════════════════════════════════════════════════
 
-        const meshNodes = generateCorridorMesh(routeCenterline, corridorWidth, lateralSteps);
+        // Determine per-waypoint corridor widths based on leg boundaries
+        const coastalCorridorNM = 0.5; // ~900m — tight enough for marked channels
+        const perWpCorridorWidth: number[] = routeCenterline.map((_, i) => {
+            if (stitched.departureCorridor && i < stitched.legBoundaries.departureEndIdx) {
+                return coastalCorridorNM;
+            }
+            if (stitched.arrivalCorridor && i >= stitched.legBoundaries.arrivalStartIdx) {
+                return coastalCorridorNM;
+            }
+            return corridorWidth;
+        });
+
+        // Generate mesh with per-row corridor widths
+        const meshNodes = generateCorridorMeshVariable(routeCenterline, perWpCorridorWidth, lateralSteps);
+
+        // ══════════════════════════════════════════════════════════════
+        // STEP 2b: Apply GEBCO Land Mask
+        //
+        // Check each mesh node against GEBCO elevation data.
+        // Nodes above sea level are marked isLand = true and will be
+        // skipped by A*. This prevents routing over land masses.
+        // ══════════════════════════════════════════════════════════════
+
+        const landNodeCount = await applyLandMask(meshNodes);
+        console.log(`[WeatherRouter] ⏱ Step 2b (GEBCO): ${Date.now() - t0}ms — ${landNodeCount} land nodes`);
+        if (landNodeCount > 0) {
+            console.log(`[WeatherRouter] Land mask applied: ${landNodeCount} impassable nodes`);
+        }
 
         // ══════════════════════════════════════════════════════════════
         // STEP 3: Build Adjacency Graph
@@ -1699,6 +2095,7 @@ Deno.serve(async (req: Request) => {
         const maxHours = Math.min(240, Math.ceil(totalDistNM / vessel.cruising_speed_kts * 1.5));
 
         const weatherGrid = await fetchWeatherGrid(meshNodes, departureDate, maxHours);
+        console.log(`[WeatherRouter] ⏱ Step 4 (Weather): ${Date.now() - t0}ms`);
 
         // ══════════════════════════════════════════════════════════════
         // STEP 5: Run 4D A* with Pilotage Constraints
@@ -1839,11 +2236,27 @@ Deno.serve(async (req: Request) => {
                     gates: stitched.departureCorridor.gates.length,
                     handshake: stitched.departureCorridor.handshakePoint,
                     polygon_vertices: stitched.departureCorridor.polygon.length,
+                    seamarks: departureCorridor.marks
+                        .filter(m => m.category === 'port' || m.category === 'starboard')
+                        .map(m => ({
+                            type: 'Feature' as const,
+                            geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
+                            properties: { name: m.name, category: m.category, type: m.type },
+                        })),
+                    channel_polygon: stitched.departureCorridor.polygon,
                 } : null,
                 arrival: stitched.arrivalCorridor ? {
                     gates: stitched.arrivalCorridor.gates.length,
                     handshake: stitched.arrivalCorridor.handshakePoint,
                     polygon_vertices: stitched.arrivalCorridor.polygon.length,
+                    seamarks: arrivalCorridor.marks
+                        .filter(m => m.category === 'port' || m.category === 'starboard')
+                        .map(m => ({
+                            type: 'Feature' as const,
+                            geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
+                            properties: { name: m.name, category: m.category, type: m.type },
+                        })),
+                    channel_polygon: stitched.arrivalCorridor.polygon,
                 } : null,
             },
         });

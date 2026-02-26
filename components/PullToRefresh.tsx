@@ -44,7 +44,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, childre
         <div
             id="app-scroll-container"
             ref={scrollRef}
-            className={`relative h-full ${disabled ? 'overflow-hidden' : 'overflow-y-auto'}`}
+            className={`relative h-full overflow-y-auto`}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}

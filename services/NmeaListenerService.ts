@@ -27,6 +27,12 @@ interface RawAccumulator {
     sog: number[];
     cog: number[];
     waterTemp: number[];
+    // GPS position — use last value, not averaged
+    latitude: number | null;
+    longitude: number | null;
+    hdop: number | null;
+    satellites: number | null;
+    gpsFixQuality: number | null;
 }
 
 class NmeaListenerServiceClass {
@@ -147,7 +153,8 @@ class NmeaListenerServiceClass {
             case 'XDR': this.parseXDR(parts); break;  // Transducers (voltage)
             case 'DBT': this.parseDBT(parts); break;  // Depth below transducer
             case 'DPT': this.parseDPT(parts); break;  // Depth
-            case 'RMC': this.parseRMC(parts); break;  // GPS fix (SOG/COG)
+            case 'RMC': this.parseRMC(parts); break;  // GPS fix (SOG/COG + position)
+            case 'GGA': this.parseGGA(parts); break;  // GPS fix quality + HDOP + satellites
             case 'MTW': this.parseMTW(parts); break;  // Water temperature
         }
     }
@@ -233,7 +240,7 @@ class NmeaListenerServiceClass {
         if (!isNaN(depth)) this.accumulator.depth.push(depth);
     }
 
-    /** $xxRMC — Recommended Minimum (GPS SOG/COG) */
+    /** $xxRMC — Recommended Minimum (GPS SOG/COG + position) */
     private parseRMC(parts: string[]) {
         // $xxRMC,time,status,lat,N/S,lon,E/W,sog,cog,...
         if (parts[2] !== 'A') return; // A = valid fix
@@ -241,6 +248,37 @@ class NmeaListenerServiceClass {
         const cog = parseFloat(parts[8]);
         if (!isNaN(sog)) this.accumulator.sog.push(sog);
         if (!isNaN(cog)) this.accumulator.cog.push(cog);
+
+        // Extract lat/lon (DDMM.MMMM format → decimal degrees)
+        const lat = nmeaLatLon(parts[3], parts[4]);
+        const lon = nmeaLatLon(parts[5], parts[6]);
+        if (lat !== null && lon !== null) {
+            this.accumulator.latitude = lat;
+            this.accumulator.longitude = lon;
+        }
+    }
+
+    /** $xxGGA — GPS Fix Quality, HDOP, satellite count */
+    private parseGGA(parts: string[]) {
+        // $xxGGA,time,lat,N/S,lon,E/W,quality,numSats,hdop,alt,M,...
+        const quality = parseInt(parts[6], 10);
+        if (isNaN(quality) || quality === 0) return; // 0 = invalid
+
+        this.accumulator.gpsFixQuality = quality;
+
+        const numSats = parseInt(parts[7], 10);
+        if (!isNaN(numSats)) this.accumulator.satellites = numSats;
+
+        const hdop = parseFloat(parts[8]);
+        if (!isNaN(hdop)) this.accumulator.hdop = hdop;
+
+        // Also extract position (may be more accurate than RMC on some receivers)
+        const lat = nmeaLatLon(parts[2], parts[3]);
+        const lon = nmeaLatLon(parts[4], parts[5]);
+        if (lat !== null && lon !== null) {
+            this.accumulator.latitude = lat;
+            this.accumulator.longitude = lon;
+        }
     }
 
     /** $xxMTW — Water Temperature */
@@ -275,25 +313,50 @@ class NmeaListenerServiceClass {
             sog: avg(this.accumulator.sog),
             cog: avg(this.accumulator.cog),
             waterTemp: avg(this.accumulator.waterTemp),
+            // GPS — use last values (not averaged)
+            latitude: this.accumulator.latitude,
+            longitude: this.accumulator.longitude,
+            hdop: this.accumulator.hdop,
+            satellites: this.accumulator.satellites,
+            gpsFixQuality: this.accumulator.gpsFixQuality,
         };
 
         // Reset accumulator
         this.accumulator = this.freshAccumulator();
 
-        // Only emit if we have core data
-        if (sample.tws !== null && sample.twa !== null && sample.stw !== null) {
+        // Emit if we have EITHER core instrument data OR GPS position data
+        const hasInstruments = sample.tws !== null && sample.twa !== null && sample.stw !== null;
+        const hasGps = sample.latitude !== null && sample.longitude !== null;
+        if (hasInstruments || hasGps) {
             for (const cb of this.listeners) cb(sample);
         }
     }
 
     private freshAccumulator(): RawAccumulator {
-        return { tws: [], twa: [], stw: [], heading: [], rpm: [], voltage: [], depth: [], sog: [], cog: [], waterTemp: [] };
+        return {
+            tws: [], twa: [], stw: [], heading: [], rpm: [], voltage: [],
+            depth: [], sog: [], cog: [], waterTemp: [],
+            latitude: null, longitude: null, hdop: null, satellites: null, gpsFixQuality: null,
+        };
     }
 }
 
 function avg(arr: number[]): number | null {
     if (arr.length === 0) return null;
     return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+/** Convert NMEA DDMM.MMMM + N/S/E/W to decimal degrees */
+function nmeaLatLon(value: string, hemisphere: string): number | null {
+    if (!value || !hemisphere) return null;
+    const v = parseFloat(value);
+    if (isNaN(v)) return null;
+    // NMEA format: DDMM.MMMM (lat) or DDDMM.MMMM (lon)
+    const deg = Math.floor(v / 100);
+    const min = v - deg * 100;
+    let result = deg + min / 60;
+    if (hemisphere === 'S' || hemisphere === 'W') result = -result;
+    return result;
 }
 
 export const NmeaListenerService = new NmeaListenerServiceClass();

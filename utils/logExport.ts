@@ -55,15 +55,21 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
         const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
         if (!mapboxToken) return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(2)}°${lon < 0 ? 'W' : 'E'}`;
 
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,region&limit=1&access_token=${mapboxToken}`;
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=neighborhood,locality,place,region&limit=5&access_token=${mapboxToken}`;
         const response = await fetch(url);
 
         if (!response.ok) throw new Error('Geocoding failed');
 
         const data = await response.json();
         if (data.features && data.features.length > 0) {
-            const feature = data.features[0];
-            // Return short name (e.g., "Brisbane" or "Noumea")
+            // Prefer most specific: neighborhood > locality > place > region
+            const priority = ['neighborhood', 'locality', 'place', 'region'];
+            const sorted = [...data.features].sort((a: any, b: any) => {
+                const ai = priority.indexOf(a.place_type?.[0]);
+                const bi = priority.indexOf(b.place_type?.[0]);
+                return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+            });
+            const feature = sorted[0];
             return feature.text || feature.place_name?.split(',')[0] || `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}`;
         }
     } catch (err) {

@@ -26,6 +26,7 @@ import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
+import { NmeaGpsProvider } from './NmeaGpsProvider';
 
 const log = createLogger('AnchorWatch');
 
@@ -238,17 +239,31 @@ class AnchorWatchServiceClass {
         this.notify();
 
         try {
-            // Ensure BackgroundGeolocation is ready (shared manager)
-            await BgGeoManager.ensureReady();
+            // Prefer NMEA/external GPS if available (more accurate)
+            const nmeaPos = NmeaGpsProvider.getPosition();
+            let anchorLat: number;
+            let anchorLon: number;
+            let anchorTs: number;
 
-            // Get current position via BgGeoManager (fresh, not cached — high accuracy for anchor set)
-            const pos = await BgGeoManager.getFreshPosition(5_000, 15);
-            if (!pos) throw new Error('Could not acquire GPS position for anchor');
+            if (nmeaPos) {
+                log.info('setAnchor: using NMEA GPS position');
+                anchorLat = nmeaPos.latitude;
+                anchorLon = nmeaPos.longitude;
+                anchorTs = nmeaPos.timestamp;
+            } else {
+                // Fall back to phone GPS
+                await BgGeoManager.ensureReady();
+                const pos = await BgGeoManager.getFreshPosition(5_000, 15);
+                if (!pos) throw new Error('Could not acquire GPS position for anchor');
+                anchorLat = pos.latitude;
+                anchorLon = pos.longitude;
+                anchorTs = pos.timestamp;
+            }
 
             this.anchorPosition = {
-                latitude: pos.latitude,
-                longitude: pos.longitude,
-                timestamp: pos.timestamp,
+                latitude: anchorLat,
+                longitude: anchorLon,
+                timestamp: anchorTs,
             };
 
             this.swingRadius = calculateSwingRadius(this.config);
@@ -361,6 +376,20 @@ class AnchorWatchServiceClass {
 
     /** Get the current GPS position once (for UI display before anchoring) */
     async getCurrentPosition(): Promise<VesselPosition | null> {
+        // Prefer NMEA/external GPS if available
+        const nmeaPos = NmeaGpsProvider.getPosition();
+        if (nmeaPos) {
+            return {
+                latitude: nmeaPos.latitude,
+                longitude: nmeaPos.longitude,
+                accuracy: nmeaPos.accuracy,
+                heading: nmeaPos.heading,
+                speed: nmeaPos.speed,
+                timestamp: nmeaPos.timestamp,
+            };
+        }
+
+        // Fall back to phone GPS
         try {
             await BgGeoManager.ensureReady();
             const pos = await BgGeoManager.getFreshPosition(10_000, 10);
@@ -374,7 +403,6 @@ class AnchorWatchServiceClass {
                 timestamp: pos.timestamp,
             };
         } catch {
-            /* GPS timeout or hardware failure — return null to indicate no fix */
             return null;
         }
     }
@@ -472,7 +500,7 @@ class AnchorWatchServiceClass {
             // Remove any leftover subscriptions
             this.cleanupSubscriptions();
 
-            // Subscribe to location updates via shared manager
+            // Subscribe to location updates via shared manager (phone GPS)
             const unsubLoc = BgGeoManager.subscribeLocation((pos) => {
                 this.handleGpsUpdate({
                     latitude: pos.latitude,
@@ -485,10 +513,22 @@ class AnchorWatchServiceClass {
             });
             this.bgUnsubscribers.push(unsubLoc);
 
+            // Also subscribe to NMEA GPS (preferred when active)
+            const unsubNmea = NmeaGpsProvider.onPosition((nmeaPos) => {
+                this.handleGpsUpdate({
+                    latitude: nmeaPos.latitude,
+                    longitude: nmeaPos.longitude,
+                    accuracy: nmeaPos.accuracy,
+                    heading: nmeaPos.heading,
+                    speed: nmeaPos.speed,
+                    timestamp: nmeaPos.timestamp,
+                });
+            });
+            this.bgUnsubscribers.push(unsubNmea);
+
             // Subscribe to geofence events via shared manager
             const unsubGeo = BgGeoManager.subscribeGeofence((event) => {
                 if (event.identifier === GEOFENCE_ID && event.action === 'EXIT') {
-                    // Vessel has exited the swing circle! Trigger alarm.
                     this.triggerAlarm();
                 }
             });

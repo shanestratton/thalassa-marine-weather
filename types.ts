@@ -153,6 +153,12 @@ export interface NmeaSample {
     sog: number | null;     // Speed Over Ground (kts)
     cog: number | null;     // Course Over Ground (degrees)
     waterTemp: number | null; // Water temperature (°C)
+    // GPS position (from $GPRMC / $GPGGA)
+    latitude: number | null;   // Decimal degrees (+N, -S)
+    longitude: number | null;  // Decimal degrees (+E, -W)
+    hdop: number | null;       // Horizontal dilution of precision (lower = better)
+    satellites: number | null;  // Number of satellites in use
+    gpsFixQuality: number | null; // 0=invalid, 1=GPS, 2=DGPS, 4=RTK, 5=Float RTK
 }
 
 /** Single bucket in the Smart Polar grid */
@@ -228,6 +234,7 @@ export interface InventoryItem {
     min_quantity: number;    // Alert threshold
     location_zone: string | null;     // "Saloon Port", "Engine Room"
     location_specific: string | null; // "Under the settee, green box"
+    expiry_date: string | null;       // ISO date — for flares, lifejackets, PLBs, EPIRBs, etc.
     created_at: string;      // ISO timestamp
     updated_at: string;      // ISO timestamp
 }
@@ -288,7 +295,7 @@ export interface EquipmentItem {
 }
 
 /** Ship's documents categories */
-export type DocumentCategory = 'Registration' | 'Insurance' | 'Crew Visas/IDs' | 'Radio/MMSI' | 'Customs Clearances';
+export type DocumentCategory = 'Registration' | 'Insurance' | 'Crew Visas/IDs' | 'Radio/MMSI' | 'Customs Clearances' | 'User Manuals';
 
 /** Ship's document — legal and clearance paperwork */
 export interface ShipDocument {
@@ -339,6 +346,10 @@ export interface UserSettings {
     cloudSyncSettings?: boolean; // Sync settings (units, vessel, preferences) to Supabase
     cloudSyncVoyages?: boolean; // Sync voyage tracks, waypoints, GPX data to Supabase
     cloudSyncCommunity?: boolean; // Enable community track sharing via Supabase
+    // Factory Polar Data (persisted locally)
+    polarData?: PolarData; // Active factory polar performance curves
+    polarBoatModel?: string; // Selected yacht model name (e.g. "Sun Odyssey 440")
+    polarSource_type?: 'database' | 'file_import' | 'manual'; // How the polar was sourced
 }
 
 export interface WeatherMetrics {

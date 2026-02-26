@@ -1,47 +1,72 @@
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MarineWeatherReport, VoyagePlan, VesselProfile, DeepAnalysisReport, StopDetails, WeatherMetrics, UnitPreferences, VesselDimensionUnits } from "../types";
 import { convertLength, convertSpeed, convertWeight } from "../utils";
 import { fetchStormGlassWeather } from "./weather/api/stormglass";
 
-let aiInstance: GoogleGenerativeAI | null = null;
-const logConfig = (msg: string) => { }; // Logs disabled
-
-const getGeminiKey = (): string => {
-    let key = "";
-    // 1. Try Vite native injection
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-        key = import.meta.env.VITE_GEMINI_API_KEY as string;
-    }
-    // 2. Try process.env shim
-    if (!key) {
-        try {
-            if (typeof process !== 'undefined' && process.env) {
-                key = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
-            }
-        } catch { /* process.env may not exist in browser */ }
-    }
-    return key;
-};
-
-const getAI = () => {
-    if (aiInstance) return aiInstance;
-    const key = getGeminiKey();
-
-    if (!key || key.length < 10 || key.includes("YOUR_")) {
-        return null;
+// ── Supabase Edge Proxy ──────────────────────────────────────
+// All Gemini calls go through the proxy-gemini edge function.
+// The API key lives server-side only (Supabase Secret).
+const getSupabaseUrl = (): string => {
+    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) {
+        return import.meta.env.VITE_SUPABASE_URL as string;
     }
     try {
-        aiInstance = new GoogleGenerativeAI(key);
-        return aiInstance;
-    } catch (e) {
-        return null;
+        if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
+            return process.env.SUPABASE_URL;
+        }
+    } catch { /* browser */ }
+    return '';
+};
+
+const PROXY_URL = `${getSupabaseUrl()}/functions/v1/proxy-gemini`;
+
+interface ProxyResponse {
+    text: string;
+    model: string;
+    usage?: Record<string, unknown>;
+    error?: string;
+}
+
+/**
+ * Call the Gemini API via the Supabase edge proxy.
+ * Replaces all direct @google/generative-ai SDK usage.
+ */
+const callGeminiProxy = async (opts: {
+    prompt: string;
+    systemInstruction?: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    responseMimeType?: string;
+}): Promise<string> => {
+    const url = getSupabaseUrl();
+    if (!url) throw new Error("Supabase URL not configured");
+
+    const res = await fetch(`${url}/functions/v1/proxy-gemini`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            prompt: opts.prompt,
+            systemInstruction: opts.systemInstruction,
+            model: opts.model || 'gemini-2.0-flash',
+            temperature: opts.temperature ?? 0.7,
+            maxTokens: opts.maxTokens ?? 8192,
+            responseMimeType: opts.responseMimeType,
+        }),
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `Proxy error: ${res.status}`);
     }
+
+    const data: ProxyResponse = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data.text || '';
 };
 
 export const isGeminiConfigured = () => {
-    const key = getGeminiKey();
-    return !!(key && key.length > 10 && !key.includes("YOUR_"));
+    return !!getSupabaseUrl();
 };
 
 const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
@@ -95,8 +120,7 @@ export const enrichMarineWeather = async (
     vesselUnits?: VesselDimensionUnits,
     aiPersona: number = 50
 ): Promise<MarineWeatherReport> => {
-    const ai = getAI();
-    if (!ai) return baseData;
+    if (!isGeminiConfigured()) return baseData;
 
     try {
         const isLand = baseData.isLandlocked;
@@ -123,7 +147,6 @@ export const enrichMarineWeather = async (
         const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(':', '') + " HRS";
 
         // Persona Logic
-        let personaPrompt = "";
         let role = "";
         let tone = "";
 
@@ -141,8 +164,9 @@ export const enrichMarineWeather = async (
             tone = "Scream about the 'land-lubbers'. Rant about sea monsters. Mention your hidden gold. Use archaic pirate slang mixed with profanity. You are completely unhinged.";
         }
 
+        let prompt: string;
         if (isLand) {
-            personaPrompt = `${role} The user is currently INLAND (not on a boat).
+            prompt = `${role} The user is currently INLAND (not on a boat).
              Location: ${baseData.locationName} at ${timeStr}.
              Conditions: ${displayWind} ${speedUnit} wind, ${displayTemp}°C.
              TASK: Write a weather summary (max 120 words).
@@ -152,7 +176,7 @@ export const enrichMarineWeather = async (
         } else {
             const vesselNamePart = (vessel?.name && vessel.name !== "Observer") ? `named "${vessel.name}"` : "";
             const vesselDesc = `Sailing a ${lenStr} ${lenUnit} ${vesselType} ${vesselNamePart} `.trim();
-            personaPrompt = `${role}
+            prompt = `${role}
             THE USER IS: ${vesselDesc}.
             LOCATION: ${baseData.locationName}.
             TIME: ${timeStr}.
@@ -166,13 +190,12 @@ export const enrichMarineWeather = async (
             Return JSON { "boatingAdvice": "string" }`;
         }
 
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await withTimeout(model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: personaPrompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        }), 15000, "Advice Timeout");
+        const text = await withTimeout(
+            callGeminiProxy({ prompt, responseMimeType: "application/json" }),
+            15000, "Advice Timeout"
+        );
 
-        const data = cleanAndParseJson<{ boatingAdvice: string }>(result.response.text() || '{}');
+        const data = cleanAndParseJson<{ boatingAdvice: string }>(text || '{}');
         const rawAdvice = data?.boatingAdvice || baseData.boatingAdvice;
         const safeAdvice = isLand ? rawAdvice : applySafetyOverride(rawAdvice, baseData.current);
 
@@ -188,24 +211,21 @@ export const enrichMarineWeather = async (
 };
 
 export const generateMarineAudioBriefing = async (script: string): Promise<ArrayBuffer> => {
-    // Audio not currently supported in JS/Web SDK shim easily, returning empty buffer 
-    // to prevent application crash until server-side solution or stable Web Speech API is ready.
-    // The previous implementation relied on a Preview model that may not be compatible with the standard Web SDK.
+    // Audio not currently supported via proxy — returning empty buffer
     return new ArrayBuffer(0);
 };
 
 export const findNearestCoastalPoint = async (lat: number, lon: number, originalName: string): Promise<{ name: string, lat: number, lon: number }> => {
-    const ai = getAI();
-    if (!ai) return { name: originalName, lat, lon };
+    if (!isGeminiConfigured()) return { name: originalName, lat, lon };
     try {
         const prompt = `Coordinates (${lat}, ${lon}) are INLAND. Find nearest OPEN SEA coordinates. Return JSON { "name": "string", "lat": number, "lon": number }`;
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await withTimeout(model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        }), 8000, "Geo Timeout");
 
-        const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(result.response.text() || '{}');
+        const text = await withTimeout(
+            callGeminiProxy({ prompt, responseMimeType: "application/json" }),
+            8000, "Geo Timeout"
+        );
+
+        const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(text || '{}');
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
     } catch {
@@ -215,8 +235,7 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
 };
 
 export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: VesselDimensionUnits, generalUnits?: UnitPreferences, via?: string, weatherContext?: Record<string, unknown>): Promise<VoyagePlan> => {
-    const ai = getAI();
-    if (!ai) throw new Error("Gemini AI unavailable");
+    if (!isGeminiConfigured()) throw new Error("Gemini AI unavailable");
     try {
         const length = vessel?.length || 30;
         const type = vessel?.type || 'sail';
@@ -271,16 +290,12 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             "timeRange": "string (e.g. '06:00 - 10:00 local' — the optimal window on that day)",
             "reasoning": "string (WHY this specific date/time: reference wind forecast, fronts, tides, swell. Be concrete, e.g. 'SE trade winds ease to 12-15kts after frontal passage on the 26th, with 1.2m SE swell. Ebb tide at 0600 assists departure from the channel.')"
           },
-          "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, seasonal weather patterns, safe harbours en route, and any relevant maritime geography.)"
+          "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, safe harbours en route, and any relevant maritime geography.)"
         }`;
 
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        });
+        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
 
-        let data = cleanAndParseJson<any>(result.response.text() || '{}');
+        let data = cleanAndParseJson<any>(text || '{}');
 
         // Handle generic array response if the model decides to return a list
         if (Array.isArray(data)) {
@@ -302,13 +317,10 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         });
 
         // ── Wind/Wave Sanity Check ──────────────────────────────────────
-        // Beaufort scale correlation: expected wave height ≈ 0.005 × windSpeed² (ft from kts)
-        // If AI returns waves < 40% of expected minimum, correct to a plausible range
         data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
             if (wp.windSpeed != null && wp.waveHeight != null && wp.windSpeed > 0) {
-                const expectedMinWaves = 0.005 * wp.windSpeed * wp.windSpeed; // ft
+                const expectedMinWaves = 0.005 * wp.windSpeed * wp.windSpeed;
                 if (wp.waveHeight < expectedMinWaves * 0.4) {
-                    // Physically implausible — correct to ~70% of expected (conservative open-ocean estimate)
                     wp.waveHeight = Math.round(expectedMinWaves * 0.7 * 10) / 10;
                 }
             }
@@ -361,16 +373,13 @@ const MOCK_VOYAGE_PLAN: VoyagePlan = {
 };
 
 export const fetchStopDetails = async (locationName: string): Promise<StopDetails> => {
-    const ai = getAI();
-    if (!ai) throw new Error("AI unavailable");
+    if (!isGeminiConfigured()) throw new Error("AI unavailable");
     try {
         const prompt = `Marine guide for: "${locationName}". Marina facilities, fuel. TONE: Helpful, informative, professional. JSON output.`;
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        });
-        const data = cleanAndParseJson<StopDetails>(result.response.text() || '{}');
+
+        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+
+        const data = cleanAndParseJson<StopDetails>(text || '{}');
         if (!data) return { name: locationName, overview: "", navigationNotes: "", marinaFacilities: [], fuelAvailable: false, imageKeyword: "ocean" };
         if (!data.marinaFacilities) data.marinaFacilities = [];
         return data;
@@ -380,8 +389,7 @@ export const fetchStopDetails = async (locationName: string): Promise<StopDetail
 };
 
 export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselProfile): Promise<DeepAnalysisReport> => {
-    const ai = getAI();
-    if (!ai) throw new Error("AI unavailable");
+    if (!isGeminiConfigured()) throw new Error("AI unavailable");
     try {
 
         let weatherContext: string = "";
@@ -393,8 +401,6 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
 
         if (diffDays >= -1 && diffDays <= 10) {
             try {
-                // Fetch basic weather for Origin and Destination to ground the AI
-                // We use parallel fetches for speed
                 const pOrigin = plan.originCoordinates ? fetchStormGlassWeather(plan.originCoordinates.lat, plan.originCoordinates.lon, "Origin") : Promise.resolve(null);
                 const pDest = plan.destinationCoordinates ? fetchStormGlassWeather(plan.destinationCoordinates.lat, plan.destinationCoordinates.lon, "Destination") : Promise.resolve(null);
 
@@ -407,7 +413,6 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
                     weatherStr += `ORIGIN (${plan.origin}) CONDITIONS ON DEPARTURE: Wind ${d.windSpeed}kts ${d.condition}, Gust ${d.windGust}kts, Wave ${d.waveHeight}ft.\n`;
                 }
                 if (wDest) {
-                    // Simple approximation: destination forecast for 3 days out (index 2) or end of array
                     const idx = Math.min(2, (wDest.forecast.length || 1) - 1);
                     const d = wDest.forecast[idx];
                     weatherStr += `DESTINATION (${plan.destination}) ARRIVAL FORECAST: Wind ${d.windSpeed}kts ${d.condition}, Wave ${d.waveHeight}ft.\n`;
@@ -450,16 +455,10 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
           "watchSchedule": "Recommended watch schedule tailored to crew fatigue and route intensity."
         }`;
 
+        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
 
+        const data = cleanAndParseJson<DeepAnalysisReport>(text || '{}');
 
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        });
-        const data = cleanAndParseJson<DeepAnalysisReport>(result.response.text() || '{}');
-
-        // Fix: Ensure data is not just an empty object
         if (!data || !data.strategy) {
             return {
                 strategy: "Standard coastal watch.",
@@ -483,16 +482,13 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
 };
 
 export const suggestLocationCorrection = async (input: string): Promise<string | null> => {
-    const ai = getAI();
-    if (!ai) return null;
+    if (!isGeminiConfigured()) return null;
     try {
         const prompt = `The user searched for: "${input}".Identify the intended port or marine location.Return strictly JSON: { "corrected": "string" }.`;
-        const model = ai.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" }
-        });
-        const res = cleanAndParseJson<{ corrected: string }>(result.response.text() || '{}');
+
+        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+
+        const res = cleanAndParseJson<{ corrected: string }>(text || '{}');
         return res?.corrected || null;
     } catch (e) {
         return null;

@@ -50,6 +50,10 @@ export interface ChannelGateInfo {
     gates: number;
     handshake: { lat: number; lon: number };
     polygon_vertices: number;
+    /** GeoJSON Features for port/starboard navigational marks */
+    seamarks?: GeoJSON.Feature[];
+    /** Channel polygon ring as [lon, lat][] pairs */
+    channel_polygon?: [number, number][];
 }
 
 /** Pilotage metadata from route-weather */

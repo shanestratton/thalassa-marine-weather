@@ -142,21 +142,21 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             // ── Enhancement Pipeline (non-blocking, sequential) ──
             // Step 1: Bathymetric routing — depth-safe waypoints
             let enhancedPlan = result;
+            console.log(`[VoyageForm] Gemini result: ${result.waypoints?.length} WPs, origin=${JSON.stringify(result.originCoordinates)}, dest=${JSON.stringify(result.destinationCoordinates)}`);
             try {
                 const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
                 enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
+                console.log(`[VoyageForm] After bathymetric: ${enhancedPlan.waypoints?.length} WPs, distance=${enhancedPlan.distanceApprox}`);
             } catch (bathyErr) {
                 console.warn('[VoyageForm] Bathymetric enhancement unavailable:', bathyErr);
             }
 
             // Step 2: Weather routing — corridor optimization with time-dependent weather
-            // Only run on passages > 20 NM (short trips don't benefit from weather routing)
-            const distMatch = (enhancedPlan.distanceApprox || '').match(/(\d+)/);
-            const distNM = distMatch ? parseInt(distMatch[0], 10) : 0;
-            if (distNM > 20 && enhancedPlan.waypoints?.length >= 2) {
+            {
                 try {
                     const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                     enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
+                    console.log(`[VoyageForm] After weather: ${enhancedPlan.waypoints?.length} WPs`);
                 } catch (wxErr) {
                     console.warn('[VoyageForm] Weather routing unavailable:', wxErr);
                 }
