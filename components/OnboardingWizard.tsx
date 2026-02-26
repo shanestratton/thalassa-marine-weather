@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel } from '../types';
+import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel, PolarData } from '../types';
 import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon, AnchorIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
+import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
+import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
 interface OnboardingWizardProps {
     onComplete: (settings: Partial<UserSettings>) => void;
@@ -54,6 +56,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [water, setWater] = useState<string>('');
     const [volUnit, setVolUnit] = useState<VolumeUnit>(defaults.volume || 'gal');
     const [crewCount, setCrewCount] = useState<string>('2');
+
+    // Yacht database selection (polar data stored for handleFinish)
+    const [selectedPolar, setSelectedPolar] = useState<{ data: PolarData; model: string } | null>(null);
+
+    const handleYachtSelect = (entry: PolarDatabaseEntry) => {
+        setSelectedPolar({ data: entry.polar, model: entry.model });
+        if (!name) setName(entry.model);
+        if (!length) setLength(String(entry.loa));
+        if (!beam) setBeam(String(Math.round(entry.loa * 0.32)));
+        if (!draft) setDraft(String(Math.round(entry.loa * 0.16)));
+    };
 
     const handleNext = () => {
         if (step === 2 && !homePort.trim()) return; // Require location
@@ -244,7 +257,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             units: { speed: prefSpeed, temp: prefTemp, distance: prefDist, length: prefLength, tideHeight: prefLength, waveHeight: prefWaveHeight, visibility: 'nm', volume: 'gal' },
             vesselUnits: { length: lengthUnit, beam: beamUnit, draft: draftUnit, displacement: dispUnit, volume: volUnit },
             preferredModel: preferredModel,
-            savedLocations: [homePort]
+            savedLocations: [homePort],
+            // Include polar data if a yacht was selected
+            ...(selectedPolar ? {
+                polarData: selectedPolar.data,
+                polarBoatModel: selectedPolar.model,
+                polarSource_type: 'database' as const,
+            } : {}),
         };
 
         localStorage.setItem('thalassa_v3_onboarded', 'true');
@@ -449,7 +468,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                         ) : (
                             <>
                                 <h2 className="text-2xl font-bold text-white mb-2 text-center">Tell us about your boat</h2>
-                                <p className="text-sm text-gray-400 text-center mb-8">Leave blank to auto-estimate based on typical ratios.</p>
+                                <p className="text-sm text-gray-400 text-center mb-6">Search our database or enter details manually.</p>
+
+                                {/* Yacht Database Search */}
+                                <div className="mb-6">
+                                    <YachtDatabaseSearch
+                                        selectedModel={selectedPolar?.model}
+                                        onSelect={handleYachtSelect}
+                                        compact
+                                    />
+                                </div>
 
                                 <div className="space-y-6">
                                     <div>

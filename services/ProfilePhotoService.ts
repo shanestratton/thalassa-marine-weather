@@ -12,7 +12,6 @@
  */
 
 import { supabase } from './supabase';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- CONFIG ---
 const BUCKET_NAME = 'chat-avatars';
@@ -20,36 +19,6 @@ const MAX_SIZE_PX = 512;
 const JPEG_QUALITY = 0.8;
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB after compression
 const PROFILES_TABLE = 'chat_profiles';
-
-// --- AI SETUP ---
-let aiInstance: GoogleGenerativeAI | null = null;
-
-const getGeminiKey = (): string => {
-    let key = '';
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
-        key = import.meta.env.VITE_GEMINI_API_KEY as string;
-    }
-    if (!key) {
-        try {
-            if (typeof process !== 'undefined' && process.env) {
-                key = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
-            }
-        } catch { /* browser env */ }
-    }
-    return key;
-};
-
-const getAI = (): GoogleGenerativeAI | null => {
-    if (aiInstance) return aiInstance;
-    const key = getGeminiKey();
-    if (!key || key.length < 10 || key.includes('YOUR_')) return null;
-    try {
-        aiInstance = new GoogleGenerativeAI(key);
-        return aiInstance;
-    } catch {
-        return null;
-    }
-};
 
 // --- TYPES ---
 
@@ -170,67 +139,14 @@ Beer guts are FINE. Fish trophies are FINE. Sunburns are FINE.
 Return JSON only: { "verdict": "approved" | "rejected", "reason": "brief explanation" }`;
 
 /**
- * Run a profile photo through Gemini Vision moderation.
- * Returns approved/rejected/review verdict.
+ * Run a profile photo through moderation.
+ * Currently always approves (fail-open) as the text-only proxy
+ * doesn't support image input. A dedicated image moderation
+ * edge function can be added later if needed.
  */
-export const moderatePhoto = async (imageBlob: Blob): Promise<PhotoModerationResult> => {
-    const ai = getAI();
-    if (!ai) {
-        // No AI → approve by default (fail open)
-        return { verdict: 'approved', reason: 'AI moderation unavailable' };
-    }
-
-    try {
-        // Convert blob to base64
-        const buffer = await imageBlob.arrayBuffer();
-        const base64 = btoa(
-            new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-        );
-
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        const result = await Promise.race([
-            model.generateContent({
-                contents: [{
-                    role: 'user',
-                    parts: [
-                        { text: PHOTO_MODERATION_PROMPT },
-                        { inlineData: { mimeType: 'image/jpeg', data: base64 } },
-                    ],
-                }],
-                generationConfig: { responseMimeType: 'application/json' },
-            }),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Photo moderation timeout')), 10000)
-            ),
-        ]);
-
-        const responseText = result.response.text();
-        let parsed: { verdict?: string; reason?: string } | null = null;
-
-        try {
-            let clean = responseText.replace(/```json/g, '').replace(/```/g, '');
-            const firstBrace = clean.indexOf('{');
-            const lastBrace = clean.lastIndexOf('}');
-            if (firstBrace !== -1 && lastBrace !== -1) {
-                clean = clean.substring(firstBrace, lastBrace + 1);
-            }
-            parsed = JSON.parse(clean);
-        } catch {
-            parsed = null;
-        }
-
-        if (!parsed || !parsed.verdict) {
-            return { verdict: 'approved', reason: 'Failed to parse moderation response' };
-        }
-
-        return {
-            verdict: parsed.verdict === 'rejected' ? 'rejected' : 'approved',
-            reason: parsed.reason || '',
-        };
-    } catch {
-        // Timeout or error → approve (fail open)
-        return { verdict: 'approved', reason: 'Moderation error — approved by default' };
-    }
+export const moderatePhoto = async (_imageBlob: Blob): Promise<PhotoModerationResult> => {
+    // TODO: Implement image moderation via dedicated edge function
+    return { verdict: 'approved', reason: 'Image moderation pending — approved by default' };
 };
 
 

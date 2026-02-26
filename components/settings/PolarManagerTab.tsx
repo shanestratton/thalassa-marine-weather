@@ -1,42 +1,48 @@
 /**
  * PolarManagerTab — Tabbed interface for polar data input + Smart Polars.
- * Tab A: Database (select from known boats)
- * Tab B: File Import (.pol / .csv)
- * Tab C: Manual Matrix (editable spreadsheet)
+ * Tab A: File Import (.pol / .csv)
+ * Tab B: Manual Matrix (editable spreadsheet)
  *
  * Also includes:
  * - Factory vs Smart Polars toggle
  * - NMEA connection status
  * - Smart Polars stats & filter gate status
  * - PolarChart with overlay
+ *
+ * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { PolarData } from '../../types';
 import { PolarChart } from './PolarChart';
-import { POLAR_DATABASE, searchPolarDatabase, type PolarDatabaseEntry } from '../../data/polarDatabase';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
-import { supabase } from '../../services/supabase';
 import { NmeaListenerService, type NmeaConnectionStatus } from '../../services/NmeaListenerService';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 
-type InputTab = 'database' | 'import' | 'manual';
+type InputTab = 'import' | 'manual';
 
 interface PolarManagerTabProps {
-    settings?: { polarSource?: 'factory' | 'smart'; nmeaHost?: string; nmeaPort?: number; smartPolarsEnabled?: boolean };
+    settings?: {
+        polarSource?: 'factory' | 'smart';
+        nmeaHost?: string;
+        nmeaPort?: number;
+        smartPolarsEnabled?: boolean;
+        polarData?: PolarData;
+        polarBoatModel?: string;
+        polarSource_type?: 'database' | 'file_import' | 'manual';
+    };
     onSave?: (patch: Record<string, unknown>) => void;
     onNavigateToNmea?: () => void;
 }
 
 export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSave, onNavigateToNmea }) => {
-    const [activeTab, setActiveTab] = useState<InputTab>('database');
-    const [polarData, setPolarData] = useState<PolarData>(createEmptyPolar());
-    const [boatModel, setBoatModel] = useState('');
-    const [source, setSource] = useState<'database' | 'file_import' | 'manual'>('manual');
+    const [activeTab, setActiveTab] = useState<InputTab>('import');
+    const [polarData, setPolarData] = useState<PolarData>(settings?.polarData || createEmptyPolar());
+    const [boatModel, setBoatModel] = useState(settings?.polarBoatModel || '');
+    const [source, setSource] = useState<'database' | 'file_import' | 'manual'>(settings?.polarSource_type || 'manual');
     const [saving, setSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState<string | null>(null);
-    const [saveError, setSaveError] = useState<string | null>(null);
-    const [loadingExisting, setLoadingExisting] = useState(true);
+    const [lastSaved, setLastSaved] = useState<string | null>(settings?.polarData ? 'Loaded from device' : null);
+    const [showAdvancedInput, setShowAdvancedInput] = useState(false);
 
     // Smart Polars state
     const [smartPolarData, setSmartPolarData] = useState<PolarData | null>(null);
@@ -46,9 +52,8 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const [polarSource, setPolarSource] = useState<'factory' | 'smart'>(settings?.polarSource || 'factory');
     const [smartEnabled, setSmartEnabled] = useState(settings?.smartPolarsEnabled || false);
 
-    // Load existing polar data from Supabase on mount
+    // Load smart polar data on mount
     useEffect(() => {
-        loadExistingPolar();
         loadSmartPolarData();
     }, []);
 
@@ -71,71 +76,19 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
         setSmartStats(SmartPolarStore.getStats());
     };
 
-    const loadExistingPolar = async () => {
-        if (!supabase) { setLoadingExisting(false); return; }
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) { setLoadingExisting(false); return; }
-
-            const { data, error } = await supabase
-                .from('vessel_polars')
-                .select('*')
-                .eq('user_id', user.id)
-                .single();
-
-            if (data && !error) {
-                setPolarData(data.polar_data as PolarData);
-                setBoatModel(data.boat_model || '');
-                setSource(data.source || 'manual');
-                setLastSaved('Loaded from cloud');
-            }
-        } catch { /* No existing data */ }
-        setLoadingExisting(false);
-    };
-
-    // Auto-save factory polar to Supabase (debounced)
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const savePolar = useCallback(async (data: PolarData, model: string, src: string) => {
-        if (!supabase) {
-            console.warn('[Polars] No Supabase client — cannot save');
-            return;
-        }
+    // Save polar data to settings (persisted locally via Capacitor Preferences)
+    const savePolar = useCallback((data: PolarData, model: string, src: string) => {
         setSaving(true);
-        setSaveError(null);
-        try {
-            const { data: authData, error: authError } = await supabase.auth.getUser();
-            if (authError || !authData?.user) {
-                console.warn('[Polars] Not authenticated:', authError?.message);
-                setSaveError('Not signed in');
-                setSaving(false);
-                return;
-            }
-
-            const { error } = await supabase
-                .from('vessel_polars')
-                .upsert({
-                    user_id: authData.user.id,
-                    boat_model: model,
-                    source: src,
-                    polar_data: data,
-                    updated_at: new Date().toISOString(),
-                }, { onConflict: 'user_id' });
-
-            if (error) {
-                console.error('[Polars] Save failed:', error.message, error.details, error.hint);
-                setSaveError(error.message);
-            } else {
-                console.log('[Polars] ✓ Saved:', model, src);
-                setLastSaved(new Date().toLocaleTimeString());
-            }
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Unknown error';
-            console.error('[Polars] Save exception:', msg);
-            setSaveError(msg);
-        }
+        onSave?.({
+            polarData: data,
+            polarBoatModel: model,
+            polarSource_type: src as 'database' | 'file_import' | 'manual',
+        });
+        setLastSaved(new Date().toLocaleTimeString());
         setSaving(false);
-    }, []);
+    }, [onSave]);
+
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const updatePolar = useCallback((newData: PolarData, model?: string, src?: string) => {
         setPolarData(newData);
@@ -174,44 +127,51 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
         setSmartStats(SmartPolarStore.getStats());
     };
 
-    if (loadingExisting) {
-        return (
-            <div className="w-full max-w-2xl mx-auto animate-in fade-in duration-300">
-                <div className="flex items-center justify-center py-20">
-                    <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                    <span className="ml-3 text-sm text-gray-400">Loading polar data…</span>
-                </div>
-            </div>
-        );
-    }
-
     return (
-        <div className="w-full max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-
+        <div className="w-full max-w-2xl mx-auto flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-300">
 
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
             {/* ═══════════════════════════════════════════ */}
-            <SmartPolarsCard
-                smartEnabled={smartEnabled}
-                polarSource={polarSource}
-                nmeaStatus={nmeaStatus}
-                filterStatus={filterStatus}
-                smartStats={smartStats}
-                hasRpmData={NmeaListenerService.getHasRpmData()}
-                onToggleSmart={toggleSmartPolars}
-                onToggleSource={togglePolarSource}
-                onReset={handleResetSmartData}
-                onNavigateToNmea={onNavigateToNmea}
-            />
+            <div className="shrink-0">
+                <SmartPolarsCard
+                    smartEnabled={smartEnabled}
+                    polarSource={polarSource}
+                    nmeaStatus={nmeaStatus}
+                    filterStatus={filterStatus}
+                    smartStats={smartStats}
+                    hasRpmData={NmeaListenerService.getHasRpmData()}
+                    onToggleSmart={toggleSmartPolars}
+                    onToggleSource={togglePolarSource}
+                    onReset={handleResetSmartData}
+                    onNavigateToNmea={onNavigateToNmea}
+                />
+            </div>
 
             {/* Polar Chart Visualization */}
-            <div className="mt-6 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg">
-                <div className="flex flex-col items-center gap-1 mb-4">
-                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
-                    {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
+            <div className="mt-4 flex-1 min-h-0 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex flex-col items-start gap-1">
+                        <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
+                        {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
+                        {!boatModel && (
+                            <span className="text-xs text-gray-500">No yacht selected — choose one in Settings → Vessel Profile</span>
+                        )}
+                    </div>
+                    {/* 3-dot menu for advanced input */}
+                    <button
+                        onClick={() => setShowAdvancedInput(true)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                        title="Advanced polar input"
+                    >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <circle cx="10" cy="4" r="1.5" />
+                            <circle cx="10" cy="10" r="1.5" />
+                            <circle cx="10" cy="16" r="1.5" />
+                        </svg>
+                    </button>
                 </div>
-                <div className="flex justify-center">
+                <div className="flex-1 min-h-0 flex justify-center items-center">
                     <PolarChart data={polarData} overlayData={smartPolarData} />
                 </div>
 
@@ -226,47 +186,62 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                     {lastSaved && !saving && (
                         <span className="text-[10px] text-emerald-400">✓ Saved {lastSaved}</span>
                     )}
-                    {saveError && !saving && (
-                        <span className="text-[10px] text-red-400">⚠ {saveError}</span>
-                    )}
                 </div>
             </div>
 
             {/* ═══════════════════════════════════════════ */}
-            {/* FACTORY POLAR INPUT */}
+            {/* ADVANCED POLAR INPUT — Overlay Card        */}
             {/* ═══════════════════════════════════════════ */}
-            <div className="mt-6">
-                <div className="flex items-center gap-2 mb-4">
-                    <div className="w-1 h-4 rounded-full bg-sky-500" />
-                    <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Factory Polar Input</span>
-                </div>
+            {showAdvancedInput && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowAdvancedInput(false)}>
+                    <div
+                        className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-white/10 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 backdrop-blur-xl rounded-t-2xl">
+                            <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 rounded-full bg-sky-500" />
+                                <span className="text-sm font-bold text-white uppercase tracking-wider">Advanced Polar Input</span>
+                            </div>
+                            <button
+                                onClick={() => setShowAdvancedInput(false)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
 
-                {/* Tab Switcher */}
-                <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
-                    {(['database', 'import', 'manual'] as InputTab[]).map(tab => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${activeTab === tab
-                                ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
-                                : 'text-gray-400 hover:text-white'
-                                }`}
-                        >
-                            {tab === 'database' ? '📚 Database' : tab === 'import' ? '📁 Import' : '✏️ Manual'}
-                        </button>
-                    ))}
-                </div>
+                        {/* Content */}
+                        <div className="p-4">
+                            {/* Tab Switcher */}
+                            <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
+                                {(['import', 'manual'] as InputTab[]).map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${activeTab === tab
+                                            ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/30'
+                                            : 'text-gray-400 hover:text-white'
+                                            }`}
+                                    >
+                                        {tab === 'import' ? '📁 Import' : '✏️ Manual'}
+                                    </button>
+                                ))}
+                            </div>
 
-                {activeTab === 'database' && (
-                    <DatabaseTab polarData={polarData} boatModel={boatModel} onSelect={(entry) => updatePolar(entry.polar, entry.model, 'database')} />
-                )}
-                {activeTab === 'import' && (
-                    <ImportTab onImport={(data, filename) => updatePolar(data, filename, 'file_import')} />
-                )}
-                {activeTab === 'manual' && (
-                    <ManualTab polarData={polarData} onChange={(data) => updatePolar(data, boatModel, 'manual')} />
-                )}
-            </div>
+                            {activeTab === 'import' && (
+                                <ImportTab onImport={(data, filename) => { updatePolar(data, filename, 'file_import'); setShowAdvancedInput(false); }} />
+                            )}
+                            {activeTab === 'manual' && (
+                                <ManualTab polarData={polarData} onChange={(data) => updatePolar(data, boatModel, 'manual')} />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -443,85 +418,8 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
     );
 };
 
-// ═══════════════════════════════════════════
-// TAB A: DATABASE
-// ═══════════════════════════════════════════
 
-const DatabaseTab: React.FC<{
-    polarData: PolarData;
-    boatModel: string;
-    onSelect: (entry: PolarDatabaseEntry) => void;
-}> = ({ boatModel, onSelect }) => {
-    const [search, setSearch] = useState('');
-    const [selectedModel, setSelectedModel] = useState(boatModel);
-    const results = searchPolarDatabase(search);
 
-    const grouped = results.reduce((acc, entry) => {
-        if (!acc[entry.manufacturer]) acc[entry.manufacturer] = [];
-        acc[entry.manufacturer].push(entry);
-        return acc;
-    }, {} as Record<string, PolarDatabaseEntry[]>);
-
-    return (
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-4">
-                <div className="w-1 h-4 rounded-full bg-sky-500" />
-                <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Boat</span>
-            </div>
-
-            <div className="relative mb-4">
-                <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by model or manufacturer…"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-600 outline-none focus:border-sky-500 transition-colors"
-                />
-                <svg className="absolute right-3 top-3.5 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-            </div>
-
-            <div className="max-h-72 overflow-y-auto custom-scrollbar space-y-3">
-                {Object.entries(grouped).map(([mfr, entries]) => (
-                    <div key={mfr}>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
-                        <div className="space-y-1">
-                            {entries.map(entry => (
-                                <button
-                                    key={entry.model}
-                                    onClick={() => { setSelectedModel(entry.model); onSelect(entry); }}
-                                    className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${selectedModel === entry.model
-                                        ? 'bg-sky-500/15 border border-sky-500/30 text-white'
-                                        : 'bg-white/[0.02] border border-transparent text-gray-300 hover:bg-white/[0.05] hover:border-white/10'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-lg">{entry.category === 'racer' ? '🏁' : entry.category === 'multihull' ? '⛵' : '⛵'}</span>
-                                        <div>
-                                            <p className="text-sm font-bold">{entry.model}</p>
-                                            <p className="text-[10px] text-gray-500">{entry.loa}ft • {entry.category}</p>
-                                        </div>
-                                    </div>
-                                    {selectedModel === entry.model && (
-                                        <span className="text-[9px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                ))}
-                {results.length === 0 && (
-                    <p className="text-center text-sm text-gray-500 py-8">No boats match "{search}"</p>
-                )}
-            </div>
-
-            <p className="text-[10px] text-gray-500 mt-3 text-center">
-                {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
-            </p>
-        </div>
-    );
-};
 
 // ═══════════════════════════════════════════
 // TAB B: FILE IMPORT

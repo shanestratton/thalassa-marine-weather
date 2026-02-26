@@ -74,15 +74,15 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                     </div>
                 </div>
 
-                {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                {/* Content — fills viewport, no scroll */}
+                <div className="flex-1 flex flex-col px-4 min-h-0 overflow-hidden" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
 
                     {/* ═══ CONNECTION CARD ═══ */}
-                    <div className={`mb-5 p-5 rounded-2xl border transition-all ${isConnected
+                    <div className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${isConnected
                         ? 'bg-emerald-500/10 border-emerald-500/20'
                         : 'bg-white/[0.03] border-white/[0.06]'
                         }`}>
-                        <div className="flex items-center gap-3 mb-4">
+                        <div className="flex items-center gap-3 mb-3">
                             <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-400' :
                                 isConnecting ? 'bg-amber-400 animate-pulse' :
                                     'bg-gray-500'
@@ -93,7 +93,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         </div>
 
                         {!isConnected && (
-                            <div className="flex gap-2 mb-4">
+                            <div className="flex gap-2 mb-3">
                                 <div className="flex-1">
                                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Host IP</label>
                                     <input
@@ -121,7 +121,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         <button
                             onClick={isConnected ? handleDisconnect : handleConnect}
                             disabled={connecting || isConnecting}
-                            className={`w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50 ${isConnected
+                            className={`w-full py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50 ${isConnected
                                 ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
                                 : 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
                                 }`}
@@ -133,22 +133,22 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
-                    <h3 className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-3">Live Instruments</h3>
-                    <div className="grid grid-cols-2 gap-2">
+                    <h3 className="shrink-0 text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
+                    <div className="flex-1 grid grid-cols-2 gap-2 min-h-0 auto-rows-fr">
                         {instruments.map(inst => (
                             <div
                                 key={inst.label}
-                                className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]"
+                                className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col justify-center min-h-0"
                             >
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-lg">{inst.icon}</span>
-                                    <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">{inst.label}</span>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-base">{inst.icon}</span>
+                                    <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
                                 </div>
                                 <NmeaValue
                                     metric={inst.metric}
                                     unit={inst.unit}
                                     decimals={inst.unit === '°' ? 0 : 1}
-                                    className="text-2xl font-black"
+                                    className="text-xl font-black"
                                 />
                             </div>
                         ))}

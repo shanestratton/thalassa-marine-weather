@@ -2,8 +2,13 @@
  * Bathymetric Routing Service
  *
  * Client-side interface to the route-bathymetric Supabase Edge Function.
- * Fetches depth-safe waypoints that avoid land and shallow water,
+ * Fetches depth-safe waypoints via OSM graph Dijkstra routing,
  * then merges them into the AI-generated VoyagePlan.
+ *
+ * The edge function returns:
+ *   - waypoints: detailed route waypoints with depth/safety
+ *   - geojson: full LineString for backwards-compat rendering
+ *   - trafficGeoJSON: segmented FeatureCollection for traffic light rendering
  */
 
 import { VoyagePlan, Waypoint, VesselProfile } from '../types';
@@ -15,28 +20,40 @@ interface BathymetricRequest {
     destination: { lat: number; lon: number };
     via?: { lat: number; lon: number };
     vessel_draft: number;
+    region?: string;
 }
 
 interface BathymetricWaypoint {
     lat: number;
     lon: number;
     name: string;
-    depth_m?: number;
+    depth_m?: number | null;
+    safety?: 'safe' | 'caution' | 'danger';
 }
 
 interface BathymetricResponse {
     waypoints: BathymetricWaypoint[];
-    distance_nm: number;
-    computation_ms: number;
-    routing_mode: 'stitched' | 'direct';
-    route_reasoning: string;
-    error?: string;
+    totalNM: number;
+    elapsed_ms: number;
+    router: string;
+    region: string;
+    vessel_draft: number;
+    safety?: {
+        safe: number;
+        caution: number;
+        danger: number;
+    };
+    /** Full route as a single GeoJSON LineString */
+    geojson?: GeoJSON.Feature<GeoJSON.LineString>;
+    /** Traffic light segmented FeatureCollection (green/orange/red) */
+    trafficGeoJSON?: GeoJSON.FeatureCollection<GeoJSON.LineString>;
 }
 
 // ── Service ───────────────────────────────────────────────────────
 
 const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
+    || 'https://pcisdplnodrphauixcau.supabase.co';
 
 const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
@@ -52,6 +69,7 @@ export async function fetchBathymetricRoute(
     destination: { lat: number; lon: number },
     vesselDraft: number = 2.5,
     via?: { lat: number; lon: number },
+    region?: string,
 ): Promise<BathymetricResponse | null> {
     const supabaseUrl = getSupabaseUrl();
     const supabaseKey = getSupabaseKey();
@@ -68,6 +86,7 @@ export async function fetchBathymetricRoute(
         vessel_draft: vesselDraft,
     };
     if (via) body.via = via;
+    if (region) body.region = region;
 
     try {
         console.log(`[BathyRouter] Requesting route: ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} → ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)}`);
@@ -79,7 +98,7 @@ export async function fetchBathymetricRoute(
                 ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(30_000), // 30s timeout
+            signal: AbortSignal.timeout(90_000),
         });
 
         if (!resp.ok) {
@@ -89,12 +108,12 @@ export async function fetchBathymetricRoute(
         }
 
         const data: BathymetricResponse = await resp.json();
-        console.log(`[BathyRouter] ✓ ${data.waypoints.length} waypoints, ${data.distance_nm} NM, ${data.computation_ms}ms (${data.routing_mode})`);
+        console.log(`[BathyRouter] ✓ ${data.waypoints.length} waypoints, ${data.totalNM} NM, ${data.elapsed_ms}ms (${data.router})`);
         return data;
 
     } catch (err) {
         if (err instanceof Error && err.name === 'TimeoutError') {
-            console.warn('[BathyRouter] Request timed out (30s) — skipping');
+            console.warn('[BathyRouter] Request timed out (90s) — skipping');
         } else {
             console.error('[BathyRouter] Error:', err);
         }
@@ -103,15 +122,12 @@ export async function fetchBathymetricRoute(
 }
 
 /**
- * Merge bathymetric waypoints into an AI-generated VoyagePlan.
+ * Merge bathymetric route into an AI-generated VoyagePlan.
  *
  * Strategy:
- * - Replace AI-generated waypoint coordinates with bathymetric-safe ones
- * - Preserve AI-generated weather data (wind, waves) by interpolating
- *   to the new positions
- * - Add depth_m field from the bathymetric route
- * - Update distance, route reasoning, and coordinate fields
- * - If bathymetric routing fails, the original AI plan is returned unchanged
+ * - Replace AI waypoint coordinates with the detailed graph route
+ * - Store the full GeoJSON for direct Mapbox rendering
+ * - The trafficGeoJSON provides traffic-light colored segments
  */
 export function mergeBathymetricRoute(
     voyagePlan: VoyagePlan,
@@ -119,13 +135,11 @@ export function mergeBathymetricRoute(
 ): VoyagePlan {
     const merged = { ...voyagePlan };
 
-    // All bathymetric waypoints except departure/arrival (indices 0 and last)
-    const bathyWPs = bathyRoute.waypoints.slice(1, -1);
-
-    // If AI generated waypoints with weather data, try to interpolate
-    const aiWaypoints = voyagePlan.waypoints || [];
-    const newWaypoints: Waypoint[] = bathyWPs.map((bwp, i) => {
+    // ── Store full waypoints from graph routing ──
+    // These include 100s of points following the actual waterway
+    const newWaypoints: Waypoint[] = bathyRoute.waypoints.map((bwp, i) => {
         // Find closest AI waypoint for weather data
+        const aiWaypoints = voyagePlan.waypoints || [];
         let closestAI: Waypoint | undefined;
         let closestDist = Infinity;
 
@@ -145,8 +159,8 @@ export function mergeBathymetricRoute(
         return {
             name: bwp.name || `WP-${String(i + 1).padStart(2, '0')}`,
             coordinates: { lat: bwp.lat, lon: bwp.lon },
-            depth_m: bwp.depth_m,
-            // Inherit weather from nearest AI waypoint (or undefined)
+            depth_m: bwp.depth_m ?? undefined,
+            safety: bwp.safety,
             windSpeed: closestAI?.windSpeed,
             waveHeight: closestAI?.waveHeight,
         };
@@ -154,12 +168,20 @@ export function mergeBathymetricRoute(
 
     merged.waypoints = newWaypoints;
 
-    // Update distance with bathymetric-calculated value
-    merged.distanceApprox = `${bathyRoute.distance_nm} NM`;
+    // ── Store the full GeoJSON from the edge function ──
+    // This is the key fix: the geojson has ALL graph waypoints
+    // so the map renders smooth curves following waterways
+    if (bathyRoute.geojson) {
+        (merged as any).routeGeoJSON = bathyRoute.geojson;
+    }
+    if (bathyRoute.trafficGeoJSON) {
+        (merged as any).trafficGeoJSON = bathyRoute.trafficGeoJSON;
+    }
 
-    // Update route reasoning with bathymetric-derived explanation
-    if (bathyRoute.route_reasoning) {
-        merged.routeReasoning = bathyRoute.route_reasoning;
+    // ── Update metadata ──
+    merged.distanceApprox = `${bathyRoute.totalNM} NM`;
+    if (bathyRoute.safety) {
+        (merged as any).safety = bathyRoute.safety;
     }
 
     return merged;
@@ -173,7 +195,6 @@ export async function enhanceVoyagePlanWithBathymetry(
     voyagePlan: VoyagePlan,
     vessel: VesselProfile,
 ): Promise<VoyagePlan> {
-    // Need both origin and destination coordinates
     if (!voyagePlan.originCoordinates || !voyagePlan.destinationCoordinates) {
         console.warn('[BathyRouter] Missing coordinates — cannot route');
         return voyagePlan;
@@ -185,9 +206,11 @@ export async function enhanceVoyagePlanWithBathymetry(
         voyagePlan.originCoordinates,
         voyagePlan.destinationCoordinates,
         draft,
+        undefined,
+        'australia_se_qld',
     );
 
-    if (!bathyRoute || bathyRoute.error) {
+    if (!bathyRoute) {
         console.warn('[BathyRouter] Routing unavailable — using AI waypoints');
         return voyagePlan;
     }

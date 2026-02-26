@@ -11,6 +11,7 @@
  */
 import type { NmeaSample } from '../types';
 import { NmeaListenerService, type NmeaConnectionStatus } from './NmeaListenerService';
+import { NmeaGpsProvider } from './NmeaGpsProvider';
 
 // ── Freshness tiers ──
 export type DataFreshness = 'live' | 'stale' | 'dead';
@@ -41,6 +42,13 @@ export interface NmeaStoreState {
     // Engine / Systems
     rpm: TimestampedMetric;         // Engine RPM
     voltage: TimestampedMetric;     // Battery voltage (V)
+
+    // GPS Position (from external NMEA receiver / chartplotter)
+    latitude: TimestampedMetric;    // Decimal degrees
+    longitude: TimestampedMetric;   // Decimal degrees
+    hdop: TimestampedMetric;        // Horizontal dilution (lower = better)
+    satellites: TimestampedMetric;  // Satellites in use
+    gpsFixQuality: number | null;   // GGA fix quality (1=GPS, 2=DGPS, 4=RTK)
 
     // Connection
     connectionStatus: NmeaConnectionStatus;
@@ -74,6 +82,9 @@ class NmeaStoreClass {
 
         // Start 1-second watchdog
         this.watchdogTimer = setInterval(() => this.tick(), WATCHDOG_INTERVAL_MS);
+
+        // Start GPS provider so it can bridge NMEA GPS to other services
+        NmeaGpsProvider.start();
     }
 
     /** Stop the store */
@@ -82,6 +93,7 @@ class NmeaStoreClass {
         if (this.unsubSample) { this.unsubSample(); this.unsubSample = null; }
         if (this.unsubStatus) { this.unsubStatus(); this.unsubStatus = null; }
         if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
+        NmeaGpsProvider.stop();
     }
 
     /** Get current snapshot */
@@ -91,6 +103,13 @@ class NmeaStoreClass {
     subscribe(cb: NmeaStoreListener): () => void {
         this.listeners.add(cb);
         return () => this.listeners.delete(cb);
+    }
+
+    /** Whether external GPS has a live fix (lat/lon updated within 3s) */
+    hasGpsFix(): boolean {
+        return this.state.latitude.freshness === 'live' &&
+            this.state.longitude.freshness === 'live' &&
+            this.state.latitude.value !== null;
     }
 
     /** Get freshness tier for a given timestamp */
@@ -119,6 +138,13 @@ class NmeaStoreClass {
         if (sample.cog !== null) this.updateMetric(this.state.cog, sample.cog, now);
         if (sample.waterTemp !== null) this.updateMetric(this.state.waterTemp, sample.waterTemp, now);
 
+        // GPS position
+        if (sample.latitude !== null) this.updateMetric(this.state.latitude, sample.latitude, now);
+        if (sample.longitude !== null) this.updateMetric(this.state.longitude, sample.longitude, now);
+        if (sample.hdop !== null) this.updateMetric(this.state.hdop, sample.hdop, now);
+        if (sample.satellites !== null) this.updateMetric(this.state.satellites, sample.satellites, now);
+        if (sample.gpsFixQuality !== null) this.state.gpsFixQuality = sample.gpsFixQuality;
+
         this.notify();
     }
 
@@ -137,6 +163,7 @@ class NmeaStoreClass {
             this.state.tws, this.state.twa, this.state.stw, this.state.heading,
             this.state.depth, this.state.sog, this.state.cog, this.state.waterTemp,
             this.state.rpm, this.state.voltage,
+            this.state.latitude, this.state.longitude, this.state.hdop, this.state.satellites,
         ];
 
         for (const m of metrics) {
@@ -173,6 +200,11 @@ class NmeaStoreClass {
             waterTemp: emptyMetric(),
             rpm: emptyMetric(),
             voltage: emptyMetric(),
+            latitude: emptyMetric(),
+            longitude: emptyMetric(),
+            hdop: emptyMetric(),
+            satellites: emptyMetric(),
+            gpsFixQuality: null,
             connectionStatus: 'disconnected',
             lastAnyUpdate: 0,
         };

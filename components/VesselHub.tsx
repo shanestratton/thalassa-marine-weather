@@ -236,27 +236,12 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <div className="flex-1">
-                            <p className="text-xs font-bold text-white">Account & Subscription</p>
+                            <p className="text-xs font-bold text-white">Account, Subscription & Settings</p>
                             <p className="text-[9px] text-gray-500">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
                         </div>
                         <ChevronRight />
                     </button>
 
-                    {/* Dark/Light Mode */}
-                    <div className="px-4 py-3 flex items-center gap-3">
-                        <div className="p-1.5 bg-white/5 rounded-lg">
-                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
-                            </svg>
-                        </div>
-                        <div className="flex-1">
-                            <p className="text-xs font-bold text-white">Dark Mode</p>
-                            <p className="text-[9px] text-gray-500">Always on for maritime use</p>
-                        </div>
-                        <div className="w-9 h-5 bg-emerald-600 rounded-full relative">
-                            <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-white rounded-full shadow" />
-                        </div>
-                    </div>
 
                     {/* Terms & Privacy */}
                     <button

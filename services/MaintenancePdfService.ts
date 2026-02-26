@@ -9,8 +9,6 @@
  * Falls back to browser download on web.
  */
 import jsPDF from 'jspdf';
-import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
 import { MaintenanceService, calculateStatus, sortByUrgency } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 
@@ -174,68 +172,58 @@ function generateServiceHistoryHtml(
 </html>`;
 }
 
-// ── PDF Generation & Share ──────────────────────────────────────
-
 /**
- * Generate a PDF from an HTML string using jsPDF and share via native sheet.
+ * Generate a PDF from an HTML string using jsPDF and share/download.
+ * Uses Web Share API with File objects on mobile (actual PDF attachment),
+ * falls back to direct browser download on desktop.
  */
 async function generateAndSharePdf(html: string, filename: string): Promise<void> {
     const safeName = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
 
-    // Use jsPDF with html2canvas-like approach
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
     });
 
-    // Render HTML into PDF using jsPDF's html() method
+    // Render HTML into PDF
     await new Promise<void>((resolve, reject) => {
         doc.html(html, {
             callback: () => resolve(),
             x: 0,
             y: 0,
-            width: 210,  // A4 width in mm
+            width: 210,
             windowWidth: 800,
             autoPaging: 'text',
         });
     });
 
-    // Get PDF as base64
-    const pdfBase64 = doc.output('datauristring').split(',')[1];
+    const pdfBlob = doc.output('blob');
+    const pdfFile = new File([pdfBlob], safeName, { type: 'application/pdf' });
 
-    try {
-        // Write to cache directory
-        const writeResult = await Filesystem.writeFile({
-            path: safeName,
-            data: pdfBase64,
-            directory: Directory.Cache,
-        });
-
-        // Trigger native share sheet
-        await Share.share({
-            title: safeName,
-            url: writeResult.uri,
-            dialogTitle: 'Export Maintenance Report',
-        });
-    } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : '';
-        if (errMsg?.includes('cancel') || errMsg?.includes('dismissed')) {
-            return; // User cancelled share sheet — not an error
+    // Try Web Share API with actual file attachment (works on iOS/Android)
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        try {
+            await navigator.share({
+                title: safeName.replace('.pdf', ''),
+                files: [pdfFile],
+            });
+            return;
+        } catch (err) {
+            if (err instanceof Error && err.name === 'AbortError') return;
+            // Fall through to download
         }
-
-        // Fallback: browser download
-        console.warn('Native share unavailable, falling back to browser download');
-        const blob = doc.output('blob');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = safeName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
     }
+
+    // Fallback — direct browser download
+    const url = URL.createObjectURL(pdfBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // ── Public API ──────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import {
     CrosshairIcon, XIcon, ClockIcon, LockIcon, BugIcon, CompassIcon,
     PowerBoatIcon, SailBoatIcon, AnchorIcon
 } from './Icons';
-import { WeatherMap } from './WeatherMap';
+import { MapHub } from './map/MapHub';
 import { SlideToAction } from './ui/SlideToAction';
 import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
@@ -101,49 +101,19 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             {isMapOpen && createPortal(
                 <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col">
                     <div className="relative flex-1">
-                        <WeatherMap
-                            locationName={mapSelectionTarget ? (tempMapSelection?.name || `Select ${mapSelectionTarget === 'origin' ? 'Start' : mapSelectionTarget === 'destination' ? 'End' : 'Via'} Location`) : (origin || "Route Map")}
-                            lat={voyagePlan?.originCoordinates?.lat}
-                            lon={voyagePlan?.originCoordinates?.lon}
-                            routeCoordinates={routeCoords}
-                            waypoints={voyagePlan?.waypoints}
-                            minimal={!mapSelectionTarget}
-                            enableZoom={true}
-                            showWeather={false}
+                        <MapHub
                             mapboxToken={mapboxToken}
-                            showZoomControl={false}
-                            restrictBounds={false}
-                            initialLayer={mapSelectionTarget ? 'buoys' : 'wind'}
-                            isConfirmMode={false}
-                            hideLayerControls={false}
+                            pickerMode={!!mapSelectionTarget}
+                            pickerLabel={mapSelectionTarget ? `Tap to select ${mapSelectionTarget === 'origin' ? 'Origin' : mapSelectionTarget === 'destination' ? 'Destination' : 'Via Waypoint'}` : undefined}
+                            initialZoom={8}
+                            center={voyagePlan?.originCoordinates ? { lat: voyagePlan.originCoordinates.lat, lon: voyagePlan.originCoordinates.lon } : undefined}
                             onLocationSelect={(lat, lon, name) => {
-                                const latStr = Math.abs(lat).toFixed(4) + '°' + (lat >= 0 ? 'N' : 'S');
-                                const lonStr = Math.abs(lon).toFixed(4) + '°' + (lon >= 0 ? 'E' : 'W');
-                                const selectionName = name || `WP ${latStr}, ${lonStr}`;
-                                setTempMapSelection({ lat, lon, name: selectionName });
+                                if (mapSelectionTarget) {
+                                    const selectionName = name || `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+                                    handleMapSelect(lat, lon, selectionName);
+                                }
                             }}
                         />
-
-                        {mapSelectionTarget && (
-                            <div className="fixed bottom-12 left-0 right-0 z-[11000] px-6 pointer-events-none flex justify-center w-full">
-                                <div className="pointer-events-auto w-full max-w-md">
-                                    <button
-                                        onClick={() => {
-                                            if (tempMapSelection) {
-                                                handleMapSelect(tempMapSelection.lat, tempMapSelection.lon, tempMapSelection.name);
-                                            }
-                                        }}
-                                        disabled={!tempMapSelection}
-                                        aria-label="Confirm Map Selection"
-                                        className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${tempMapSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10'}`}
-                                        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-                                    >
-                                        <MapPinIcon className={`w-5 h-5 ${tempMapSelection ? 'text-white' : 'text-gray-600'}`} />
-                                        {tempMapSelection ? "Confirm Selection" : "Tap Map to Select Point"}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     <div className="absolute top-6 right-6 z-[2200]">

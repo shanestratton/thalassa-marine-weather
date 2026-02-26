@@ -14,6 +14,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
 import { SlideToAction } from './ui/SlideToAction';
+import { generateDiaryPDF } from '../utils/diaryExport';
+import { AnchorWatchService } from '../services/AnchorWatchService';
+import { useWeather } from '../context/WeatherContext';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -63,6 +66,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [showCompose, setShowCompose] = useState(false);
     const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
 
+    // Weather context
+    const { weatherData } = useWeather();
+
     // Compose state
     const [editingId, setEditingId] = useState<string | null>(null);
     const [title, setTitle] = useState('');
@@ -74,10 +80,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [lat, setLat] = useState<number | null>(null);
     const [lon, setLon] = useState<number | null>(null);
     const [locationName, setLocationName] = useState('');
+    const [weatherSummary, setWeatherSummary] = useState('');
     const [saving, setSaving] = useState(false);
     const [polishing, setPolishing] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
+
+    // Timeline selection state
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [exportProgress, setExportProgress] = useState<string | null>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
     // Audio recording state
     const [isRecording, setIsRecording] = useState(false);
@@ -119,12 +133,42 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         if (loc) {
             setLat(loc.lat);
             setLon(loc.lon);
-            setLocationName(formatCoord(loc.lat, loc.lon));
+
+            // Check anchor watch first — if active, use depth info
+            const anchorSnap = AnchorWatchService.getSnapshot();
+            const isAnchored = anchorSnap.state === 'watching' || anchorSnap.state === 'alarm';
+
+            // Reverse geocode for a readable place name
+            const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+
+            if (isAnchored) {
+                const depth = anchorSnap.config.waterDepth;
+                const prefix = `Anchored in ${depth}m of water`;
+                setLocationName(placeName ? `${prefix} — ${placeName}` : prefix);
+            } else {
+                setLocationName(placeName || formatCoord(loc.lat, loc.lon));
+            }
         }
         setGpsLoading(false);
     }, []);
 
     // ── Compose (new) ──────────────────────────────────────────
+
+    /** Build a weather snapshot one-liner from current weather data */
+    const buildWeatherSnapshot = useCallback((): string => {
+        if (!weatherData?.current) return '';
+        const c = weatherData.current;
+        const parts: string[] = [];
+        if (c.airTemperature != null) parts.push(`${Math.round(c.airTemperature)}°C`);
+        if (c.windSpeed != null) {
+            let wind = `Wind ${Math.round(c.windSpeed)}kts ${c.windDirection || ''}`;
+            if (c.windGust != null && c.windGust > (c.windSpeed || 0) + 2) wind += ` G${Math.round(c.windGust)}`;
+            parts.push(wind.trim());
+        }
+        if (c.waveHeight != null && c.waveHeight > 0) parts.push(`Waves ${c.waveHeight.toFixed(1)}m`);
+        else if (c.description) parts.push(c.description);
+        return parts.join(' · ');
+    }, [weatherData]);
 
     const openCompose = useCallback(async () => {
         setEditingId(null);
@@ -136,11 +180,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setLat(null);
         setLon(null);
         setLocationName('');
+        setWeatherSummary(buildWeatherSnapshot());
         setRecordingTime(0);
         setShowCompose(true);
         triggerHaptic('light');
         grabGps();
-    }, [grabGps]);
+    }, [grabGps, buildWeatherSnapshot]);
 
     // ── Edit (existing) ────────────────────────────────────────
 
@@ -185,6 +230,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 if (blob.size > 0) {
                     const url = await DiaryService.uploadAudio(blob);
                     setAudioUrl(url);
+
+                    // Auto-transcribe voice memo to text
+                    if (url) {
+                        setTranscribing(true);
+                        const text = await DiaryService.transcribeAudio(url);
+                        if (text) {
+                            setBody(prev => prev ? `${prev}\n\n${text}` : text);
+                        }
+                        setTranscribing(false);
+                    }
                 }
                 if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             };
@@ -310,6 +365,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 latitude: lat,
                 longitude: lon,
                 location_name: locationName,
+                weather_summary: weatherSummary,
                 tags: [],
             });
             if (entry) {
@@ -334,6 +390,38 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     // ── Grouped entries ────────────────────────────────────────
 
     const grouped = groupByDate(entries);
+
+    // ── PDF Export ───────────────────────────────────────────────
+
+    const exportDiaryPdf = useCallback((entriesToPrint: DiaryEntry[]) => {
+        setExportProgress('Preparing...');
+        generateDiaryPDF(entriesToPrint, {
+            onProgress: (msg) => setExportProgress(msg),
+            onSuccess: () => {
+                setExportProgress(null);
+                setSelectMode(false);
+                setSelectedIds(new Set());
+            },
+            onError: (err) => {
+                setExportProgress(null);
+                console.error('Diary PDF export error:', err);
+            }
+        });
+    }, []);
+
+    const toggleEntrySelection = useCallback((id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
+
+    const exitSelectMode = useCallback(() => {
+        setSelectMode(false);
+        setSelectedIds(new Set());
+    }, []);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  AUDIO PLAYER WIDGET — reused in entry view and compose
@@ -547,7 +635,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     if (showCompose) {
         const isEditing = !!editingId;
         return (
-            <div className="flex flex-col h-full bg-slate-950 text-white">
+            <div className="flex flex-col h-full bg-slate-950 text-white" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
@@ -569,19 +657,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     </div>
                 </div>
 
-                {/* Compose body */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Compose body — flex column fills viewport, no scroll */}
+                <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-hidden">
                     {/* Title */}
                     <input
                         type="text"
                         placeholder="Entry title (optional)"
                         value={title}
                         onChange={e => setTitle(e.target.value)}
-                        className="w-full bg-transparent text-xl font-bold text-white placeholder-gray-600 border-none outline-none"
+                        className="shrink-0 w-full bg-transparent text-xl font-bold text-white placeholder-gray-600 border-none outline-none"
                     />
 
                     {/* Mood selector */}
-                    <div className="flex items-center gap-1">
+                    <div className="shrink-0 flex items-center gap-1">
                         {(Object.entries(MOOD_CONFIG) as [DiaryMood, typeof MOOD_CONFIG.epic][]).map(([key, cfg]) => (
                             <button
                                 key={key}
@@ -598,7 +686,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* GPS Position */}
-                    <div className="bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
+                    <div className="shrink-0 bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
                         <div className="flex items-center gap-2.5">
                             <div className="p-2 bg-sky-500/15 rounded-lg">
                                 <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -614,7 +702,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     <p className="text-xs text-gray-500 italic">{gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}</p>
                                 )}
                             </div>
-                            <button onClick={grabGps} disabled={gpsLoading} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40" title="Refresh GPS">
+                            <button onClick={grabGps} disabled={gpsLoading} className="relative z-10 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40 cursor-pointer" title="Refresh GPS">
                                 <svg className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
                                 </svg>
@@ -631,11 +719,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </div>
                     </div>
 
-                    {/* ═══ VOICE MEMO ═══ */}
-                    <div>
+                    {/* ═══ VOICE TO TEXT ═══ */}
+                    <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice Memo</span>
-                            <span className="text-[10px] text-gray-600">Record or type below</span>
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice to Text</span>
+                            <span className="text-[10px] text-gray-600">Dictate or type below</span>
                         </div>
 
                         {isRecording ? (
@@ -670,7 +758,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     </div>
                                 </div>
                                 <p className="text-[10px] text-red-400/50 mt-2 text-center font-bold uppercase tracking-wider">
-                                    Tap the square to stop recording
+                                    Tap stop — your words will appear in the text box below
                                 </p>
                             </div>
                         ) : audioUrl ? (
@@ -688,8 +776,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <div className="text-left flex-1">
-                                    <p className="text-sm font-bold text-white">Record Voice Memo</p>
-                                    <p className="text-[10px] text-gray-500">Tap to start — hands-free journaling at sea</p>
+                                    <p className="text-sm font-bold text-white">Record Voice to Text</p>
+                                    <p className="text-[10px] text-gray-500">Speak — your words fill the entry below</p>
                                 </div>
                                 <svg className="w-4 h-4 text-gray-600 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -698,61 +786,82 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         )}
                     </div>
 
-                    {/* Body text */}
+                    {/* Body text — fills remaining space */}
                     <textarea
                         placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                         value={body}
                         onChange={e => setBody(e.target.value)}
-                        rows={6}
-                        className="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-[15px] text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-[15px] text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                     />
 
-                    {/* AI Polish */}
-                    {body.trim().length > 20 && (
-                        <button
-                            onClick={handlePolish}
-                            disabled={polishing}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-500/20 to-purple-500/20 border border-violet-500/20 rounded-xl text-sm font-bold text-violet-300 hover:from-violet-500/30 hover:to-purple-500/30 transition-all disabled:opacity-50"
-                        >
-                            <span className="text-base">{polishing ? '⏳' : '✨'}</span>
-                            {polishing ? 'Polishing with Gemini…' : 'Polish with Gemini'}
-                        </button>
+                    {/* AI Polish + Weather Snapshot */}
+                    <div className="shrink-0 flex flex-wrap gap-2">
+                        {body.trim().length > 10 && (
+                            <button
+                                onClick={handlePolish}
+                                disabled={polishing}
+                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-violet-500/20 to-purple-500/20 border border-violet-500/20 rounded-xl text-xs font-bold text-violet-300 hover:from-violet-500/30 hover:to-purple-500/30 transition-all disabled:opacity-50"
+                            >
+                                <span className="text-sm">{polishing ? '⏳' : '✨'}</span>
+                                {polishing ? 'Polishing…' : 'Polish with Gemini'}
+                            </button>
+                        )}
+                        {transcribing && (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
+                                <span className="text-sm animate-pulse">🎙️</span>
+                                <span className="text-xs font-bold text-emerald-400">Converting speech to text…</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Weather Snapshot */}
+                    {weatherSummary && (
+                        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/15 rounded-xl">
+                            <span className="text-sm">🌤</span>
+                            <input
+                                type="text"
+                                value={weatherSummary}
+                                onChange={e => setWeatherSummary(e.target.value)}
+                                className="flex-1 bg-transparent text-xs text-amber-200/90 font-medium outline-none placeholder-amber-600"
+                                placeholder="Weather conditions"
+                            />
+                        </div>
                     )}
 
                     {/* Photos */}
-                    <div>
+                    <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Photos</span>
                             {photos.length > 0 && (
                                 <span className="text-[10px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
                             )}
                         </div>
-                        <div className="flex gap-2 flex-wrap">
+                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
                             {photos.map((url, i) => (
-                                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden group">
+                                <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                                     <img src={url} alt="" className="w-full h-full object-cover" />
                                     <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                                 </div>
                             ))}
-                            {photos.length < 6 && (
+                            {/* Fill remaining slots with Add buttons */}
+                            {Array.from({ length: Math.max(1, 6 - photos.length) }).map((_, i) => (
                                 <button
+                                    key={`add-${i}`}
                                     onClick={() => fileRef.current?.click()}
-                                    disabled={uploading}
-                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-1 text-gray-600 hover:text-sky-400 transition-colors"
+                                    disabled={uploading || photos.length >= 6}
+                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-sky-400 transition-colors disabled:opacity-30"
                                 >
-                                    {uploading ? (
+                                    {uploading && i === 0 ? (
                                         <span className="text-xs animate-pulse">📷</span>
                                     ) : (
                                         <>
-                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                                             </svg>
-                                            <span className="text-[9px] font-bold uppercase">Add</span>
                                         </>
                                     )}
                                 </button>
-                            )}
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -762,10 +871,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         );
     }
 
+
     // ── Render: Timeline ────────────────────────────────────────
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
+            {/* Export progress overlay */}
+            {exportProgress && (
+                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center z-50 gap-4">
+                    <div className="w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm font-bold text-white">{exportProgress}</p>
+                </div>
+            )}
             <div className="flex flex-col h-full">
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
@@ -777,14 +894,55 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Diary</h1>
                             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                                {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
+                                {selectMode ? `${selectedIds.size} Selected` : `${entries.length} ${entries.length === 1 ? 'Entry' : 'Entries'}`}
                             </p>
                         </div>
+                        {selectMode ? (
+                            <button onClick={exitSelectMode} className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-white">
+                                Done
+                            </button>
+                        ) : entries.length > 0 && (
+                            <div className="relative" ref={menuRef}>
+                                <button
+                                    onClick={() => setMenuOpen(!menuOpen)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                                >
+                                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                                    </svg>
+                                </button>
+                                {menuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            <button
+                                                onClick={() => { setSelectMode(true); setSelectedIds(new Set()); setMenuOpen(false); }}
+                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                            >
+                                                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                Select for Export
+                                            </button>
+                                            <button
+                                                onClick={() => { exportDiaryPdf(entries); setMenuOpen(false); }}
+                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
+                                            >
+                                                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
+                                                </svg>
+                                                Export All to PDF
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
+                <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -821,9 +979,28 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                             return (
                                                 <button
                                                     key={entry.id}
-                                                    onClick={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
-                                                    className="w-full text-left bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden hover:bg-white/[0.05] hover:border-white/10 transition-all active:scale-[0.98] group"
+                                                    onClick={() => {
+                                                        if (selectMode) {
+                                                            toggleEntrySelection(entry.id);
+                                                        } else {
+                                                            setSelectedEntry(entry);
+                                                            triggerHaptic('light');
+                                                        }
+                                                    }}
+                                                    className={`relative w-full text-left bg-white/[0.03] border rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all active:scale-[0.98] group ${selectMode && selectedIds.has(entry.id) ? 'border-sky-500/50 !bg-sky-500/5' : 'border-white/5 hover:border-white/10'}`}
                                                 >
+                                                    {/* Selection indicator */}
+                                                    {selectMode && (
+                                                        <div className="absolute top-3 right-3 z-10">
+                                                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.has(entry.id) ? 'bg-sky-500 border-sky-500' : 'border-white/20 bg-black/30'}`}>
+                                                                {selectedIds.has(entry.id) && (
+                                                                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                                    </svg>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     {entry.photos.length > 0 && (
                                                         <div className="flex h-28 overflow-hidden">
                                                             {entry.photos.slice(0, 3).map((url, i) => (
@@ -887,21 +1064,45 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ── SlideToAction CTA (fixed at bottom) ── */}
-                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
-                    <SlideToAction
-                        label="Slide to Write Entry"
-                        thumbIcon={
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                        }
-                        onConfirm={() => {
-                            triggerHaptic('medium');
-                            openCompose();
-                        }}
-                        theme="sky"
-                    />
+                {/* ── Bottom bar: select mode export OR slide-to-action ── */}
+                <div className="shrink-0 px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                    {selectMode ? (
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => {
+                                    const sel = entries.filter(e => selectedIds.has(e.id));
+                                    if (sel.length > 0) exportDiaryPdf(sel);
+                                }}
+                                disabled={selectedIds.size === 0}
+                                className="flex-1 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
+                                </svg>
+                                Export {selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Selected'}
+                            </button>
+                            <button
+                                onClick={() => setSelectedIds(new Set(entries.map(e => e.id)))}
+                                className="py-3 px-4 rounded-xl bg-white/5 text-white font-bold text-xs transition-colors"
+                            >
+                                All
+                            </button>
+                        </div>
+                    ) : (
+                        <SlideToAction
+                            label="Slide to Write Entry"
+                            thumbIcon={
+                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                            }
+                            onConfirm={() => {
+                                triggerHaptic('medium');
+                                openCompose();
+                            }}
+                            theme="sky"
+                        />
+                    )}
                 </div>
             </div>
         </div>

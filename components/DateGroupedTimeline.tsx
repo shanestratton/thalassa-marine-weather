@@ -194,11 +194,16 @@ interface CompactLogEntryProps {
 
 // PERF: React.memo — this component renders for every log entry in every expanded day
 // With 100+ entries per voyage, skipping re-renders on parent state changes is critical
+// System-generated waypoint names that should not be shown when badge already covers them
+const SYSTEM_WAYPOINT_NAMES = ['Voyage Start', 'Voyage End', 'Latest Position'];
+
 const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
     const timestamp = new Date(entry.timestamp);
     const timeStr = formatTime24Colon(timestamp);
 
     const type = TYPE_INDICATOR[entry.entryType];
+    const isSystemEntry = isVoyageStart || isVoyageEnd;
+    const showWaypointName = entry.waypointName && !SYSTEM_WAYPOINT_NAMES.includes(entry.waypointName);
 
     return (
         <div className={`rounded-lg transition-all duration-150 ${isExpanded ? 'bg-slate-800/80' : 'bg-slate-800/40 hover:bg-slate-800/60'}`}>
@@ -219,7 +224,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                         Start
                     </span>
                 )}
-                {isVoyageEnd && !isVoyageStart && (
+                {isVoyageEnd && (
                     <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-bold rounded-full">
                         End
                     </span>
@@ -254,8 +259,8 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                         </span>
                     )}
 
-                    {/* Waypoint indicator */}
-                    {entry.waypointName && (
+                    {/* Waypoint indicator — hide system names when Start/End badge is shown */}
+                    {showWaypointName && (
                         <span className="text-blue-400 text-xs font-bold truncate max-w-[100px]">
                             📍 {entry.waypointName}
                         </span>
@@ -347,8 +352,8 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                         </div>
                     )}
 
-                    {/* Waypoint */}
-                    {entry.waypointName && (
+                    {/* Waypoint — hide system names */}
+                    {showWaypointName && (
                         <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded text-blue-400 text-xs font-bold">
                             📍 {entry.waypointName}
                         </div>
@@ -370,8 +375,8 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                         </div>
                     )}
 
-                    {/* Action Buttons — Delete hidden for auto GPS entries (provenance) */}
-                    {(onEdit || (onDelete && entry.entryType !== 'auto')) && (
+                    {/* Action Buttons — hidden for auto GPS entries and system start/end entries */}
+                    {!isSystemEntry && (onEdit || (onDelete && entry.entryType !== 'auto')) && (
                         <div className="mt-3 flex gap-2">
                             {onEdit && (
                                 <button

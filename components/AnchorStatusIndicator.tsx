@@ -74,28 +74,26 @@ export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({
     }[status];
 
     return (
-        <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-[950]">
-            <button
-                onClick={onNavigate}
-                className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-full ${config.bg} border backdrop-blur-md shadow-lg transition-all active:scale-95`}
-                aria-label={`Anchor watch: ${config.text}. Tap to view.`}
-            >
-                {/* Pulse ring */}
-                <span className="relative flex h-2.5 w-2.5">
-                    {config.animate && (
-                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.pulse} opacity-75`} />
-                    )}
-                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${config.dot}`} />
-                </span>
+        <button
+            onClick={onNavigate}
+            className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${config.bg} border backdrop-blur-md shadow-lg transition-all active:scale-95`}
+            aria-label={`Anchor watch: ${config.text}. Tap to view.`}
+        >
+            {/* Pulse ring */}
+            <span className="relative flex h-2 w-2">
+                {config.animate && (
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.pulse} opacity-75`} />
+                )}
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${config.dot}`} />
+            </span>
 
-                {/* Anchor icon */}
-                <span className="text-sm" style={{ lineHeight: 1 }}>⚓</span>
+            {/* Anchor icon */}
+            <span className="text-xs" style={{ lineHeight: 1 }}>⚓</span>
 
-                {/* Status label */}
-                <span className={`${config.textColor} font-bold text-[11px] tracking-wide leading-none`}>
-                    {config.text}
-                </span>
-            </button>
-        </div>
+            {/* Status label */}
+            <span className={`${config.textColor} font-bold text-[10px] tracking-wide leading-none`}>
+                {config.text}
+            </span>
+        </button>
     );
 };

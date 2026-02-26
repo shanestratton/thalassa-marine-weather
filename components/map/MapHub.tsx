@@ -28,6 +28,7 @@ import {
     type RouteAnalysis,
 } from '../../services/WeatherRoutingService';
 import { SynopticScrubber } from './SynopticScrubber';
+import { fetchBathymetricRoute } from '../../services/bathymetricRouter';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -46,6 +47,10 @@ interface MapHubProps {
     embedded?: boolean;
     /** Override center coordinates (for embedded mode) */
     center?: { lat: number; lon: number };
+    /** Picker mode: single tap selects a location, reverse geocodes, and calls onLocationSelect */
+    pickerMode?: boolean;
+    /** Label shown in the picker banner (e.g. "Select Origin") */
+    pickerLabel?: string;
 }
 
 type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'pressure' | 'sea' | 'satellite' | 'velocity';
@@ -71,7 +76,7 @@ function getWindColor(kts: number): string {
 
 // ── Component ──────────────────────────────────────────────────
 
-export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/navigation-night-v1', minimalLabels = false, embedded = false, center }) => {
+export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/navigation-night-v1', minimalLabels = false, embedded = false, center, pickerMode = false, pickerLabel }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -133,7 +138,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             minZoom: embedded ? initialZoom : 1,
             projection: 'mercator' as any,
             interactive: true,      // Always interactive (zoom/pan disabled selectively below)
-            dragPan: !embedded,     // No dragging in embedded mode
+            dragPan: true,          // Allow dragging everywhere (including embedded)
             dragRotate: false,
         });
 
@@ -164,19 +169,140 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 data: { type: 'FeatureCollection', features: [] },
             });
 
+            // ── Traffic Light route glow (outer neon tube) ──
+            map.addLayer({
+                id: 'route-glow',
+                type: 'line',
+                source: 'route-line',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': [
+                        'match', ['get', 'safety'],
+                        'safe', '#00e676',
+                        'caution', '#ff9100',
+                        'danger', '#ff1744',
+                        '#00f2fe', // default cyan (before graph loads)
+                    ],
+                    'line-width': 12,
+                    'line-blur': 10,
+                    'line-opacity': 0.6,
+                },
+            });
+
+            // ── Route line (main visible track) ──
             map.addLayer({
                 id: 'route-line-layer',
                 type: 'line',
                 source: 'route-line',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
-                    'line-color': '#38bdf8',
+                    'line-color': [
+                        'match', ['get', 'safety'],
+                        'safe', '#00e676',
+                        'caution', '#ff9100',
+                        'danger', '#ff1744',
+                        '#00f2fe',
+                    ],
                     'line-width': 3,
                     'line-opacity': 0.9,
                 },
             });
 
-            // ── Add isochrone source ──
+            // ── Route core (sharp bright center) ──
+            map.addLayer({
+                id: 'route-core',
+                type: 'line',
+                source: 'route-line',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': [
+                        'match', ['get', 'safety'],
+                        'safe', '#b9f6ca',
+                        'caution', '#ffe0b2',
+                        'danger', '#ffcdd2',
+                        '#ffffff',
+                    ],
+                    'line-width': 1.5,
+                },
+            });
+
+            // ── Seamark Navigation Markers (bioluminescent) ──
+            const seamarkBaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
+                || 'https://pcisdplnodrphauixcau.supabase.co';
+            const markersUrl = `${seamarkBaseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
+            fetch(markersUrl)
+                .then(r => r.json())
+                .then((geojson: any) => {
+                    if (!map.getSource('nav-markers')) {
+                        map.addSource('nav-markers', { type: 'geojson', data: geojson });
+
+                        // Outer glow (bioluminescent blur)
+                        map.addLayer({
+                            id: 'nav-markers-glow',
+                            type: 'circle',
+                            source: 'nav-markers',
+                            minzoom: 10,
+                            paint: {
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 10, 18, 20],
+                                'circle-blur': 0.8,
+                                'circle-opacity': 0.7,
+                                'circle-color': [
+                                    'match', ['get', '_class'],
+                                    'port', '#ff1744',
+                                    'starboard', '#00e676',
+                                    'cardinal_n', '#ffd600',
+                                    'cardinal_s', '#ffd600',
+                                    'cardinal_e', '#ffd600',
+                                    'cardinal_w', '#ffd600',
+                                    'cardinal', '#ffd600',
+                                    'danger', '#ff6d00',
+                                    'safe_water', '#ff1744',
+                                    'light', '#ffffff',
+                                    'special', '#ffab00',
+                                    'mooring', '#40c4ff',
+                                    'anchorage', '#40c4ff',
+                                    '#888888',
+                                ],
+                            },
+                        });
+
+                        // Inner crisp dot
+                        map.addLayer({
+                            id: 'nav-markers-dot',
+                            type: 'circle',
+                            source: 'nav-markers',
+                            minzoom: 10,
+                            paint: {
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 5, 18, 10],
+                                'circle-color': [
+                                    'match', ['get', '_class'],
+                                    'port', '#ff1744',
+                                    'starboard', '#00e676',
+                                    'cardinal_n', '#ffd600',
+                                    'cardinal_s', '#ffd600',
+                                    'cardinal_e', '#ffd600',
+                                    'cardinal_w', '#ffd600',
+                                    'cardinal', '#ffd600',
+                                    'danger', '#ff6d00',
+                                    'safe_water', '#ff1744',
+                                    'light', '#ffffff',
+                                    'special', '#ffab00',
+                                    'mooring', '#40c4ff',
+                                    'anchorage', '#40c4ff',
+                                    '#888888',
+                                ],
+                                'circle-stroke-width': 1,
+                                'circle-stroke-color': '#000000',
+                                'circle-stroke-opacity': 0.5,
+                            },
+                        });
+
+                        console.log(`[MapHub] ✓ Loaded ${geojson.features?.length} seamark markers`);
+                    }
+                })
+                .catch((err: any) => console.warn('[MapHub] Seamark markers unavailable:', err));
+
+            // ── Isochrone source ──
             map.addSource('isochrones', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
@@ -363,6 +489,44 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             mapRef.current = null;
         };
     }, [mapboxToken, mapStyle, initialZoom, minimalLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Picker Mode: tap-to-select with reverse geocode ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !pickerMode) return;
+
+        const handleClick = async (e: mapboxgl.MapMouseEvent) => {
+            const { lng, lat } = e.lngLat;
+            triggerHaptic('medium');
+
+            // Drop visual pin
+            if (pinMarkerRef.current) pinMarkerRef.current.remove();
+            const el = document.createElement('div');
+            el.innerHTML = `<div style="
+                width: 28px; height: 28px; background: #38bdf8;
+                border: 3px solid #fff; border-radius: 50% 50% 50% 0;
+                transform: rotate(-45deg); box-shadow: 0 4px 12px rgba(56,189,248,0.5);
+                animation: pinBounce 0.3s ease-out;
+            "></div>`;
+            pinMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                .setLngLat([lng, lat])
+                .addTo(map);
+
+            // Reverse geocode then callback
+            try {
+                const { reverseGeocode } = await import('../../services/weatherService');
+                const name = await reverseGeocode(lat, lng);
+                const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
+                onLocationSelect?.(lat, lng, name || fallback);
+            } catch {
+                const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
+                onLocationSelect?.(lat, lng, fallback);
+            }
+        };
+
+        map.on('click', handleClick);
+        return () => { map.off('click', handleClick); };
+    }, [pickerMode, onLocationSelect]);
 
     // ── Embedded rain radar with scrubber ──
     const embeddedRainFrames = useRef<{ path: string; time: number }[]>([]);
@@ -1207,7 +1371,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     }, [activeLayer, mapReady, updateIsobars]);
 
     // ── Passage Route Computation ──
-    const computePassage = useCallback(() => {
+    const computePassage = useCallback(async () => {
         if (!departure || !arrival) return;
         triggerHaptic('medium');
 
@@ -1216,6 +1380,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
         ];
 
+        // Step 1: Basic straight-line route for instant visual feedback
         const result = computeRoute(waypoints, {
             speed,
             departureTime: departureTime ? new Date(departureTime) : new Date(),
@@ -1223,11 +1388,10 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
         setRouteAnalysis(result);
 
-        // Update map sources
         const map = mapRef.current;
         if (!map) return;
 
-        // Route line
+        // Draw straight line immediately (replaced by graph route below)
         const routeSource = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSource && result.routeCoordinates.length > 1) {
             routeSource.setData({
@@ -1240,19 +1404,23 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             });
         }
 
-        // Waypoint markers
+        // Waypoint markers — only departure + arrival (no intermediate WP cards)
         const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
         if (wpSource) {
             wpSource.setData({
                 type: 'FeatureCollection',
-                features: result.waypoints.map((wp, i) => ({
-                    type: 'Feature' as const,
-                    properties: {
-                        name: wp.name,
-                        color: i === 0 ? '#10b981' : '#ef4444',
+                features: [
+                    {
+                        type: 'Feature' as const,
+                        properties: { name: departure.name || 'Departure', color: '#10b981' },
+                        geometry: { type: 'Point' as const, coordinates: [departure.lon, departure.lat] },
                     },
-                    geometry: { type: 'Point' as const, coordinates: [wp.lon, wp.lat] },
-                })),
+                    {
+                        type: 'Feature' as const,
+                        properties: { name: arrival.name || 'Arrival', color: '#ef4444' },
+                        geometry: { type: 'Point' as const, coordinates: [arrival.lon, arrival.lat] },
+                    },
+                ],
             });
         }
 
@@ -1263,6 +1431,62 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 bounds.extend([lon, lat]);
             }
             map.fitBounds(bounds, { padding: 80, duration: 1000 });
+        }
+
+        // Step 2: Fetch graph route from edge function (replaces straight line)
+        try {
+            const graphRoute = await fetchBathymetricRoute(
+                { lat: departure.lat, lon: departure.lon },
+                { lat: arrival.lat, lon: arrival.lon },
+                2.5,
+                undefined,
+                'australia_se_qld',
+            );
+
+            if (graphRoute && mapRef.current) {
+                const m = mapRef.current;
+                const src = m.getSource('route-line') as mapboxgl.GeoJSONSource;
+                if (src) {
+                    // Use trafficGeoJSON for colored segments, fallback to geojson
+                    if (graphRoute.trafficGeoJSON) {
+                        src.setData(graphRoute.trafficGeoJSON as any);
+                    } else if (graphRoute.geojson) {
+                        src.setData(graphRoute.geojson);
+                    }
+                    console.log(`[MapHub] ✓ Graph route: ${graphRoute.waypoints.length} WPs, ${graphRoute.totalNM} NM`);
+
+                    // Only keep departure + arrival in route analysis (no WP cards)
+                    setRouteAnalysis(prev => prev ? {
+                        ...prev,
+                        totalDistance: graphRoute.totalNM,
+                        waypoints: [
+                            { ...prev.waypoints[0], id: '0', lat: departure.lat, lon: departure.lon, name: departure.name },
+                            { ...prev.waypoints[0], id: '1', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
+                        ],
+                    } : prev);
+
+                    // Re-fit bounds to graph route
+                    const allCoords: [number, number][] = [];
+                    if (graphRoute.trafficGeoJSON?.features) {
+                        for (const f of graphRoute.trafficGeoJSON.features) {
+                            for (const c of (f.geometry as any).coordinates) {
+                                allCoords.push(c);
+                            }
+                        }
+                    } else if (graphRoute.geojson) {
+                        allCoords.push(...graphRoute.geojson.geometry.coordinates as [number, number][]);
+                    }
+                    if (allCoords.length > 1) {
+                        const bounds = new mapboxgl.LngLatBounds();
+                        for (const [lon, lat] of allCoords) {
+                            bounds.extend([lon, lat]);
+                        }
+                        m.fitBounds(bounds, { padding: 80, duration: 1000 });
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn('[MapHub] Graph route unavailable, keeping straight line:', err);
         }
     }, [departure, arrival, speed, departureTime]);
 
@@ -1297,6 +1521,16 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     100% { transform: rotate(-45deg) translateY(0) scale(1); opacity: 1; }
                 }
             `}</style>
+
+            {/* ═══ PICKER MODE BANNER ═══ */}
+            {pickerMode && (
+                <div className="absolute top-6 left-4 right-4 z-[600] flex items-center justify-center pointer-events-none">
+                    <div className="bg-sky-600/90 backdrop-blur-xl px-5 py-3 rounded-2xl border border-sky-400/30 shadow-2xl flex items-center gap-3 pointer-events-auto">
+                        <div className="w-2 h-2 rounded-full bg-sky-300 animate-pulse" />
+                        <span className="text-white font-bold text-sm">{pickerLabel || 'Tap map to select location'}</span>
+                    </div>
+                </div>
+            )}
 
             {/* ═══ VELOCITY WIND OVERLAY (Leaflet-velocity-ts on Mapbox) ═══ */}
             <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={activeLayer === 'velocity'} />

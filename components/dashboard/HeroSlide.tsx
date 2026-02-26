@@ -958,7 +958,7 @@ const HeroSlideComponent = ({
                                                         .essential-map .mapboxgl-ctrl-bottom-right,
                                                         .essential-map .mapboxgl-ctrl-logo { display: none !important; }
                                                     `}</style>
-                                                    <div className="essential-map absolute inset-0">
+                                                    <div className="essential-map absolute inset-0" style={{ touchAction: 'none' }}>
                                                         <React.Suspense fallback={
                                                             <div className="flex items-center justify-center h-full bg-slate-900">
                                                                 <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />

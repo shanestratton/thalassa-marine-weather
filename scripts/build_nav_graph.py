@@ -477,7 +477,7 @@ def _edge_crosses_danger(lon1, lat1, lon2, lat2, danger_tree, danger_polys):
     return False
 
 
-SHALLOW_WATER_PENALTY = 10.0  # Edges crossing <3m water cost 10x
+SHALLOW_WATER_PENALTY = 100.0  # Edges crossing <3m water cost 100x (nuclear deterrent)
 
 
 def apply_danger_penalties(G, danger_tree, danger_polys):

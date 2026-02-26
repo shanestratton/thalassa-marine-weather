@@ -14,20 +14,27 @@ import { triggerHaptic } from '../../utils/system';
 interface InventoryScannerProps {
     onClose: () => void;
     onItemSaved: () => void; // Refresh parent list
+    startInManualMode?: boolean; // Skip camera and go straight to add form
 }
 
 const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical'];
 
-export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved }) => {
+export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, startInManualMode = false }) => {
     // ── Scanner state ──
-    const [scanning, setScanning] = useState(true);
+    const [scanning, setScanning] = useState(!startInManualMode);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // ── Inline barcode scanner (manual mode) ──
+    const [showInlineScanner, setShowInlineScanner] = useState(false);
+    const inlineVideoRef = useRef<HTMLVideoElement>(null);
+    const inlineStreamRef = useRef<MediaStream | null>(null);
+    const inlineScanRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
     // ── Bottom sheet state ──
-    const [sheetMode, setSheetMode] = useState<'hidden' | 'existing' | 'new'>('hidden');
+    const [sheetMode, setSheetMode] = useState<'hidden' | 'existing' | 'new'>(startInManualMode ? 'new' : 'hidden');
     const [scannedBarcode, setScannedBarcode] = useState('');
     const [foundItem, setFoundItem] = useState<InventoryItem | null>(null);
     const [saving, setSaving] = useState(false);
@@ -42,11 +49,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         location_zone: '',
         location_specific: '',
         description: '',
+        expiry_date: '',
     });
 
-    // ── Camera setup ──
+    // ── Camera setup (skip if starting in manual mode) ──
     useEffect(() => {
-        startCamera();
+        if (!startInManualMode) {
+            startCamera();
+        }
         return () => stopCamera();
     }, []);
 
@@ -76,6 +86,56 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             for (const track of streamRef.current.getTracks()) track.stop();
             streamRef.current = null;
         }
+    };
+
+    // ── Inline scanner for manual mode ──
+    const openInlineScanner = async () => {
+        setShowInlineScanner(true);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+            });
+            inlineStreamRef.current = stream;
+            // Wait for the video element to mount
+            await new Promise(r => setTimeout(r, 100));
+            if (inlineVideoRef.current) {
+                inlineVideoRef.current.srcObject = stream;
+                await inlineVideoRef.current.play();
+            }
+            // Start detection
+            if (!('BarcodeDetector' in window)) {
+                setCameraError('Barcode detection not supported on this device.');
+                closeInlineScanner();
+                return;
+            }
+            const detector = new (window as unknown as { BarcodeDetector: new (opts: { formats: string[] }) => { detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector({
+                formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
+            });
+            inlineScanRef.current = setInterval(async () => {
+                if (!inlineVideoRef.current) return;
+                try {
+                    const barcodes = await detector.detect(inlineVideoRef.current);
+                    if (barcodes.length > 0 && barcodes[0].rawValue.length > 3) {
+                        const code = barcodes[0].rawValue;
+                        setNewItem(prev => ({ ...prev, barcode: code }));
+                        triggerHaptic('medium');
+                        closeInlineScanner();
+                    }
+                } catch { /* frame failed */ }
+            }, 500);
+        } catch {
+            setCameraError('Camera access denied.');
+            setShowInlineScanner(false);
+        }
+    };
+
+    const closeInlineScanner = () => {
+        if (inlineScanRef.current) { clearInterval(inlineScanRef.current); inlineScanRef.current = null; }
+        if (inlineStreamRef.current) {
+            for (const track of inlineStreamRef.current.getTracks()) track.stop();
+            inlineStreamRef.current = null;
+        }
+        setShowInlineScanner(false);
     };
 
     const startBarcodeDetection = () => {
@@ -158,10 +218,16 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 location_zone: newItem.location_zone || null,
                 location_specific: newItem.location_specific || null,
                 description: newItem.description || null,
+                expiry_date: newItem.expiry_date || null,
             });
             triggerHaptic('medium');
             onItemSaved();
-            dismissSheet();
+            // In manual mode, close entirely instead of showing camera
+            if (startInManualMode) {
+                onClose();
+            } else {
+                dismissSheet();
+            }
         } catch { /* ignore */ }
         setSaving(false);
     };
@@ -173,6 +239,205 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         setScanning(true);
     };
 
+    // ── Manual mode: full-page Add Item form (no camera) ──
+    if (startInManualMode && sheetMode === 'new') {
+        return (
+            <div className="fixed inset-0 z-[2000] bg-slate-950 flex flex-col">
+                {/* ── Header ── */}
+                <div className="shrink-0 px-4 pt-3 pb-2">
+                    <div className="flex items-center gap-3">
+                        <button onClick={onClose} className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
+                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Add Item</h1>
+                    </div>
+                </div>
+
+                {/* ── Form ── */}
+                <div className="flex-1 overflow-y-auto px-4 no-scrollbar" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                    <div className="space-y-2">
+                        {/* Item name */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
+                            <input
+                                type="text"
+                                value={newItem.item_name}
+                                onChange={e => setNewItem(prev => ({ ...prev, item_name: e.target.value }))}
+                                placeholder="e.g. Racor 2010PM-OR Fuel Filter"
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Barcode + Scan button */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                            <div className="flex gap-2 mt-0.5">
+                                <input
+                                    type="text"
+                                    value={newItem.barcode}
+                                    onChange={e => setNewItem(prev => ({ ...prev, barcode: e.target.value }))}
+                                    placeholder="Optional"
+                                    className="flex-[2] bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={openInlineScanner}
+                                    className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                                    </svg>
+                                    Scan
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Inline camera scanner overlay */}
+                        {showInlineScanner && (
+                            <div className="relative w-full h-40 rounded-xl overflow-hidden border border-sky-500/30 bg-black">
+                                <video
+                                    ref={inlineVideoRef}
+                                    className="w-full h-full object-cover"
+                                    playsInline
+                                    muted
+                                    autoPlay
+                                />
+                                {/* Reticle */}
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                    <div className="w-3/4 h-12 border-2 border-sky-400/60 rounded-lg">
+                                        <div className="absolute inset-x-4 h-0.5 bg-sky-400/50 animate-pulse" style={{ top: '50%' }} />
+                                    </div>
+                                </div>
+                                {/* Scanning label */}
+                                <div className="absolute bottom-1 left-0 right-0 text-center">
+                                    <span className="text-[9px] font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
+                                </div>
+                                {/* Close button */}
+                                <button
+                                    onClick={closeInlineScanner}
+                                    className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Category */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <div className="flex flex-wrap gap-1.5 mt-0.5">
+                                {CATEGORIES.map(cat => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
+                                        className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
+                                            ? 'bg-sky-600 text-white'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                            }`}
+                                    >
+                                        {cat}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Quantity + Min */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={newItem.quantity}
+                                    onChange={e => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={newItem.min_quantity}
+                                    onChange={e => setNewItem(prev => ({ ...prev, min_quantity: parseInt(e.target.value) || 0 }))}
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Location */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
+                                <input
+                                    type="text"
+                                    value={newItem.location_zone}
+                                    onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
+                                    placeholder="Engine Room"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
+                                <input
+                                    type="text"
+                                    value={newItem.location_specific}
+                                    onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
+                                    placeholder="Stbd drawer"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                            <input
+                                type="text"
+                                value={newItem.description}
+                                onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
+                                placeholder="Part number, batch, etc."
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
+                            />
+                        </div>
+
+                        {/* Expiry / Service Date */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
+                            <input
+                                type="date"
+                                value={newItem.expiry_date}
+                                onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 mt-3">
+                        <button onClick={onClose} className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold">
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSaveNew}
+                            disabled={!newItem.item_name.trim() || saving}
+                            className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
+                        >
+                            {saving ? 'Saving…' : 'Add Item'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Camera scanner mode (original layout) ──
     return (
         <div className="fixed inset-0 z-[2000] bg-black flex flex-col">
             {/* ── Camera View ── */}
@@ -296,7 +561,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             )}
 
             {/* ═══════════════════════════════════════════ */}
-            {/* BOTTOM SHEET — New Item Form */}
+            {/* BOTTOM SHEET — New Item Form (camera mode) */}
             {/* ═══════════════════════════════════════════ */}
             {sheetMode === 'new' && (
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-3xl px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300 max-h-[70vh] overflow-y-auto">
@@ -340,8 +605,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                         key={cat}
                                         onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
                                         className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
-                                                ? 'bg-sky-600 text-white'
-                                                : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                            ? 'bg-sky-600 text-white'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                             }`}
                                     >
                                         {cat}
@@ -409,6 +674,17 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600"
                             />
                         </div>
+
+                        {/* Expiry / Service Date */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
+                            <input
+                                type="date"
+                                value={newItem.expiry_date}
+                                onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
+                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                            />
+                        </div>
                     </div>
 
                     {/* Actions */}
@@ -429,3 +705,4 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         </div>
     );
 };
+

@@ -18,6 +18,8 @@ import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
+import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
+import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 
 
 
@@ -191,16 +193,34 @@ const App: React.FC = () => {
                         style={{ paddingBottom: isDashboard ? 0 : undefined, gap: '8px' }}
                     >
                         {/* Logo row — same style on all pages */}
-                        <div className="flex items-center space-x-2 pointer-events-auto">
-                            <img src="/thalassa-icon.png" alt="" className="w-10 h-10 rounded-lg" />
-                            <div>
-                                <div className="flex items-center gap-1">
-                                    <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
-                                    {settings.isPro && <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">PRO</span>}
+                        <div className="flex items-start justify-between pointer-events-auto">
+                            <div className="flex items-center space-x-2">
+                                <img src="/thalassa-icon.png" alt="" className="w-10 h-10 rounded-lg" />
+                                <div>
+                                    <div className="flex items-center gap-1">
+                                        <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
+                                        {settings.isPro && <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">PRO</span>}
+                                    </div>
+                                    <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
+                                        Officer on Watch Assistant
+                                    </p>
                                 </div>
-                                <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
-                                    Officer on Watch Assistant
-                                </p>
+                            </div>
+
+                            {/* Badge cluster — right-aligned, 2 rows */}
+                            <div className="flex flex-col items-end gap-1 pointer-events-auto">
+                                {/* Row 1: Logbook + Anchor */}
+                                <div className="flex items-center gap-1.5">
+                                    <GpsTrackingIndicator />
+                                    <AnchorStatusIndicator
+                                        currentView={currentView}
+                                        onNavigate={() => setPage('compass')}
+                                    />
+                                </div>
+                                {/* Row 2: EXT GPS under anchor */}
+                                <div className="flex items-center">
+                                    <NmeaGpsIndicator />
+                                </div>
                             </div>
                         </div>
 
@@ -241,18 +261,9 @@ const App: React.FC = () => {
                     </header>
                 )}
 
-                {/* GLOBAL GPS TRACKING INDICATOR */}
-                <GpsTrackingIndicator />
-
-                {/* GLOBAL ANCHOR STATUS — visible on all screens when deployed */}
-                <AnchorStatusIndicator
-                    currentView={currentView}
-                    onNavigate={() => setPage('compass')}
-                />
-
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents'}>
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -290,7 +301,7 @@ const App: React.FC = () => {
                                             </>
                                         )}
 
-                                        {currentView === 'details' && <LogPage />}
+                                        {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
 
                                         {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
 

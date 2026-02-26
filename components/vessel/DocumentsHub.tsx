@@ -25,6 +25,7 @@ const CATEGORIES: { id: DocumentCategory; label: string; icon: string }[] = [
     { id: 'Crew Visas/IDs', label: 'Crew IDs', icon: '🪪' },
     { id: 'Radio/MMSI', label: 'Radio/MMSI', icon: '📻' },
     { id: 'Customs Clearances', label: 'Customs', icon: '🛂' },
+    { id: 'User Manuals', label: 'Manuals', icon: '📖' },
 ];
 
 const CATEGORY_ICONS: Record<DocumentCategory, string> = {
@@ -33,6 +34,7 @@ const CATEGORY_ICONS: Record<DocumentCategory, string> = {
     'Crew Visas/IDs': '🪪',
     'Radio/MMSI': '📻',
     'Customs Clearances': '🛂',
+    'User Manuals': '📖',
 };
 
 // ── Expiry Status ──────────────────────────────────────────────
@@ -146,7 +148,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [documents, setDocuments] = useState<ShipDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | 'all'>('all');
+    const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | null>(null);
 
     // Add/Edit state
     const [showForm, setShowForm] = useState(false);
@@ -173,7 +175,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // ── Filtered ──
     const filtered = documents
-        .filter(d => selectedCategory === 'all' || d.category === selectedCategory)
+        .filter(d => selectedCategory === null || d.category === selectedCategory)
         .filter(d => {
             if (!searchQuery.trim()) return true;
             return d.document_name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -305,16 +307,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 {/* Category filters */}
                 <div className="shrink-0 px-4 pb-3">
                     <div className="grid grid-cols-3 gap-2">
-                        <button
-                            onClick={() => setSelectedCategory('all')}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === 'all' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                        >
-                            All
-                        </button>
                         {CATEGORIES.map(cat => (
                             <button
                                 key={cat.id}
-                                onClick={() => setSelectedCategory(cat.id)}
+                                onClick={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}
                                 className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
                             >
                                 {cat.icon} {cat.label}
@@ -346,7 +342,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 {searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
                             </p>
                         </div>
-                    ) : selectedCategory !== 'all' ? (
+                    ) : selectedCategory !== null ? (
                         /* Flat list when category selected */
                         <div className="space-y-2">
                             {filtered.map(doc => (
@@ -383,7 +379,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 </div>
 
                 {/* Add Document CTA (fixed at bottom) */}
-                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                <div className="shrink-0 px-4 pt-2 bg-slate-950" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                     <SlideToAction
                         label="Slide to Add Document"
                         thumbIcon={

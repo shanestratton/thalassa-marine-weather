@@ -87,6 +87,51 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         } catch { /* ignore */ }
     };
 
+    // ── Edit item ──
+    const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+    const [editName, setEditName] = useState('');
+    const [editCategory, setEditCategory] = useState<InventoryCategory>('Provisions');
+    const [editQty, setEditQty] = useState(1);
+    const [editMinQty, setEditMinQty] = useState(0);
+    const [editZone, setEditZone] = useState('');
+    const [editSpecific, setEditSpecific] = useState('');
+    const [editDescription, setEditDescription] = useState('');
+    const [editExpiry, setEditExpiry] = useState('');
+    const [editBarcode, setEditBarcode] = useState('');
+
+    const openEdit = (item: InventoryItem) => {
+        setEditItem(item);
+        setEditName(item.item_name);
+        setEditCategory(item.category);
+        setEditQty(item.quantity);
+        setEditMinQty(item.min_quantity);
+        setEditZone(item.location_zone || '');
+        setEditSpecific(item.location_specific || '');
+        setEditDescription(item.description || '');
+        setEditExpiry(item.expiry_date || '');
+        setEditBarcode(item.barcode || '');
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editItem || !editName.trim()) return;
+        try {
+            const updated = await InventoryService.update(editItem.id, {
+                item_name: editName,
+                category: editCategory,
+                quantity: editQty,
+                min_quantity: editMinQty,
+                barcode: editBarcode || null,
+                location_zone: editZone || null,
+                location_specific: editSpecific || null,
+                description: editDescription || null,
+                expiry_date: editExpiry || null,
+            });
+            setItems(prev => prev.map(i => i.id === editItem.id ? updated : i));
+            setEditItem(null);
+            triggerHaptic('medium');
+        } catch { /* ignore */ }
+    };
+
     // ── Quick quantity adjustment ──
     const handleQuantityAdjust = async (id: string, delta: number) => {
         triggerHaptic('light');
@@ -101,6 +146,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             <InventoryScanner
                 onClose={() => setShowScanner(false)}
                 onItemSaved={() => { loadItems(); }}
+                startInManualMode
             />
         );
     }
@@ -124,16 +170,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
                             </p>
                         </div>
-                        <button
-                            onClick={() => setShowScanner(true)}
-                            className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-white/5"
-                            title="Scan barcode"
-                        >
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
-                            </svg>
-                        </button>
                     </div>
                 </div>
 
@@ -173,8 +209,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     </div>
                 </div>
 
-                {/* ── Item List (scrollable) ── */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-2">
+                {/* ── Item List (scrollable, stops above CTA) ── */}
+                <div className="flex-1 overflow-y-auto px-4 pb-2 min-h-0 space-y-2 no-scrollbar">
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
@@ -200,6 +236,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         filtered.map(item => {
                             const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
                             const isExpanded = expandedId === item.id;
+                            const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
+                            const now = Date.now();
+                            const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
+                            const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
+                            const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
 
                             return (
                                 <div
@@ -218,6 +259,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                 <p className="text-[10px] text-gray-500 truncate">
                                                     📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
                                                 </p>
+                                            )}
+                                            {isExpired && (
+                                                <p className="text-[9px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
+                                            )}
+                                            {isExpiringSoon && (
+                                                <p className="text-[9px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
                                             )}
                                         </div>
                                         <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
@@ -250,6 +297,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                         <p className="text-gray-300">{item.description}</p>
                                                     </div>
                                                 )}
+                                                {item.expiry_date && (
+                                                    <div>
+                                                        <span className="text-gray-500">Expiry / Service</span>
+                                                        <p className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                                            {new Date(item.expiry_date).toLocaleDateString()}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="flex items-center justify-between">
@@ -270,8 +325,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     </button>
                                                 </div>
                                                 <button
+                                                    onClick={() => openEdit(item)}
+                                                    className="flex-1 py-2 rounded-xl bg-sky-500/10 text-sky-400 text-[10px] font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-all text-center"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
                                                     onClick={() => handleDelete(item.id)}
-                                                    className="px-3 py-2 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all"
+                                                    className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all text-center"
                                                 >
                                                     Delete
                                                 </button>
@@ -288,8 +349,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ── SlideToAction CTA (fixed at bottom) ── */}
-                <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                {/* ── SlideToAction CTA (8px above menu bar) ── */}
+                <div className="shrink-0 px-4 pt-2 bg-slate-950" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                     <SlideToAction
                         label="Slide to Add Item"
                         thumbIcon={
@@ -305,6 +366,102 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     />
                 </div>
             </div>
+
+            {/* ═══ EDIT ITEM MODAL ═══ */}
+            {editItem && (
+                <div className="fixed inset-0 z-[999] flex items-end justify-center px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} onClick={() => setEditItem(null)}>
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                    <div
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto no-scrollbar"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <button onClick={() => setEditItem(null)} className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                        <h3 className="text-base font-black text-white mb-3">Edit Item</h3>
+
+                        <div className="space-y-2">
+                            {/* Name */}
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
+                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                            </div>
+
+                            {/* Barcode */}
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                                <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
+                            </div>
+
+                            {/* Category */}
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                                <div className="grid grid-cols-4 gap-1 mt-0.5">
+                                    {CATEGORIES.map(cat => (
+                                        <button key={cat} type="button" onClick={() => setEditCategory(cat)}
+                                            className={`py-1 rounded-lg text-[9px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                        >
+                                            {CATEGORY_ICONS[cat]} {cat}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Quantity + Min */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                                    <input type="number" value={editQty} onChange={e => setEditQty(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Min Qty</label>
+                                    <input type="number" value={editMinQty} onChange={e => setEditMinQty(Math.max(0, parseInt(e.target.value) || 0))}
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                                </div>
+                            </div>
+
+                            {/* Location */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
+                                    <input type="text" value={editZone} onChange={e => setEditZone(e.target.value)} placeholder="Engine Room"
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Specific</label>
+                                    <input type="text" value={editSpecific} onChange={e => setEditSpecific(e.target.value)} placeholder="Port locker"
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                </div>
+                            </div>
+
+                            {/* Notes + Expiry side by side */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                                    <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Part no, batch"
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
+                                    <input type="date" value={editExpiry} onChange={e => setEditExpiry(e.target.value)}
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onClick={handleSaveEdit} disabled={!editName.trim()}
+                            className="w-full mt-3 py-2.5 bg-gradient-to-r from-sky-600 to-cyan-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                        >
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
