@@ -1,35 +1,22 @@
 /**
- * Route Orchestrator
+ * Route Orchestrator v2 — Distance.tools API
  * 
- * Geofence-based multi-phase routing engine.
- * Checks if the origin is inside a marina or river zone,
- * then chains the appropriate routing engines:
+ * 3-phase routing engine:
+ *   Phase 1: Coastal departure (origin → 30nm handoff) via Distance.tools API
+ *   Phase 2: Open ocean (handoff A → handoff B) — straight line or weather routing
+ *   Phase 3: Coastal arrival (30nm handoff → destination) via Distance.tools API
  * 
- *   1. Marina Grid Router (Turf.js) → exits marina to safe water
- *   2. OfflineRouter (OSM graph A*) → handles river + open water
+ * For short routes (<60nm total), uses a single API call for the whole journey.
  * 
- * The orchestrator stitches the route segments into one continuous path.
+ * Falls back to straight-line routing if:
+ *   - API key is missing
+ *   - API request fails
+ *   - Route is too short to need phasing
  */
 
 import * as turf from '@turf/turf';
-import type { Feature, Polygon, FeatureCollection } from 'geojson';
-import { routeThroughMarina, type MarinaRouteResult } from './MarinaGridRouter';
-import { offlineRouter } from './OfflineRouterService';
 
 // ── Types ──────────────────────────────────────────────────────────
-
-interface GeofenceFeature extends Feature<Polygon> {
-    properties: {
-        name: string;
-        zone_type: 'marina' | 'river';
-        exit_point: [number, number]; // [lon, lat]
-    };
-}
-
-interface GeofenceCollection {
-    type: 'FeatureCollection';
-    features: GeofenceFeature[];
-}
 
 export interface OrchestratedRoute {
     /** Full route coordinates [lon, lat] */
@@ -52,58 +39,139 @@ export interface OrchestratedRoute {
     geojson: GeoJSON.Feature<GeoJSON.LineString>;
 }
 
-// ── Geofence Cache ─────────────────────────────────────────────────
+// ── Distance.tools API ─────────────────────────────────────────────
 
-let geofenceCache: GeofenceCollection | null = null;
+const API_BASE = 'https://api.distance.tools/api/v2';
+const HANDOFF_NM = 30; // Distance from coast to switch engines
+const SHORT_ROUTE_NM = 60; // Routes shorter than this use a single API call
 
-async function loadGeofences(): Promise<GeofenceCollection> {
-    if (geofenceCache) return geofenceCache;
+/**
+ * Call Distance.tools maritime routing API.
+ * Returns an array of [lon, lat] coordinates and distance in NM.
+ */
+async function callDistanceToolsAPI(
+    originLat: number, originLon: number,
+    destLat: number, destLon: number,
+): Promise<{ coordinates: [number, number][]; distanceNM: number } | null> {
+    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DISTANCE_TOOLS_KEY) || '';
+
+    if (!apiKey) {
+        console.warn('[Orchestrator] No VITE_DISTANCE_TOOLS_KEY — cannot call Distance.tools API');
+        return null;
+    }
 
     try {
-        // Import geofences from the data directory
-        const resp = await fetch('/data/geofences.json');
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        geofenceCache = await resp.json();
-        console.log(`[Orchestrator] Loaded ${geofenceCache!.features.length} geofences`);
-        return geofenceCache!;
+        const resp = await fetch(`${API_BASE}/routing/maritime`, {
+            method: 'POST',
+            headers: {
+                'X-Billing-Token': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                route: [
+                    { lat: originLat, lng: originLon },
+                    { lat: destLat, lng: destLon },
+                ],
+            }),
+        });
+
+        if (!resp.ok) {
+            console.error(`[Orchestrator] Distance.tools API error: ${resp.status} ${resp.statusText}`);
+            return null;
+        }
+
+        const data = await resp.json();
+
+        // Extract route geometry from OSRM-style response
+        // The response has routes[0].geometry with coordinates
+        if (!data.routes || data.routes.length === 0) {
+            console.warn('[Orchestrator] Distance.tools returned no routes');
+            return null;
+        }
+
+        const route = data.routes[0];
+        const distanceMeters = route.distance || 0;
+        const distanceNM = distanceMeters / 1852; // meters to NM
+
+        // Extract coordinates from geometry
+        let coordinates: [number, number][] = [];
+
+        if (route.geometry) {
+            if (typeof route.geometry === 'string') {
+                // Polyline encoded — decode it
+                coordinates = decodePolyline(route.geometry);
+            } else if (route.geometry.coordinates) {
+                // GeoJSON format
+                coordinates = route.geometry.coordinates as [number, number][];
+            }
+        }
+
+        // Fallback: extract from legs/steps if geometry is empty
+        if (coordinates.length === 0 && route.legs) {
+            for (const leg of route.legs) {
+                if (leg.steps) {
+                    for (const step of leg.steps) {
+                        if (step.geometry?.coordinates) {
+                            coordinates.push(...step.geometry.coordinates);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (coordinates.length === 0) {
+            console.warn('[Orchestrator] Distance.tools returned route with no geometry');
+            return null;
+        }
+
+        console.log(`[Orchestrator] Distance.tools: ${coordinates.length} WPs, ${distanceNM.toFixed(1)} NM`);
+        return { coordinates, distanceNM };
+
     } catch (err) {
-        console.warn('[Orchestrator] Failed to load geofences, using inline fallback:', err);
-        // Inline fallback with just Newport Marina
-        geofenceCache = {
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                properties: {
-                    name: 'Newport Marina',
-                    zone_type: 'marina',
-                    exit_point: [153.1005, -27.1990],
-                },
-                geometry: {
-                    type: 'Polygon',
-                    coordinates: [[
-                        [153.0960, -27.2030], [153.1035, -27.2030],
-                        [153.1035, -27.1960], [153.0960, -27.1960],
-                        [153.0960, -27.2030],
-                    ]],
-                },
-            }],
-        };
-        return geofenceCache;
+        console.error('[Orchestrator] Distance.tools API call failed:', err);
+        return null;
     }
 }
 
-// ── Geofence Checks ────────────────────────────────────────────────
+/**
+ * Decode a polyline-encoded string into [lon, lat] coordinates.
+ * Google polyline encoding format.
+ */
+function decodePolyline(encoded: string): [number, number][] {
+    const coords: [number, number][] = [];
+    let index = 0;
+    let lat = 0;
+    let lng = 0;
 
-function findContainingZone(
-    lon: number, lat: number, geofences: GeofenceCollection
-): GeofenceFeature | null {
-    const pt = turf.point([lon, lat]);
-    for (const feature of geofences.features) {
-        if (turf.booleanPointInPolygon(pt, feature)) {
-            return feature;
-        }
+    while (index < encoded.length) {
+        let b: number;
+        let shift = 0;
+        let result = 0;
+
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+        shift = 0;
+        result = 0;
+
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+        // Return as [lon, lat] for GeoJSON compatibility
+        coords.push([lng / 1e5, lat / 1e5]);
     }
-    return null;
+
+    return coords;
 }
 
 // ── Haversine ──────────────────────────────────────────────────────
@@ -122,12 +190,13 @@ function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): nu
 // ── Main Orchestrator ──────────────────────────────────────────────
 
 /**
- * Route from origin to destination using the appropriate engine(s).
+ * Route from origin to destination using 3-phase pipeline:
  * 
- * Logic:
- * 1. If origin is in a marina → MarinaGridRouter to exit, then OfflineRouter
- * 2. If origin is in a river → OfflineRouter (graph has channel edges + penalties)
- * 3. Otherwise → OfflineRouter directly (open water)
+ * Short routes (<60nm): Single Distance.tools API call
+ * Long routes: 
+ *   Phase 1: Coast departure via API (origin → 30nm handoff)
+ *   Phase 2: Open ocean straight line (handoff A → handoff B)
+ *   Phase 3: Coast arrival via API (30nm handoff → destination)
  */
 export async function orchestrateRoute(
     originLat: number,
@@ -135,82 +204,121 @@ export async function orchestrateRoute(
     destLat: number,
     destLon: number,
     vesselDraft: number = 2.5,
-    region: string = 'se_queensland',
+    _region: string = 'se_queensland',
 ): Promise<OrchestratedRoute | null> {
     const t0 = performance.now();
     const engines: string[] = [];
     const segments: OrchestratedRoute['segments'] = [];
 
-    console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}]`);
+    const totalDistNM = haversineNM(originLat, originLon, destLat, destLon);
+    console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}] (${totalDistNM.toFixed(1)} NM)`);
 
-    // Load geofences
-    const geofences = await loadGeofences();
+    let allCoords: [number, number][] = [];
 
-    // Check if origin is inside a geofence zone
-    const originZone = findContainingZone(originLon, originLat, geofences);
+    // ── Short route: single API call ──────────────────────────────
+    if (totalDistNM < SHORT_ROUTE_NM) {
+        console.log('[Orchestrator] Short route — single API call');
 
-    let currentLat = originLat;
-    let currentLon = originLon;
-    const allCoords: [number, number][] = [];
+        const result = await callDistanceToolsAPI(originLat, originLon, destLat, destLon);
 
-    // ── Phase 1: Marina check ──────────────────────────────────────
-    // When origin is inside a marina geofence, SKIP graph routing entirely.
-    // The OSM graph has edges through residential canals (Albatross, Kestrel)
-    // that produce routes going through houses. The Gemini AI generates
-    // sensible marina-exit waypoints — we preserve those until we have
-    // proper obstacle data for the MarinaGridRouter.
-    if (originZone?.properties.zone_type === 'marina') {
-        console.log(`[Orchestrator] Origin in marina: ${originZone.properties.name} — skipping graph routing, using AI waypoints`);
-        return null; // Tells bathymetricRouter to keep AI's original route
-    }
-
-    // ── Phase 2: Open water / river routing via OfflineRouter ─────
-
-    // Ensure the offline router is loaded
-    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
-        || 'https://pcisdplnodrphauixcau.supabase.co';
-    if (!offlineRouter.isReady) {
-        try {
-            // Force region to 'se_queensland' — matches filename in nav-graphs bucket
-            offlineRouter.clearCache('se_queensland');
-            await offlineRouter.load(supabaseUrl, 'se_queensland');
-        } catch (err) {
-            console.error('[Orchestrator] Failed to load OfflineRouter:', err);
-            return null;
+        if (result) {
+            engines.push('distance_tools');
+            allCoords = result.coordinates;
+            segments.push({
+                engine: 'distance_tools',
+                coordinates: result.coordinates,
+                distanceNM: result.distanceNM,
+            });
+        } else {
+            // Fallback: straight line
+            console.warn('[Orchestrator] API failed — falling back to straight line');
+            engines.push('straight_line');
+            allCoords = [[originLon, originLat], [destLon, destLat]];
+            segments.push({
+                engine: 'straight_line',
+                coordinates: allCoords,
+                distanceNM: totalDistNM,
+            });
         }
-    }
 
-    // Route from current position to destination
-    const graphResult = offlineRouter.route(
-        currentLat, currentLon,
-        destLat, destLon,
-    );
-
-    if (graphResult && graphResult.coordinates.length > 0) {
-        engines.push('offline_graph');
-
-        // Convert from [lon, lat] pairs
-        const graphCoords = graphResult.coordinates as [number, number][];
-
-        // If we have marina coords, skip the first graph coord (it overlaps with marina exit)
-        const startIdx = allCoords.length > 0 ? 1 : 0;
-        allCoords.push(...graphCoords.slice(startIdx));
-
-        segments.push({
-            engine: 'offline_graph',
-            coordinates: graphCoords,
-            distanceNM: graphResult.distanceNM,
-        });
     } else {
-        // Fallback: straight line
-        console.warn('[Orchestrator] Graph routing failed, using straight line');
-        engines.push('straight_line');
-        allCoords.push([currentLon, currentLat], [destLon, destLat]);
+        // ── Long route: 3-phase pipeline ──────────────────────────
+
+        // Calculate handoff points using Turf.js
+        const originPt = turf.point([originLon, originLat]);
+        const destPt = turf.point([destLon, destLat]);
+
+        // Phase 1: Departure handoff — 30nm from origin toward destination
+        const bearingOut = turf.bearing(originPt, destPt);
+        const handoffA = turf.destination(originPt, HANDOFF_NM, bearingOut, { units: 'nauticalmiles' });
+        const [handoffALon, handoffALat] = handoffA.geometry.coordinates;
+
+        // Phase 3: Arrival handoff — 30nm from destination toward origin
+        const bearingBack = turf.bearing(destPt, originPt);
+        const handoffB = turf.destination(destPt, HANDOFF_NM, bearingBack, { units: 'nauticalmiles' });
+        const [handoffBLon, handoffBLat] = handoffB.geometry.coordinates;
+
+        console.log(`[Orchestrator] Handoffs: A=[${handoffALat.toFixed(4)}, ${handoffALon.toFixed(4)}] B=[${handoffBLat.toFixed(4)}, ${handoffBLon.toFixed(4)}]`);
+
+        // ── Phase 1: Coastal departure ────────────────────────────
+        console.log('[Orchestrator] Phase 1: Coastal departure...');
+        const phase1 = await callDistanceToolsAPI(originLat, originLon, handoffALat, handoffALon);
+
+        if (phase1) {
+            engines.push('distance_tools_departure');
+            allCoords.push(...phase1.coordinates);
+            segments.push({
+                engine: 'distance_tools_departure',
+                coordinates: phase1.coordinates,
+                distanceNM: phase1.distanceNM,
+            });
+        } else {
+            // Fallback: straight line to handoff
+            allCoords.push([originLon, originLat], [handoffALon, handoffALat]);
+            engines.push('straight_departure');
+            segments.push({
+                engine: 'straight_departure',
+                coordinates: [[originLon, originLat], [handoffALon, handoffALat]],
+                distanceNM: HANDOFF_NM,
+            });
+        }
+
+        // ── Phase 2: Open ocean (straight line for now) ───────────
+        // TODO: Replace with weather/isochrone routing
+        console.log('[Orchestrator] Phase 2: Open ocean...');
+        const oceanDistNM = haversineNM(handoffALat, handoffALon, handoffBLat, handoffBLon);
+        engines.push('open_ocean');
+        // Don't include the first point (it's the last of phase 1)
+        allCoords.push([handoffBLon, handoffBLat]);
         segments.push({
-            engine: 'straight_line',
-            coordinates: [[currentLon, currentLat], [destLon, destLat]],
-            distanceNM: haversineNM(currentLat, currentLon, destLat, destLon),
+            engine: 'open_ocean',
+            coordinates: [[handoffALon, handoffALat], [handoffBLon, handoffBLat]],
+            distanceNM: oceanDistNM,
         });
+
+        // ── Phase 3: Coastal arrival ──────────────────────────────
+        console.log('[Orchestrator] Phase 3: Coastal arrival...');
+        const phase3 = await callDistanceToolsAPI(handoffBLat, handoffBLon, destLat, destLon);
+
+        if (phase3) {
+            engines.push('distance_tools_arrival');
+            // Skip first point (overlaps with handoff B)
+            allCoords.push(...phase3.coordinates.slice(1));
+            segments.push({
+                engine: 'distance_tools_arrival',
+                coordinates: phase3.coordinates,
+                distanceNM: phase3.distanceNM,
+            });
+        } else {
+            // Fallback: straight line from handoff to destination
+            allCoords.push([destLon, destLat]);
+            engines.push('straight_arrival');
+            segments.push({
+                engine: 'straight_arrival',
+                coordinates: [[handoffBLon, handoffBLat], [destLon, destLat]],
+                distanceNM: HANDOFF_NM,
+            });
+        }
     }
 
     // ── Build final result ────────────────────────────────────────
