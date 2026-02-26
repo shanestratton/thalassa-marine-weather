@@ -153,12 +153,15 @@ export async function orchestrateRoute(
     let currentLon = originLon;
     const allCoords: [number, number][] = [];
 
-    // ── Phase 1: Marina exit (DISABLED — needs obstacle data) ──────
-    // The MarinaGridRouter requires breakwater/land/pier polygons to avoid.
-    // Without them it routes through buildings. Skipping to OfflineRouter
-    // which has the full OSM graph with bathymetry penalties.
-    if (originZone) {
-        console.log(`[Orchestrator] Origin in ${originZone.properties.zone_type}: ${originZone.properties.name} (using graph router)`);
+    // ── Phase 1: Marina check ──────────────────────────────────────
+    // When origin is inside a marina geofence, SKIP graph routing entirely.
+    // The OSM graph has edges through residential canals (Albatross, Kestrel)
+    // that produce routes going through houses. The Gemini AI generates
+    // sensible marina-exit waypoints — we preserve those until we have
+    // proper obstacle data for the MarinaGridRouter.
+    if (originZone?.properties.zone_type === 'marina') {
+        console.log(`[Orchestrator] Origin in marina: ${originZone.properties.name} — skipping graph routing, using AI waypoints`);
+        return null; // Tells bathymetricRouter to keep AI's original route
     }
 
     // ── Phase 2: Open water / river routing via OfflineRouter ─────
