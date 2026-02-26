@@ -41,7 +41,9 @@ export interface OrchestratedRoute {
 
 // ── Distance.tools API ─────────────────────────────────────────────
 
-const API_BASE = 'https://api.distance.tools/api/v2';
+// Use the Vite dev proxy to avoid CORS (browser → Vite → API)
+// In production, this routes through a Vercel/Supabase proxy function
+const API_BASE = '/api/distance-tools';
 const HANDOFF_NM = 30; // Distance from coast to switch engines
 const SHORT_ROUTE_NM = 60; // Routes shorter than this use a single API call
 
@@ -53,18 +55,13 @@ async function callDistanceToolsAPI(
     originLat: number, originLon: number,
     destLat: number, destLon: number,
 ): Promise<{ coordinates: [number, number][]; distanceNM: number } | null> {
-    const apiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DISTANCE_TOOLS_KEY) || '';
-
-    if (!apiKey) {
-        console.warn('[Orchestrator] No VITE_DISTANCE_TOOLS_KEY — cannot call Distance.tools API');
-        return null;
-    }
+    // API key is injected by the Vite proxy (dev) or edge function (prod)
+    // so we don't send it from the browser — avoids exposing it in client JS
 
     try {
         const resp = await fetch(`${API_BASE}/routing/maritime`, {
             method: 'POST',
             headers: {
-                'X-Billing-Token': apiKey,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
