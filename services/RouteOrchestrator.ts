@@ -108,7 +108,7 @@ function findContainingMarina(
  * Prefers channel_centerline (from paired marks) over waterway_centerline (from OSM).
  */
 function findNearestCenterline(
-    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 500
+    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 2000
 ): { feature: WaterwayZone; nearestIdx: number; distM: number } | null {
     let best: { feature: WaterwayZone; nearestIdx: number; distM: number } | null = null;
 
@@ -158,18 +158,15 @@ function followCenterline(
 }
 
 /**
- * For a marina, find the nearest waterway centerline just outside the marina.
- * This gives us the handoff from marina to waterway.
+ * For a marina, find the nearest waterway centerline using the actual boat position.
+ * The boat's origin gives a much better snap point than the polygon centroid.
  */
 function findExitCenterline(
-    marina: WaterwayZone,
+    originLon: number,
+    originLat: number,
     zones: WaterwayZone[],
-): { feature: WaterwayZone; nearestIdx: number } | null {
-    // Get the marina centroid and look for centerlines within 2km
-    const centroid = turf.centroid(marina as any);
-    const [cLon, cLat] = centroid.geometry.coordinates;
-
-    return findNearestCenterline(cLon, cLat, zones, 2000);
+): { feature: WaterwayZone; nearestIdx: number; distM: number } | null {
+    return findNearestCenterline(originLon, originLat, zones, 3000);
 }
 
 // ── Main Orchestrator ──────────────────────────────────────────────
@@ -204,7 +201,7 @@ export async function orchestrateRoute(
         console.log(`[Orchestrator] 🏗 Origin in marina: ${marina.properties.name}`);
 
         // Find the nearest waterway centerline to this marina
-        const exitLine = findExitCenterline(marina, zones.features);
+        const exitLine = findExitCenterline(originLon, originLat, zones.features);
 
         if (exitLine) {
             console.log(`[Orchestrator] Found exit waterway: ${exitLine.feature.properties.name}`);
@@ -238,7 +235,7 @@ export async function orchestrateRoute(
 
     // ── Check 2: Is the origin near a waterway? ────────────────────
     if (!marina) {
-        const nearest = findNearestCenterline(originLon, originLat, zones.features, 300);
+        const nearest = findNearestCenterline(originLon, originLat, zones.features, 1000);
 
         if (nearest) {
             console.log(`[Orchestrator] 🌊 Origin near waterway: ${nearest.feature.properties.name} (${nearest.distM.toFixed(0)}m)`);
