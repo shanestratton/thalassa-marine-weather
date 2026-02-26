@@ -32,3 +32,41 @@ dist-ssr
 tiles/
 *.tif
 *.tiff
+
+# OSM / PBF data files
+*.osm.pbf
+
+# Generated nav graph and geojson data
+thalassa_graph_*.geojson
+thalassa_graph_*.json
+thalassa_graph_*.json.gz
+se_queensland_nav_markers.geojson
+australia_se_qld_manifest.json
+scripts/thalassa_graph_*.geojson
+scripts/thalassa_graph_*.json
+scripts/thalassa_graph_*.json.gz
+scripts/nav_graph.json
+scripts/nav_markers.geojson
+scripts/final_danger*.geojson
+scripts/final_danger*.qmd
+scripts/brisbane_river_*.json
+scripts/brisbane_river_*.geojson
+scripts/scarborough_danger.json
+
+# Script cache and temp files
+scripts/.overpass_cache.json
+scripts/.waterway_cache.json
+scripts/.temp_*.json
+scripts/.polygon_helper.py
+scripts/.run_output.txt
+
+# Build/test output logs
+scripts/build_error*.txt
+scripts/build_output*.txt
+scripts/scan_error.txt
+scripts/scan_output.txt
+scripts/reduce_results.txt
+scripts/seamark_analysis.txt
+scripts/test_full.txt
+scripts/test_reduced.txt
+scripts/test_results.txt
