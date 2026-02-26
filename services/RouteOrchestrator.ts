@@ -153,57 +153,24 @@ export async function orchestrateRoute(
     let currentLon = originLon;
     const allCoords: [number, number][] = [];
 
-    // ── Phase 1: Marina exit (if needed) ──────────────────────────
-
-    if (originZone?.properties.zone_type === 'marina') {
-        console.log(`[Orchestrator] Origin is in marina: ${originZone.properties.name}`);
-        engines.push('marina_grid');
-
-        const exitPoint = originZone.properties.exit_point;
-
-        // Try marina grid routing
-        try {
-            const marinaResult = await routeThroughMarina(
-                originLon, originLat,
-                exitPoint[0], exitPoint[1],
-                originZone,
-                undefined, // No obstacle data yet — TODO: load from Supabase
-            );
-
-            if (marinaResult && marinaResult.coordinates.length > 0) {
-                allCoords.push(...marinaResult.coordinates);
-                segments.push({
-                    engine: 'marina_grid',
-                    coordinates: marinaResult.coordinates,
-                    distanceNM: marinaResult.distanceNM,
-                });
-
-                // Update current position to marina exit
-                const lastCoord = marinaResult.coordinates[marinaResult.coordinates.length - 1];
-                currentLon = lastCoord[0];
-                currentLat = lastCoord[1];
-                console.log(`[Orchestrator] Marina exit at [${currentLat.toFixed(4)}, ${currentLon.toFixed(4)}]`);
-            }
-        } catch (err) {
-            console.warn(`[Orchestrator] Marina grid routing failed, falling back to direct:`, err);
-            // Fall through to use OfflineRouter from the exit point directly
-            currentLon = exitPoint[0];
-            currentLat = exitPoint[1];
-            allCoords.push([originLon, originLat], exitPoint);
-        }
-    } else if (originZone?.properties.zone_type === 'river') {
-        console.log(`[Orchestrator] Origin is in river: ${originZone.properties.name}`);
-        // Rivers are handled by the OSM graph directly — it has channel edges
-        // No special handling needed, OfflineRouter will use the graph
+    // ── Phase 1: Marina exit (DISABLED — needs obstacle data) ──────
+    // The MarinaGridRouter requires breakwater/land/pier polygons to avoid.
+    // Without them it routes through buildings. Skipping to OfflineRouter
+    // which has the full OSM graph with bathymetry penalties.
+    if (originZone) {
+        console.log(`[Orchestrator] Origin in ${originZone.properties.zone_type}: ${originZone.properties.name} (using graph router)`);
     }
 
     // ── Phase 2: Open water / river routing via OfflineRouter ─────
 
     // Ensure the offline router is loaded
-    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
+        || 'https://pcisdplnodrphauixcau.supabase.co';
     if (!offlineRouter.isReady) {
         try {
-            await offlineRouter.load(supabaseUrl, region);
+            // Force region to 'se_queensland' — matches filename in nav-graphs bucket
+            offlineRouter.clearCache('se_queensland');
+            await offlineRouter.load(supabaseUrl, 'se_queensland');
         } catch (err) {
             console.error('[Orchestrator] Failed to load OfflineRouter:', err);
             return null;
