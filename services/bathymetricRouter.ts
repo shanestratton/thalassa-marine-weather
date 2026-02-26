@@ -59,10 +59,13 @@ const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 /**
- * Fetch bathymetric-safe waypoints from the edge function.
+ * Fetch bathymetric-safe waypoints using the client-side Route Orchestrator.
  *
- * Returns null if the service is unavailable (non-critical — the AI
- * voyage plan still works without it, just with less accurate routing).
+ * Uses geofence-based routing:
+ *   - Marina zones → Turf.js grid router (10m resolution)
+ *   - River/open water → OfflineRouter (OSM graph A* with bathymetry penalties)
+ *
+ * Returns null if routing fails (non-critical — AI voyage plan still works).
  */
 export async function fetchBathymetricRoute(
     origin: { lat: number; lon: number },
@@ -71,52 +74,47 @@ export async function fetchBathymetricRoute(
     via?: { lat: number; lon: number },
     region?: string,
 ): Promise<BathymetricResponse | null> {
-    const supabaseUrl = getSupabaseUrl();
-    const supabaseKey = getSupabaseKey();
-
-    if (!supabaseUrl) {
-        console.warn('[BathyRouter] No Supabase URL configured — skipping bathymetric routing');
-        return null;
-    }
-
-    const url = `${supabaseUrl}/functions/v1/route-bathymetric`;
-    const body: BathymetricRequest = {
-        origin,
-        destination,
-        vessel_draft: vesselDraft,
-    };
-    if (via) body.via = via;
-    if (region) body.region = region;
-
     try {
         console.log(`[BathyRouter] Requesting route: ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} → ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)}`);
 
-        const resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-            },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(90_000),
-        });
+        const { orchestrateRoute } = await import('./RouteOrchestrator');
 
-        if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
-            console.error(`[BathyRouter] Edge function error ${resp.status}:`, errData);
+        const result = await orchestrateRoute(
+            origin.lat, origin.lon,
+            destination.lat, destination.lon,
+            vesselDraft,
+            region || 'se_queensland',
+        );
+
+        if (!result) {
+            console.warn('[BathyRouter] Orchestrator returned no route');
             return null;
         }
 
-        const data: BathymetricResponse = await resp.json();
-        console.log(`[BathyRouter] ✓ ${data.waypoints.length} waypoints, ${data.totalNM} NM, ${data.elapsed_ms}ms (${data.router})`);
-        return data;
+        // Convert orchestrator result to BathymetricResponse interface
+        const waypoints: BathymetricWaypoint[] = result.coordinates.map((coord, i) => ({
+            lat: coord[1],
+            lon: coord[0],
+            name: `WP-${String(i + 1).padStart(3, '0')}`,
+            depth_m: null,
+            safety: 'safe' as const,
+        }));
+
+        const response: BathymetricResponse = {
+            waypoints,
+            totalNM: result.totalNM,
+            elapsed_ms: result.computeMs,
+            router: `orchestrator:${result.engines.join('+')}`,
+            region: region || 'australia_se_qld',
+            vessel_draft: vesselDraft,
+            geojson: result.geojson,
+        };
+
+        console.log(`[BathyRouter] ✓ ${waypoints.length} waypoints, ${result.totalNM} NM, ${result.computeMs}ms [${result.engines.join(' → ')}]`);
+        return response;
 
     } catch (err) {
-        if (err instanceof Error && err.name === 'TimeoutError') {
-            console.warn('[BathyRouter] Request timed out (90s) — skipping');
-        } else {
-            console.error('[BathyRouter] Error:', err);
-        }
+        console.error('[BathyRouter] Orchestrator error:', err);
         return null;
     }
 }

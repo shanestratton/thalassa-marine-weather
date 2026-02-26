@@ -408,10 +408,13 @@ def _edge_crosses_land(lon1, lat1, lon2, lat2, coast_tree, coast_lines):
 
 # ── Bathymetry Danger Zones (< 3m depth) ─────────────────────
 
-def load_danger_polygons(geojson_path):
+def load_danger_polygons(geojson_path, buffer_meters=0):
     """
     Load shallow-water danger polygons from GeoJSON and build spatial index.
     These polygons represent water shallower than 3m — dangerous for keel boats.
+    
+    buffer_meters: expand each polygon by this distance to catch nearby edges.
+    At 300m, a <3m sandbank polygon expands to cover surrounding 3-5m water.
     
     Returns: (danger_tree, danger_polys) or (None, []) if unavailable
     """
@@ -430,12 +433,20 @@ def load_danger_polygons(geojson_path):
         print("  WARNING: No danger polygon features found")
         return None, []
 
+    # Convert meters to approximate degrees for buffering
+    # At ~27°S latitude: 1° lon ≈ 98,500m, 1° lat ≈ 111,111m
+    buffer_deg = buffer_meters / 111111.0 if buffer_meters > 0 else 0
+
     polys = []
     skipped = 0
+    buffered = 0
     for feat in features:
         try:
             geom = shape(feat.get('geometry', {}))
             if geom.is_valid and not geom.is_empty:
+                if buffer_deg > 0:
+                    geom = geom.buffer(buffer_deg)
+                    buffered += 1
                 polys.append(geom)
             else:
                 skipped += 1
@@ -447,7 +458,10 @@ def load_danger_polygons(geojson_path):
         return None, []
 
     tree = STRtree(polys)
-    print(f"  Danger index: {len(polys):,} polygons ({skipped} invalid/skipped)")
+    if buffer_meters > 0:
+        print(f"  Danger index: {len(polys):,} polygons, buffered {buffer_meters}m ({skipped} invalid/skipped)")
+    else:
+        print(f"  Danger index: {len(polys):,} polygons ({skipped} invalid/skipped)")
     return tree, polys
 
 
@@ -1050,6 +1064,8 @@ Examples:
                         help='Path to nav_markers.geojson for seamark injection (creates open-water mesh)')
     parser.add_argument('--bathymetry', default=None,
                         help='Path to danger zone GeoJSON (polygons for water < 3m depth)')
+    parser.add_argument('--danger-buffer', type=float, default=300.0,
+                        help='Buffer distance in meters to expand danger polygons (default: 300m)')
     parser.add_argument('--no-bridges', action='store_true', help='Skip bridge clearance extraction (slow on large PBFs)')
 
     args = parser.parse_args()
@@ -1139,7 +1155,7 @@ Examples:
     if args.bathymetry:
         t_bathy = time.time()
         print("--- Loading bathymetry danger polygons (<3m depth) ---")
-        danger_tree, danger_polys = load_danger_polygons(args.bathymetry)
+        danger_tree, danger_polys = load_danger_polygons(args.bathymetry, buffer_meters=args.danger_buffer)
         print(f"  Time: {time.time() - t_bathy:.1f}s")
         print()
 
