@@ -7,6 +7,9 @@
  * 
  * This router is ONLY used within marina geofence zones where the 
  * OSM graph doesn't have enough resolution for safe navigation.
+ * 
+ * Performance: Uses grid-cell spatial indexing for O(N) neighbor 
+ * connections instead of O(N²), and raw math for A* heuristics.
  */
 
 import * as turf from '@turf/turf';
@@ -31,8 +34,21 @@ export interface MarinaRouteResult {
 
 const GRID_SPACING_M = 10;           // 10m grid resolution
 const OBSTACLE_BUFFER_M = 15;        // 15m safety buffer (beam + clearance)
-const NEIGHBOR_RADIUS_M = 15;        // Search radius for grid neighbors (catches diagonals: √(10²+10²) ≈ 14.1m)
 const NM_PER_METER = 0.000539957;    // Conversion factor
+
+// ── Fast Math (no Turf.js overhead in hot loops) ───────────────────
+
+const DEG_TO_RAD = Math.PI / 180;
+const EARTH_R_M = 6371000;
+
+/** Fast approximate distance in meters between two [lon,lat] points (for small distances < 10km) */
+function fastDistM(a: [number, number], b: [number, number]): number {
+    const midLat = (a[1] + b[1]) * 0.5 * DEG_TO_RAD;
+    const cosLat = Math.cos(midLat);
+    const dx = (b[0] - a[0]) * DEG_TO_RAD * cosLat * EARTH_R_M;
+    const dy = (b[1] - a[1]) * DEG_TO_RAD * EARTH_R_M;
+    return Math.sqrt(dx * dx + dy * dy);
+}
 
 // ── Min-Heap for A* ────────────────────────────────────────────────
 
@@ -78,13 +94,6 @@ class MinHeap {
 
 /**
  * Route from a berth position to a marina exit point, avoiding all obstacles.
- * 
- * @param startLon - Berth longitude
- * @param startLat - Berth latitude
- * @param exitLon - Marina exit longitude  
- * @param exitLat - Marina exit latitude
- * @param marinaBounds - Polygon defining the marina zone
- * @param obstacles - Optional obstacle polygons (land, breakwaters, piers)
  */
 export async function routeThroughMarina(
     startLon: number,
@@ -118,10 +127,7 @@ export async function routeThroughMarina(
     // 3. Filter out points inside obstacles or outside marina bounds
     const safePoints: Feature<Point>[] = [];
     for (const pt of grid.features) {
-        // Must be inside marina bounds
         if (!turf.booleanPointInPolygon(pt, marinaBounds)) continue;
-
-        // Must NOT be inside any buffered obstacle
         let blocked = false;
         for (const obs of bufferedObstacles) {
             if (turf.booleanPointInPolygon(pt, obs)) {
@@ -145,22 +151,45 @@ export async function routeThroughMarina(
         neighbors: [],
     }));
 
-    // 5. Connect neighboring nodes (up/down/left/right + diagonals)
+    // 5. Connect neighboring nodes using GRID-CELL SPATIAL INDEX (O(N) not O(N²))
+    //    Since points are on a regular grid, we hash them by grid cell and only
+    //    check the 8 surrounding cells for neighbors.
+    const cellSize = 0.00015; // ~16m in longitude (close enough for 10m grid)
+    const cellMap = new Map<string, number[]>();
+
     for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-            const dist = turf.distance(
-                turf.point(nodes[i].coords),
-                turf.point(nodes[j].coords),
-                { units: 'meters' }
-            );
-            if (dist <= NEIGHBOR_RADIUS_M) {
-                nodes[i].neighbors.push({ id: j, weight: dist });
-                nodes[j].neighbors.push({ id: i, weight: dist });
+        const cx = Math.floor(nodes[i].coords[0] / cellSize);
+        const cy = Math.floor(nodes[i].coords[1] / cellSize);
+        const key = `${cx},${cy}`;
+        if (!cellMap.has(key)) cellMap.set(key, []);
+        cellMap.get(key)!.push(i);
+    }
+
+    const NEIGHBOR_MAX_M = 15; // Max neighbor distance (catches diagonals at 14.1m)
+    for (let i = 0; i < nodes.length; i++) {
+        const cx = Math.floor(nodes[i].coords[0] / cellSize);
+        const cy = Math.floor(nodes[i].coords[1] / cellSize);
+
+        // Check 3×3 surrounding cells
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const key = `${cx + dx},${cy + dy}`;
+                const cell = cellMap.get(key);
+                if (!cell) continue;
+
+                for (const j of cell) {
+                    if (j <= i) continue; // avoid duplicates
+                    const dist = fastDistM(nodes[i].coords, nodes[j].coords);
+                    if (dist <= NEIGHBOR_MAX_M) {
+                        nodes[i].neighbors.push({ id: j, weight: dist });
+                        nodes[j].neighbors.push({ id: i, weight: dist });
+                    }
+                }
             }
         }
     }
 
-    // 6. Snap start and exit to nearest grid nodes
+    // 6. Snap start and exit to nearest grid nodes (using fast math)
     const startNodeId = findNearestNode(startLon, startLat, nodes);
     const exitNodeId = findNearestNode(exitLon, exitLat, nodes);
 
@@ -181,12 +210,12 @@ export async function routeThroughMarina(
 
     // 8. Build coordinate array
     const rawCoords: [number, number][] = [
-        [startLon, startLat],  // Exact start position
+        [startLon, startLat],
         ...path.map(id => nodes[id].coords),
-        [exitLon, exitLat],    // Exact exit position
+        [exitLon, exitLat],
     ];
 
-    // 9. Smooth the path with Bezier spline for natural-looking route
+    // 9. Smooth the path with Bezier spline
     let smoothCoords: [number, number][];
     try {
         if (rawCoords.length >= 3) {
@@ -203,11 +232,7 @@ export async function routeThroughMarina(
     // 10. Calculate distance
     let distanceM = 0;
     for (let i = 1; i < smoothCoords.length; i++) {
-        distanceM += turf.distance(
-            turf.point(smoothCoords[i - 1]),
-            turf.point(smoothCoords[i]),
-            { units: 'meters' }
-        );
+        distanceM += fastDistM(smoothCoords[i - 1], smoothCoords[i]);
     }
 
     const computeMs = performance.now() - t0;
@@ -230,10 +255,9 @@ export async function routeThroughMarina(
 function findNearestNode(lon: number, lat: number, nodes: GridNode[]): number {
     let bestId = -1;
     let bestDist = Infinity;
-
-    const pt = turf.point([lon, lat]);
+    const coords: [number, number] = [lon, lat];
     for (const node of nodes) {
-        const dist = turf.distance(pt, turf.point(node.coords), { units: 'meters' });
+        const dist = fastDistM(coords, node.coords);
         if (dist < bestDist) {
             bestDist = dist;
             bestId = node.id;
@@ -251,7 +275,7 @@ function aStarSearch(nodes: GridNode[], startId: number, goalId: number): number
     const closed = new Uint8Array(nodes.length);
 
     gScore[startId] = 0;
-    fScore[startId] = heuristic(nodes[startId].coords, goalCoords);
+    fScore[startId] = fastDistM(nodes[startId].coords, goalCoords);
 
     const open = new MinHeap();
     open.push({ f: fScore[startId], id: startId });
@@ -260,7 +284,6 @@ function aStarSearch(nodes: GridNode[], startId: number, goalId: number): number
         const current = open.pop()!;
 
         if (current.id === goalId) {
-            // Reconstruct path
             const path: number[] = [];
             let id = goalId;
             while (id !== -1) {
@@ -275,21 +298,15 @@ function aStarSearch(nodes: GridNode[], startId: number, goalId: number): number
 
         for (const neighbor of nodes[current.id].neighbors) {
             if (closed[neighbor.id]) continue;
-
             const tentativeG = gScore[current.id] + neighbor.weight;
             if (tentativeG < gScore[neighbor.id]) {
                 cameFrom[neighbor.id] = current.id;
                 gScore[neighbor.id] = tentativeG;
-                fScore[neighbor.id] = tentativeG + heuristic(nodes[neighbor.id].coords, goalCoords);
+                fScore[neighbor.id] = tentativeG + fastDistM(nodes[neighbor.id].coords, goalCoords);
                 open.push({ f: fScore[neighbor.id], id: neighbor.id });
             }
         }
     }
 
-    return null; // No path found
-}
-
-function heuristic(a: [number, number], b: [number, number]): number {
-    // Simple Euclidean distance in meters (good enough for small areas)
-    return turf.distance(turf.point(a), turf.point(b), { units: 'meters' });
+    return null;
 }
