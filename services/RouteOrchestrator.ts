@@ -31,7 +31,7 @@ export interface OrchestratedRoute {
 interface WaterwayZone {
     type: 'Feature';
     properties: {
-        zone_type: 'marina' | 'waterway_centerline' | 'river';
+        zone_type: 'marina' | 'waterway_centerline' | 'channel_centerline' | 'river';
         name: string;
         waterway?: string;
         osm_id: number;
@@ -103,8 +103,9 @@ function findContainingMarina(
 }
 
 /**
- * Find the nearest waterway centerline to the given point.
- * Returns the centerline feature and the index of the nearest point on it.
+ * Find the nearest waterway or channel centerline to the given point.
+ * Checks both OSM waterway centerlines and IALA-derived channel centerlines.
+ * Prefers channel_centerline (from paired marks) over waterway_centerline (from OSM).
  */
 function findNearestCenterline(
     lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 500
@@ -112,7 +113,9 @@ function findNearestCenterline(
     let best: { feature: WaterwayZone; nearestIdx: number; distM: number } | null = null;
 
     for (const zone of zones) {
-        if (zone.properties.zone_type !== 'waterway_centerline') continue;
+        // Accept both OSM waterway centerlines and IALA channel centerlines
+        const zt = zone.properties.zone_type;
+        if (zt !== 'waterway_centerline' && zt !== 'channel_centerline') continue;
         if (zone.geometry.type !== 'LineString') continue;
 
         const coords = zone.geometry.coordinates as [number, number][];
