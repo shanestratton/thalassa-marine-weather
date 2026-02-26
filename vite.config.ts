@@ -27,6 +27,17 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      proxy: {
+        // Proxy Distance.tools API to avoid CORS (browser → Vite → API)
+        '/api/distance-tools': {
+          target: 'https://api.distance.tools',
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/api\/distance-tools/, '/api/v2'),
+          headers: {
+            'X-Billing-Token': getKey('VITE_DISTANCE_TOOLS_KEY'),
+          },
+        },
+      },
     },
     plugins: [react()],
     define: {
