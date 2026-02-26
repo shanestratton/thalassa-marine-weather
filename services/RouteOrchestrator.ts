@@ -1,17 +1,13 @@
 /**
- * Route Orchestrator v2 — Distance.tools API
- * 
- * 3-phase routing engine:
- *   Phase 1: Coastal departure (origin → 30nm handoff) via Distance.tools API
- *   Phase 2: Open ocean (handoff A → handoff B) — straight line or weather routing
- *   Phase 3: Coastal arrival (30nm handoff → destination) via Distance.tools API
- * 
- * For short routes (<60nm total), uses a single API call for the whole journey.
- * 
- * Falls back to straight-line routing if:
- *   - API key is missing
- *   - API request fails
- *   - Route is too short to need phasing
+ * Route Orchestrator v3 — OSM Waterway Exit Router
+ *
+ * Uses real OSM geometry to route boats out of marinas and rivers:
+ *   1. Load waterway_zones.geojson (marina polygons + river centerlines)
+ *   2. Check if origin is inside a marina or on a river (Turf point-in-polygon)
+ *   3. If yes → snap to nearest centerline, follow it downstream to safe water
+ *   4. If no → return null (let Gemini AI handle the whole route)
+ *
+ * No external API calls. No massive graphs. Just geometry.
  */
 
 import * as turf from '@turf/turf';
@@ -19,335 +15,289 @@ import * as turf from '@turf/turf';
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface OrchestratedRoute {
-    /** Full route coordinates [lon, lat] */
     coordinates: [number, number][];
-    /** Total distance in nautical miles */
     totalNM: number;
-    /** Computation time in ms */
     computeMs: number;
-    /** Which engines were used */
     engines: string[];
-    /** Number of waypoints */
     waypointCount: number;
-    /** Route segments for debugging */
     segments: {
         engine: string;
         coordinates: [number, number][];
         distanceNM: number;
     }[];
-    /** GeoJSON LineString for map rendering */
     geojson: GeoJSON.Feature<GeoJSON.LineString>;
 }
 
-// ── Distance.tools API ─────────────────────────────────────────────
+interface WaterwayZone {
+    type: 'Feature';
+    properties: {
+        zone_type: 'marina' | 'waterway_centerline' | 'river';
+        name: string;
+        waterway?: string;
+        osm_id: number;
+    };
+    geometry: GeoJSON.Polygon | GeoJSON.LineString;
+}
 
-// Use the Vite dev proxy to avoid CORS (browser → Vite → API)
-// In production, this routes through a Vercel/Supabase proxy function
-const API_BASE = '/api/distance-tools';
-const HANDOFF_NM = 30; // Distance from coast to switch engines
-const SHORT_ROUTE_NM = 60; // Routes shorter than this use a single API call
+// ── Data loading ───────────────────────────────────────────────────
 
-/**
- * Call Distance.tools maritime routing API.
- * Returns an array of [lon, lat] coordinates and distance in NM.
- */
-async function callDistanceToolsAPI(
-    originLat: number, originLon: number,
-    destLat: number, destLon: number,
-): Promise<{ coordinates: [number, number][]; distanceNM: number } | null> {
-    // API key is injected by the Vite proxy (dev) or edge function (prod)
-    // so we don't send it from the browser — avoids exposing it in client JS
+let zonesData: { features: WaterwayZone[] } | null = null;
+
+async function loadZones(): Promise<{ features: WaterwayZone[] }> {
+    if (zonesData) return zonesData;
 
     try {
-        const resp = await fetch(`${API_BASE}/routing/maritime`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                route: [
-                    { lat: originLat, lng: originLon },
-                    { lat: destLat, lng: destLon },
-                ],
-            }),
-        });
-
-        if (!resp.ok) {
-            console.error(`[Orchestrator] Distance.tools API error: ${resp.status} ${resp.statusText}`);
-            return null;
-        }
-
-        const data = await resp.json();
-
-        // Extract route geometry from OSRM-style response
-        // The response has routes[0].geometry with coordinates
-        if (!data.routes || data.routes.length === 0) {
-            console.warn('[Orchestrator] Distance.tools returned no routes');
-            return null;
-        }
-
-        const route = data.routes[0];
-        const distanceMeters = route.distance || 0;
-        const distanceNM = distanceMeters / 1852; // meters to NM
-
-        // Extract coordinates from geometry
-        let coordinates: [number, number][] = [];
-
-        if (route.geometry) {
-            if (typeof route.geometry === 'string') {
-                // Polyline encoded — decode it
-                coordinates = decodePolyline(route.geometry);
-            } else if (route.geometry.coordinates) {
-                // GeoJSON format
-                coordinates = route.geometry.coordinates as [number, number][];
-            }
-        }
-
-        // Fallback: extract from legs/steps if geometry is empty
-        if (coordinates.length === 0 && route.legs) {
-            for (const leg of route.legs) {
-                if (leg.steps) {
-                    for (const step of leg.steps) {
-                        if (step.geometry?.coordinates) {
-                            coordinates.push(...step.geometry.coordinates);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (coordinates.length === 0) {
-            console.warn('[Orchestrator] Distance.tools returned route with no geometry');
-            return null;
-        }
-
-        console.log(`[Orchestrator] Distance.tools: ${coordinates.length} WPs, ${distanceNM.toFixed(1)} NM`);
-        return { coordinates, distanceNM };
-
+        const resp = await fetch('/data/waterway_zones.geojson');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        zonesData = await resp.json();
+        const marinas = zonesData!.features.filter(f => f.properties.zone_type === 'marina').length;
+        const centerlines = zonesData!.features.filter(f => f.properties.zone_type === 'waterway_centerline').length;
+        console.log(`[Orchestrator] Loaded ${marinas} marinas, ${centerlines} waterway centerlines`);
+        return zonesData!;
     } catch (err) {
-        console.error('[Orchestrator] Distance.tools API call failed:', err);
-        return null;
+        console.error('[Orchestrator] Failed to load waterway zones:', err);
+        return { features: [] };
+    }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+/** Fast equirectangular distance in meters */
+function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const dx = (lon2 - lon1) * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180) * 111320;
+    const dy = (lat2 - lat1) * 111320;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Convert meters to nautical miles */
+function metersToNM(m: number): number {
+    return m / 1852;
+}
+
+/** Calculate total distance along a coordinate array [lon, lat][] */
+function totalDistanceNM(coords: [number, number][]): number {
+    let total = 0;
+    for (let i = 1; i < coords.length; i++) {
+        total += fastDistM(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
+    }
+    return metersToNM(total);
+}
+
+/**
+ * Find which marina polygon (if any) contains the given point.
+ */
+function findContainingMarina(
+    lon: number, lat: number, zones: WaterwayZone[]
+): WaterwayZone | null {
+    const pt = turf.point([lon, lat]);
+    for (const zone of zones) {
+        if (zone.properties.zone_type === 'marina' && zone.geometry.type === 'Polygon') {
+            try {
+                if (turf.booleanPointInPolygon(pt, zone as any)) {
+                    return zone;
+                }
+            } catch { /* skip malformed polygons */ }
+        }
+    }
+    return null;
+}
+
+/**
+ * Find the nearest waterway centerline to the given point.
+ * Returns the centerline feature and the index of the nearest point on it.
+ */
+function findNearestCenterline(
+    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 500
+): { feature: WaterwayZone; nearestIdx: number; distM: number } | null {
+    let best: { feature: WaterwayZone; nearestIdx: number; distM: number } | null = null;
+
+    for (const zone of zones) {
+        if (zone.properties.zone_type !== 'waterway_centerline') continue;
+        if (zone.geometry.type !== 'LineString') continue;
+
+        const coords = zone.geometry.coordinates as [number, number][];
+        for (let i = 0; i < coords.length; i++) {
+            const d = fastDistM(lat, lon, coords[i][1], coords[i][0]);
+            if (d < maxDistM && (!best || d < best.distM)) {
+                best = { feature: zone, nearestIdx: i, distM: d };
+            }
+        }
+    }
+
+    return best;
+}
+
+/**
+ * Follow a waterway centerline from a starting index toward the endpoint
+ * that is closest to the destination.
+ * 
+ * Returns the route coordinates [lon, lat][] from the snap point to the exit.
+ */
+function followCenterline(
+    centerline: WaterwayZone,
+    startIdx: number,
+    destLon: number,
+    destLat: number,
+): [number, number][] {
+    const coords = centerline.geometry.coordinates as [number, number][];
+
+    // Determine direction: follow toward whichever end is closer to destination
+    const distToStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
+    const distToEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
+
+    if (distToEnd <= distToStart) {
+        // Follow downstream (toward end)
+        return coords.slice(startIdx);
+    } else {
+        // Follow upstream (toward start)
+        return coords.slice(0, startIdx + 1).reverse();
     }
 }
 
 /**
- * Decode a polyline-encoded string into [lon, lat] coordinates.
- * Google polyline encoding format.
+ * For a marina, find the nearest waterway centerline just outside the marina.
+ * This gives us the handoff from marina to waterway.
  */
-function decodePolyline(encoded: string): [number, number][] {
-    const coords: [number, number][] = [];
-    let index = 0;
-    let lat = 0;
-    let lng = 0;
+function findExitCenterline(
+    marina: WaterwayZone,
+    zones: WaterwayZone[],
+): { feature: WaterwayZone; nearestIdx: number } | null {
+    // Get the marina centroid and look for centerlines within 2km
+    const centroid = turf.centroid(marina as any);
+    const [cLon, cLat] = centroid.geometry.coordinates;
 
-    while (index < encoded.length) {
-        let b: number;
-        let shift = 0;
-        let result = 0;
-
-        do {
-            b = encoded.charCodeAt(index++) - 63;
-            result |= (b & 0x1f) << shift;
-            shift += 5;
-        } while (b >= 0x20);
-
-        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
-
-        shift = 0;
-        result = 0;
-
-        do {
-            b = encoded.charCodeAt(index++) - 63;
-            result |= (b & 0x1f) << shift;
-            shift += 5;
-        } while (b >= 0x20);
-
-        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
-
-        // Return as [lon, lat] for GeoJSON compatibility
-        coords.push([lng / 1e5, lat / 1e5]);
-    }
-
-    return coords;
-}
-
-// ── Haversine ──────────────────────────────────────────────────────
-
-function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 3440.065;
-    const toRad = (d: number) => d * Math.PI / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(a));
+    return findNearestCenterline(cLon, cLat, zones, 2000);
 }
 
 // ── Main Orchestrator ──────────────────────────────────────────────
 
-/**
- * Route from origin to destination using 3-phase pipeline:
- * 
- * Short routes (<60nm): Single Distance.tools API call
- * Long routes: 
- *   Phase 1: Coast departure via API (origin → 30nm handoff)
- *   Phase 2: Open ocean straight line (handoff A → handoff B)
- *   Phase 3: Coast arrival via API (30nm handoff → destination)
- */
 export async function orchestrateRoute(
     originLat: number,
     originLon: number,
     destLat: number,
     destLon: number,
-    vesselDraft: number = 2.5,
+    _vesselDraft: number = 2.5,
     _region: string = 'se_queensland',
 ): Promise<OrchestratedRoute | null> {
     const t0 = performance.now();
     const engines: string[] = [];
     const segments: OrchestratedRoute['segments'] = [];
 
-    const totalDistNM = haversineNM(originLat, originLon, destLat, destLon);
-    console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}] (${totalDistNM.toFixed(1)} NM)`);
+    console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}]`);
 
-    let allCoords: [number, number][] = [];
+    // Load waterway data
+    const zones = await loadZones();
+    if (zones.features.length === 0) {
+        console.warn('[Orchestrator] No waterway data loaded — returning null');
+        return null;
+    }
 
-    // ── Short route: single API call ──────────────────────────────
-    if (totalDistNM < SHORT_ROUTE_NM) {
-        console.log('[Orchestrator] Short route — single API call');
+    let exitCoords: [number, number][] = [];
 
-        const result = await callDistanceToolsAPI(originLat, originLon, destLat, destLon);
+    // ── Check 1: Is the origin inside a marina? ────────────────────
+    const marina = findContainingMarina(originLon, originLat, zones.features);
 
-        if (result) {
-            engines.push('distance_tools');
-            allCoords = result.coordinates;
+    if (marina) {
+        console.log(`[Orchestrator] 🏗 Origin in marina: ${marina.properties.name}`);
+
+        // Find the nearest waterway centerline to this marina
+        const exitLine = findExitCenterline(marina, zones.features);
+
+        if (exitLine) {
+            console.log(`[Orchestrator] Found exit waterway: ${exitLine.feature.properties.name}`);
+
+            // Build route: origin → marina exit → follow centerline downstream
+            const centerlineRoute = followCenterline(
+                exitLine.feature,
+                exitLine.nearestIdx,
+                destLon,
+                destLat,
+            );
+
+            // Prepend the origin point and connection to centerline
+            exitCoords = [
+                [originLon, originLat],
+                ...centerlineRoute,
+            ];
+
+            engines.push('marina_exit');
             segments.push({
-                engine: 'distance_tools',
-                coordinates: result.coordinates,
-                distanceNM: result.distanceNM,
+                engine: 'marina_exit',
+                coordinates: exitCoords,
+                distanceNM: totalDistanceNM(exitCoords),
             });
         } else {
-            // Fallback: straight line
-            console.warn('[Orchestrator] API failed — falling back to straight line');
-            engines.push('straight_line');
-            allCoords = [[originLon, originLat], [destLon, destLat]];
-            segments.push({
-                engine: 'straight_line',
-                coordinates: allCoords,
-                distanceNM: totalDistNM,
-            });
-        }
-
-    } else {
-        // ── Long route: 3-phase pipeline ──────────────────────────
-
-        // Calculate handoff points using Turf.js
-        const originPt = turf.point([originLon, originLat]);
-        const destPt = turf.point([destLon, destLat]);
-
-        // Phase 1: Departure handoff — 30nm from origin toward destination
-        const bearingOut = turf.bearing(originPt, destPt);
-        const handoffA = turf.destination(originPt, HANDOFF_NM, bearingOut, { units: 'nauticalmiles' });
-        const [handoffALon, handoffALat] = handoffA.geometry.coordinates;
-
-        // Phase 3: Arrival handoff — 30nm from destination toward origin
-        const bearingBack = turf.bearing(destPt, originPt);
-        const handoffB = turf.destination(destPt, HANDOFF_NM, bearingBack, { units: 'nauticalmiles' });
-        const [handoffBLon, handoffBLat] = handoffB.geometry.coordinates;
-
-        console.log(`[Orchestrator] Handoffs: A=[${handoffALat.toFixed(4)}, ${handoffALon.toFixed(4)}] B=[${handoffBLat.toFixed(4)}, ${handoffBLon.toFixed(4)}]`);
-
-        // ── Phase 1: Coastal departure ────────────────────────────
-        console.log('[Orchestrator] Phase 1: Coastal departure...');
-        const phase1 = await callDistanceToolsAPI(originLat, originLon, handoffALat, handoffALon);
-
-        if (phase1) {
-            engines.push('distance_tools_departure');
-            allCoords.push(...phase1.coordinates);
-            segments.push({
-                engine: 'distance_tools_departure',
-                coordinates: phase1.coordinates,
-                distanceNM: phase1.distanceNM,
-            });
-        } else {
-            // Fallback: straight line to handoff
-            allCoords.push([originLon, originLat], [handoffALon, handoffALat]);
-            engines.push('straight_departure');
-            segments.push({
-                engine: 'straight_departure',
-                coordinates: [[originLon, originLat], [handoffALon, handoffALat]],
-                distanceNM: HANDOFF_NM,
-            });
-        }
-
-        // ── Phase 2: Open ocean (straight line for now) ───────────
-        // TODO: Replace with weather/isochrone routing
-        console.log('[Orchestrator] Phase 2: Open ocean...');
-        const oceanDistNM = haversineNM(handoffALat, handoffALon, handoffBLat, handoffBLon);
-        engines.push('open_ocean');
-        // Don't include the first point (it's the last of phase 1)
-        allCoords.push([handoffBLon, handoffBLat]);
-        segments.push({
-            engine: 'open_ocean',
-            coordinates: [[handoffALon, handoffALat], [handoffBLon, handoffBLat]],
-            distanceNM: oceanDistNM,
-        });
-
-        // ── Phase 3: Coastal arrival ──────────────────────────────
-        console.log('[Orchestrator] Phase 3: Coastal arrival...');
-        const phase3 = await callDistanceToolsAPI(handoffBLat, handoffBLon, destLat, destLon);
-
-        if (phase3) {
-            engines.push('distance_tools_arrival');
-            // Skip first point (overlaps with handoff B)
-            allCoords.push(...phase3.coordinates.slice(1));
-            segments.push({
-                engine: 'distance_tools_arrival',
-                coordinates: phase3.coordinates,
-                distanceNM: phase3.distanceNM,
-            });
-        } else {
-            // Fallback: straight line from handoff to destination
-            allCoords.push([destLon, destLat]);
-            engines.push('straight_arrival');
-            segments.push({
-                engine: 'straight_arrival',
-                coordinates: [[handoffBLon, handoffBLat], [destLon, destLat]],
-                distanceNM: HANDOFF_NM,
-            });
+            console.warn(`[Orchestrator] No centerline found near ${marina.properties.name}`);
+            // Fall through — the AI will handle the full route
+            return null;
         }
     }
 
-    // ── Build final result ────────────────────────────────────────
+    // ── Check 2: Is the origin near a waterway? ────────────────────
+    if (!marina) {
+        const nearest = findNearestCenterline(originLon, originLat, zones.features, 300);
 
-    const totalNM = segments.reduce((sum, s) => sum + s.distanceNM, 0);
+        if (nearest) {
+            console.log(`[Orchestrator] 🌊 Origin near waterway: ${nearest.feature.properties.name} (${nearest.distM.toFixed(0)}m)`);
+
+            // Follow the centerline toward the destination
+            const centerlineRoute = followCenterline(
+                nearest.feature,
+                nearest.nearestIdx,
+                destLon,
+                destLat,
+            );
+
+            exitCoords = [
+                [originLon, originLat],
+                ...centerlineRoute,
+            ];
+
+            engines.push('waterway_follow');
+            segments.push({
+                engine: 'waterway_follow',
+                coordinates: exitCoords,
+                distanceNM: totalDistanceNM(exitCoords),
+            });
+        } else {
+            // Not in a marina, not near a waterway — open water
+            console.log('[Orchestrator] ⚓ Origin in open water — letting AI handle route');
+            return null;
+        }
+    }
+
+    // ── Build result ───────────────────────────────────────────────
+
+    if (exitCoords.length === 0) return null;
+
+    const totalNM = totalDistanceNM(exitCoords);
     const computeMs = performance.now() - t0;
 
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
         properties: {
             distanceNM: Math.round(totalNM * 10) / 10,
-            waypointCount: allCoords.length,
+            waypointCount: exitCoords.length,
             computeMs: Math.round(computeMs),
             engines: engines.join('+'),
         },
         geometry: {
             type: 'LineString',
-            coordinates: allCoords,
+            coordinates: exitCoords,
         },
     };
 
     console.log(
-        `[Orchestrator] ✓ ${allCoords.length} WPs, ${totalNM.toFixed(1)} NM, ${computeMs.toFixed(0)}ms ` +
-        `[engines: ${engines.join(' → ')}]`
+        `[Orchestrator] ✓ ${exitCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
+        `${computeMs.toFixed(0)}ms [${engines.join(' → ')}]`
     );
 
     return {
-        coordinates: allCoords,
+        coordinates: exitCoords,
         totalNM: Math.round(totalNM * 10) / 10,
         computeMs: Math.round(computeMs),
         engines,
-        waypointCount: allCoords.length,
+        waypointCount: exitCoords.length,
         segments,
         geojson,
     };
