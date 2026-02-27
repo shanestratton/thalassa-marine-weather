@@ -3,8 +3,9 @@
  *
  * Loads the precomputed waterway_graph.json and provides:
  *   - Snap any lat/lon to nearest graph node
- *   - A* shortest-path routing through the canal/river network
- *   - Returns ordered [lon, lat][] coordinates following every turn
+ *   - BFS to discover reachable component
+ *   - A* shortest-path to the EXIT node (furthest reachable node toward destination)
+ *   - Returns ordered [lon, lat][] coordinates following every canal turn
  *
  * Works for ANY marina/canal in the SE QLD region.
  */
@@ -47,9 +48,6 @@ let graphData: GraphData | null = null;
 let adjacency: Map<string, AdjEntry[]> | null = null;
 let nodeList: { id: string; lat: number; lon: number }[] | null = null;
 
-/**
- * Load the waterway graph data and build adjacency list.
- */
 async function loadGraph(): Promise<void> {
     if (graphData && adjacency) return;
 
@@ -97,10 +95,6 @@ function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): numb
 
 // ── Spatial snap ───────────────────────────────────────────────────
 
-/**
- * Find the nearest graph node to a given lat/lon.
- * Returns node ID and distance in meters.
- */
 function snapToGraph(
     lat: number, lon: number, maxDistM: number = 5000
 ): { nodeId: string; distM: number; lat: number; lon: number } | null {
@@ -109,7 +103,6 @@ function snapToGraph(
     let best: { nodeId: string; distM: number; lat: number; lon: number } | null = null;
 
     for (const node of nodeList) {
-        // Quick lat filter (1 degree ≈ 111km)
         if (Math.abs(node.lat - lat) > 0.05) continue;
         if (Math.abs(node.lon - lon) > 0.05) continue;
 
@@ -122,21 +115,68 @@ function snapToGraph(
     return best;
 }
 
-// ── A* Pathfinding ─────────────────────────────────────────────────
+// ── BFS: Find reachable component ──────────────────────────────────
 
 /**
- * A* shortest path from startNode to goalNode through the waterway graph.
- * Returns ordered array of node IDs, or null if no path found.
+ * BFS from startNode to find all reachable nodes (connected component).
+ * Returns the set of reachable node IDs.
  */
-function astar(
-    startId: string, goalId: string
-): string[] | null {
+function findReachableNodes(startId: string): Set<string> {
+    if (!adjacency) return new Set();
+
+    const visited = new Set<string>();
+    const queue: string[] = [startId];
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        if (visited.has(current)) continue;
+        visited.add(current);
+
+        const neighbors = adjacency.get(current);
+        if (neighbors) {
+            for (const n of neighbors) {
+                if (!visited.has(n.nodeId)) {
+                    queue.push(n.nodeId);
+                }
+            }
+        }
+    }
+
+    return visited;
+}
+
+/**
+ * Find the EXIT node: the reachable node that's closest to the destination.
+ * This is where the canal network "exits" toward open water.
+ */
+function findExitNode(
+    reachable: Set<string>,
+    destLat: number, destLon: number,
+): { nodeId: string; distM: number } | null {
+    if (!graphData) return null;
+
+    let best: { nodeId: string; distM: number } | null = null;
+
+    for (const nodeId of reachable) {
+        const node = graphData.nodes[nodeId];
+        if (!node) continue;
+        const d = fastDistM(node.lat, node.lon, destLat, destLon);
+        if (!best || d < best.distM) {
+            best = { nodeId, distM: d };
+        }
+    }
+
+    return best;
+}
+
+// ── A* Pathfinding ─────────────────────────────────────────────────
+
+function astar(startId: string, goalId: string): string[] | null {
     if (!adjacency || !graphData) return null;
 
     const goalNode = graphData.nodes[goalId];
     if (!goalNode) return null;
 
-    // Priority queue using a simple sorted array (good enough for our graph size)
     const openSet = new Map<string, { f: number; g: number }>();
     const cameFrom = new Map<string, string>();
     const gScore = new Map<string, number>();
@@ -163,7 +203,6 @@ function astar(
         }
 
         if (currentId === goalId) {
-            // Reconstruct path
             const path: string[] = [currentId];
             let c = currentId;
             while (cameFrom.has(c)) {
@@ -204,14 +243,14 @@ function astar(
 // ── Public API ─────────────────────────────────────────────────────
 
 /**
- * Route through the waterway graph from origin to a point near the destination.
+ * Route through the waterway graph from origin toward destination.
  *
- * 1. Snaps origin to nearest graph node
- * 2. Snaps destination to nearest graph node
- * 3. A* pathfinding between them
- * 4. Returns ordered [lon, lat][] coordinates
- *
- * Returns null if either snap fails or no path exists.
+ * Strategy:
+ * 1. Snap origin to nearest graph node
+ * 2. BFS to find all reachable nodes (connected component)
+ * 3. Find the EXIT node (reachable node closest to destination)
+ * 4. A* pathfind from origin to exit node
+ * 5. Return the path coordinates — MapHub extends to destination
  */
 export async function graphRoute(
     originLat: number, originLon: number,
@@ -222,7 +261,7 @@ export async function graphRoute(
 
     const t0 = performance.now();
 
-    // Snap origin
+    // Step 1: Snap origin to nearest graph node
     const originSnap = snapToGraph(originLat, originLon, 2000);
     if (!originSnap) {
         console.log(`[WaterwayGraph] No node within 2000m of origin [${originLat.toFixed(4)}, ${originLon.toFixed(4)}]`);
@@ -230,25 +269,30 @@ export async function graphRoute(
     }
     console.log(`[WaterwayGraph] Origin snap: node ${originSnap.nodeId} at ${originSnap.distM.toFixed(0)}m`);
 
-    // Snap destination
-    const destSnap = snapToGraph(destLat, destLon, 10000);
-    if (!destSnap) {
-        console.log(`[WaterwayGraph] No node within 10000m of dest [${destLat.toFixed(4)}, ${destLon.toFixed(4)}]`);
+    // Step 2: BFS to find reachable component
+    const reachable = findReachableNodes(originSnap.nodeId);
+    console.log(`[WaterwayGraph] Reachable component: ${reachable.size} nodes`);
+
+    // Step 3: Find exit node (closest reachable node to destination)
+    const exitNode = findExitNode(reachable, destLat, destLon);
+    if (!exitNode) {
+        console.log(`[WaterwayGraph] No exit node found`);
         return null;
     }
-    console.log(`[WaterwayGraph] Dest snap: node ${destSnap.nodeId} at ${destSnap.distM.toFixed(0)}m`);
+    const exitGeo = graphData.nodes[exitNode.nodeId];
+    console.log(`[WaterwayGraph] Exit node: ${exitNode.nodeId} at [${exitGeo.lat.toFixed(5)}, ${exitGeo.lon.toFixed(5)}], ${(exitNode.distM / 1852).toFixed(1)} NM from dest`);
 
-    // A* pathfinding
-    const path = astar(originSnap.nodeId, destSnap.nodeId);
+    // Step 4: A* pathfind from origin to exit
+    const path = astar(originSnap.nodeId, exitNode.nodeId);
     if (!path) {
-        console.log(`[WaterwayGraph] No path found between nodes`);
+        console.log(`[WaterwayGraph] A* failed — should not happen within component`);
         return null;
     }
 
-    // Convert node IDs to coordinates [lon, lat]
+    // Step 5: Convert to coordinates
     const coords: [number, number][] = [];
 
-    // Add actual origin position first (before snap point)
+    // Start from actual origin position
     coords.push([originLon, originLat]);
 
     // Add all graph nodes along the path
@@ -258,6 +302,9 @@ export async function graphRoute(
             coords.push([node.lon, node.lat]);
         }
     }
+
+    // Add the actual destination at the end (straight line from exit to destination)
+    coords.push([destLon, destLat]);
 
     // Calculate total distance
     let totalM = 0;
