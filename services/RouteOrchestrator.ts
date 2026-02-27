@@ -239,15 +239,18 @@ export async function orchestrateRoute(
 
     const graphResult = await graphRoute(originLat, originLon, exit.exit_lat, exit.exit_lon);
 
-    if (graphResult && graphResult.coords.length > 2) {
-        // Graph routing succeeded — route follows canal turns!
-        // Remove the last coord (it's the exit WP appended by graphRoute,
-        // we'll add the precise exit WP ourselves)
-        exitCoords = graphResult.coords.slice(0, -1);
-        console.log(`[Orchestrator] A* canal route: ${exitCoords.length} WPs through canals`);
+    if (graphResult && graphResult.coords.length > 2 && graphResult.snapDistM < 500) {
+        // Graph routing succeeded AND origin snap is close (< 500m)
+        // Ensure the first coord is the user's ACTUAL origin, not the snapped node
+        exitCoords = [[originLon, originLat], ...graphResult.coords.slice(1, -1)];
+        console.log(`[Orchestrator] A* canal route: ${exitCoords.length} WPs (snap ${graphResult.snapDistM.toFixed(0)}m)`);
     } else {
-        // Graph routing failed — fall back to straight line
-        console.log(`[Orchestrator] A* failed — falling back to straight line`);
+        // Graph routing failed or snap too far — use simple origin → exit WP
+        if (graphResult) {
+            console.log(`[Orchestrator] A* snap too far (${graphResult.snapDistM.toFixed(0)}m) — straight line`);
+        } else {
+            console.log(`[Orchestrator] A* failed — straight line`);
+        }
         exitCoords = [[originLon, originLat]];
     }
 
