@@ -356,6 +356,24 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             }
         }
 
+        // Always fix generic destination names — Gemini sometimes returns
+        // "Queensland, Queensland, AU" even when coordinates are correct
+        if (data.destination) {
+            const generic = data.destination.toLowerCase();
+            if (generic.includes('queensland, queensland') ||
+                generic.includes('new south wales, new south wales') ||
+                generic.includes('victoria, victoria') ||
+                generic === destination.trim().toLowerCase() === false && generic.split(',').length <= 2 && !generic.match(/\d/)) {
+                // Check if Gemini's name looks generic (state-level, no specifics)
+                const hasSuburb = generic.split(',')[0].trim().length > 3 &&
+                    !['queensland', 'nsw', 'victoria', 'tasmania', 'western australia', 'south australia', 'northern territory', 'act'].includes(generic.split(',')[0].trim());
+                if (!hasSuburb) {
+                    console.log(`[VoyagePlan] Overriding generic destination "${data.destination}" → "${destination}"`);
+                    data.destination = destination;
+                }
+            }
+        }
+
         data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
             const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
             if (isCoordName && !wp.name.toUpperCase().startsWith("WP")) {
