@@ -1,16 +1,16 @@
 /**
- * Route Orchestrator v6 — Pre-defined Marina Exit Waypoints
+ * Route Orchestrator v7 — Canal A* to Exit WP + Straight Line
  *
- * Simple, reliable approach:
- *   1. Check if origin is inside a marina polygon
- *   2. Look up the marina's pre-defined exit waypoint
- *   3. Route: origin → exit WP → destination
+ * Best of both approaches:
+ *   1. Detect marina → look up pre-defined exit waypoint
+ *   2. Canal-only A* from boat through canal network TO the exit WP
+ *   3. Straight line from exit WP to destination (open water)
  *
- * No graph routing, no A*, no centerline chaining.
- * Every skipper knows how to get from their berth to the canal exit.
+ * Canal turns followed. No land crossings. Correct exit point.
  */
 
 import * as turf from '@turf/turf';
+import { graphRoute } from './waterwayGraph';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -120,12 +120,11 @@ function findContainingMarina(
 }
 
 function findNearestMarina(
-    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 1000
+    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 500
 ): WaterwayZone | null {
     let best: { zone: WaterwayZone; dist: number } | null = null;
     for (const zone of zones) {
         if (zone.properties.zone_type !== 'marina' || zone.geometry.type !== 'Polygon') continue;
-        // Check distance to centroid
         const boundary = zone.geometry.coordinates[0];
         const cx = boundary.reduce((s, v) => s + v[0], 0) / boundary.length;
         const cy = boundary.reduce((s, v) => s + v[1], 0) / boundary.length;
@@ -181,16 +180,34 @@ export async function orchestrateRoute(
 
     console.log(`[Orchestrator] Exit WP: [${exit.exit_lat.toFixed(5)}, ${exit.exit_lon.toFixed(5)}] via ${exit.nearest_channel}`);
 
-    // ── Build route: origin → exit WP → destination ────────────────
-    const exitCoords: [number, number][] = [
-        [originLon, originLat],          // Start: boat position
-        [exit.exit_lon, exit.exit_lat],   // Exit: canal mouth
-        [destLon, destLat],              // End: destination
-    ];
+    // ── Phase 1: Canal A* from boat to exit WP ─────────────────────
+    // Use the canal-only graph router to follow canal turns from
+    // the boat position to the pre-defined exit waypoint.
+    let exitCoords: [number, number][] = [];
+
+    const graphResult = await graphRoute(originLat, originLon, exit.exit_lat, exit.exit_lon);
+
+    if (graphResult && graphResult.coords.length > 2) {
+        // Graph routing succeeded — route follows canal turns!
+        // Remove the last coord (it's the exit WP appended by graphRoute,
+        // we'll add the precise exit WP ourselves)
+        exitCoords = graphResult.coords.slice(0, -1);
+        console.log(`[Orchestrator] A* canal route: ${exitCoords.length} WPs through canals`);
+    } else {
+        // Graph routing failed — fall back to straight line
+        console.log(`[Orchestrator] A* failed — falling back to straight line`);
+        exitCoords = [[originLon, originLat]];
+    }
+
+    // Add the precise exit WP
+    exitCoords.push([exit.exit_lon, exit.exit_lat]);
+
+    // ── Phase 2: Straight line from exit to destination ─────────────
+    exitCoords.push([destLon, destLat]);
 
     const totalNM = totalDistanceNM(exitCoords);
     const computeMs = performance.now() - t0;
-    const engines = ['marina_exit'];
+    const engines = graphResult ? ['canal_astar', 'marina_exit'] : ['marina_exit'];
 
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
@@ -208,7 +225,7 @@ export async function orchestrateRoute(
 
     console.log(
         `[Orchestrator] ✓ ${exitCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
-        `${computeMs.toFixed(0)}ms [marina_exit: ${marinaName}]`
+        `${computeMs.toFixed(0)}ms [${engines.join(' → ')}]`
     );
 
     return {
@@ -218,7 +235,7 @@ export async function orchestrateRoute(
         engines,
         waypointCount: exitCoords.length,
         segments: [{
-            engine: 'marina_exit',
+            engine: engines.join('+'),
             coordinates: exitCoords,
             distanceNM: totalNM,
         }],
