@@ -357,18 +357,30 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         }
 
         // Always fix generic destination names — Gemini sometimes returns
-        // "Queensland, Queensland, AU" even when coordinates are correct
-        if (data.destination && destination) {
+        // "Queensland, Queensland, AU" even when coordinates are correct.
+        // The user input may ALSO be contaminated from a previous session.
+        if (data.destination && data.destinationCoordinates) {
             const geminiDest = data.destination.toLowerCase().trim();
-            const userDest = destination.toLowerCase().trim();
-            // If Gemini's name doesn't contain what the user typed, override it
-            const isGeneric = geminiDest.includes('queensland, queensland') ||
+            const isGeminiGeneric = geminiDest.includes('queensland, queensland') ||
                 geminiDest.includes('new south wales, new south wales') ||
-                geminiDest.includes('victoria, victoria') ||
-                !geminiDest.includes(userDest);
-            if (isGeneric) {
-                console.log(`[VoyagePlan] Overriding generic destination "${data.destination}" → "${destination}"`);
-                data.destination = destination;
+                geminiDest.includes('victoria, victoria');
+
+            if (isGeminiGeneric) {
+                // Check if user input is ALSO contaminated
+                const userDest = (destination || '').toLowerCase().trim();
+                const isUserGeneric = userDest.includes('queensland, queensland') ||
+                    userDest.includes('new south wales, new south wales') ||
+                    userDest.includes('victoria, victoria');
+
+                if (isUserGeneric) {
+                    // Both are generic — use coordinate label
+                    const { lat, lon } = data.destinationCoordinates;
+                    data.destination = `Destination (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+                    console.log(`[VoyagePlan] Both names generic — using coord label: "${data.destination}"`);
+                } else {
+                    data.destination = destination;
+                    console.log(`[VoyagePlan] Overriding generic "${geminiDest}" → "${destination}"`);
+                }
             }
         }
 
