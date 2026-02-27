@@ -98,9 +98,6 @@ function totalDistanceNM(coords: [number, number][]): number {
 
 // ── Zone detection ─────────────────────────────────────────────────
 
-/**
- * Check if point is inside any marina polygon.
- */
 function findContainingMarina(
     lon: number, lat: number, zones: WaterwayZone[]
 ): WaterwayZone | null {
@@ -117,9 +114,6 @@ function findContainingMarina(
     return null;
 }
 
-/**
- * Check if point is inside a safe water exit geofence.
- */
 function isInSafeWater(
     lon: number, lat: number, zones: WaterwayZone[]
 ): WaterwayZone | null {
@@ -185,21 +179,17 @@ function followCenterline(
 ): [number, number][] {
     const coords = centerline.geometry.coordinates as [number, number][];
 
-    // Determine direction: follow toward whichever end is closer to destination
     const distToStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
     const distToEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
 
     let route: [number, number][];
     if (distToEnd <= distToStart) {
-        // Follow toward end (downstream)
         route = coords.slice(startIdx);
     } else {
-        // Follow toward start (upstream/reversed)
         route = coords.slice(0, startIdx + 1).reverse();
     }
 
-    // Check if any point along the route enters a safe water exit zone
-    // If so, truncate the route there
+    // Check if any point enters a safe water exit zone — truncate there
     for (let i = 0; i < route.length; i++) {
         const exitZone = isInSafeWater(route[i][0], route[i][1], zones);
         if (exitZone) {
@@ -212,15 +202,11 @@ function followCenterline(
 }
 
 /**
- * Two-phase canal exit routing:
+ * Simple canal exit: snap directly to the main channel_centerline
+ * and follow it through markers to open water.
  *
- *   Phase 1: Follow nearest waterway_centerline (side canal like Kite Canal)
- *            from boat position to where it ends near the main canal.
- *
- *   Phase 2: Follow nearest channel_centerline (main exit route like Newport Canal)
- *            from the end of phase 1 through the marked channel to open water.
- *
- * Then MapHub extends the line from open water to the destination.
+ * For marina estates, skippers know how to navigate their own side canals.
+ * The Passage Planner only needs to show the main exit route.
  */
 function chainCenterlines(
     startLon: number, startLat: number,
@@ -228,63 +214,32 @@ function chainCenterlines(
     zones: WaterwayZone[],
 ): [number, number][] | null {
     const allCoords: [number, number][] = [[startLon, startLat]];
-    const usedIds = new Set<string>();
-    let currentLon = startLon;
-    let currentLat = startLat;
 
     console.log(`[Chain] Starting at [${startLat.toFixed(5)}, ${startLon.toFixed(5)}], dest=[${destLat.toFixed(5)}, ${destLon.toFixed(5)}]`);
 
-    // ── Pre-scan: Find the main channel so we can aim the side canal toward it ──
-    const mainChannelPreview = findNearestCenterline(startLon, startLat, zones, 3000, 'channel_centerline');
-    let mainChannelTargetLon = destLon;
-    let mainChannelTargetLat = destLat;
-    if (mainChannelPreview) {
-        // Use the nearest point on the main channel as the direction target
-        const mc = mainChannelPreview.feature.geometry.coordinates as [number, number][];
-        mainChannelTargetLon = mc[mainChannelPreview.nearestIdx][0];
-        mainChannelTargetLat = mc[mainChannelPreview.nearestIdx][1];
-        console.log(`[Chain] Main channel preview: "${mainChannelPreview.feature.properties.name}" at ${mainChannelPreview.distM.toFixed(0)}m → aiming side canal toward [${mainChannelTargetLat.toFixed(5)}, ${mainChannelTargetLon.toFixed(5)}]`);
-    }
-
-    // ── PHASE 1: Side canal (waterway_centerline) ────────────────
-    // If the boat is in a side canal, follow it toward the main canal junction
-    const sideCanal = findNearestCenterline(currentLon, currentLat, zones, 500, 'waterway_centerline');
-    if (sideCanal) {
-        const featureId = `${sideCanal.feature.properties.name}_${sideCanal.feature.properties.osm_id || ''}`;
-        console.log(`[Chain] Phase 1 (side canal): "${sideCanal.feature.properties.name}" at ${sideCanal.distM.toFixed(0)}m`);
-        usedIds.add(featureId);
-
-        // Use main channel position as direction target (NOT the far-away destination)
-        const route = followCenterline(sideCanal.feature, sideCanal.nearestIdx, mainChannelTargetLon, mainChannelTargetLat, zones);
-        if (route.length > 0) {
-            allCoords.push(...route);
-            const lastPt = route[route.length - 1];
-            currentLon = lastPt[0];
-            currentLat = lastPt[1];
-            console.log(`[Chain]   Phase 1 added ${route.length} pts, end=[${lastPt[1].toFixed(5)}, ${lastPt[0].toFixed(5)}]`);
-        }
-    } else {
-        console.log(`[Chain] Phase 1: No side canal within 500m — skipping to main channel`);
-    }
-
-    // ── PHASE 2: Main channel (channel_centerline) ───────────────
-    // Follow the main exit route toward the destination
-    const mainChannel = findNearestCenterline(currentLon, currentLat, zones, 3000, 'channel_centerline', usedIds);
+    // ── Snap directly to main channel (channel_centerline) ───────
+    // Skip side canal micro-navigation — every skipper knows their own marina.
+    const mainChannel = findNearestCenterline(startLon, startLat, zones, 3000, 'channel_centerline');
     if (mainChannel) {
-        const featureId = `${mainChannel.feature.properties.name}_${mainChannel.feature.properties.osm_id || ''}`;
-        console.log(`[Chain] Phase 2 (main channel): "${mainChannel.feature.properties.name}" at ${mainChannel.distM.toFixed(0)}m`);
-        usedIds.add(featureId);
+        console.log(`[Chain] Main channel: "${mainChannel.feature.properties.name}" at ${mainChannel.distM.toFixed(0)}m, snapIdx=${mainChannel.nearestIdx}`);
 
         const route = followCenterline(mainChannel.feature, mainChannel.nearestIdx, destLon, destLat, zones);
         if (route.length > 0) {
             allCoords.push(...route);
             const lastPt = route[route.length - 1];
-            currentLon = lastPt[0];
-            currentLat = lastPt[1];
-            console.log(`[Chain]   Phase 2 added ${route.length} pts, end=[${lastPt[1].toFixed(5)}, ${lastPt[0].toFixed(5)}]`);
+            console.log(`[Chain]   Added ${route.length} pts, end=[${lastPt[1].toFixed(5)}, ${lastPt[0].toFixed(5)}]`);
         }
     } else {
-        console.log(`[Chain] Phase 2: No main channel within 3000m`);
+        console.log(`[Chain] No main channel within 3000m — trying any centerline`);
+        // Fallback: try any centerline type
+        const any = findNearestCenterline(startLon, startLat, zones, 3000);
+        if (any) {
+            console.log(`[Chain] Fallback: "${any.feature.properties.name}" (${any.feature.properties.zone_type}) at ${any.distM.toFixed(0)}m`);
+            const route = followCenterline(any.feature, any.nearestIdx, destLon, destLat, zones);
+            if (route.length > 0) {
+                allCoords.push(...route);
+            }
+        }
     }
 
     console.log(`[Chain] Result: ${allCoords.length} total coords`);
@@ -332,7 +287,7 @@ export async function orchestrateRoute(
     if (marina) {
         console.log(`[Orchestrator] 🏗 Tier A — MARINA: ${marina.properties.name}`);
 
-        // Two-phase exit: side canal → main channel → open water
+        // Snap to main channel → follow to open water
         exitCoords = chainCenterlines(originLon, originLat, destLon, destLat, zones.features);
 
         if (exitCoords) {
