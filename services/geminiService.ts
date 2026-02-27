@@ -366,20 +366,35 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
                 geminiDest.includes('victoria, victoria');
 
             if (isGeminiGeneric) {
+                const { lat, lon } = data.destinationCoordinates;
+                const coordStr = `(${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+
                 // Check if user input is ALSO contaminated
                 const userDest = (destination || '').toLowerCase().trim();
-                const isUserGeneric = userDest.includes('queensland, queensland') ||
-                    userDest.includes('new south wales, new south wales') ||
+                const isUserGeneric = userDest.includes('queensland') ||
+                    userDest.includes('new south wales') ||
                     userDest.includes('victoria, victoria');
 
-                if (isUserGeneric) {
-                    // Both are generic — use coordinate label
-                    const { lat, lon } = data.destinationCoordinates;
-                    data.destination = `Destination (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
-                    console.log(`[VoyagePlan] Both names generic — using coord label: "${data.destination}"`);
+                if (isUserGeneric || !destination) {
+                    // Both are generic — reverse geocode from coordinates
+                    try {
+                        const { reverseGeocode } = await import('./weatherService');
+                        const placeName = await reverseGeocode(lat, lon);
+                        if (placeName && !placeName.toLowerCase().includes('queensland, queensland')) {
+                            data.destination = `${placeName} ${coordStr}`;
+                            console.log(`[VoyagePlan] Reverse geocoded destination: "${data.destination}"`);
+                        } else {
+                            data.destination = `Destination ${coordStr}`;
+                            console.log(`[VoyagePlan] Using coord label: "${data.destination}"`);
+                        }
+                    } catch {
+                        data.destination = `Destination ${coordStr}`;
+                        console.log(`[VoyagePlan] Reverse geocode failed — using coord label: "${data.destination}"`);
+                    }
                 } else {
-                    data.destination = destination;
-                    console.log(`[VoyagePlan] Overriding generic "${geminiDest}" → "${destination}"`);
+                    // User input is clean — use it with coordinates
+                    data.destination = `${destination} ${coordStr}`;
+                    console.log(`[VoyagePlan] Using user input: "${data.destination}"`);
                 }
             }
         }
