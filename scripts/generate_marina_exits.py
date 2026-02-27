@@ -1,120 +1,86 @@
 """
-Auto-generate marina exit waypoints for SE QLD.
+Generate marina_exits.json with pre-computed channel waypoints.
 
-For each marina polygon in waterway_zones.geojson, finds the exit point:
-- The point on the marina boundary closest to the nearest channel_centerline
-- Or the northernmost point (toward open water in SE QLD)
+For each marina:
+  - exit WP (canal mouth)
+  - channel_waypoints: ordered [lon, lat] from canal mouth to open water
+  - channel_end: far end of channel (open water)
 
-Output: public/data/marina_exits.json
+This replaces the runtime followNearestChannel logic.
 """
-import json
-import math
-import os
+import json, math, os
 
-def haversine_m(lat1, lon1, lat2, lon2):
-    R = 6371000
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+def dist_m(lat1, lon1, lat2, lon2):
+    dx = (lon2 - lon1) * math.cos(math.radians((lat1+lat2)/2)) * 111320
+    dy = (lat2 - lat1) * 111320
+    return math.sqrt(dx*dx + dy*dy)
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    geojson_path = os.path.join(script_dir, "..", "public", "data", "waterway_zones.geojson")
-    geojson_path = os.path.normpath(geojson_path)
+    geojson_path = os.path.normpath(os.path.join(script_dir, "..", "public", "data", "waterway_zones.geojson"))
+    exits_path = os.path.normpath(os.path.join(script_dir, "..", "public", "data", "marina_exits.json"))
     
     data = json.load(open(geojson_path))
     features = data['features']
+    exits = json.load(open(exits_path))
     
-    marinas = [f for f in features if f['properties'].get('zone_type') == 'marina']
     channels = [f for f in features if f['properties'].get('zone_type') == 'channel_centerline']
     
-    print(f"Marinas: {len(marinas)}, Channels: {len(channels)}")
+    updated = 0
     
-    # Get all channel endpoints (the end of each channel_centerline)
-    channel_endpoints = []
-    for ch in channels:
-        if ch['geometry']['type'] == 'LineString':
+    for name, ex in exits.items():
+        exit_lat, exit_lon = ex['exit_lat'], ex['exit_lon']
+        centroid_lat = ex.get('centroid_lat', exit_lat)
+        centroid_lon = ex.get('centroid_lon', exit_lon)
+        
+        # Find closest channel to exit WP
+        best_ch = None
+        best_d = 99999
+        best_idx = 0
+        
+        for ch in channels:
+            if ch['geometry']['type'] != 'LineString':
+                continue
             coords = ch['geometry']['coordinates']
-            # Both endpoints
-            channel_endpoints.append({
-                'lon': coords[0][0], 'lat': coords[0][1],
-                'name': ch['properties'].get('name', 'Channel')
-            })
-            channel_endpoints.append({
-                'lon': coords[-1][0], 'lat': coords[-1][1],
-                'name': ch['properties'].get('name', 'Channel')
-            })
-            # Also add midpoints for better coverage
-            for i in range(0, len(coords), max(1, len(coords)//5)):
-                channel_endpoints.append({
-                    'lon': coords[i][0], 'lat': coords[i][1],
-                    'name': ch['properties'].get('name', 'Channel')
-                })
-    
-    print(f"Channel reference points: {len(channel_endpoints)}")
-    
-    exits = {}
-    
-    for marina in marinas:
-        name = marina['properties'].get('name', 'Unknown')
-        geom = marina['geometry']
+            for i, c in enumerate(coords):
+                d = dist_m(exit_lat, exit_lon, c[1], c[0])
+                if d < best_d:
+                    best_d = d
+                    best_ch = ch
+                    best_idx = i
         
-        if geom['type'] != 'Polygon':
-            continue
-            
-        # Get all boundary vertices
-        boundary = geom['coordinates'][0]  # outer ring
-        
-        if not boundary:
+        if not best_ch or best_d > 500:
+            # No nearby channel — clear any old channel data
+            ex['channel_waypoints'] = []
             continue
         
-        # Strategy 1: Find boundary vertex closest to any channel endpoint
-        best_vertex = None
-        best_dist = float('inf')
-        best_channel = None
+        coords = best_ch['geometry']['coordinates']
+        ch_name = best_ch['properties'].get('name', 'Unnamed')
         
-        for vertex in boundary:
-            vlon, vlat = vertex[0], vertex[1]
-            for ep in channel_endpoints:
-                d = haversine_m(vlat, vlon, ep['lat'], ep['lon'])
-                if d < best_dist:
-                    best_dist = d
-                    best_vertex = vertex
-                    best_channel = ep['name']
+        # Determine direction: from marina → open water
+        # "Open water" = end farthest from marina centroid
+        d_start = dist_m(centroid_lat, centroid_lon, coords[0][1], coords[0][0])
+        d_end = dist_m(centroid_lat, centroid_lon, coords[-1][1], coords[-1][0])
         
-        # Strategy 2: Fallback — northernmost vertex (toward bay in SE QLD)
-        if not best_vertex or best_dist > 2000:
-            north_vertex = max(boundary, key=lambda v: v[1])  # highest latitude (least negative)
-            best_vertex = north_vertex
-            best_channel = "northernmost"
+        if d_end > d_start:
+            # End is farther from marina → follow from snap to end
+            channel_wps = coords[best_idx:]
+        else:
+            # Start is farther from marina → follow from snap to start (reversed)
+            channel_wps = list(reversed(coords[:best_idx+1]))
         
-        exit_lon = round(best_vertex[0], 6)
-        exit_lat = round(best_vertex[1], 6)
+        # Store as [lon, lat] arrays
+        ex['channel_waypoints'] = [[round(c[0], 6), round(c[1], 6)] for c in channel_wps]
+        ex['channel_name'] = ch_name
+        ex['nearest_channel'] = ch_name
         
-        # Compute marina centroid for reference
-        centroid_lon = sum(v[0] for v in boundary) / len(boundary)
-        centroid_lat = sum(v[1] for v in boundary) / len(boundary)
-        
-        exits[name] = {
-            'exit_lat': exit_lat,
-            'exit_lon': exit_lon,
-            'centroid_lat': round(centroid_lat, 6),
-            'centroid_lon': round(centroid_lon, 6),
-            'nearest_channel': best_channel,
-            'channel_dist_m': round(best_dist, 0),
-        }
-        
-        print(f"  {name}: exit=[{exit_lat:.5f}, {exit_lon:.5f}], channel={best_channel} @ {best_dist:.0f}m")
+        print(f"  {name}: {len(channel_wps)} channel WPs via {ch_name} (snap {best_d:.0f}m)")
+        updated += 1
     
-    # Output
-    out_path = os.path.join(script_dir, "..", "public", "data", "marina_exits.json")
-    out_path = os.path.normpath(out_path)
-    
-    with open(out_path, 'w') as f:
+    with open(exits_path, 'w') as f:
         json.dump(exits, f, indent=2)
     
-    print(f"\nWritten {len(exits)} marina exits to {out_path}")
+    print(f"\nUpdated {updated} marinas with channel waypoints → {exits_path}")
 
 if __name__ == "__main__":
     main()
