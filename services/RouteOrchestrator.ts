@@ -140,32 +140,36 @@ function isInSafeWater(
 
 /**
  * Find the nearest centerline (IALA channel or OSM waterway) to a point.
- * Prefers channel_centerline over waterway_centerline when equidistant.
+ * STRONGLY prefers channel_centerline (IALA marks) over waterway_centerline (OSM side canals).
+ * IALA marks get a 5x distance bonus — they're picked even if physically farther away.
  */
 function findNearestCenterline(
     lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 2000
 ): { feature: WaterwayZone; nearestIdx: number; distM: number } | null {
-    let best: { feature: WaterwayZone; nearestIdx: number; distM: number } | null = null;
+    let best: { feature: WaterwayZone; nearestIdx: number; distM: number; effectiveD: number } | null = null;
 
     for (const zone of zones) {
         const zt = zone.properties.zone_type;
         if (zt !== 'waterway_centerline' && zt !== 'channel_centerline') continue;
         if (zone.geometry.type !== 'LineString') continue;
 
+        // IALA channel_centerline gets a 5x distance bonus
+        // (1600m IALA becomes 320m effective, beating a 472m side canal)
+        const bonus = zt === 'channel_centerline' ? 5.0 : 1.0;
+
         const coords = zone.geometry.coordinates as [number, number][];
         for (let i = 0; i < coords.length; i++) {
             const d = fastDistM(lat, lon, coords[i][1], coords[i][0]);
             if (d < maxDistM) {
-                // Prefer channel_centerline (IALA) over waterway_centerline (OSM)
-                if (!best || d < best.distM ||
-                    (d === best.distM && zt === 'channel_centerline')) {
-                    best = { feature: zone, nearestIdx: i, distM: d };
+                const effectiveD = d / bonus;
+                if (!best || effectiveD < best.effectiveD) {
+                    best = { feature: zone, nearestIdx: i, distM: d, effectiveD };
                 }
             }
         }
     }
 
-    return best;
+    return best ? { feature: best.feature, nearestIdx: best.nearestIdx, distM: best.distM } : null;
 }
 
 /**
