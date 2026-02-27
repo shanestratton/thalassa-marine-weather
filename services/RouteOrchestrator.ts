@@ -223,13 +223,29 @@ function chainCenterlines(
     let currentLon = startLon;
     let currentLat = startLat;
 
+    console.log(`[Chain] Starting at [${startLat.toFixed(5)}, ${startLon.toFixed(5)}], dest=[${destLat.toFixed(5)}, ${destLon.toFixed(5)}]`);
+
     for (let chain = 0; chain < maxChains; chain++) {
         const nearest = findNearestCenterline(currentLon, currentLat, zones, 3000);
-        if (!nearest) break;
+        if (!nearest) {
+            console.log(`[Chain] Step ${chain}: No centerline within 3000m of [${currentLat.toFixed(5)}, ${currentLon.toFixed(5)}]`);
+            break;
+        }
 
         const featureId = `${nearest.feature.properties.name}_${nearest.feature.properties.osm_id || ''}`;
-        if (usedIds.has(featureId)) break; // Don't loop
+        console.log(`[Chain] Step ${chain}: Found "${nearest.feature.properties.name}" (${nearest.feature.properties.zone_type}) at ${nearest.distM.toFixed(0)}m, snapIdx=${nearest.nearestIdx}/${(nearest.feature.geometry.coordinates as any[]).length}`);
+
+        if (usedIds.has(featureId)) {
+            console.log(`[Chain] Already used "${featureId}" — stopping`);
+            break;
+        }
         usedIds.add(featureId);
+
+        const coords = nearest.feature.geometry.coordinates as [number, number][];
+        const distToStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
+        const distToEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
+        const direction = distToEnd <= distToStart ? 'toward END (downstream)' : 'toward START (reversed)';
+        console.log(`[Chain]   Direction: ${direction} (dest→start=${(distToStart / 1852).toFixed(1)}NM, dest→end=${(distToEnd / 1852).toFixed(1)}NM)`);
 
         const route = followCenterline(
             nearest.feature,
@@ -240,29 +256,31 @@ function chainCenterlines(
         );
 
         if (route.length > 0) {
-            // Skip first point (overlap with current position)
             allCoords.push(...route);
             const lastPt = route[route.length - 1];
+            console.log(`[Chain]   Added ${route.length} pts, end=[${lastPt[1].toFixed(5)}, ${lastPt[0].toFixed(5)}]`);
             currentLon = lastPt[0];
             currentLat = lastPt[1];
 
-            // Check if we've reached safe water
             const exitZone = isInSafeWater(currentLon, currentLat, zones);
             if (exitZone) {
-                console.log(`[Orchestrator] 🏁 Reached safe water after ${chain + 1} segments`);
+                console.log(`[Chain] 🏁 Reached safe water: ${exitZone.properties.name}`);
                 break;
             }
 
-            // Check if we're making progress toward destination
             const distToDest = fastDistM(currentLat, currentLon, destLat, destLon);
+            console.log(`[Chain]   Dist to dest: ${(distToDest / 1852).toFixed(1)} NM`);
             if (distToDest < 500) {
-                break; // Close enough to destination
+                console.log(`[Chain]   Close enough to dest — stopping`);
+                break;
             }
         }
     }
 
+    console.log(`[Chain] Result: ${allCoords.length} total coords`);
     return allCoords.length > 1 ? allCoords : null;
 }
+
 
 // ── Main Orchestrator ──────────────────────────────────────────────
 
