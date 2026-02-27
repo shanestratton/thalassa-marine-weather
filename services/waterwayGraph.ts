@@ -1,13 +1,16 @@
 /**
- * Waterway Graph Router — A* pathfinding on OSM waterway network
+ * Waterway Graph Router v3 — Canal-only A* for marina exit
  *
- * Loads the precomputed waterway_graph.json and provides:
- *   - Snap any lat/lon to nearest graph node
- *   - BFS to discover reachable component
- *   - A* shortest-path to the EXIT node (furthest reachable node toward destination)
- *   - Returns ordered [lon, lat][] coordinates following every canal turn
+ * Key insight: when exiting a marina, ONLY follow canal edges.
+ * Rivers, creeks, and drains are NOT navigable exit routes from a canal estate.
+ * The canal network exits to open water at its northern/eastern terminus.
  *
- * Works for ANY marina/canal in the SE QLD region.
+ * Strategy:
+ *   1. Snap origin to nearest CANAL node (waterway=canal only)
+ *   2. BFS through CANAL edges only → discover canal component
+ *   3. Find EXIT node (canal node closest to destination)
+ *   4. A* through CANAL edges → follow every canal turn
+ *   5. Straight line from exit to destination (open water)
  */
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -42,14 +45,14 @@ interface AdjEntry {
     name: string;
 }
 
-// ── Graph loading & adjacency ──────────────────────────────────────
+// ── Graph loading ──────────────────────────────────────────────────
 
 let graphData: GraphData | null = null;
-let adjacency: Map<string, AdjEntry[]> | null = null;
-let nodeList: { id: string; lat: number; lon: number }[] | null = null;
+let canalAdj: Map<string, AdjEntry[]> | null = null;  // canal-only adjacency
+let canalNodeIds: Set<string> | null = null;  // nodes that belong to canal edges
 
 async function loadGraph(): Promise<void> {
-    if (graphData && adjacency) return;
+    if (graphData && canalAdj) return;
 
     const t0 = performance.now();
     try {
@@ -57,31 +60,35 @@ async function loadGraph(): Promise<void> {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         graphData = await resp.json();
 
-        // Build adjacency list (bidirectional — canals are navigable both ways)
-        adjacency = new Map();
-        for (const edge of graphData!.edges) {
-            if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
-            if (!adjacency.has(edge.to)) adjacency.set(edge.to, []);
-            adjacency.get(edge.from)!.push({ nodeId: edge.to, dist_m: edge.dist_m, name: edge.name });
-            adjacency.get(edge.to)!.push({ nodeId: edge.from, dist_m: edge.dist_m, name: edge.name });
-        }
+        // Build CANAL-ONLY adjacency list
+        canalAdj = new Map();
+        canalNodeIds = new Set();
+        let canalEdgeCount = 0;
 
-        // Build flat node list for spatial search
-        nodeList = Object.entries(graphData!.nodes).map(([id, n]) => ({
-            id, lat: n.lat, lon: n.lon,
-        }));
+        for (const edge of graphData!.edges) {
+            // Only include canal and bridge edges (bridges connect canal junctions)
+            if (edge.waterway !== 'canal' && edge.waterway !== 'bridge') continue;
+
+            canalEdgeCount++;
+            canalNodeIds.add(edge.from);
+            canalNodeIds.add(edge.to);
+
+            if (!canalAdj.has(edge.from)) canalAdj.set(edge.from, []);
+            if (!canalAdj.has(edge.to)) canalAdj.set(edge.to, []);
+            canalAdj.get(edge.from)!.push({ nodeId: edge.to, dist_m: edge.dist_m, name: edge.name });
+            canalAdj.get(edge.to)!.push({ nodeId: edge.from, dist_m: edge.dist_m, name: edge.name });
+        }
 
         const ms = (performance.now() - t0).toFixed(0);
         console.log(
-            `[WaterwayGraph] Loaded: ${graphData!.metadata.node_count} nodes, ` +
-            `${graphData!.metadata.edge_count} edges, ` +
-            `${graphData!.metadata.junction_count} junctions (${ms}ms)`
+            `[WaterwayGraph] Loaded: ${graphData!.metadata.node_count} total nodes, ` +
+            `canal-only: ${canalNodeIds.size} nodes, ${canalEdgeCount} edges (${ms}ms)`
         );
     } catch (err) {
         console.error('[WaterwayGraph] Failed to load graph:', err);
         graphData = null;
-        adjacency = null;
-        nodeList = null;
+        canalAdj = null;
+        canalNodeIds = null;
     }
 }
 
@@ -93,36 +100,34 @@ function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): numb
     return Math.sqrt(dx * dx + dy * dy);
 }
 
-// ── Spatial snap ───────────────────────────────────────────────────
+// ── Spatial snap (canal nodes only) ────────────────────────────────
 
-function snapToGraph(
-    lat: number, lon: number, maxDistM: number = 5000
+function snapToCanalNode(
+    lat: number, lon: number, maxDistM: number = 2000
 ): { nodeId: string; distM: number; lat: number; lon: number } | null {
-    if (!nodeList) return null;
+    if (!graphData || !canalNodeIds) return null;
 
     let best: { nodeId: string; distM: number; lat: number; lon: number } | null = null;
 
-    for (const node of nodeList) {
-        if (Math.abs(node.lat - lat) > 0.05) continue;
-        if (Math.abs(node.lon - lon) > 0.05) continue;
+    for (const nodeId of canalNodeIds) {
+        const node = graphData.nodes[nodeId];
+        if (!node) continue;
+        if (Math.abs(node.lat - lat) > 0.02) continue;
+        if (Math.abs(node.lon - lon) > 0.02) continue;
 
         const d = fastDistM(lat, lon, node.lat, node.lon);
         if (d < maxDistM && (!best || d < best.distM)) {
-            best = { nodeId: node.id, distM: d, lat: node.lat, lon: node.lon };
+            best = { nodeId, distM: d, lat: node.lat, lon: node.lon };
         }
     }
 
     return best;
 }
 
-// ── BFS: Find reachable component ──────────────────────────────────
+// ── BFS through canal edges only ───────────────────────────────────
 
-/**
- * BFS from startNode to find all reachable nodes (connected component).
- * Returns the set of reachable node IDs.
- */
-function findReachableNodes(startId: string): Set<string> {
-    if (!adjacency) return new Set();
+function findReachableCanalNodes(startId: string): Set<string> {
+    if (!canalAdj) return new Set();
 
     const visited = new Set<string>();
     const queue: string[] = [startId];
@@ -132,7 +137,7 @@ function findReachableNodes(startId: string): Set<string> {
         if (visited.has(current)) continue;
         visited.add(current);
 
-        const neighbors = adjacency.get(current);
+        const neighbors = canalAdj.get(current);
         if (neighbors) {
             for (const n of neighbors) {
                 if (!visited.has(n.nodeId)) {
@@ -145,10 +150,8 @@ function findReachableNodes(startId: string): Set<string> {
     return visited;
 }
 
-/**
- * Find the EXIT node: the reachable node that's closest to the destination.
- * This is where the canal network "exits" toward open water.
- */
+// ── Find exit node ─────────────────────────────────────────────────
+
 function findExitNode(
     reachable: Set<string>,
     destLat: number, destLon: number,
@@ -169,10 +172,10 @@ function findExitNode(
     return best;
 }
 
-// ── A* Pathfinding ─────────────────────────────────────────────────
+// ── A* through canal edges only ────────────────────────────────────
 
-function astar(startId: string, goalId: string): string[] | null {
-    if (!adjacency || !graphData) return null;
+function astarCanal(startId: string, goalId: string): string[] | null {
+    if (!canalAdj || !graphData) return null;
 
     const goalNode = graphData.nodes[goalId];
     if (!goalNode) return null;
@@ -192,7 +195,6 @@ function astar(startId: string, goalId: string): string[] | null {
     while (openSet.size > 0 && iterations < maxIterations) {
         iterations++;
 
-        // Find node with lowest f score
         let currentId = '';
         let currentF = Infinity;
         for (const [id, { f }] of openSet) {
@@ -216,7 +218,8 @@ function astar(startId: string, goalId: string): string[] | null {
         openSet.delete(currentId);
         const currentG = gScore.get(currentId) ?? Infinity;
 
-        const neighbors = adjacency.get(currentId);
+        // CANAL EDGES ONLY
+        const neighbors = canalAdj.get(currentId);
         if (!neighbors) continue;
 
         for (const neighbor of neighbors) {
@@ -242,60 +245,52 @@ function astar(startId: string, goalId: string): string[] | null {
 
 // ── Public API ─────────────────────────────────────────────────────
 
-/**
- * Route through the waterway graph from origin toward destination.
- *
- * Strategy:
- * 1. Snap origin to nearest graph node
- * 2. BFS to find all reachable nodes (connected component)
- * 3. Find the EXIT node (reachable node closest to destination)
- * 4. A* pathfind from origin to exit node
- * 5. Return the path coordinates — MapHub extends to destination
- */
 export async function graphRoute(
     originLat: number, originLon: number,
     destLat: number, destLon: number,
 ): Promise<{ coords: [number, number][]; distNM: number; snapDistM: number } | null> {
     await loadGraph();
-    if (!graphData || !adjacency) return null;
+    if (!graphData || !canalAdj) return null;
 
     const t0 = performance.now();
 
-    // Step 1: Snap origin to nearest graph node
-    const originSnap = snapToGraph(originLat, originLon, 2000);
+    // Step 1: Snap origin to nearest CANAL node
+    const originSnap = snapToCanalNode(originLat, originLon, 2000);
     if (!originSnap) {
-        console.log(`[WaterwayGraph] No node within 2000m of origin [${originLat.toFixed(4)}, ${originLon.toFixed(4)}]`);
+        console.log(`[WaterwayGraph] No canal node within 2000m of origin [${originLat.toFixed(4)}, ${originLon.toFixed(4)}]`);
         return null;
     }
-    console.log(`[WaterwayGraph] Origin snap: node ${originSnap.nodeId} at ${originSnap.distM.toFixed(0)}m`);
+    console.log(`[WaterwayGraph] Origin snap: canal node ${originSnap.nodeId} at ${originSnap.distM.toFixed(0)}m`);
 
-    // Step 2: BFS to find reachable component
-    const reachable = findReachableNodes(originSnap.nodeId);
-    console.log(`[WaterwayGraph] Reachable component: ${reachable.size} nodes`);
+    // Step 2: BFS through CANAL edges only
+    const reachable = findReachableCanalNodes(originSnap.nodeId);
+    console.log(`[WaterwayGraph] Reachable canal nodes: ${reachable.size}`);
 
-    // Step 3: Find exit node (closest reachable node to destination)
+    if (reachable.size < 3) {
+        console.log(`[WaterwayGraph] Canal component too small — returning null`);
+        return null;
+    }
+
+    // Step 3: Find exit node (closest canal node to destination)
     const exitNode = findExitNode(reachable, destLat, destLon);
     if (!exitNode) {
         console.log(`[WaterwayGraph] No exit node found`);
         return null;
     }
     const exitGeo = graphData.nodes[exitNode.nodeId];
-    console.log(`[WaterwayGraph] Exit node: ${exitNode.nodeId} at [${exitGeo.lat.toFixed(5)}, ${exitGeo.lon.toFixed(5)}], ${(exitNode.distM / 1852).toFixed(1)} NM from dest`);
+    console.log(`[WaterwayGraph] Exit node: [${exitGeo.lat.toFixed(5)}, ${exitGeo.lon.toFixed(5)}], ${(exitNode.distM / 1852).toFixed(1)} NM from dest`);
 
-    // Step 4: A* pathfind from origin to exit
-    const path = astar(originSnap.nodeId, exitNode.nodeId);
+    // Step 4: A* through canal edges only
+    const path = astarCanal(originSnap.nodeId, exitNode.nodeId);
     if (!path) {
-        console.log(`[WaterwayGraph] A* failed — should not happen within component`);
+        console.log(`[WaterwayGraph] A* failed within canal component`);
         return null;
     }
 
     // Step 5: Convert to coordinates
     const coords: [number, number][] = [];
-
-    // Start from actual origin position
     coords.push([originLon, originLat]);
 
-    // Add all graph nodes along the path
     for (const nodeId of path) {
         const node = graphData.nodes[nodeId];
         if (node) {
@@ -303,10 +298,10 @@ export async function graphRoute(
         }
     }
 
-    // Add the actual destination at the end (straight line from exit to destination)
+    // Straight line from canal exit to destination
     coords.push([destLon, destLat]);
 
-    // Calculate total distance
+    // Distance
     let totalM = 0;
     for (let i = 1; i < coords.length; i++) {
         totalM += fastDistM(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
