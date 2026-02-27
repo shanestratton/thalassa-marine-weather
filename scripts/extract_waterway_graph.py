@@ -21,7 +21,7 @@ OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 QUERY = f"""
 [out:json][timeout:120];
 (
-  way["waterway"~"canal|river|fairway|drain"]({BBOX});
+  way["waterway"~"canal|river|fairway"]({BBOX});
   way["seamark:type"="fairway"]({BBOX});
   way["route"="ferry"]["motor_vehicle"="yes"]({BBOX});
 );
