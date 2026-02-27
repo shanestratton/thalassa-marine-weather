@@ -1,0 +1,306 @@
+{
+  "Marina 20531525": {
+    "exit_lat": -27.861108,
+    "exit_lon": 153.334082,
+    "centroid_lat": -27.862586,
+    "centroid_lon": 153.337247,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 9430.0
+  },
+  "Redland City Marina": {
+    "exit_lat": -27.57284,
+    "exit_lon": 153.292174,
+    "centroid_lat": -27.574163,
+    "centroid_lon": 153.292044,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 14292.0
+  },
+  "Cova Marina": {
+    "exit_lat": -27.869108,
+    "exit_lon": 153.35656,
+    "centroid_lat": -27.870059,
+    "centroid_lon": 153.356384,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 7652.0
+  },
+  "Horizon Shores": {
+    "exit_lat": -27.748422,
+    "exit_lon": 153.344169,
+    "centroid_lat": -27.752751,
+    "centroid_lon": 153.348251,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 19205.0
+  },
+  "Runaway Bay Marina": {
+    "exit_lat": -27.898512,
+    "exit_lon": 153.403165,
+    "centroid_lat": -27.900356,
+    "centroid_lon": 153.403209,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 2272.0
+  },
+  "Scarborough Marina": {
+    "exit_lat": -27.19335,
+    "exit_lon": 153.105078,
+    "centroid_lat": -27.194453,
+    "centroid_lon": 153.105797,
+    "nearest_channel": "Newport Channel",
+    "channel_dist_m": 103.0
+  },
+  "Moreton Bay Boat Club": {
+    "exit_lat": -27.193501,
+    "exit_lon": 153.107214,
+    "centroid_lat": -27.194102,
+    "centroid_lon": 153.108554,
+    "nearest_channel": "Newport Channel",
+    "channel_dist_m": 313.0
+  },
+  "Redcliffe Marina": {
+    "exit_lat": -27.192572,
+    "exit_lon": 153.107848,
+    "centroid_lat": -27.192695,
+    "centroid_lon": 153.10862,
+    "nearest_channel": "Newport Channel",
+    "channel_dist_m": 390.0
+  },
+  "Spinmaker Sound Marina": {
+    "exit_lat": -27.069755,
+    "exit_lon": 153.13596,
+    "centroid_lat": -27.070119,
+    "centroid_lon": 153.134964,
+    "nearest_channel": "Moreton Bay NW Channel",
+    "channel_dist_m": 148.0
+  },
+  "Noosa Marina and Markets": {
+    "exit_lat": -26.394007,
+    "exit_lon": 153.041672,
+    "centroid_lat": -26.394426,
+    "centroid_lon": 153.041721,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 50383.0
+  },
+  "Marina 353563250": {
+    "exit_lat": -27.445171,
+    "exit_lon": 153.106213,
+    "centroid_lat": -27.446068,
+    "centroid_lon": 153.105136,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 6651.0
+  },
+  "Lawrie's Boat Services": {
+    "exit_lat": -26.699771,
+    "exit_lon": 153.128477,
+    "centroid_lat": -26.700409,
+    "centroid_lon": 153.128457,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 15846.0
+  },
+  "Marina 396536983": {
+    "exit_lat": -27.92305,
+    "exit_lon": 153.406937,
+    "centroid_lat": -27.923489,
+    "centroid_lon": 153.406502,
+    "nearest_channel": "Gold Coast Seaway",
+    "channel_dist_m": 75.0
+  },
+  "Ephraim Island Marina": {
+    "exit_lat": -27.883518,
+    "exit_lon": 153.400751,
+    "centroid_lat": -27.88478,
+    "centroid_lon": 153.400895,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 4174.0
+  },
+  "Marine Rescue Southport": {
+    "exit_lat": -27.951994,
+    "exit_lon": 153.424255,
+    "centroid_lat": -27.952173,
+    "centroid_lon": 153.424372,
+    "nearest_channel": "Gold Coast Seaway",
+    "channel_dist_m": 760.0
+  },
+  "Jack Evans Boat Harbour": {
+    "exit_lat": -28.168412,
+    "exit_lon": 153.54678,
+    "centroid_lat": -28.169842,
+    "centroid_lon": 153.546955,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 27599.0
+  },
+  "Salacia Marina": {
+    "exit_lat": -27.872328,
+    "exit_lon": 153.397488,
+    "centroid_lat": -27.873563,
+    "centroid_lon": 153.397292,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 5462.0
+  },
+  "AMT Marine": {
+    "exit_lat": -27.877744,
+    "exit_lon": 153.401049,
+    "centroid_lat": -27.878453,
+    "centroid_lon": 153.402256,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 4900.0
+  },
+  "Marina Mirage": {
+    "exit_lat": -27.967758,
+    "exit_lon": 153.425314,
+    "centroid_lat": -27.968587,
+    "centroid_lon": 153.424738,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 2432.0
+  },
+  "Mariner's Cove Marina": {
+    "exit_lat": -27.968976,
+    "exit_lon": 153.425599,
+    "centroid_lat": -27.969581,
+    "centroid_lon": 153.42477,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 2583.0
+  },
+  "Imperial Hotel Gold Coast Marina": {
+    "exit_lat": -27.966397,
+    "exit_lon": 153.423489,
+    "centroid_lat": -27.96706,
+    "centroid_lon": 153.424616,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 2263.0
+  },
+  "Southport Yacht Club Marina": {
+    "exit_lat": -27.971404,
+    "exit_lon": 153.426044,
+    "centroid_lat": -27.973046,
+    "centroid_lon": 153.426396,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 2856.0
+  },
+  "Marina 479418059": {
+    "exit_lat": -27.989966,
+    "exit_lon": 153.427036,
+    "centroid_lat": -27.990168,
+    "centroid_lon": 153.426877,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 4907.0
+  },
+  "Gardens Point Boat Harbour": {
+    "exit_lat": -27.473299,
+    "exit_lon": 153.032081,
+    "centroid_lat": -27.474504,
+    "centroid_lon": 153.032055,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 14293.0
+  },
+  "Marina 501888581": {
+    "exit_lat": -27.869602,
+    "exit_lon": 153.335653,
+    "centroid_lat": -27.870668,
+    "centroid_lon": 153.335422,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 9054.0
+  },
+  "Marina 501888583": {
+    "exit_lat": -27.867717,
+    "exit_lon": 153.336541,
+    "centroid_lat": -27.868707,
+    "centroid_lon": 153.336212,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 9184.0
+  },
+  "Marina 501888585": {
+    "exit_lat": -27.863547,
+    "exit_lon": 153.338291,
+    "centroid_lat": -27.865409,
+    "centroid_lon": 153.337588,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 9290.0
+  },
+  "Moorings On Coomera": {
+    "exit_lat": -27.880259,
+    "exit_lon": 153.323251,
+    "centroid_lat": -27.880896,
+    "centroid_lon": 153.323404,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 9416.0
+  },
+  "Rudi Maas Marina": {
+    "exit_lat": -27.74834,
+    "exit_lon": 153.350123,
+    "centroid_lat": -27.749743,
+    "centroid_lon": 153.350217,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 19968.0
+  },
+  "Baronga Broadwater": {
+    "exit_lat": -26.68738,
+    "exit_lon": 153.118303,
+    "centroid_lat": -26.688926,
+    "centroid_lon": 153.117786,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 17053.0
+  },
+  "Marina 818928428": {
+    "exit_lat": -27.46372,
+    "exit_lon": 153.051833,
+    "centroid_lat": -27.463868,
+    "centroid_lon": 153.051795,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 12079.0
+  },
+  "Marina 818928494": {
+    "exit_lat": -27.460993,
+    "exit_lon": 153.051188,
+    "centroid_lat": -27.46158,
+    "centroid_lon": 153.051137,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 11966.0
+  },
+  "Marina 940595396": {
+    "exit_lat": -27.894817,
+    "exit_lon": 153.402031,
+    "centroid_lat": -27.895312,
+    "centroid_lon": 153.401339,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 3077.0
+  },
+  "Marina 1043343718": {
+    "exit_lat": -27.331583,
+    "exit_lon": 153.082249,
+    "centroid_lat": -27.332613,
+    "centroid_lon": 153.082162,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 5760.0
+  },
+  "Raby Bay Marina": {
+    "exit_lat": -27.521546,
+    "exit_lon": 153.265988,
+    "centroid_lat": -27.522995,
+    "centroid_lon": 153.266478,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 8435.0
+  },
+  "Redlands Coast Marina": {
+    "exit_lat": -27.572281,
+    "exit_lon": 153.28865,
+    "centroid_lat": -27.573853,
+    "centroid_lon": 153.287744,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 14005.0
+  },
+  "Hope Harbour Marina": {
+    "exit_lat": -27.868031,
+    "exit_lon": 153.379731,
+    "centroid_lat": -27.86942,
+    "centroid_lon": 153.375563,
+    "nearest_channel": "northernmost",
+    "channel_dist_m": 6563.0
+  },
+  "Newport Waterways Marina": {
+    "exit_lat": -27.2043,
+    "exit_lon": 153.0929,
+    "centroid_lat": -27.212,
+    "centroid_lon": 153.093,
+    "nearest_channel": "Albatross Canal (north exit)",
+    "channel_dist_m": 0
+  }
+}
