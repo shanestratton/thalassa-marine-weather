@@ -136,6 +136,58 @@ function findNearestMarina(
     return best ? best.zone : null;
 }
 
+// ── Channel following ──────────────────────────────────────────────
+
+/**
+ * Find the nearest channel_centerline to the exit point and return
+ * its coordinates ordered toward the destination.
+ */
+function followNearestChannel(
+    exitLon: number, exitLat: number,
+    destLon: number, destLat: number,
+    zones: WaterwayZone[],
+): [number, number][] {
+    let bestChannel: WaterwayZone | null = null;
+    let bestDist = Infinity;
+    let bestIdx = 0;
+
+    for (const zone of zones) {
+        if (zone.properties.zone_type !== 'channel_centerline') continue;
+        if (zone.geometry.type !== 'LineString') continue;
+
+        const coords = zone.geometry.coordinates as [number, number][];
+        for (let i = 0; i < coords.length; i++) {
+            const d = fastDistM(exitLat, exitLon, coords[i][1], coords[i][0]);
+            if (d < bestDist) {
+                bestDist = d;
+                bestChannel = zone;
+                bestIdx = i;
+            }
+        }
+    }
+
+    if (!bestChannel || bestDist > 2000) return [];
+
+    const coords = bestChannel.geometry.coordinates as [number, number][];
+    const channelName = bestChannel.properties.name;
+
+    // Decide direction: follow channel toward destination
+    const distToDestFromStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
+    const distToDestFromEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
+
+    let channelSlice: [number, number][];
+    if (distToDestFromEnd < distToDestFromStart) {
+        // End is closer to dest → go forward from snap point
+        channelSlice = coords.slice(bestIdx + 1);
+    } else {
+        // Start is closer to dest → go backward from snap point
+        channelSlice = coords.slice(0, bestIdx).reverse();
+    }
+
+    console.log(`[Orchestrator] Following channel: "${channelName}" (${channelSlice.length} pts, snap ${bestDist.toFixed(0)}m)`);
+    return channelSlice;
+}
+
 // ── Main Orchestrator ──────────────────────────────────────────────
 
 export async function orchestrateRoute(
@@ -202,7 +254,20 @@ export async function orchestrateRoute(
     // Add the precise exit WP
     exitCoords.push([exit.exit_lon, exit.exit_lat]);
 
-    // ── Phase 2: Straight line from exit to destination ─────────────
+    // ── Phase 2: Follow channel centerline to open water ───────────
+    // Find the nearest channel_centerline and follow it from the exit
+    // WP toward the destination, avoiding land crossings.
+    const channelCoords = followNearestChannel(
+        exit.exit_lon, exit.exit_lat,
+        destLon, destLat,
+        zones.features,
+    );
+    if (channelCoords.length > 0) {
+        exitCoords.push(...channelCoords);
+        console.log(`[Orchestrator] Channel follow: ${channelCoords.length} WPs through channel`);
+    }
+
+    // ── Phase 3: Straight line from channel end to destination ──────
     exitCoords.push([destLon, destLat]);
 
     const totalNM = totalDistanceNM(exitCoords);
