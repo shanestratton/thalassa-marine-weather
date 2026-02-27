@@ -141,20 +141,21 @@ function isInSafeWater(
 /**
  * Find the nearest centerline (IALA channel or OSM waterway) to a point.
  * STRONGLY prefers channel_centerline (IALA marks) over waterway_centerline (OSM side canals).
- * IALA marks get a 5x distance bonus — they're picked even if physically farther away.
+ * When channelOnly=true, ONLY matches channel_centerline (used for marina exit first step).
  */
 function findNearestCenterline(
-    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 2000
+    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 2000,
+    channelOnly: boolean = false
 ): { feature: WaterwayZone; nearestIdx: number; distM: number } | null {
     let best: { feature: WaterwayZone; nearestIdx: number; distM: number; effectiveD: number } | null = null;
 
     for (const zone of zones) {
         const zt = zone.properties.zone_type;
         if (zt !== 'waterway_centerline' && zt !== 'channel_centerline') continue;
+        if (channelOnly && zt !== 'channel_centerline') continue; // Skip side canals
         if (zone.geometry.type !== 'LineString') continue;
 
         // IALA channel_centerline gets a 5x distance bonus
-        // (1600m IALA becomes 320m effective, beating a 472m side canal)
         const bonus = zt === 'channel_centerline' ? 5.0 : 1.0;
 
         const coords = zone.geometry.coordinates as [number, number][];
@@ -221,16 +222,18 @@ function chainCenterlines(
     destLon: number, destLat: number,
     zones: WaterwayZone[],
     maxChains: number = 5,
+    channelOnlyFirstStep: boolean = false,
 ): [number, number][] | null {
     const allCoords: [number, number][] = [[startLon, startLat]];
     const usedIds = new Set<string>();
     let currentLon = startLon;
     let currentLat = startLat;
 
-    console.log(`[Chain] Starting at [${startLat.toFixed(5)}, ${startLon.toFixed(5)}], dest=[${destLat.toFixed(5)}, ${destLon.toFixed(5)}]`);
+    console.log(`[Chain] Starting at [${startLat.toFixed(5)}, ${startLon.toFixed(5)}], dest=[${destLat.toFixed(5)}, ${destLon.toFixed(5)}]${channelOnlyFirstStep ? ' (channel-only first step)' : ''}`);
 
     for (let chain = 0; chain < maxChains; chain++) {
-        const nearest = findNearestCenterline(currentLon, currentLat, zones, 3000);
+        const nearest = findNearestCenterline(currentLon, currentLat, zones, 3000,
+            chain === 0 && channelOnlyFirstStep);
         if (!nearest) {
             console.log(`[Chain] Step ${chain}: No centerline within 3000m of [${currentLat.toFixed(5)}, ${currentLon.toFixed(5)}]`);
             break;
@@ -326,8 +329,8 @@ export async function orchestrateRoute(
     if (marina) {
         console.log(`[Orchestrator] 🏗 Tier A — MARINA: ${marina.properties.name}`);
 
-        // Find nearest centerline from boat position (not polygon centroid)
-        exitCoords = chainCenterlines(originLon, originLat, destLon, destLat, zones.features);
+        // Find nearest CHANNEL centerline from boat position (not side canals)
+        exitCoords = chainCenterlines(originLon, originLat, destLon, destLat, zones.features, 5, true);
 
         if (exitCoords) {
             engines.push('marina_exit');
