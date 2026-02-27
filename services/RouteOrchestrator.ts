@@ -141,6 +141,7 @@ function findNearestMarina(
 /**
  * Find the nearest channel_centerline to the exit point and return
  * its coordinates ordered toward the destination.
+ * Only follows the channel if it moves CLOSER to the destination.
  */
 function followNearestChannel(
     exitLon: number, exitLat: number,
@@ -166,22 +167,35 @@ function followNearestChannel(
         }
     }
 
-    if (!bestChannel || bestDist > 2000) return [];
+    if (!bestChannel || bestDist > 500) return [];
 
     const coords = bestChannel.geometry.coordinates as [number, number][];
     const channelName = bestChannel.properties.name;
+
+    // Distance from exit WP to destination (baseline)
+    const exitToDestM = fastDistM(exitLat, exitLon, destLat, destLon);
 
     // Decide direction: follow channel toward destination
     const distToDestFromStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
     const distToDestFromEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
 
     let channelSlice: [number, number][];
+    let farEndDistM: number;
+
     if (distToDestFromEnd < distToDestFromStart) {
         // End is closer to dest → go forward from snap point
         channelSlice = coords.slice(bestIdx + 1);
+        farEndDistM = distToDestFromEnd;
     } else {
         // Start is closer to dest → go backward from snap point
         channelSlice = coords.slice(0, bestIdx).reverse();
+        farEndDistM = distToDestFromStart;
+    }
+
+    // GUARD: only follow channel if it moves us CLOSER to destination
+    if (farEndDistM >= exitToDestM) {
+        console.log(`[Orchestrator] Skipping channel "${channelName}" — goes away from dest`);
+        return [];
     }
 
     console.log(`[Orchestrator] Following channel: "${channelName}" (${channelSlice.length} pts, snap ${bestDist.toFixed(0)}m)`);
