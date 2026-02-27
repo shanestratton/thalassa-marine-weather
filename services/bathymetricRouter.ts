@@ -133,38 +133,61 @@ export function mergeBathymetricRoute(
 ): VoyagePlan {
     const merged = { ...voyagePlan };
 
-    // ── Store full waypoints from graph routing ──
-    // These include 100s of points following the actual waterway
-    const newWaypoints: Waypoint[] = bathyRoute.waypoints.map((bwp, i) => {
-        // Find closest AI waypoint for weather data
-        const aiWaypoints = voyagePlan.waypoints || [];
-        let closestAI: Waypoint | undefined;
-        let closestDist = Infinity;
+    // ── Build exit route waypoints ──
+    const exitWaypoints: Waypoint[] = bathyRoute.waypoints.map((bwp, i) => ({
+        name: bwp.name || `EXIT-${String(i + 1).padStart(2, '0')}`,
+        coordinates: { lat: bwp.lat, lon: bwp.lon },
+        depth_m: bwp.depth_m ?? undefined,
+        safety: bwp.safety,
+    }));
 
-        for (const awp of aiWaypoints) {
-            if (awp.coordinates) {
-                const dist = Math.hypot(
-                    awp.coordinates.lat - bwp.lat,
-                    awp.coordinates.lon - bwp.lon,
+    // ── PREPEND exit route, then append AI waypoints beyond the exit ──
+    // The exit route gets the boat from marina/canal to open water.
+    // AI waypoints that are BEYOND the exit point continue to the destination.
+    const aiWaypoints = voyagePlan.waypoints || [];
+    const exitEnd = exitWaypoints.length > 0
+        ? exitWaypoints[exitWaypoints.length - 1].coordinates
+        : null;
+
+    // Find AI waypoints that are beyond the exit route endpoint
+    // (i.e., closer to the destination than the exit end)
+    let aiAfterExit: Waypoint[] = [];
+    if (exitEnd && aiWaypoints.length > 0) {
+        const destWP = aiWaypoints[aiWaypoints.length - 1];
+        if (destWP?.coordinates && exitEnd) {
+            // Keep AI waypoints that are farther along toward destination
+            // Simple heuristic: keep waypoints closer to destination than to exit end
+            const destLat = destWP.coordinates.lat;
+            const destLon = destWP.coordinates.lon;
+
+            aiAfterExit = aiWaypoints.filter(wp => {
+                if (!wp.coordinates) return false;
+                const distToExit = Math.hypot(
+                    wp.coordinates.lat - exitEnd.lat,
+                    wp.coordinates.lon - exitEnd.lon,
                 );
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    closestAI = awp;
-                }
-            }
+                const distToDest = Math.hypot(
+                    wp.coordinates.lat - destLat,
+                    wp.coordinates.lon - destLon,
+                );
+                // Keep waypoints that are closer to destination than to exit point
+                return distToDest < distToExit;
+            });
         }
+    }
 
-        return {
-            name: bwp.name || `WP-${String(i + 1).padStart(2, '0')}`,
-            coordinates: { lat: bwp.lat, lon: bwp.lon },
-            depth_m: bwp.depth_m ?? undefined,
-            safety: bwp.safety,
-            windSpeed: closestAI?.windSpeed,
-            waveHeight: closestAI?.waveHeight,
-        };
-    });
+    // Always include the final destination waypoint
+    if (aiWaypoints.length > 0) {
+        const lastAI = aiWaypoints[aiWaypoints.length - 1];
+        if (lastAI && !aiAfterExit.includes(lastAI)) {
+            aiAfterExit.push(lastAI);
+        }
+    }
 
-    merged.waypoints = newWaypoints;
+    // Combine: exit route + AI waypoints beyond exit
+    merged.waypoints = [...exitWaypoints, ...aiAfterExit];
+
+    console.log(`[BathyMerge] ${exitWaypoints.length} exit WPs + ${aiAfterExit.length} AI WPs = ${merged.waypoints.length} total`);
 
     // ── Store the full GeoJSON from the edge function ──
     // This is the key fix: the geojson has ALL graph waypoints
