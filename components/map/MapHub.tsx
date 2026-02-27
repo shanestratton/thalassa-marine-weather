@@ -1447,11 +1447,36 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 const m = mapRef.current;
                 const src = m.getSource('route-line') as mapboxgl.GeoJSONSource;
                 if (src) {
-                    // Use trafficGeoJSON for colored segments, fallback to geojson
+                    // Extend the exit route GeoJSON to include the destination
+                    // The orchestrator only returns the canal/channel exit — 
+                    // we need to draw a line from the exit endpoint to the arrival
+                    let routeGeoJSON: any = graphRoute.geojson;
+
+                    if (routeGeoJSON && routeGeoJSON.geometry?.type === 'LineString') {
+                        const coords = [...routeGeoJSON.geometry.coordinates];
+                        // Append the destination if it's not already the last point
+                        const lastPt = coords[coords.length - 1];
+                        if (lastPt && (
+                            Math.abs(lastPt[0] - arrival.lon) > 0.001 ||
+                            Math.abs(lastPt[1] - arrival.lat) > 0.001
+                        )) {
+                            coords.push([arrival.lon, arrival.lat]);
+                            routeGeoJSON = {
+                                ...routeGeoJSON,
+                                geometry: {
+                                    ...routeGeoJSON.geometry,
+                                    coordinates: coords,
+                                },
+                            };
+                            console.log(`[MapHub] Extended route to destination: +1 point → ${coords.length} total`);
+                        }
+                    }
+
+                    // Use trafficGeoJSON for colored segments, fallback to extended geojson
                     if (graphRoute.trafficGeoJSON) {
                         src.setData(graphRoute.trafficGeoJSON as any);
-                    } else if (graphRoute.geojson) {
-                        src.setData(graphRoute.geojson);
+                    } else if (routeGeoJSON) {
+                        src.setData(routeGeoJSON);
                     }
                     console.log(`[MapHub] ✓ Graph route: ${graphRoute.waypoints.length} WPs, ${graphRoute.totalNM} NM`);
 
