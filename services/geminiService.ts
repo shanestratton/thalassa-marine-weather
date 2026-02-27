@@ -251,8 +251,14 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         ${contextString}
         CRITICAL INSTRUCTIONS:
         1. COORDINATES: If the origin or destination contains GPS coordinates in parentheses like "Port Name (-22.2765, 166.4377)", you MUST use those EXACT coordinates for originCoordinates/destinationCoordinates. Do NOT substitute with city-center or generic port coordinates.
-        2. DEPARTURE WINDOW: Today is ${today}. The bestDepartureWindow MUST specify a CONCRETE date and time within the next 10 days based on actual weather patterns for this route and season. Give a specific ISO datetime (e.g. "2026-02-26T06:00:00Z"), NOT vague advice like "March" or "next season". Consider: synoptic weather patterns, trade wind cycles, frontal systems, and tidal windows. If departing now would be acceptable, say so with confidence.
-        3. PRECISION: All waypoint coordinates must be in open navigable water, not on land.
+        2. GEOCODING ACCURACY: You MUST resolve origin and destination to their SPECIFIC suburb/marina/harbour coordinates. For Australian locations:
+           - "Newport" in SE QLD = Newport Waterways canal estate near Scarborough, lat -27.210, lon 153.090
+           - "Scarborough" in QLD = Scarborough Beach/harbour near Redcliffe, lat -27.190, lon 153.106
+           - "Manly" in QLD = Manly Boat Harbour, lat -27.452, lon 153.193
+           - NEVER return generic state or region coordinates (e.g. "Queensland, Queensland, AU" is WRONG).
+           - The origin and destination names in your response must match the actual place, not generic regions.
+        3. DEPARTURE WINDOW: Today is ${today}. The bestDepartureWindow MUST specify a CONCRETE date and time within the next 10 days based on actual weather patterns for this route and season. Give a specific ISO datetime (e.g. "2026-02-26T06:00:00Z"), NOT vague advice like "March" or "next season". Consider: synoptic weather patterns, trade wind cycles, frontal systems, and tidal windows. If departing now would be acceptable, say so with confidence.
+        4. PRECISION: All waypoint coordinates must be in open navigable water, not on land.
 
         TONE: Professional, concise, safety-focused.
         RETURN PURE JSON ONLY. NO MARKDOWN. STRICTLY ADHERE TO THIS SCHEMA:
@@ -307,6 +313,48 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         if (!data.waypoints) data.waypoints = [];
         if (!data.hazards) data.hazards = [];
         if (!data.customs) data.customs = { required: false, destinationCountry: "", procedures: "" };
+
+        // ── Geocoding Sanity Check ──────────────────────────────────────
+        // If origin and destination coordinates are suspiciously close (< 1km),
+        // AND the user typed different place names, Gemini probably failed to geocode.
+        if (data.originCoordinates && data.destinationCoordinates) {
+            const oLat = data.originCoordinates.lat;
+            const oLon = data.originCoordinates.lon;
+            const dLat = data.destinationCoordinates.lat;
+            const dLon = data.destinationCoordinates.lon;
+            const dxKm = Math.abs(dLon - oLon) * 111 * Math.cos(oLat * Math.PI / 180);
+            const dyKm = Math.abs(dLat - oLat) * 111;
+            const distKm = Math.sqrt(dxKm * dxKm + dyKm * dyKm);
+
+            console.log(`[VoyagePlan] Geocode check: origin=[${oLat.toFixed(4)}, ${oLon.toFixed(4)}], dest=[${dLat.toFixed(4)}, ${dLon.toFixed(4)}], dist=${distKm.toFixed(1)}km`);
+
+            if (distKm < 1 && origin.trim().toLowerCase() !== destination.trim().toLowerCase()) {
+                console.warn(`[VoyagePlan] ⚠️ Origin and destination are ${distKm.toFixed(1)}km apart — Gemini likely failed to geocode. Destination: "${data.destination || destination}". Attempting fallback...`);
+                // Common SE QLD fallbacks
+                const seqldFallbacks: Record<string, { lat: number; lon: number }> = {
+                    'scarborough': { lat: -27.190, lon: 153.106 },
+                    'redcliffe': { lat: -27.227, lon: 153.130 },
+                    'manly': { lat: -27.452, lon: 153.193 },
+                    'mooloolaba': { lat: -26.681, lon: 153.138 },
+                    'noosa': { lat: -26.384, lon: 153.091 },
+                    'moreton island': { lat: -27.119, lon: 153.409 },
+                    'tangalooma': { lat: -27.184, lon: 153.370 },
+                    'gold coast seaway': { lat: -27.937, lon: 153.429 },
+                    'southport': { lat: -27.960, lon: 153.410 },
+                    'brisbane': { lat: -27.388, lon: 153.156 },
+                    'sandgate': { lat: -27.320, lon: 153.064 },
+                    'shorncliffe': { lat: -27.328, lon: 153.081 },
+                    'woody point': { lat: -27.244, lon: 153.099 },
+                };
+                const destKey = destination.trim().toLowerCase();
+                const fallback = seqldFallbacks[destKey];
+                if (fallback) {
+                    console.log(`[VoyagePlan] ✓ Using fallback coords for "${destination}": [${fallback.lat}, ${fallback.lon}]`);
+                    data.destinationCoordinates = fallback;
+                    data.destination = destination;
+                }
+            }
+        }
 
         data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
             const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
