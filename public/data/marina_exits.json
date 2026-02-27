@@ -296,11 +296,11 @@
     "channel_dist_m": 6563.0
   },
   "Newport Waterways Marina": {
-    "exit_lat": -27.2043,
-    "exit_lon": 153.0929,
+    "exit_lat": -27.2032,
+    "exit_lon": 153.093,
     "centroid_lat": -27.212,
     "centroid_lon": 153.093,
-    "nearest_channel": "Albatross Canal (north exit)",
+    "nearest_channel": "Newport Channel (start)",
     "channel_dist_m": 0
   }
 }
