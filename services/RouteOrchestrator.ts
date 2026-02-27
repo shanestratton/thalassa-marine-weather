@@ -1,12 +1,14 @@
 /**
- * Route Orchestrator v7 — Canal A* to Exit WP + Straight Line
+ * Route Orchestrator v8 — Pre-computed Channel Waypoints
  *
- * Best of both approaches:
- *   1. Detect marina → look up pre-defined exit waypoint
+ * Clean, simple approach:
+ *   1. Detect marina → look up pre-defined exit WP + channel waypoints
  *   2. Canal-only A* from boat through canal network TO the exit WP
- *   3. Straight line from exit WP to destination (open water)
+ *   3. Follow pre-computed channel waypoints to open water
+ *   4. Straight line from channel end to destination
  *
- * Canal turns followed. No land crossings. Correct exit point.
+ * No runtime channel-finding. No dynamic direction logic.
+ * All channel waypoints pre-computed in marina_exits.json.
  */
 
 import * as turf from '@turf/turf';
@@ -49,6 +51,8 @@ interface MarinaExit {
     centroid_lon: number;
     nearest_channel: string;
     channel_dist_m: number;
+    channel_waypoints?: [number, number][];  // pre-computed [lon, lat]
+    channel_name?: string;
 }
 
 // ── Data loading ───────────────────────────────────────────────────
@@ -77,7 +81,8 @@ async function loadMarinaExits(): Promise<Record<string, MarinaExit>> {
         const resp = await fetch('/data/marina_exits.json');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         marinaExits = await resp.json();
-        console.log(`[Orchestrator] Loaded ${Object.keys(marinaExits!).length} marina exit waypoints`);
+        const withChannel = Object.values(marinaExits!).filter(e => e.channel_waypoints && e.channel_waypoints.length > 0).length;
+        console.log(`[Orchestrator] Loaded ${Object.keys(marinaExits!).length} marina exits (${withChannel} with channels)`);
         return marinaExits!;
     } catch (err) {
         console.error('[Orchestrator] Failed to load marina exits:', err);
@@ -136,72 +141,6 @@ function findNearestMarina(
     return best ? best.zone : null;
 }
 
-// ── Channel following ──────────────────────────────────────────────
-
-/**
- * Find the nearest channel_centerline to the exit point and return
- * its coordinates ordered toward the destination.
- * Only follows the channel if it moves CLOSER to the destination.
- */
-function followNearestChannel(
-    exitLon: number, exitLat: number,
-    destLon: number, destLat: number,
-    zones: WaterwayZone[],
-): [number, number][] {
-    let bestChannel: WaterwayZone | null = null;
-    let bestDist = Infinity;
-    let bestIdx = 0;
-
-    for (const zone of zones) {
-        if (zone.properties.zone_type !== 'channel_centerline') continue;
-        if (zone.geometry.type !== 'LineString') continue;
-
-        const coords = zone.geometry.coordinates as [number, number][];
-        for (let i = 0; i < coords.length; i++) {
-            const d = fastDistM(exitLat, exitLon, coords[i][1], coords[i][0]);
-            if (d < bestDist) {
-                bestDist = d;
-                bestChannel = zone;
-                bestIdx = i;
-            }
-        }
-    }
-
-    if (!bestChannel || bestDist > 500) return [];
-
-    const coords = bestChannel.geometry.coordinates as [number, number][];
-    const channelName = bestChannel.properties.name;
-
-    // Distance from exit WP to destination (baseline)
-    const exitToDestM = fastDistM(exitLat, exitLon, destLat, destLon);
-
-    // Decide direction: follow channel toward destination
-    const distToDestFromStart = fastDistM(destLat, destLon, coords[0][1], coords[0][0]);
-    const distToDestFromEnd = fastDistM(destLat, destLon, coords[coords.length - 1][1], coords[coords.length - 1][0]);
-
-    let channelSlice: [number, number][];
-    let farEndDistM: number;
-
-    if (distToDestFromEnd < distToDestFromStart) {
-        // End is closer to dest → go forward from snap point
-        channelSlice = coords.slice(bestIdx + 1);
-        farEndDistM = distToDestFromEnd;
-    } else {
-        // Start is closer to dest → go backward from snap point
-        channelSlice = coords.slice(0, bestIdx).reverse();
-        farEndDistM = distToDestFromStart;
-    }
-
-    // GUARD: only follow channel if it moves us CLOSER to destination
-    if (farEndDistM >= exitToDestM) {
-        console.log(`[Orchestrator] Skipping channel "${channelName}" — goes away from dest`);
-        return [];
-    }
-
-    console.log(`[Orchestrator] Following channel: "${channelName}" (${channelSlice.length} pts, snap ${bestDist.toFixed(0)}m)`);
-    return channelSlice;
-}
-
 // ── Main Orchestrator ──────────────────────────────────────────────
 
 export async function orchestrateRoute(
@@ -244,82 +183,79 @@ export async function orchestrateRoute(
         return null;
     }
 
-    console.log(`[Orchestrator] Exit WP: [${exit.exit_lat.toFixed(5)}, ${exit.exit_lon.toFixed(5)}] via ${exit.nearest_channel}`);
+    console.log(`[Orchestrator] Exit WP: [${exit.exit_lat.toFixed(5)}, ${exit.exit_lon.toFixed(5)}]`);
 
-    // ── Phase 1: Canal A* from boat to exit WP ─────────────────────
-    // Use the canal-only graph router to follow canal turns from
-    // the boat position to the pre-defined exit waypoint.
-    let exitCoords: [number, number][] = [];
+    // ── BUILD ROUTE ────────────────────────────────────────────────
 
+    const routeCoords: [number, number][] = [];
+
+    // Phase 1: Canal A* from boat to exit WP
     const graphResult = await graphRoute(originLat, originLon, exit.exit_lat, exit.exit_lon);
 
     if (graphResult && graphResult.coords.length > 2 && graphResult.snapDistM < 500) {
-        // Graph routing succeeded AND origin snap is close (< 500m)
-        // Ensure the first coord is the user's ACTUAL origin, not the snapped node
-        exitCoords = [[originLon, originLat], ...graphResult.coords.slice(1, -1)];
-        console.log(`[Orchestrator] A* canal route: ${exitCoords.length} WPs (snap ${graphResult.snapDistM.toFixed(0)}m)`);
-    } else {
-        // Graph routing failed or snap too far — use simple origin → exit WP
-        if (graphResult) {
-            console.log(`[Orchestrator] A* snap too far (${graphResult.snapDistM.toFixed(0)}m) — straight line`);
-        } else {
-            console.log(`[Orchestrator] A* failed — straight line`);
+        // A* succeeded — use canal path (replace first coord with actual origin)
+        routeCoords.push([originLon, originLat]);
+        for (let i = 1; i < graphResult.coords.length - 1; i++) {
+            routeCoords.push(graphResult.coords[i]);
         }
-        exitCoords = [[originLon, originLat]];
+        console.log(`[Orchestrator] Phase 1: A* through canals (${routeCoords.length} WPs, snap ${graphResult.snapDistM.toFixed(0)}m)`);
+    } else {
+        // A* failed — straight line from origin
+        routeCoords.push([originLon, originLat]);
+        console.log(`[Orchestrator] Phase 1: straight line (no canal graph match)`);
     }
 
-    // Add the precise exit WP
-    exitCoords.push([exit.exit_lon, exit.exit_lat]);
+    // Phase 2: Exit WP (canal mouth)
+    routeCoords.push([exit.exit_lon, exit.exit_lat]);
 
-    // ── Phase 2: Follow channel centerline to open water ───────────
-    // Find the nearest channel_centerline and follow it from the exit
-    // WP toward the destination, avoiding land crossings.
-    const channelCoords = followNearestChannel(
-        exit.exit_lon, exit.exit_lat,
-        destLon, destLat,
-        zones.features,
-    );
-    if (channelCoords.length > 0) {
-        exitCoords.push(...channelCoords);
-        console.log(`[Orchestrator] Channel follow: ${channelCoords.length} WPs through channel`);
+    // Phase 3: Pre-computed channel waypoints (if available)
+    const channelWPs = exit.channel_waypoints || [];
+    if (channelWPs.length > 0) {
+        for (const wp of channelWPs) {
+            routeCoords.push(wp as [number, number]);
+        }
+        console.log(`[Orchestrator] Phase 3: ${channelWPs.length} channel WPs via ${exit.channel_name || 'channel'}`);
     }
 
-    // ── Phase 3: Final hop from channel end to destination ───────────
-    // With channel WPs in between, this is a short line across open water.
-    exitCoords.push([destLon, destLat]);
+    // Phase 4: Destination
+    routeCoords.push([destLon, destLat]);
 
-    const totalNM = totalDistanceNM(exitCoords);
+    // ── COMPUTE RESULT ─────────────────────────────────────────────
+
+    const totalNM = totalDistanceNM(routeCoords);
     const computeMs = performance.now() - t0;
-    const engines = graphResult ? ['canal_astar', 'marina_exit'] : ['marina_exit'];
+    const engines = graphResult && graphResult.snapDistM < 500
+        ? ['canal_astar', 'channel_follow']
+        : ['marina_exit'];
 
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
         properties: {
             distanceNM: Math.round(totalNM * 10) / 10,
-            waypointCount: exitCoords.length,
+            waypointCount: routeCoords.length,
             computeMs: Math.round(computeMs),
             engines: engines.join('+'),
         },
         geometry: {
             type: 'LineString',
-            coordinates: exitCoords,
+            coordinates: routeCoords,
         },
     };
 
     console.log(
-        `[Orchestrator] ✓ ${exitCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
+        `[Orchestrator] ✓ ${routeCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
         `${computeMs.toFixed(0)}ms [${engines.join(' → ')}]`
     );
 
     return {
-        coordinates: exitCoords,
+        coordinates: routeCoords,
         totalNM: Math.round(totalNM * 10) / 10,
         computeMs: Math.round(computeMs),
         engines,
-        waypointCount: exitCoords.length,
+        waypointCount: routeCoords.length,
         segments: [{
             engine: engines.join('+'),
-            coordinates: exitCoords,
+            coordinates: routeCoords,
             distanceNM: totalNM,
         }],
         geojson,
