@@ -267,9 +267,9 @@ export async function orchestrateRoute(
         console.log(`[Orchestrator] Channel follow: ${channelCoords.length} WPs through channel`);
     }
 
-    // ── Done: AI waypoints handle the open water leg ──────────────
-    // The bathymetric router merge will append AI waypoints beyond
-    // the channel exit for the open water portion to the destination.
+    // ── Phase 3: Final hop from channel end to destination ───────────
+    // With channel WPs in between, this is a short line across open water.
+    exitCoords.push([destLon, destLat]);
 
     const totalNM = totalDistanceNM(exitCoords);
     const computeMs = performance.now() - t0;
