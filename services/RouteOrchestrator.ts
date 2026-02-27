@@ -234,15 +234,28 @@ function chainCenterlines(
 
     console.log(`[Chain] Starting at [${startLat.toFixed(5)}, ${startLon.toFixed(5)}], dest=[${destLat.toFixed(5)}, ${destLon.toFixed(5)}]`);
 
+    // ── Pre-scan: Find the main channel so we can aim the side canal toward it ──
+    const mainChannelPreview = findNearestCenterline(startLon, startLat, zones, 3000, 'channel_centerline');
+    let mainChannelTargetLon = destLon;
+    let mainChannelTargetLat = destLat;
+    if (mainChannelPreview) {
+        // Use the nearest point on the main channel as the direction target
+        const mc = mainChannelPreview.feature.geometry.coordinates as [number, number][];
+        mainChannelTargetLon = mc[mainChannelPreview.nearestIdx][0];
+        mainChannelTargetLat = mc[mainChannelPreview.nearestIdx][1];
+        console.log(`[Chain] Main channel preview: "${mainChannelPreview.feature.properties.name}" at ${mainChannelPreview.distM.toFixed(0)}m → aiming side canal toward [${mainChannelTargetLat.toFixed(5)}, ${mainChannelTargetLon.toFixed(5)}]`);
+    }
+
     // ── PHASE 1: Side canal (waterway_centerline) ────────────────
-    // If the boat is in a side canal, follow it toward the main canal
+    // If the boat is in a side canal, follow it toward the main canal junction
     const sideCanal = findNearestCenterline(currentLon, currentLat, zones, 500, 'waterway_centerline');
     if (sideCanal) {
         const featureId = `${sideCanal.feature.properties.name}_${sideCanal.feature.properties.osm_id || ''}`;
         console.log(`[Chain] Phase 1 (side canal): "${sideCanal.feature.properties.name}" at ${sideCanal.distM.toFixed(0)}m`);
         usedIds.add(featureId);
 
-        const route = followCenterline(sideCanal.feature, sideCanal.nearestIdx, destLon, destLat, zones);
+        // Use main channel position as direction target (NOT the far-away destination)
+        const route = followCenterline(sideCanal.feature, sideCanal.nearestIdx, mainChannelTargetLon, mainChannelTargetLat, zones);
         if (route.length > 0) {
             allCoords.push(...route);
             const lastPt = route[route.length - 1];
@@ -255,7 +268,7 @@ function chainCenterlines(
     }
 
     // ── PHASE 2: Main channel (channel_centerline) ───────────────
-    // Follow the main exit route (e.g. Newport Canal / Albatross Canal)
+    // Follow the main exit route toward the destination
     const mainChannel = findNearestCenterline(currentLon, currentLat, zones, 3000, 'channel_centerline', usedIds);
     if (mainChannel) {
         const featureId = `${mainChannel.feature.properties.name}_${mainChannel.feature.properties.osm_id || ''}`;
