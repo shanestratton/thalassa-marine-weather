@@ -1,17 +1,16 @@
 /**
- * Route Orchestrator v5 — Graph-based Waterway Router
+ * Route Orchestrator v6 — Pre-defined Marina Exit Waypoints
  *
- * Uses A* pathfinding on the OSM waterway graph for precise canal routing.
- * Every canal turn followed, no land crossings, works for any marina in SE QLD.
+ * Simple, reliable approach:
+ *   1. Check if origin is inside a marina polygon
+ *   2. Look up the marina's pre-defined exit waypoint
+ *   3. Route: origin → exit WP → destination
  *
- * Three-tier routing:
- *   Tier A (Marina): Origin inside leisure=marina → graph pathfind to open water
- *   Tier B (River/Canal): Origin near waterway → graph pathfind downstream
- *   Tier C (Bay/Open): Origin in open water → return null (AI handles it)
+ * No graph routing, no A*, no centerline chaining.
+ * Every skipper knows how to get from their berth to the canal exit.
  */
 
 import * as turf from '@turf/turf';
-import { graphRoute } from './waterwayGraph';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -43,29 +42,46 @@ interface WaterwayZone {
     geometry: GeoJSON.Polygon | GeoJSON.LineString;
 }
 
+interface MarinaExit {
+    exit_lat: number;
+    exit_lon: number;
+    centroid_lat: number;
+    centroid_lon: number;
+    nearest_channel: string;
+    channel_dist_m: number;
+}
+
 // ── Data loading ───────────────────────────────────────────────────
 
 let zonesData: { features: WaterwayZone[] } | null = null;
+let marinaExits: Record<string, MarinaExit> | null = null;
 
 async function loadZones(): Promise<{ features: WaterwayZone[] }> {
     if (zonesData) return zonesData;
-
     try {
         const resp = await fetch('/data/waterway_zones.geojson');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         zonesData = await resp.json();
-
         const marinas = zonesData!.features.filter(f => f.properties.zone_type === 'marina').length;
-        const waterways = zonesData!.features.filter(f =>
-            f.properties.zone_type === 'waterway_centerline' ||
-            f.properties.zone_type === 'channel_centerline'
-        ).length;
-
-        console.log(`[Orchestrator] Loaded SE QLD zones: ${marinas} marinas, ${waterways} waterways`);
+        console.log(`[Orchestrator] Loaded SE QLD zones: ${marinas} marinas`);
         return zonesData!;
     } catch (err) {
-        console.error('[Orchestrator] Failed to load waterway zones:', err);
+        console.error('[Orchestrator] Failed to load zones:', err);
         return { features: [] };
+    }
+}
+
+async function loadMarinaExits(): Promise<Record<string, MarinaExit>> {
+    if (marinaExits) return marinaExits;
+    try {
+        const resp = await fetch('/data/marina_exits.json');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        marinaExits = await resp.json();
+        console.log(`[Orchestrator] Loaded ${Object.keys(marinaExits!).length} marina exit waypoints`);
+        return marinaExits!;
+    } catch (err) {
+        console.error('[Orchestrator] Failed to load marina exits:', err);
+        return {};
     }
 }
 
@@ -97,43 +113,29 @@ function findContainingMarina(
                 if (turf.booleanPointInPolygon(pt, zone as any)) {
                     return zone;
                 }
-            } catch { /* skip malformed */ }
-        }
-    }
-    return null;
-}
-
-function isInSafeWater(
-    lon: number, lat: number, zones: WaterwayZone[]
-): WaterwayZone | null {
-    const pt = turf.point([lon, lat]);
-    for (const zone of zones) {
-        if (zone.properties.zone_type === 'safe_water_exit' && zone.geometry.type === 'Polygon') {
-            try {
-                if (turf.booleanPointInPolygon(pt, zone as any)) {
-                    return zone;
-                }
             } catch { /* skip */ }
         }
     }
     return null;
 }
 
-function isNearWaterway(
+function findNearestMarina(
     lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 1000
-): boolean {
+): WaterwayZone | null {
+    let best: { zone: WaterwayZone; dist: number } | null = null;
     for (const zone of zones) {
-        const zt = zone.properties.zone_type;
-        if (zt !== 'waterway_centerline' && zt !== 'channel_centerline') continue;
-        if (zone.geometry.type !== 'LineString') continue;
-        const coords = zone.geometry.coordinates as [number, number][];
-        for (const c of coords) {
-            if (fastDistM(lat, lon, c[1], c[0]) < maxDistM) return true;
+        if (zone.properties.zone_type !== 'marina' || zone.geometry.type !== 'Polygon') continue;
+        // Check distance to centroid
+        const boundary = zone.geometry.coordinates[0];
+        const cx = boundary.reduce((s, v) => s + v[0], 0) / boundary.length;
+        const cy = boundary.reduce((s, v) => s + v[1], 0) / boundary.length;
+        const d = fastDistM(lat, lon, cy, cx);
+        if (d < maxDistM && (!best || d < best.dist)) {
+            best = { zone, dist: d };
         }
     }
-    return false;
+    return best ? best.zone : null;
 }
-
 
 // ── Main Orchestrator ──────────────────────────────────────────────
 
@@ -146,60 +148,49 @@ export async function orchestrateRoute(
     _region: string = 'se_queensland',
 ): Promise<OrchestratedRoute | null> {
     const t0 = performance.now();
-    const engines: string[] = [];
-    const segments: OrchestratedRoute['segments'] = [];
 
     console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}]`);
 
-    // Load zone data for marina/safe-water detection
-    const zones = await loadZones();
+    // Load data
+    const [zones, exits] = await Promise.all([loadZones(), loadMarinaExits()]);
     if (zones.features.length === 0) {
-        console.warn('[Orchestrator] No waterway data loaded — returning null');
+        console.warn('[Orchestrator] No zone data — returning null');
         return null;
     }
 
-    // ── Pre-check: Is origin already in safe water? ────────────────
-    const originSafe = isInSafeWater(originLon, originLat, zones.features);
-    if (originSafe) {
-        console.log(`[Orchestrator] ⚓ Origin already in safe water: ${originSafe.properties.name} — AI handles`);
+    // ── Check if origin is in/near a marina ────────────────────────
+    let marina = findContainingMarina(originLon, originLat, zones.features);
+    if (!marina) {
+        marina = findNearestMarina(originLon, originLat, zones.features, 500);
+    }
+
+    if (!marina) {
+        console.log('[Orchestrator] ⚓ Not in/near a marina — AI handles route');
         return null;
     }
 
-    // ── Determine tier ─────────────────────────────────────────────
-    const marina = findContainingMarina(originLon, originLat, zones.features);
-    const nearWaterway = isNearWaterway(originLon, originLat, zones.features, 1000);
+    const marinaName = marina.properties.name;
+    console.log(`[Orchestrator] 🏗 Marina: ${marinaName}`);
 
-    if (!marina && !nearWaterway) {
-        console.log('[Orchestrator] ⚓ Tier C — OPEN WATER — AI handles route');
+    // ── Look up exit waypoint ──────────────────────────────────────
+    const exit = exits[marinaName];
+    if (!exit) {
+        console.warn(`[Orchestrator] No exit waypoint for "${marinaName}" — returning null`);
         return null;
     }
 
-    const tierName = marina ? `Tier A — MARINA: ${marina.properties.name}` : 'Tier B — WATERWAY';
-    const engineName = marina ? 'marina_exit' : 'waterway_follow';
-    console.log(`[Orchestrator] 🏗 ${tierName}`);
+    console.log(`[Orchestrator] Exit WP: [${exit.exit_lat.toFixed(5)}, ${exit.exit_lon.toFixed(5)}] via ${exit.nearest_channel}`);
 
-    // ── Graph-based A* routing ─────────────────────────────────────
-    // Route through the OSM waterway graph — follows every canal turn
-    const result = await graphRoute(originLat, originLon, destLat, destLon);
-
-    if (!result) {
-        console.warn(`[Orchestrator] Graph routing failed — no path found`);
-        return null;
-    }
-
-    const exitCoords = result.coords;
-    engines.push(engineName);
-    segments.push({
-        engine: engineName,
-        coordinates: exitCoords,
-        distanceNM: result.distNM,
-    });
-    console.log(`[Orchestrator] ${engineName}: ${exitCoords.length} WPs, ${result.distNM.toFixed(1)} NM (snap: ${result.snapDistM.toFixed(0)}m)`);
-
-    // ── Build result ───────────────────────────────────────────────
+    // ── Build route: origin → exit WP → destination ────────────────
+    const exitCoords: [number, number][] = [
+        [originLon, originLat],          // Start: boat position
+        [exit.exit_lon, exit.exit_lat],   // Exit: canal mouth
+        [destLon, destLat],              // End: destination
+    ];
 
     const totalNM = totalDistanceNM(exitCoords);
     const computeMs = performance.now() - t0;
+    const engines = ['marina_exit'];
 
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
@@ -217,7 +208,7 @@ export async function orchestrateRoute(
 
     console.log(
         `[Orchestrator] ✓ ${exitCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
-        `${computeMs.toFixed(0)}ms [${engines.join(' → ')}]`
+        `${computeMs.toFixed(0)}ms [marina_exit: ${marinaName}]`
     );
 
     return {
@@ -226,7 +217,11 @@ export async function orchestrateRoute(
         computeMs: Math.round(computeMs),
         engines,
         waypointCount: exitCoords.length,
-        segments,
+        segments: [{
+            engine: 'marina_exit',
+            coordinates: exitCoords,
+            distanceNM: totalNM,
+        }],
         geojson,
     };
 }
