@@ -99,7 +99,66 @@ def main():
     # Count junction nodes (shared between 2+ ways)
     junctions = sum(1 for count in node_usage.values() if count >= 2)
 
-    print(f"[Graph] {len(graph_nodes)} graph nodes, {len(edges)} edges, {junctions} junction nodes")
+    print(f"[Graph] {len(graph_nodes)} graph nodes, {len(edges)} edges, {junctions} shared junctions")
+
+    # ── Bridge edges: connect nearby nodes from different waterways ──
+    # OSM ways often don't share nodes at canal junctions.
+    # If two nodes from different ways are within BRIDGE_DIST_M, add an edge.
+    BRIDGE_DIST_M = 30  # meters
+    bridge_count = 0
+
+    # Build way membership: which way(s) does each node belong to?
+    node_ways = defaultdict(set)  # node_id -> set of way_ids
+    for way in ways:
+        wid = way["id"]
+        for nid in way.get("nodes", []):
+            node_ways[nid].add(wid)
+
+    # Only check endpoint/first/last nodes of each way (most junctions are at ends)
+    endpoint_nodes = set()
+    for way in ways:
+        way_nds = way.get("nodes", [])
+        if way_nds:
+            endpoint_nodes.add(way_nds[0])
+            endpoint_nodes.add(way_nds[-1])
+            # Also check every 3rd node for mid-way junctions
+            for i in range(0, len(way_nds), 3):
+                endpoint_nodes.add(way_nds[i])
+
+    endpoint_list = [(nid, nodes[nid]) for nid in endpoint_nodes if nid in nodes]
+    print(f"[Bridge] Checking {len(endpoint_list)} candidate nodes for bridges...")
+
+    existing_edges = set()
+    for e in edges:
+        existing_edges.add((e["from"], e["to"]))
+        existing_edges.add((e["to"], e["from"]))
+
+    for i, (nid1, n1) in enumerate(endpoint_list):
+        for nid2, n2 in endpoint_list[i+1:]:
+            # Skip if same way
+            if node_ways[nid1] & node_ways[nid2]:
+                continue
+            # Skip if edge already exists
+            if (str(nid1), str(nid2)) in existing_edges:
+                continue
+            # Quick lat/lon filter before expensive haversine
+            if abs(n1["lat"] - n2["lat"]) > 0.0003 or abs(n1["lon"] - n2["lon"]) > 0.0003:
+                continue
+            dist = haversine_m(n1["lat"], n1["lon"], n2["lat"], n2["lon"])
+            if dist <= BRIDGE_DIST_M:
+                edges.append({
+                    "from": str(nid1),
+                    "to": str(nid2),
+                    "way_id": 0,
+                    "name": "bridge",
+                    "waterway": "bridge",
+                    "dist_m": round(dist, 1),
+                })
+                existing_edges.add((str(nid1), str(nid2)))
+                existing_edges.add((str(nid2), str(nid1)))
+                bridge_count += 1
+
+    print(f"[Bridge] Added {bridge_count} bridge edges (within {BRIDGE_DIST_M}m)")
 
     # Build the output
     output = {
