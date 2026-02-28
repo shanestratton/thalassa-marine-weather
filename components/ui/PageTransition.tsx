@@ -114,7 +114,7 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
                     ? { duration: 0.2, ease: 'easeInOut' }
                     : SPRING
                 }
-                className="absolute inset-0 will-change-transform"
+                className="absolute inset-0 will-change-transform bg-slate-950"
                 {...dragProps}
             >
                 {children}
