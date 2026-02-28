@@ -35,6 +35,14 @@ const OCEAN_STYLE: StyleSpecification = {
             tileSize: 256,
             attribution: '&copy; <a href="https://carto.com">CARTO</a>',
         },
+        'openseamap': {
+            type: 'raster',
+            tiles: [
+                'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+            ],
+            tileSize: 256,
+            attribution: 'Map data: &copy; <a href="https://www.openseamap.org">OpenSeaMap</a> contributors',
+        },
     },
     layers: [
         {
@@ -47,6 +55,16 @@ const OCEAN_STYLE: StyleSpecification = {
                 'raster-brightness-max': 1.0,
                 'raster-contrast': 0.1,
                 'raster-saturation': -0.05,
+            },
+        },
+        {
+            id: 'openseamap-tiles',
+            type: 'raster',
+            source: 'openseamap',
+            minzoom: 8,
+            maxzoom: 18,
+            paint: {
+                'raster-opacity': 0.85,
             },
         },
     ],
@@ -471,9 +489,9 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         <Map
             ref={mapRef}
             initialViewState={{
-                longitude: 155,
-                latitude: -25,
-                zoom: 4,
+                longitude: 153.108,
+                latitude: -27.207,
+                zoom: 14,
             }}
             onLoad={onLoad}
             mapStyle={OCEAN_STYLE}
