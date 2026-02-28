@@ -17,6 +17,7 @@ import { RainForecastCard } from './dashboard/RainForecastCard';
 import { useSettings } from '../context/SettingsContext';
 import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
 import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
+import { OnboardingTooltips, useOnboardingTooltips } from './ui/OnboardingTooltips';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, WeatherMetrics, SourcedWeatherMetrics } from '../types';
@@ -72,6 +73,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Onboarding tutorial for first-time users
     const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
+    const { showTooltips, dismissTooltips } = useOnboardingTooltips();
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -688,6 +690,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     onDismiss={dismissTutorial}
                     onNeverShow={neverShowAgain}
                 />
+            )}
+
+            {/* Contextual Onboarding Tooltips — shown after gesture tutorial */}
+            {!showTutorial && showTooltips && (
+                <OnboardingTooltips onComplete={dismissTooltips} />
             )}
         </DashboardWidgetContext.Provider >
     );

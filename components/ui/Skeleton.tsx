@@ -12,7 +12,7 @@ interface SkeletonProps {
 
 // Base skeleton with shimmer animation
 export const Skeleton: React.FC<SkeletonProps> = ({ className = '' }) => (
-    <div className={`animate-pulse bg-white/10 rounded ${className}`} />
+    <div className={`skeleton-shimmer ${className}`} />
 );
 
 // Skeleton for text lines

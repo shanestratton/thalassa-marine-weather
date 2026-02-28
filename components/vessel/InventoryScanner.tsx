@@ -334,7 +334,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         return (
             <div className="fixed inset-0 z-[2000] bg-slate-950 flex flex-col">
                 {/* ── Header ── */}
-                <div className="shrink-0 px-4 pt-3 pb-2">
+                <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
                         <button onClick={onClose} className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
