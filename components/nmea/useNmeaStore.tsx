@@ -57,7 +57,7 @@ export const NmeaValue: React.FC<NmeaValueProps> = ({
     className = '',
     liveClass = 'text-white',
     staleClass = 'text-yellow-400/50',
-    deadClass = 'text-gray-600',
+    deadClass = 'text-gray-500',
 }) => {
     const freshnessStyles: Record<DataFreshness, string> = {
         live: liveClass,

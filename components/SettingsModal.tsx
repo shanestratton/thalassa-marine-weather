@@ -294,7 +294,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
                                     <p className="text-gray-500 text-xs mt-0.5">{item.description}</p>
                                 </div>
-                                <ArrowRightIcon className="w-4 h-4 text-gray-600 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                <ArrowRightIcon className="w-4 h-4 text-gray-500 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                             </button>
                         ))}
                     </div>

@@ -249,7 +249,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                                 </div>
 
                                 {/* Size impact */}
-                                <span className={`text-[11px] font-mono font-bold flex-shrink-0 ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
+                                <span className={`text-[11px] font-mono font-bold flex-shrink-0 ${active ? 'text-emerald-400' : 'text-gray-500'}`}>
                                     +{GribRequestBuilder.formatSize(paramSize)}
                                 </span>
                             </button>
@@ -447,7 +447,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                     onClick={handleDownload}
                     disabled={bboxErrors.length > 0}
                     className={`w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all ${bboxErrors.length > 0
-                            ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                            ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
                             : downloadMode === 'iridium'
                                 ? 'bg-gradient-to-r from-amber-600 to-red-600 text-white shadow-xl shadow-amber-500/20 hover:shadow-amber-500/40'
                                 : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-xl shadow-sky-500/20 hover:shadow-sky-500/40'

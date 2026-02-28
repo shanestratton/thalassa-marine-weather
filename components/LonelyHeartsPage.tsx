@@ -222,7 +222,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                     <div className="w-10 h-10 mx-auto mb-4 border-2 border-emerald-500/30 border-t-teal-500 rounded-full animate-spin" />
-                    <p className="text-sm text-white/50">Finding crew nearby...</p>
+                    <p className="text-sm text-white/60">Finding crew nearby...</p>
                 </div>
             </div>
         );
@@ -240,7 +240,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     <button
                         key={tab.key}
                         onClick={() => setView(tab.key)}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-emerald-400' : 'text-white/50 hover:text-white/50'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-emerald-400' : 'text-white/60 hover:text-white/60'}`}
                     >
                         {tab.label}
                         {view === tab.key && (
@@ -262,19 +262,19 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="flex-1 flex bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
                                 <button
                                     onClick={() => { setFilterListingType(''); applyFilters(); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/60'}`}
                                 >
                                     All
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_crew'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/60'}`}
                                 >
                                     🚢 Want Crew
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_berth'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/60'}`}
                                 >
                                     🙋 I am Crew
                                 </button>
@@ -282,7 +282,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all relative ${showFilters || activeFilterCount > 0 ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all relative ${showFilters || activeFilterCount > 0 ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/60'}`}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                                     <line x1="4" y1="6" x2="20" y2="6" />
@@ -300,7 +300,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="mb-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-4">
                                 {/* Skills filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Skills</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Skills</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {SKILL_OPTIONS.map(skill => (
                                             <button
@@ -308,7 +308,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 onClick={() => toggleFilterSkill(skill)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterSkills.includes(skill)
                                                     ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
-                                                    : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
+                                                    : 'bg-white/[0.03] text-white/60 border border-white/[0.04]'
                                                     }`}
                                             >
                                                 {skill}
@@ -319,7 +319,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                 {/* Experience filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Experience</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Experience</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {EXPERIENCE_LEVELS.map(level => (
                                             <button
@@ -327,7 +327,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 onClick={() => setFilterExperience(filterExperience === level ? '' : level)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterExperience === level
                                                     ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
-                                                    : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
+                                                    : 'bg-white/[0.03] text-white/60 border border-white/[0.04]'
                                                     }`}
                                             >
                                                 {level}
@@ -338,7 +338,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                 {/* Region filter */}
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 mb-2">Region</p>
+                                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Region</p>
                                     <input
                                         value={filterRegion}
                                         onChange={e => setFilterRegion(e.target.value)}
@@ -357,7 +357,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     </button>
                                     <button
                                         onClick={clearFilters}
-                                        className="px-4 py-2.5 rounded-xl bg-white/[0.04] text-white/40 font-medium text-sm transition-all"
+                                        className="px-4 py-2.5 rounded-xl bg-white/[0.04] text-white/60 font-medium text-sm transition-all"
                                     >
                                         Clear
                                     </button>
@@ -406,8 +406,8 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         {/* Listings */}
                         {listings.length === 0 ? (
                             <div className="text-center py-16">
-                                <span className="text-5xl block mb-4">🌊</span>
-                                <h3 className="text-lg font-bold text-white/50 mb-2">No Listings Found</h3>
+                                <span className="text-3xl block mb-4">🌊</span>
+                                <h3 className="text-lg font-bold text-white/60 mb-2">No Listings Found</h3>
                                 <p className="text-sm text-white/25">
                                     {activeFilterCount > 0
                                         ? 'Try adjusting your filters or check back later.'
@@ -468,10 +468,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {/* Skills preview — with SEEKING label */}
                                                 {card.skills.length > 0 && (
                                                     <div>
-                                                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40 mb-0.5">Seeking:</p>
+                                                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/60 mb-0.5">Seeking:</p>
                                                         <div className="flex flex-wrap gap-1">
                                                             {card.skills.slice(0, 4).map(skill => (
-                                                                <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[11px] text-white/40">{skill}</span>
+                                                                <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[11px] text-white/60">{skill}</span>
                                                             ))}
                                                             {card.skills.length > 4 && (
                                                                 <span className="text-[11px] text-white/25">+{card.skills.length - 4}</span>
@@ -519,7 +519,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         {/* Back button */}
                         <button
                             onClick={() => setView('board')}
-                            className="flex items-center gap-1.5 text-sm text-white/40 hover:text-white/60 mb-4 transition-colors"
+                            className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white/60 mb-4 transition-colors"
                         >
                             ← Back to listings
                         </button>
@@ -531,7 +531,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <img src={selectedCard.avatar_url} alt="" className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
-                                        <span className="text-5xl">{selectedCard.listing_type === 'seeking_crew' ? '🚢' : '⛵'}</span>
+                                        <span className="text-3xl">{selectedCard.listing_type === 'seeking_crew' ? '🚢' : '⛵'}</span>
                                     </div>
                                 )}
                             </div>
@@ -631,7 +631,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             {selectedCard.bio && (
                                 <div>
                                     <h3 className="text-xs font-bold uppercase tracking-widest text-white/25 mb-2">📝 About</h3>
-                                    <p className="text-sm text-white/50 leading-relaxed whitespace-pre-wrap">
+                                    <p className="text-sm text-white/60 leading-relaxed whitespace-pre-wrap">
                                         {selectedCard.bio}
                                     </p>
                                 </div>
@@ -669,7 +669,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Listing Type */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 I Am A...
                             </label>
                             <div className="space-y-2">
@@ -679,7 +679,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         onClick={() => setEditListingType(editListingType === lt.key ? '' : lt.key)}
                                         className={`w-full py-3.5 px-4 rounded-2xl text-left text-sm font-semibold transition-all flex items-center gap-3 ${editListingType === lt.key
                                             ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
-                                            : 'bg-white/[0.02] text-white/40 border border-white/[0.05] hover:bg-white/[0.04]'
+                                            : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
                                             }`}
                                     >
                                         <span className="text-2xl">{lt.icon}</span>
@@ -691,7 +691,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Crew Photo — single */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 📸 Your Crew Photo
                             </label>
                             <p className="text-[11px] text-white/15 mb-3">
@@ -718,7 +718,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             onClick={() => fileInputRef.current?.click()}
                                             className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                         >
-                                            <span className="text-3xl text-white/40">📷</span>
+                                            <span className="text-3xl text-white/60">📷</span>
                                             <span className="text-[11px] text-white/10 mt-1">Add Photo</span>
                                         </button>
                                     )}
@@ -738,7 +738,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Gender */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Gender</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Gender</label>
                             <div className="flex flex-wrap gap-2">
                                 {GENDER_OPTIONS.map(g => (
                                     <button
@@ -757,7 +757,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Age Range */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Age Range</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Age Range</label>
                             <div className="flex gap-2 flex-wrap">
                                 {AGE_RANGES.map(age => (
                                     <button
@@ -782,7 +782,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Partner */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 👫 Bringing a Partner?
                             </label>
                             <div className="flex gap-2 mb-3">
@@ -818,7 +818,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Skills */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 Skills & Prepared To Do
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -842,7 +842,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Experience */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 Sailing Experience
                             </label>
                             <div className="space-y-2">
@@ -863,7 +863,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Sailing Region */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 📍 Sailing Region / Area
                             </label>
                             <input
@@ -877,12 +877,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Availability */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 📅 Availability
                             </label>
                             <div className="flex gap-3">
                                 <div className="flex-1">
-                                    <p className="text-[11px] text-white/40 uppercase mb-1">From</p>
+                                    <p className="text-[11px] text-white/60 uppercase mb-1">From</p>
                                     <input
                                         type="date"
                                         value={editAvailFrom}
@@ -891,7 +891,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <p className="text-[11px] text-white/40 uppercase mb-1">To (optional)</p>
+                                    <p className="text-[11px] text-white/60 uppercase mb-1">To (optional)</p>
                                     <input
                                         type="date"
                                         value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
@@ -912,7 +912,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Bio */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 About You
                             </label>
                             <textarea
@@ -949,8 +949,8 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     <div className="px-4 py-5">
                         {matches.length === 0 ? (
                             <div className="text-center py-16">
-                                <span className="text-5xl block mb-4">🤝</span>
-                                <h3 className="text-lg font-bold text-white/50 mb-2">No Connections Yet</h3>
+                                <span className="text-3xl block mb-4">🤝</span>
+                                <h3 className="text-lg font-bold text-white/60 mb-2">No Connections Yet</h3>
                                 <p className="text-sm text-white/25">
                                     When you ⭐ someone and they ⭐ you back, you'll both appear here. Start browsing!
                                 </p>
@@ -976,7 +976,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             <p className="text-base font-semibold text-white/80 truncate">
                                                 {match.display_name}
                                             </p>
-                                            <p className="text-xs text-white/50 truncate">
+                                            <p className="text-xs text-white/60 truncate">
                                                 {match.vessel_name ? `⛵ ${match.vessel_name}` : ''}
                                                 {match.vessel_name && match.home_port ? ' • ' : ''}
                                                 {match.home_port ? `📍 ${match.home_port}` : ''}

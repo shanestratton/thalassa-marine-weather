@@ -998,7 +998,7 @@ export const ChatPage: React.FC = () => {
                             </h1>
                         )}
                         {view === 'messages' && activeChannel && (
-                            <p className="text-xs text-white/50 ml-1">{activeChannel.description}</p>
+                            <p className="text-xs text-white/60 ml-1">{activeChannel.description}</p>
                         )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -1031,12 +1031,12 @@ export const ChatPage: React.FC = () => {
                             </>
                         )}
                         {view === 'messages' && (
-                            <span className="text-xs text-white/40 tabular-nums">{messages.length} msgs</span>
+                            <span className="text-xs text-white/60 tabular-nums">{messages.length} msgs</span>
                         )}
                         {view === 'dm_thread' && dmPartner && (
                             <button
                                 onClick={() => setShowBlockConfirm(true)}
-                                className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
+                                className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >
                                 {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
                             </button>
@@ -1060,11 +1060,11 @@ export const ChatPage: React.FC = () => {
                                 </p>
                                 <div className="flex items-center gap-4 mt-3">
                                     {CREW_RANKS.slice(0, 4).map(r => (
-                                        <span key={r.badge} className="text-[11px] text-white/50" title={r.title}>{r.badge} {r.title}</span>
+                                        <span key={r.badge} className="text-[11px] text-white/60" title={r.title}>{r.badge} {r.title}</span>
                                     ))}
                                 </div>
                             </div>
-                            <button onClick={dismissWelcome} className="text-white/40 hover:text-white/50 ml-2 text-sm transition-colors">✕</button>
+                            <button onClick={dismissWelcome} className="text-white/60 hover:text-white/60 ml-2 text-sm transition-colors">✕</button>
                         </div>
                     </div>
                 </div>
@@ -1101,7 +1101,7 @@ export const ChatPage: React.FC = () => {
                             <div className="w-8 h-8 border-2 border-sky-500/30 rounded-full" />
                             <div className="absolute inset-0 w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-                        <span className="text-xs text-white/40">{loadingStatus}</span>
+                        <span className="text-xs text-white/60">{loadingStatus}</span>
                     </div>
                 )}
                 {/* ══════ FIRST MATES ══════ */}
@@ -1161,7 +1161,7 @@ export const ChatPage: React.FC = () => {
                                     </button>
                                 )}
                             </div>
-                            <p className="text-xs text-white/40">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
+                            <p className="text-xs text-white/60">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
                         </div>
 
                         {/* Upload progress */}
@@ -1183,7 +1183,7 @@ export const ChatPage: React.FC = () => {
 
                         {/* Display Name */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">Display Name</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">Display Name</label>
                             <input
                                 value={profileDisplayName}
                                 onChange={e => setProfileDisplayName(e.target.value)}
@@ -1191,12 +1191,12 @@ export const ChatPage: React.FC = () => {
                                 className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
                                 maxLength={30}
                             />
-                            <p className="text-xs text-white/40 mt-1.5 px-1">This is how you appear in chat</p>
+                            <p className="text-xs text-white/60 mt-1.5 px-1">This is how you appear in chat</p>
                         </div>
 
                         {/* Vessel Name */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">⛵ Vessel Name</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">⛵ Vessel Name</label>
                             <input
                                 value={profileVesselName}
                                 onChange={e => setProfileVesselName(e.target.value)}
@@ -1214,7 +1214,7 @@ export const ChatPage: React.FC = () => {
                                 <span className="text-2xl">❤️</span>
                                 <div>
                                     <p className="text-base font-semibold text-white/80">Looking for Love</p>
-                                    <p className="text-xs text-white/50">Show the First Mates channel</p>
+                                    <p className="text-xs text-white/60">Show the First Mates channel</p>
                                 </div>
                             </div>
                             <button
@@ -1260,7 +1260,7 @@ export const ChatPage: React.FC = () => {
 
                     return (
                         <div className="px-4 py-3 pb-24 space-y-1.5">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/40 px-1 mb-2">Channels</p>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
                             {channels
                                 .filter(ch => ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts')
                                 .sort((a, b) => {
@@ -1279,10 +1279,10 @@ export const ChatPage: React.FC = () => {
                                         </div>
                                         <div className="text-left flex-1 min-w-0">
                                             <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">{getChannelName(ch)}</p>
-                                            <p className="text-sm text-white/50 truncate mt-0.5">{ch.description}</p>
+                                            <p className="text-sm text-white/60 truncate mt-0.5">{ch.description}</p>
                                         </div>
                                         <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                                            <span className="text-white/15 group-hover:text-white/40 text-xs transition-colors">›</span>
+                                            <span className="text-white/15 group-hover:text-white/60 text-xs transition-colors">›</span>
                                         </div>
                                     </button>
                                 ))}
@@ -1307,7 +1307,7 @@ export const ChatPage: React.FC = () => {
                                             </div>
                                             <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
                                             <div className="flex gap-2">
-                                                <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
+                                                <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/60 hover:bg-white/[0.06] transition-colors">Cancel</button>
                                                 <button onClick={handleProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
                                                     {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
                                                 </button>
@@ -1331,7 +1331,7 @@ export const ChatPage: React.FC = () => {
                                 {pinnedMessages.map(pm => (
                                     <div key={pm.id} className="flex items-center gap-2 py-0.5">
                                         <span className="text-base font-medium text-amber-300/70">{pm.display_name}:</span>
-                                        <span className="text-base text-white/50 truncate">{pm.message}</span>
+                                        <span className="text-base text-white/60 truncate">{pm.message}</span>
                                     </div>
                                 ))}
                             </div>
@@ -1341,8 +1341,8 @@ export const ChatPage: React.FC = () => {
                         <div className="flex-1 px-4 py-3 space-y-1">
                             {regularMessages.length === 0 && (
                                 <div className="flex-1 flex flex-col items-center justify-center py-28">
-                                    <div className="text-8xl mb-6 opacity-80">⛵</div>
-                                    <p className="text-lg font-medium text-white/50">No messages yet</p>
+                                    <div className="text-4xl mb-6 opacity-80">⛵</div>
+                                    <p className="text-lg font-medium text-white/60">No messages yet</p>
                                     <p className="text-sm text-white/15 mt-2">Be the first to say ahoy!</p>
                                 </div>
                             )}
@@ -1407,7 +1407,7 @@ export const ChatPage: React.FC = () => {
                                                     {isMod && msg.user_id !== 'self' && (
                                                         <span className="text-[11px] opacity-30">🛡️</span>
                                                     )}
-                                                    <span className="text-sm text-white/40 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
+                                                    <span className="text-sm text-white/60 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
                                                 </div>
 
                                                 {/* Message body — rich cards for pins/tracks */}
@@ -1494,7 +1494,7 @@ export const ChatPage: React.FC = () => {
                                                             {msg.is_pinned ? '📌 Unpin' : '📌 Pin message'}
                                                         </button>
                                                         <div className="h-px bg-white/[0.04] my-1" />
-                                                        <p className="text-[11px] text-white/40 px-2.5 uppercase tracking-wider">Mute {msg.display_name}</p>
+                                                        <p className="text-[11px] text-white/60 px-2.5 uppercase tracking-wider">Mute {msg.display_name}</p>
                                                         <div className="flex gap-1 px-2">
                                                             {[{ hrs: 1, label: '1h' }, { hrs: 24, label: '24h' }, { hrs: 168, label: '7d' }].map(({ hrs, label }) => (
                                                                 <button
@@ -1523,8 +1523,8 @@ export const ChatPage: React.FC = () => {
                     <div className="px-4 py-3 space-y-1.5">
                         {dmConversations.length === 0 && (
                             <div className="text-center py-20">
-                                <div className="text-5xl mb-4 opacity-60">✉️</div>
-                                <p className="text-sm font-medium text-white/50">No conversations yet</p>
+                                <div className="text-3xl mb-4 opacity-60">✉️</div>
+                                <p className="text-sm font-medium text-white/60">No conversations yet</p>
                                 <p className="text-[11px] text-white/15 mt-1.5 max-w-[200px] mx-auto">
                                     Tap someone's avatar in a channel to start a direct message
                                 </p>
@@ -1545,7 +1545,7 @@ export const ChatPage: React.FC = () => {
                                         <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
                                         <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
                                     </div>
-                                    <p className="text-[11px] text-white/50 truncate">{conv.last_message}</p>
+                                    <p className="text-[11px] text-white/60 truncate">{conv.last_message}</p>
                                 </div>
                                 {conv.unread_count > 0 && (
                                     <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
@@ -1564,7 +1564,7 @@ export const ChatPage: React.FC = () => {
                             {dmThread.length === 0 && (
                                 <div className="text-center py-20">
                                     <p className="text-3xl mb-3 opacity-60">👋</p>
-                                    <p className="text-sm text-white/50">Say ahoy to {dmPartner?.name}!</p>
+                                    <p className="text-sm text-white/60">Say ahoy to {dmPartner?.name}!</p>
                                 </div>
                             )}
                             {dmThread.map((dm, i) => {
@@ -1599,12 +1599,12 @@ export const ChatPage: React.FC = () => {
                             <div className="text-center py-6">
                                 <div className="text-4xl mb-3">✅</div>
                                 <p className="text-sm font-medium text-white/70">Report submitted</p>
-                                <p className="text-[11px] text-white/50 mt-1">Our moderators will review it shortly</p>
+                                <p className="text-[11px] text-white/60 mt-1">Our moderators will review it shortly</p>
                             </div>
                         ) : (
                             <>
                                 <p className="text-sm font-bold text-white/80 mb-1">🚩 Report Message</p>
-                                <p className="text-[11px] text-white/50 mb-4 truncate">From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"</p>
+                                <p className="text-[11px] text-white/60 mb-4 truncate">From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"</p>
                                 <div className="space-y-1.5 mb-4">
                                     {(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other'] as const).map(r => (
                                         <button
@@ -1612,7 +1612,7 @@ export const ChatPage: React.FC = () => {
                                             onClick={() => setReportReason(r)}
                                             className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${reportReason === r
                                                 ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                                                : 'bg-white/[0.02] border border-white/[0.04] text-white/40 hover:bg-white/[0.04]'
+                                                : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
                                                 }`}
                                         >
                                             {r === 'spam' && '📧 Spam'}
@@ -1624,7 +1624,7 @@ export const ChatPage: React.FC = () => {
                                     ))}
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
+                                    <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors">Cancel</button>
                                     <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors">Submit Report</button>
                                 </div>
                             </>
@@ -1640,14 +1640,14 @@ export const ChatPage: React.FC = () => {
                         <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
                         <button
                             onClick={() => setShowPinSheet(false)}
-                            className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
+                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
                         >✕</button>
                     </div>
 
                     {pinLoading ? (
                         <div className="flex items-center justify-center py-6">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/50">Getting GPS...</span>
+                            <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
                         </div>
                     ) : (
                         <>
@@ -1669,7 +1669,7 @@ export const ChatPage: React.FC = () => {
                                                 <span className="text-sm">📍</span>
                                                 <div className="text-left">
                                                     <p className="text-xs text-white/60 font-medium truncate max-w-[140px]">{sp.caption}</p>
-                                                    <p className="text-[11px] text-white/40 tabular-nums">{PinService.formatCoords(sp.latitude, sp.longitude)}</p>
+                                                    <p className="text-[11px] text-white/60 tabular-nums">{PinService.formatCoords(sp.latitude, sp.longitude)}</p>
                                                 </div>
                                             </button>
                                         ))}
@@ -1720,14 +1720,14 @@ export const ChatPage: React.FC = () => {
                         <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
                         <button
                             onClick={() => setShowPoiSheet(false)}
-                            className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
+                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
                         >✕</button>
                     </div>
 
                     {pinLoading ? (
                         <div className="flex items-center justify-center py-6">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/50">Getting GPS...</span>
+                            <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
                         </div>
                     ) : (
                         <>
@@ -1771,20 +1771,20 @@ export const ChatPage: React.FC = () => {
                         <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
                         <button
                             onClick={() => setShowTrackPicker(false)}
-                            className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
+                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
                         >✕</button>
                     </div>
 
                     {trackLoadingVoyages ? (
                         <div className="flex items-center justify-center py-8">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/50">Loading voyages...</span>
+                            <span className="ml-3 text-sm text-white/60">Loading voyages...</span>
                         </div>
                     ) : voyageList.length === 0 ? (
                         <div className="text-center py-8">
                             <p className="text-xl mb-2">🚫</p>
-                            <p className="text-sm text-white/40 font-medium">No voyages to share</p>
-                            <p className="text-xs text-white/40 mt-1">Record a voyage first using the Ship's Log</p>
+                            <p className="text-sm text-white/60 font-medium">No voyages to share</p>
+                            <p className="text-xs text-white/60 mt-1">Record a voyage first using the Ship's Log</p>
                         </div>
                     ) : (
                         <div className="space-y-2 overflow-y-auto max-h-[240px] pb-1" style={{ scrollbarWidth: 'thin' }}>
@@ -1803,7 +1803,7 @@ export const ChatPage: React.FC = () => {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm text-white/70 font-medium truncate">{dateStr}</p>
-                                            <p className="text-[11px] text-white/50 tabular-nums">
+                                            <p className="text-[11px] text-white/60 tabular-nums">
                                                 {v.distance}nm · {v.entryCount} pts · {durationHrs}h
                                             </p>
                                         </div>
@@ -1836,7 +1836,7 @@ export const ChatPage: React.FC = () => {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => { setFilterWarning(null); setMessageText(''); }}
-                                        className="flex-1 py-1.5 rounded-lg bg-white/[0.03] text-[11px] text-white/50 hover:bg-white/[0.06] transition-colors"
+                                        className="flex-1 py-1.5 rounded-lg bg-white/[0.03] text-[11px] text-white/60 hover:bg-white/[0.06] transition-colors"
                                     >
                                         Edit message
                                     </button>
@@ -1883,7 +1883,7 @@ export const ChatPage: React.FC = () => {
                                                     <span className="text-lg">📍</span>
                                                     <div>
                                                         <p className="text-sm text-white/80 font-medium">Drop a Pin</p>
-                                                        <p className="text-[11px] text-white/50">Share your location</p>
+                                                        <p className="text-[11px] text-white/60">Share your location</p>
                                                     </div>
                                                 </button>
                                                 <div className="h-px bg-white/[0.06]" />
@@ -1894,7 +1894,7 @@ export const ChatPage: React.FC = () => {
                                                     <span className="text-lg">🗺️</span>
                                                     <div>
                                                         <p className="text-sm text-white/80 font-medium">Share POI</p>
-                                                        <p className="text-[11px] text-white/50">Browse & pick any spot</p>
+                                                        <p className="text-[11px] text-white/60">Browse & pick any spot</p>
                                                     </div>
                                                 </button>
                                                 <div className="h-px bg-white/[0.06]" />
@@ -1905,7 +1905,7 @@ export const ChatPage: React.FC = () => {
                                                     <span className="text-lg">⛵</span>
                                                     <div>
                                                         <p className="text-sm text-white/80 font-medium">Share Track</p>
-                                                        <p className="text-[11px] text-white/50">Share a voyage</p>
+                                                        <p className="text-[11px] text-white/60">Share a voyage</p>
                                                     </div>
                                                 </button>
                                             </div>
@@ -1974,7 +1974,7 @@ export const ChatPage: React.FC = () => {
                                     </button>
                                     <button
                                         onClick={() => setShowBlockConfirm(false)}
-                                        className="flex-1 py-2.5 rounded-xl bg-white/[0.04] text-white/40 text-sm font-medium border border-white/[0.06] transition-all active:scale-95"
+                                        className="flex-1 py-2.5 rounded-xl bg-white/[0.04] text-white/60 text-sm font-medium border border-white/[0.06] transition-all active:scale-95"
                                     >
                                         Cancel
                                     </button>
@@ -2032,14 +2032,14 @@ export const ChatPage: React.FC = () => {
                                     This track was shared by another sailor and is <span className="font-bold text-amber-300">not verified</span>. Depths vary with tide, weather, and vessel draft. <span className="font-bold text-amber-300">Not suitable for navigation.</span>
                                 </p>
                             </div>
-                            <p className="text-xs text-white/40 leading-relaxed">
+                            <p className="text-xs text-white/60 leading-relaxed">
                                 It will be imported to your ship's log as a community track with an <span className="text-amber-400 font-bold">Imported</span> badge.
                             </p>
                         </div>
                         <div className="px-5 pb-5 flex gap-2 pt-2">
                             <button
                                 onClick={() => setShowTrackDisclaimer(null)}
-                                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/50 text-sm font-bold transition-all active:scale-95"
+                                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
                             >Cancel</button>
                             <button
                                 onClick={() => handleImportTrack(showTrackDisclaimer!.trackId, showTrackDisclaimer!.title)}

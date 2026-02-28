@@ -249,7 +249,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                     <div className="w-10 h-10 mx-auto mb-4 border-2 border-[#FF7F50]/30 border-t-[#FF7F50] rounded-full animate-spin" />
-                    <p className="text-sm text-white/50">Finding sailors nearby...</p>
+                    <p className="text-sm text-white/60">Finding sailors nearby...</p>
                 </div>
             </div>
         );
@@ -268,7 +268,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                         key={tab.key}
                         onClick={() => setView(tab.key)}
                         className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key || (view === 'match_celebration' && tab.key === 'browse')
-                            ? 'text-[#FF7F50]' : 'text-white/50 hover:text-white/50'
+                            ? 'text-[#FF7F50]' : 'text-white/60 hover:text-white/60'
                             }`}
                     >
                         {tab.label}
@@ -287,8 +287,8 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                     <div className="flex flex-col items-center justify-center h-full px-6 py-4">
                         {!currentCard ? (
                             <div className="text-center">
-                                <span className="text-5xl block mb-4">⛵</span>
-                                <h3 className="text-lg font-bold text-white/50 mb-2">No More Sailors</h3>
+                                <span className="text-3xl block mb-4">⛵</span>
+                                <h3 className="text-lg font-bold text-white/60 mb-2">No More Sailors</h3>
                                 <p className="text-sm text-white/25 max-w-[240px] mx-auto">
                                     You've seen everyone nearby. Check back later —
                                     new sailors join every day!
@@ -360,7 +360,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                 )}
                                             </>
                                         ) : (
-                                            <span className="text-7xl opacity-50">⛵</span>
+                                            <span className="text-4xl opacity-50">⛵</span>
                                         )}
                                         <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-[#0a0f1e] to-transparent h-20" />
                                     </div>
@@ -377,7 +377,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                         </div>
 
                                         {/* Quick meta — NO identifiable info (no vessel name, no full location) */}
-                                        <div className="flex flex-wrap gap-2 text-xs text-white/40">
+                                        <div className="flex flex-wrap gap-2 text-xs text-white/60">
                                             {currentCard.sailing_experience && <span>🧭 {currentCard.sailing_experience}</span>}
                                             {currentCard.sailing_region && <span>📍 {currentCard.sailing_region}</span>}
                                         </div>
@@ -404,7 +404,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                     </span>
                                                 ))}
                                                 {currentCard.interests.filter(t => !t.startsWith('role:')).length > 6 && (
-                                                    <span className="text-[11px] text-white/40">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
+                                                    <span className="text-[11px] text-white/60">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
                                                 )}
                                             </div>
                                         )}
@@ -440,14 +440,14 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                 {view === 'match_celebration' && newMatch && (
                     <div className="flex flex-col items-center justify-center h-full px-6">
                         <div className="text-center animate-bounce">
-                            <span className="text-6xl block mb-4">🎉</span>
+                            <span className="text-4xl block mb-4">🎉</span>
                             <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#FF7F50] to-[#E9967A] mb-2">
                                 It's a Match!
                             </h2>
-                            <p className="text-base text-white/50 mb-1">
+                            <p className="text-base text-white/60 mb-1">
                                 You and <span className="font-bold text-white/70">{getDatingName(newMatch)}</span> liked each other
                             </p>
-                            <p className="text-sm text-white/50">
+                            <p className="text-sm text-white/60">
                                 You can now send them a message 💬
                             </p>
                         </div>
@@ -461,7 +461,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                             </button>
                             <button
                                 onClick={() => { setNewMatch(null); setView('browse'); }}
-                                className="px-6 py-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] text-white/40 font-medium text-base transition-all active:scale-95"
+                                className="px-6 py-4 rounded-2xl bg-white/[0.04] border border-white/[0.06] text-white/60 font-medium text-base transition-all active:scale-95"
                             >
                                 Keep swiping
                             </button>
@@ -472,14 +472,14 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                 {/* ══════ MATCHES ══════ */}
                 {view === 'matches' && (
                     <div className="px-4 py-5">
-                        <p className="text-xs text-white/40 text-center mb-4">
+                        <p className="text-xs text-white/60 text-center mb-4">
                             Both sailors must like each other to connect — your safety matters ⚓
                         </p>
 
                         {matches.length === 0 ? (
                             <div className="text-center py-16">
-                                <span className="text-5xl block mb-4">💕</span>
-                                <h3 className="text-lg font-bold text-white/50 mb-2">No Matches Yet</h3>
+                                <span className="text-3xl block mb-4">💕</span>
+                                <h3 className="text-lg font-bold text-white/60 mb-2">No Matches Yet</h3>
                                 <p className="text-sm text-white/25 max-w-[260px] mx-auto">
                                     When you and another sailor both swipe right, you'll match and can message each other.
                                 </p>
@@ -533,7 +533,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Dating Photos — 6 slots */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 📸 Your Dating Photos
                             </label>
                             <p className="text-[11px] text-white/15 mb-3">
@@ -567,7 +567,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                 }}
                                                 className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                             >
-                                                <span className="text-2xl text-white/40">📷</span>
+                                                <span className="text-2xl text-white/60">📷</span>
                                                 <span className="text-[11px] text-white/10 mt-1">{idx === 0 ? 'Main Photo' : `Photo ${idx + 1}`}</span>
                                             </button>
                                         )}
@@ -588,7 +588,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* First name only */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 💕 First Name Only
                             </label>
                             <input
@@ -605,7 +605,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Role Identity Selector */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 🧭 Your Role
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -630,7 +630,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Seeking */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 Looking For
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -651,7 +651,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Age */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">Age Range</label>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Age Range</label>
                             <div className="flex gap-2 flex-wrap">
                                 {AGE_RANGES.map(age => (
                                     <button
@@ -676,7 +676,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Experience */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 Sailing Experience
                             </label>
                             <div className="space-y-2">
@@ -697,7 +697,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Location */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 📍 General Area (be vague!)
                             </label>
                             <input
@@ -711,7 +711,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Interests */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-3">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                                 Interests & Passions
                             </label>
                             <div className="flex flex-wrap gap-2">
@@ -735,7 +735,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
 
                         {/* Bio */}
                         <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/50 block mb-2">
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 About You
                             </label>
                             <textarea

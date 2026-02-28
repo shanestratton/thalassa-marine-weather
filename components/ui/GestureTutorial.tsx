@@ -132,7 +132,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                                 onNeverShow();
                                 handleDismiss();
                             }}
-                            className="w-full py-2 text-white/50 hover:text-white/70 text-sm transition-colors"
+                            className="w-full py-2 text-white/60 hover:text-white/70 text-sm transition-colors"
                         >
                             Don't show again
                         </button>
@@ -143,7 +143,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                 {step < steps.length - 1 && (
                     <button
                         onClick={handleDismiss}
-                        className="w-full mt-3 py-2 text-white/50 hover:text-white/70 text-sm transition-colors"
+                        className="w-full mt-3 py-2 text-white/60 hover:text-white/70 text-sm transition-colors"
                      aria-label="Dismiss">
                         Skip tutorial
                     </button>

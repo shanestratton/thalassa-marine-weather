@@ -662,7 +662,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
                     {isDetailMode && (
                         <div className="absolute inset-0 overflow-hidden">
-                            <React.Suspense fallback={<div className="flex items-center justify-center h-full bg-black"><div className="text-white/40 text-sm">Loading Log...</div></div>}>
+                            <React.Suspense fallback={<div className="flex items-center justify-center h-full bg-black"><div className="text-white/60 text-sm">Loading Log...</div></div>}>
                                 <LogPage />
                             </React.Suspense>
                         </div>

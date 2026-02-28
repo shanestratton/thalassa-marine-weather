@@ -346,7 +346,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             <p className="text-base font-bold text-white mb-1">
                                 {searchQuery ? 'No Documents Match' : 'No Documents Filed'}
                             </p>
-                            <p className="text-sm text-white/50 max-w-[240px] text-center">
+                            <p className="text-sm text-white/60 max-w-[240px] text-center">
                                 {searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
                             </p>
                         </div>
@@ -369,7 +369,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="text-xs">{group.icon}</span>
                                     <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
-                                    <span className="text-[11px] text-gray-600 font-bold">({group.docs.length})</span>
+                                    <span className="text-[11px] text-gray-500 font-bold">({group.docs.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.docs.map(doc => (

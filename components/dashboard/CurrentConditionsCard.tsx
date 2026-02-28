@@ -61,7 +61,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                     </div>
                     <div className="flex items-baseline mt-1">
                         <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{windSpeed}</span>
-                        <span className="text-[11px] text-white/50 font-medium ml-0.5">{units.speed}</span>
+                        <span className="text-[11px] text-white/60 font-medium ml-0.5">{units.speed}</span>
                     </div>
                 </div>
 
@@ -82,7 +82,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                     </div>
                     <div className="flex items-baseline mt-1">
                         <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{visibility}</span>
-                        <span className="text-[11px] text-white/50 font-medium ml-0.5">{visUnit}</span>
+                        <span className="text-[11px] text-white/60 font-medium ml-0.5">{visUnit}</span>
                     </div>
                 </div>
 

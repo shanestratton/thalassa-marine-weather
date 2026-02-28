@@ -408,7 +408,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <p className="text-base font-bold text-white mb-1">Your Voyage Awaits</p>
-                                <p className="text-sm text-white/50 max-w-[240px] text-center">Start tracking to record GPS positions, waypoints, and voyage data.</p>
+                                <p className="text-sm text-white/60 max-w-[240px] text-center">Start tracking to record GPS positions, waypoints, and voyage data.</p>
                             </div>
                         ) : (
                             voyageGroups
@@ -446,7 +446,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         </span>
                                                         <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">Archived</span>
                                                     </div>
-                                                    <div className="text-[11px] text-white/50">
+                                                    <div className="text-[11px] text-white/60">
                                                         {voyage.entries.length} entries · {Math.max(0, ...voyage.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
                                                     </div>
                                                 </div>
@@ -1268,7 +1268,7 @@ const MenuBtn: React.FC<{
         onClick={onClick}
         disabled={disabled}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${disabled
-            ? 'text-slate-600 cursor-not-allowed'
+            ? 'text-slate-500 cursor-not-allowed'
             : danger
                 ? 'text-red-400 hover:bg-red-500/10'
                 : accent
@@ -1468,7 +1468,7 @@ const VoyageCard: React.FC<{
                                 <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[11px] font-bold text-sky-300 uppercase mr-1">● Selected</span>
                             )}
                             <span className="text-base font-extrabold text-white">{(dist ?? 0).toFixed(1)} <span className="text-[11px] text-slate-400 font-normal">NM</span></span>
-                            <span className="text-[11px] text-slate-600">|</span>
+                            <span className="text-[11px] text-slate-500">|</span>
                             <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
                         </div>
                     </div>
@@ -1503,7 +1503,7 @@ const VoyageCard: React.FC<{
                             <span className={distDelta > 0 ? 'text-amber-400' : 'text-emerald-400'}>
                                 {distDelta > 0 ? '+' : ''}{distDelta.toFixed(1)} NM
                             </span>
-                            <span className="text-slate-600">·</span>
+                            <span className="text-slate-500">·</span>
                             <span className={timeDeltaMs > 0 ? 'text-amber-400' : 'text-emerald-400'}>
                                 {timeDeltaMs > 0 ? '+' : ''}{Math.round(timeDeltaMs / 60000)}m
                             </span>

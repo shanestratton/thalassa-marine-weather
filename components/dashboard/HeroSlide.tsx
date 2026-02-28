@@ -623,7 +623,7 @@ const HeroSlideComponent = ({
                         <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-yellow-200">Boating</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
-                        <span className="text-3xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{score}</span>
+                        <span className="text-3xl md:text-4xl font-mono font-medium tracking-tight text-ivory">{score}</span>
                         <span className="text-sm md:text-sm font-medium text-gray-400">/100</span>
                     </div>
                     <div className={`mt-auto pt-1 text-sm md: text-sm font-bold px-1.5 py-0.5 rounded w-fit ${scoreColor} `}>
@@ -1028,7 +1028,7 @@ const HeroSlideComponent = ({
                                                     <span className="text-lg">🌊</span>
                                                 </div>
                                                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">Tides Temporarily Unavailable</p>
-                                                <p className="text-[11px] text-white/50 leading-relaxed max-w-[200px]">
+                                                <p className="text-[11px] text-white/60 leading-relaxed max-w-[200px]">
                                                     Tide data source is currently unreachable. Data will restore automatically on next refresh.
                                                 </p>
                                             </div>

@@ -585,7 +585,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 </div>
 
                 {/* Alarm icon with glow */}
-                <div className="text-8xl mb-6 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]" style={{ animation: 'pulse 1s ease-in-out infinite' }}>
+                <div className="text-4xl mb-6 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]" style={{ animation: 'pulse 1s ease-in-out infinite' }}>
                     🚨
                 </div>
 
@@ -598,7 +598,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
                 {/* Distance readout */}
                 <div className="text-center mb-8">
-                    <div className="text-7xl font-mono font-black text-white mb-1"
+                    <div className="text-4xl font-mono font-black text-white mb-1"
                         style={{ textShadow: '0 0 20px rgba(255,255,255,0.2)' }}>
                         {formatDistance(snapshot.distanceFromAnchor)}
                     </div>
@@ -1294,7 +1294,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         <div className="text-center">
                             <div className="w-12 h-12 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                             <div className="text-slate-400">Waiting for vessel data...</div>
-                            <div className="text-sm text-slate-600 mt-2">Session: {syncState?.sessionCode}</div>
+                            <div className="text-sm text-slate-500 mt-2">Session: {syncState?.sessionCode}</div>
                         </div>
                     )}
                 </div>

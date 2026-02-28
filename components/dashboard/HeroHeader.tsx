@@ -154,7 +154,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {(() => {
                         const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
                         const len = tempStr.length;
-                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-5xl';
+                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
                         return (
                             <span
                                 className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
@@ -225,7 +225,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {onToggleExpand && (
                         <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
                             <ChevronIcon
-                                className={`w-3.5 h-3.5 text-white/40 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                                className={`w-3.5 h-3.5 text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
                             />
                         </div>
                     )}

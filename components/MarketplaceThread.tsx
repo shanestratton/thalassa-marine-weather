@@ -269,7 +269,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                     </div>
                 ) : messages.length === 0 ? (
                     <div className="text-center py-16">
-                        <p className="text-gray-600 text-xs">Start the negotiation...</p>
+                        <p className="text-gray-500 text-xs">Start the negotiation...</p>
                     </div>
                 ) : (
                     messages.map(msg => {
@@ -325,7 +325,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                     : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
                                     }`}>
                                     <p className="text-sm text-white leading-relaxed">{msg.content}</p>
-                                    <p className="text-[11px] text-gray-600 text-right mt-1">
+                                    <p className="text-[11px] text-gray-500 text-right mt-1">
                                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                 </div>

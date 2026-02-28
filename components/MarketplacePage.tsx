@@ -176,7 +176,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 onClick={() => setExpanded(!expanded)}
                                 className="text-left mt-1.5"
                             >
-                                <p className={`text-xs text-white/50 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
+                                <p className={`text-xs text-white/60 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
                                     {listing.description}
                                 </p>
                                 {listing.description.length > 100 && (
@@ -186,10 +186,10 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                         )}
 
                         {/* Location + Distance + Time */}
-                        <div className="flex items-center gap-2 mt-2.5 text-[11px] text-white/40">
+                        <div className="flex items-center gap-2 mt-2.5 text-[11px] text-white/60">
                             {listing.location_name && (
                                 <span className="flex items-center gap-1">
-                                    <span className="text-white/50">📍</span>
+                                    <span className="text-white/60">📍</span>
                                     {listing.location_name}
                                 </span>
                             )}
@@ -218,7 +218,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 <div className="flex flex-col">
                                     <span className="text-xs font-semibold text-white/80">{listing.seller_name || 'Sailor'}</span>
                                     {listing.seller_vessel && (
-                                        <span className="text-[11px] text-white/50 flex items-center gap-0.5">
+                                        <span className="text-[11px] text-white/60 flex items-center gap-0.5">
                                             ⛵ {listing.seller_vessel}
                                         </span>
                                     )}
@@ -238,7 +238,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                     )}
                                     <button
                                         onClick={() => setShowActions(!showActions)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/40"
+                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/60"
                                     >
                                         ⋯
                                     </button>
@@ -388,12 +388,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             >
                 {/* Header */}
                 <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 backdrop-blur-xl border-b border-white/[0.06]">
-                    <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/50 font-medium">Cancel</button>
+                    <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/60 font-medium">Cancel</button>
                     <h2 className="text-sm font-bold text-white">List Gear for Sale</h2>
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
-                        className={`text-xs font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/20' : 'text-sky-400'}`}
+                        className={`text-xs font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/30' : 'text-sky-400'}`}
                     >
                         {submitting ? '⏳' : 'Post'}
                     </button>
@@ -409,7 +409,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Photos */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-2 block">Photos (up to 4)</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to 4)</label>
                         <div className="flex gap-2 flex-wrap">
                             {imagePreviews.map((url, i) => (
                                 <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10">
@@ -423,7 +423,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             {images.length < 4 && (
                                 <button
                                     onClick={() => fileRef.current?.click()}
-                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/50 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
+                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
                                 >
                                     <span className="text-xl">+</span>
                                     <span className="text-[11px] mt-0.5">Add</span>
@@ -435,30 +435,30 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Title */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-1.5 block">Title</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Title</label>
                         <input
                             value={title}
                             onChange={e => setTitle(e.target.value)}
                             placeholder="e.g. Raymarine Axiom 12 MFD"
                             maxLength={100}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                         />
                     </div>
 
                     {/* Price + Currency */}
                     <div className="flex gap-3">
                         <div className="flex-1">
-                            <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-1.5 block">Price</label>
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Price</label>
                             <input
                                 value={price}
                                 onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                                 placeholder="0.00"
                                 inputMode="decimal"
-                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                         </div>
                         <div className="w-24">
-                            <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-1.5 block">Currency</label>
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Currency</label>
                             <select
                                 value={currency}
                                 onChange={e => setCurrency(e.target.value)}
@@ -471,7 +471,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Category */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-2 block">Category</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Category</label>
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CATEGORIES.map(cat => (
                                 <button
@@ -479,7 +479,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     onClick={() => setCategory(cat)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${category === cat
                                         ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                                        : 'bg-white/[0.04] border-white/10 text-white/50 hover:border-white/20'}`}
+                                        : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'}`}
                                 >
                                     {CATEGORY_ICONS[cat]} {cat}
                                 </button>
@@ -489,7 +489,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Condition */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-2 block">Condition</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Condition</label>
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CONDITIONS.map(cond => (
                                 <button
@@ -497,7 +497,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     onClick={() => setCondition(cond)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${condition === cond
                                         ? `${getConditionColor(cond)}`
-                                        : 'bg-white/[0.04] border-white/10 text-white/50 hover:border-white/20'}`}
+                                        : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'}`}
                                 >
                                     {cond}
                                 </button>
@@ -507,30 +507,30 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Description */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-1.5 block">Description</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Description</label>
                         <textarea
                             value={description}
                             onChange={e => setDescription(e.target.value)}
                             placeholder="Describe the item, any defects, model year, etc."
                             rows={3}
                             maxLength={1000}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors resize-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors resize-none"
                         />
                     </div>
 
                     {/* Location */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/40 uppercase tracking-wider mb-1.5 block">
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
                             Location {gpsLat ? '(GPS auto-filled)' : ''}
                         </label>
                         <input
                             value={locationName}
                             onChange={e => setLocationName(e.target.value)}
                             placeholder="e.g. Scarborough Marina, QLD"
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                         />
                         {gpsLat && (
-                            <p className="text-[11px] text-white/40 mt-1">
+                            <p className="text-[11px] text-white/60 mt-1">
                                 📍 {gpsLat.toFixed(4)}, {gpsLon?.toFixed(4)}
                             </p>
                         )}
@@ -541,7 +541,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${submitting || !title.trim() || !price || !category || !condition
-                            ? 'bg-white/[0.04] text-white/40 border border-white/[0.06]'
+                            ? 'bg-white/[0.04] text-white/60 border border-white/[0.06]'
                             : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'}`}
                     >
                         {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
@@ -687,7 +687,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                         onClick={() => handleCategoryFilter(null)}
                         className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${!activeCategory
                             ? 'bg-white/10 border-white/20 text-white'
-                            : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/60'}`}
+                            : 'bg-white/[0.03] border-white/[0.06] text-white/60 hover:text-white/60'}`}
                     >
                         All
                     </button>
@@ -697,7 +697,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                             onClick={() => handleCategoryFilter(cat)}
                             className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${activeCategory === cat
                                 ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
-                                : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/60'}`}
+                                : 'bg-white/[0.03] border-white/[0.06] text-white/60 hover:text-white/60'}`}
                         >
                             {CATEGORY_ICONS[cat]} {cat}
                         </button>
@@ -724,9 +724,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                 ) : listings.length === 0 ? (
                     /* Empty state */
                     <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-                        <div className="text-5xl mb-4">⚓</div>
+                        <div className="text-3xl mb-4">⚓</div>
                         <h3 className="text-lg font-bold text-white/80 mb-2">No Gear Listed Yet</h3>
-                        <p className="text-xs text-white/40 mb-6 max-w-xs leading-relaxed">
+                        <p className="text-xs text-white/60 mb-6 max-w-xs leading-relaxed">
                             Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here.
                         </p>
                         <button

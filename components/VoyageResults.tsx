@@ -434,7 +434,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         <div className="flex flex-col items-center justify-center py-10 opacity-50 border-2 border-dashed border-white/10 rounded-xl bg-white/5">
                             <RouteIcon className="w-10 h-10 text-gray-500 mb-3" />
                             <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Direct Route</span>
-                            <span className="text-xs text-gray-600 mt-1">No intermediate stops required</span>
+                            <span className="text-xs text-gray-500 mt-1">No intermediate stops required</span>
                         </div>
                     )}
                 </AccordionSection>
@@ -552,7 +552,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             <div className="col-span-full py-10 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-xl bg-white/5 opacity-60">
                                 <CheckIcon className="w-10 h-10 text-emerald-500 mb-3" />
                                 <span className="text-sm text-gray-400 font-bold uppercase tracking-widest">Sector Clear</span>
-                                <span className="text-xs text-gray-600 mt-1">No significant hazards identified</span>
+                                <span className="text-xs text-gray-500 mt-1">No significant hazards identified</span>
                             </div>
                         )}
                     </div>

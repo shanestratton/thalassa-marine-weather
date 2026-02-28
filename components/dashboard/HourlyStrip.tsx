@@ -97,7 +97,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
                         </span>
 
                         {/* Wind speed small */}
-                        <span className="text-sm text-white/50">
+                        <span className="text-sm text-white/60">
                             {hour.windSpeed !== null && hour.windSpeed !== undefined
                                 ? `${Math.round(hour.windSpeed)}${units.speed}`
                                 : ''}

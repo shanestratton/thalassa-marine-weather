@@ -144,7 +144,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     const tempStr = cardDisplayValues.airTemp.toString();
                                     const len = tempStr.length;
                                     // Big and bold — scale down only for wide numbers
-                                    const sizeClass = len > 3 ? 'text-5xl md:text-6xl' : len > 2 ? 'text-6xl md:text-7xl' : 'text-7xl md:text-8xl';
+                                    const sizeClass = len > 3 ? 'text-2xl md:text-4xl' : len > 2 ? 'text-3xl md:text-4xl' : 'text-4xl md:text-4xl';
 
                                     return (
                                         <span className={`${sizeClass} font-mono font-bold tracking-tighter text-ivory drop-shadow-2xl leading-none transition-all duration-300`}>
@@ -152,7 +152,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                         </span>
                                     )
                                 })()}
-                                <span className="text-sm font-bold text-white/50 mt-1 ml-0.5">{units.temp}</span>
+                                <span className="text-sm font-bold text-white/60 mt-1 ml-0.5">{units.temp}</span>
                             </div>
                             <AutoFitConditionLabel
                                 text={cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers') || ''}

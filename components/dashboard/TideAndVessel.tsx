@@ -421,7 +421,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
-                <GaugeIcon className="w-8 h-8 text-gray-600 mb-2" />
+                <GaugeIcon className="w-8 h-8 text-gray-500 mb-2" />
                 <span className="text-[11px] uppercase font-bold text-gray-500 tracking-widest">Awaiting Telemetry</span>
             </div>
         );
@@ -606,7 +606,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 />
                 {/* Station name — bottom left */}
                 {(guiDetails?.stationName || stationName) && (
-                    <span className="absolute bottom-1.5 left-2 text-[11px] font-semibold text-white/50 tracking-wide pointer-events-none select-none">
+                    <span className="absolute bottom-1.5 left-2 text-[11px] font-semibold text-white/60 tracking-wide pointer-events-none select-none">
                         {guiDetails?.stationName || stationName}
                     </span>
                 )}
@@ -689,7 +689,7 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
     if (!vessel || vessel.type === 'observer') {
         return (
             <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
-                <SearchIcon className="w-12 h-12 text-gray-600 mb-3" />
+                <SearchIcon className="w-12 h-12 text-gray-500 mb-3" />
                 <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
                 <p className="text-xs text-gray-400 max-w-[200px]">Configure a vessel profile to see hydrostatics.</p>
             </Card>
@@ -896,7 +896,7 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                 </Card>
             ) : (
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
-                    <SearchIcon className="w-12 h-12 text-gray-600 mb-3" />
+                    <SearchIcon className="w-12 h-12 text-gray-500 mb-3" />
                     <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
                     <p className="text-xs text-gray-400 max-w-[200px]">Configure a vessel profile to see hydrostatics.</p>
                 </Card>

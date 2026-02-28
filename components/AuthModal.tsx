@@ -356,7 +356,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}
-                                    className={`transition-colors ${resendCooldown > 0 ? 'text-gray-600' : 'text-sky-400 hover:text-sky-300'}`}
+                                    className={`transition-colors ${resendCooldown > 0 ? 'text-gray-500' : 'text-sky-400 hover:text-sky-300'}`}
                                 >
                                     {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
                                 </button>

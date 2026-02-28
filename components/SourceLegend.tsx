@@ -37,7 +37,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <h3 className="text-sm font-bold text-white">Data Source Colors</h3>
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="text-white/50 hover:text-white/80 transition-colors"
+                            className="text-white/60 hover:text-white/80 transition-colors"
                             aria-label="Close"
                         >
                             ✕
@@ -82,7 +82,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
 
                     {/* Footer Note */}
                     <div className="mt-3 pt-3 border-t border-white/10">
-                        <p className="text-sm text-white/50 leading-relaxed">
+                        <p className="text-sm text-white/60 leading-relaxed">
                             Thalassa blends Apple WeatherKit (atmospheric) with StormGlass (marine) to deliver the most accurate conditions.
                         </p>
                     </div>
