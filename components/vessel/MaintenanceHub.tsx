@@ -33,6 +33,7 @@ const CATEGORIES: { id: MaintenanceCategory; label: string; icon: string }[] = [
     { id: 'Hull', label: 'Hull', icon: '🚢' },
     { id: 'Rigging', label: 'Rigging', icon: '⛵' },
     { id: 'Routine', label: 'Routine', icon: '📋' },
+    { id: 'Repair', label: 'Repair', icon: '🔧' },
 ];
 
 const TRIGGER_LABELS: Record<MaintenanceTriggerType, string> = {
@@ -178,7 +179,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [engineHoursInput, setEngineHoursInput] = useState<string>('0');
     const [isEditingHours, setIsEditingHours] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [selectedCategory, setSelectedCategory] = useState<MaintenanceCategory | 'all'>('all');
+    const [selectedCategory, setSelectedCategory] = useState<MaintenanceCategory>('Engine');
 
     // Log Service sheet
     const [sheetTask, setSheetTask] = useState<TaskWithStatus | null>(null);
@@ -252,9 +253,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── Computed: Tasks with status, sorted ──
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map(t => calculateStatus(t, engineHours));
-        const filtered = selectedCategory === 'all'
-            ? withStatus
-            : withStatus.filter(t => t.category === selectedCategory);
+        const filtered = withStatus.filter(t => t.category === selectedCategory);
         return sortByUrgency(filtered);
     }, [tasks, engineHours, selectedCategory]);
 
@@ -526,16 +525,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ═══ CATEGORY FILTER CHIPS ═══ */}
                 <div className="shrink-0 px-4 pb-3">
                     <div className="grid grid-cols-3 gap-2">
+                        {/* Repair filter chip — replaces 'All' */}
                         <button
-                            onClick={() => setSelectedCategory('all')}
-                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'all'
+                            onClick={() => setSelectedCategory('Repair')}
+                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'Repair'
                                 ? 'bg-white/15 text-white border border-white/20'
                                 : 'bg-white/5 text-gray-500 border border-white/5'
                                 }`}
                         >
-                            All ({tasks.length})
+                            🔧 Repair ({tasks.filter(t => t.category === 'Repair').length})
                         </button>
-                        {CATEGORIES.map(cat => {
+                        {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => {
                             const count = tasks.filter(t => t.category === cat.id).length;
                             return (
                                 <button
@@ -713,7 +713,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)] overflow-y-auto"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -770,24 +770,26 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
                             </div>
 
-                            {/* Trigger type */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                        <button
-                                            key={t}
-                                            onClick={() => setNewTrigger(t)}
-                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
-                                                }`}
-                                        >
-                                            {TRIGGER_LABELS[t]}
-                                        </button>
-                                    ))}
+                            {/* Trigger type — hidden for Repair (ad-hoc items, no schedule) */}
+                            {newCategory !== 'Repair' && (
+                                <div className="mb-4">
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => setNewTrigger(t)}
+                                                className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
+                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                    : 'bg-white/5 text-gray-500 border border-white/5'
+                                                    }`}
+                                            >
+                                                {TRIGGER_LABELS[t]}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             {/* Interval — only for engine hours */}
                             {newTrigger === 'engine_hours' && (
@@ -821,14 +823,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             )}
 
                             {/* Next due — for time-based triggers */}
-                            {newTrigger !== 'engine_hours' && (
-                                <div className="mb-6">
+                            {newTrigger !== 'engine_hours' && newCategory !== 'Repair' && (
+                                <div className="mb-4">
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
                                     <input
                                         type="date"
                                         value={newDueDate}
                                         onChange={e => setNewDueDate(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                     />
                                     <p className="text-[11px] text-gray-500 mt-1">
                                         Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
