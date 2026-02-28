@@ -180,7 +180,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(({
                     className={`w-full text-left rounded-xl border transition-colors cursor-pointer ${isActive
                         ? 'bg-gradient-to-r from-emerald-900/40 to-sky-900/40 border-emerald-500/30'
                         : isSelected
-                            ? 'bg-gradient-to-r from-amber-900/40 to-orange-900/40 border-amber-500/50 ring-1 ring-amber-500/30'
+                            ? 'bg-gradient-to-r from-amber-900/40 to-amber-900/40 border-amber-500/50 ring-1 ring-amber-500/30'
                             : 'bg-slate-800/60 border-white/10 hover:bg-slate-800/80'
                         }`}
                 >

@@ -152,14 +152,14 @@ function calculateRiskFactors(
 const severityColors = {
     low: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
     moderate: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-    high: 'bg-orange-500/10 border-orange-500/30 text-orange-400',
+    high: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
     critical: 'bg-red-500/10 border-red-500/30 text-red-400'
 };
 
 const severityBadgeColors = {
     low: 'bg-emerald-500/20 text-emerald-300',
     moderate: 'bg-amber-500/20 text-amber-300',
-    high: 'bg-orange-500/20 text-orange-300',
+    high: 'bg-amber-500/20 text-amber-300',
     critical: 'bg-red-500/20 text-red-300'
 };
 
@@ -176,15 +176,15 @@ export const RiskDashboard: React.FC<RiskDashboardProps> = ({
     const hasModerate = risks.some(r => r.severity === 'moderate');
 
     const overallLevel = hasCritical ? 'CRITICAL' : hasHigh ? 'HIGH' : hasModerate ? 'MODERATE' : 'LOW';
-    const overallColor = hasCritical ? 'text-red-400' : hasHigh ? 'text-orange-400' : hasModerate ? 'text-amber-400' : 'text-emerald-400';
-    const overallBg = hasCritical ? 'bg-red-500/10 border-red-500/30' : hasHigh ? 'bg-orange-500/10 border-orange-500/30' : hasModerate ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
+    const overallColor = hasCritical ? 'text-red-400' : hasHigh ? 'text-amber-400' : hasModerate ? 'text-amber-400' : 'text-emerald-400';
+    const overallBg = hasCritical ? 'bg-red-500/10 border-red-500/30' : hasHigh ? 'bg-amber-500/10 border-amber-500/30' : hasModerate ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
 
     return (
         <div className="space-y-4">
             {/* Header with Overall Risk */}
             <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                    <AlertTriangleIcon className="w-4 h-4 text-orange-400" />
+                    <AlertTriangleIcon className="w-4 h-4 text-amber-400" />
                     Risk Assessment
                 </h3>
                 <div className={`px-3 py-1 rounded-lg border ${overallBg}`}>

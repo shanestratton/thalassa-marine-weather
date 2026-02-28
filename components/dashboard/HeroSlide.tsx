@@ -478,8 +478,8 @@ const HeroSlideComponent = ({
                     {/* Humidity */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <DropletIcon className="w-3 h-3 text-cyan-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-cyan-200">Humidity</span>
+                            <DropletIcon className="w-3 h-3 text-sky-400" />
+                            <span className="text-sm font-bold uppercase tracking-widest text-sky-200">Humidity</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.humidity}</span>
@@ -502,8 +502,8 @@ const HeroSlideComponent = ({
                     {/* UV/Pressure */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <SunIcon className="w-3 h-3 text-orange-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-orange-200">UV Index</span>
+                            <SunIcon className="w-3 h-3 text-amber-400" />
+                            <span className="text-sm font-bold uppercase tracking-widest text-amber-200">UV Index</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.uv}</span>
@@ -596,12 +596,12 @@ const HeroSlideComponent = ({
             return (
                 <div className="flex flex-col h-full justify-between">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunIcon className="w-3 h-3 text-orange-400" />
-                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-orange-200">Sun Phz</span>
+                        <SunIcon className="w-3 h-3 text-amber-400" />
+                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-amber-200">Sun Phz</span>
                     </div>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center justify-between">
-                            <span className="text-sm text-orange-300 font-bold uppercase mr-1">Rise</span>
+                            <span className="text-sm text-amber-300 font-bold uppercase mr-1">Rise</span>
                             <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">{displayValues.sunrise}</span>
                         </div>
                         <div className="w-full h-px bg-white/5 my-0.5"></div>
@@ -1044,16 +1044,16 @@ const HeroSlideComponent = ({
                                                     { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
                                                     { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
                                                     { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
-                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-orange-400', labelColor: 'text-orange-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
+                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
                                                 ];
                                                 const INLAND_WIDGETS = [
-                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
-                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-orange-400', labelColor: 'text-orange-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
+                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
                                                     { id: 'precip', label: 'RAIN', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
-                                                    { id: 'pressure', label: 'HPA', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
+                                                    { id: 'pressure', label: 'HPA', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                     { id: 'visibility', label: 'VIS', icon: <EyeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
-                                                    { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-teal-400', labelColor: 'text-teal-300' },
+                                                    { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                 ];
 
                                                 const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);

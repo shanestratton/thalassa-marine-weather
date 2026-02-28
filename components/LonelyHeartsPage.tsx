@@ -221,7 +221,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         return (
             <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                    <div className="w-10 h-10 mx-auto mb-4 border-2 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
+                    <div className="w-10 h-10 mx-auto mb-4 border-2 border-emerald-500/30 border-t-teal-500 rounded-full animate-spin" />
                     <p className="text-sm text-white/50">Finding crew nearby...</p>
                 </div>
             </div>
@@ -240,11 +240,11 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     <button
                         key={tab.key}
                         onClick={() => setView(tab.key)}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-teal-400' : 'text-white/50 hover:text-white/50'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-emerald-400' : 'text-white/50 hover:text-white/50'}`}
                     >
                         {tab.label}
                         {view === tab.key && (
-                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full" />
+                            <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-emerald-500 to-sky-500 rounded-full" />
                         )}
                     </button>
                 ))}
@@ -262,19 +262,19 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="flex-1 flex bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
                                 <button
                                     onClick={() => { setFilterListingType(''); applyFilters(); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${!filterListingType ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
                                 >
                                     All
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_crew'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_crew' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
                                 >
                                     🚢 Want Crew
                                 </button>
                                 <button
                                     onClick={() => { setFilterListingType('seeking_berth'); }}
-                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-teal-500/20 text-teal-300' : 'text-white/50'}`}
+                                    className={`flex-1 py-2 text-xs font-semibold transition-all ${filterListingType === 'seeking_berth' ? 'bg-emerald-500/20 text-emerald-300' : 'text-white/50'}`}
                                 >
                                     🙋 I am Crew
                                 </button>
@@ -282,7 +282,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all relative ${showFilters || activeFilterCount > 0 ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all relative ${showFilters || activeFilterCount > 0 ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300' : 'bg-white/[0.03] border border-white/[0.06] text-white/50'}`}
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                                     <line x1="4" y1="6" x2="20" y2="6" />
@@ -290,7 +290,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <line x1="10" y1="18" x2="14" y2="18" />
                                 </svg>
                                 {activeFilterCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-teal-500 text-[11px] text-white font-bold flex items-center justify-center">{activeFilterCount}</span>
+                                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-[11px] text-white font-bold flex items-center justify-center">{activeFilterCount}</span>
                                 )}
                             </button>
                         </div>
@@ -307,7 +307,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 key={skill}
                                                 onClick={() => toggleFilterSkill(skill)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterSkills.includes(skill)
-                                                    ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
+                                                    ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
                                                     : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
                                                     }`}
                                             >
@@ -326,7 +326,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 key={level}
                                                 onClick={() => setFilterExperience(filterExperience === level ? '' : level)}
                                                 className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all ${filterExperience === level
-                                                    ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
+                                                    ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
                                                     : 'bg-white/[0.03] text-white/50 border border-white/[0.04]'
                                                     }`}
                                             >
@@ -343,7 +343,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         value={filterRegion}
                                         onChange={e => setFilterRegion(e.target.value)}
                                         placeholder="e.g. Caribbean, Med, Australia..."
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-teal-500/30 transition-colors"
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                     />
                                 </div>
 
@@ -351,7 +351,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 <div className="flex gap-2">
                                     <button
                                         onClick={applyFilters}
-                                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-teal-500/30 to-cyan-500/30 text-teal-200 font-semibold text-sm transition-all active:scale-[0.97]"
+                                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/30 to-sky-500/30 text-emerald-200 font-semibold text-sm transition-all active:scale-[0.97]"
                                     >
                                         Apply Filters
                                     </button>
@@ -367,23 +367,23 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Own listing preview — pinned at top */}
                         {profile?.user_id && (
-                            <div className="mb-3 rounded-2xl bg-teal-500/[0.04] border border-teal-400/15 overflow-hidden relative">
+                            <div className="mb-3 rounded-2xl bg-emerald-500/[0.04] border border-emerald-400/15 overflow-hidden relative">
                                 <div className="flex gap-3.5 p-4">
-                                    <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-teal-400/20 flex-shrink-0">
+                                    <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
                                         {editPhoto ? (
                                             <img src={editPhoto} alt="" className="w-full h-full object-cover" />
                                         ) : (
-                                            <div className="w-full h-full bg-gradient-to-br from-teal-500/10 to-cyan-500/10 flex items-center justify-center">
+                                            <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
                                                 <span className="text-xl">{editListingType === 'seeking_crew' ? '🚢' : '⛵'}</span>
                                             </div>
                                         )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-teal-400/50 mb-0.5">Your Listing</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400/50 mb-0.5">Your Listing</p>
                                         <h4 className="text-sm font-bold text-white/80 truncate">{profile.first_name || 'You'}</h4>
                                         {editListingType && (
-                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider mt-0.5 ${editListingType === 'seeking_crew'
-                                                ? 'bg-teal-500/15 text-teal-300/80'
+                                            <span className={`inline-block px-2 py-0.5 rounded-lg text-[11px] font-bold uppercase tracking-wider mt-0.5 ${editListingType === 'seeking_crew'
+                                                ? 'bg-emerald-500/15 text-emerald-300/80'
                                                 : 'bg-amber-500/15 text-amber-300/80'
                                                 }`}>
                                                 {editListingType === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
@@ -393,10 +393,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 </div>
                                 <button
                                     onClick={() => setView('my_profile')}
-                                    className="absolute top-3 right-3 w-8 h-8 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-400/20 flex items-center justify-center transition-all active:scale-90"
+                                    className="absolute top-3 right-3 w-8 h-8 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/20 flex items-center justify-center transition-all active:scale-90"
                                     title="Edit listing"
                                 >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-teal-300">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-300">
                                         <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                                     </svg>
                                 </button>
@@ -414,7 +414,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         : 'No crew or skippers listed yet. Be the first — create your listing!'}
                                 </p>
                                 {activeFilterCount > 0 && (
-                                    <button onClick={clearFilters} className="mt-4 px-5 py-2.5 rounded-xl bg-teal-500/20 text-teal-300 text-sm font-medium">
+                                    <button onClick={clearFilters} className="mt-4 px-5 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 text-sm font-medium">
                                         Clear Filters
                                     </button>
                                 )}
@@ -425,7 +425,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <button
                                         key={card.user_id}
                                         onClick={() => { setSelectedCard(card); setView('detail'); }}
-                                        className="w-full text-left rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-teal-400/15 transition-all active:scale-[0.99] overflow-hidden"
+                                        className="w-full text-left rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-emerald-400/15 transition-all active:scale-[0.99] overflow-hidden"
                                     >
                                         <div className="flex gap-3.5 p-4">
                                             {/* Avatar */}
@@ -433,7 +433,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {card.avatar_url ? (
                                                     <img src={card.avatar_url} alt="" className="w-full h-full object-cover" loading="lazy" />
                                                 ) : (
-                                                    <div className="w-full h-full bg-gradient-to-br from-teal-500/10 to-cyan-500/10 flex items-center justify-center">
+                                                    <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
                                                         <span className="text-2xl">{card.listing_type === 'seeking_crew' ? '🚢' : '⛵'}</span>
                                                     </div>
                                                 )}
@@ -444,14 +444,14 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 <div className="flex items-center gap-2 mb-0.5">
                                                     <h4 className="text-lg font-bold text-white/90 truncate">{card.display_name}</h4>
                                                     {card.age_range && (
-                                                        <span className="text-[11px] text-white/35 bg-white/[0.04] px-1.5 py-0.5 rounded-md flex-shrink-0">{card.age_range}</span>
+                                                        <span className="text-[11px] text-white/35 bg-white/[0.04] px-1.5 py-0.5 rounded-lg flex-shrink-0">{card.age_range}</span>
                                                     )}
                                                 </div>
 
                                                 {/* Type badge */}
                                                 {card.listing_type && (
-                                                    <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider mb-1.5 ${card.listing_type === 'seeking_crew'
-                                                        ? 'bg-teal-500/15 text-teal-300/80'
+                                                    <span className={`inline-block px-2 py-0.5 rounded-lg text-[11px] font-bold uppercase tracking-wider mb-1.5 ${card.listing_type === 'seeking_crew'
+                                                        ? 'bg-emerald-500/15 text-emerald-300/80'
                                                         : 'bg-amber-500/15 text-amber-300/80'
                                                         }`}>
                                                         {card.listing_type === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
@@ -492,7 +492,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         {/* Availability bar — smart date display */}
                                         {(card.available_from || (card.available_to && !isOpenEnded(card.available_to))) && (
                                             <div className="px-4 pb-3">
-                                                <div className="flex items-center gap-1.5 text-[11px] text-teal-400/60">
+                                                <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/60">
                                                     <span>📅</span>
                                                     {card.available_from && isOpenEnded(card.available_to) ? (
                                                         <span>Starts {formatDate(card.available_from)}</span>
@@ -526,11 +526,11 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                         {/* Profile header */}
                         <div className="text-center mb-6">
-                            <div className="w-28 h-28 mx-auto rounded-3xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
+                            <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
                                 {selectedCard.avatar_url ? (
                                     <img src={selectedCard.avatar_url} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-teal-500/15 to-cyan-500/15 flex items-center justify-center">
+                                    <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                         <span className="text-5xl">{selectedCard.listing_type === 'seeking_crew' ? '🚢' : '⛵'}</span>
                                     </div>
                                 )}
@@ -541,7 +541,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             )}
                             {selectedCard.listing_type && (
                                 <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${selectedCard.listing_type === 'seeking_crew'
-                                    ? 'bg-teal-500/15 text-teal-300/80'
+                                    ? 'bg-emerald-500/15 text-emerald-300/80'
                                     : 'bg-amber-500/15 text-amber-300/80'
                                     }`}>
                                     {selectedCard.listing_type === 'seeking_crew' ? '🚢 Want Crew' : '🙋 I am Crew'}
@@ -602,9 +602,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                             {/* Availability — smart date display */}
                             {(selectedCard.available_from || (selectedCard.available_to && !isOpenEnded(selectedCard.available_to))) && (
-                                <div className="p-3 rounded-xl bg-teal-500/5 border border-teal-500/10">
-                                    <p className="text-[11px] font-bold uppercase tracking-wider text-teal-300/40 mb-1">Availability</p>
-                                    <p className="text-sm text-teal-200/70">
+                                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/40 mb-1">Availability</p>
+                                    <p className="text-sm text-emerald-200/70">
                                         📅 {selectedCard.available_from ? formatDate(selectedCard.available_from) : 'Flexible'}
                                         {!isOpenEnded(selectedCard.available_to) && selectedCard.available_to
                                             ? ` — ${formatDate(selectedCard.available_to)}`
@@ -619,7 +619,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-2">Seeking:</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {selectedCard.skills.map(skill => (
-                                            <span key={skill} className="px-3 py-1.5 rounded-full bg-teal-500/10 text-xs text-teal-200/70 border border-teal-500/15">
+                                            <span key={skill} className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-xs text-emerald-200/70 border border-emerald-500/15">
                                                 {skill}
                                             </span>
                                         ))}
@@ -645,7 +645,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         <div className="flex gap-3 mt-6 sticky bottom-4">
                             <button
                                 onClick={() => onOpenDM(selectedCard.user_id, selectedCard.display_name)}
-                                className="flex-1 py-4 rounded-2xl bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-400 hover:to-cyan-500 text-white font-bold text-base transition-all active:scale-[0.97] shadow-xl shadow-teal-500/20"
+                                className="flex-1 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white font-bold text-base transition-all active:scale-[0.97] shadow-xl shadow-emerald-500/20"
                             >
                                 💬 Send Message
                             </button>
@@ -678,7 +678,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         key={lt.key}
                                         onClick={() => setEditListingType(editListingType === lt.key ? '' : lt.key)}
                                         className={`w-full py-3.5 px-4 rounded-2xl text-left text-sm font-semibold transition-all flex items-center gap-3 ${editListingType === lt.key
-                                            ? 'bg-gradient-to-r from-teal-500/20 to-cyan-500/20 text-teal-200 border border-teal-400/25'
+                                            ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
                                             : 'bg-white/[0.02] text-white/40 border border-white/[0.05] hover:bg-white/[0.04]'
                                             }`}
                                     >
@@ -700,8 +700,8 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="flex justify-center">
                                 <div className="w-32 h-32 rounded-2xl border border-white/[0.06] overflow-hidden relative group">
                                     {uploadingPhoto ? (
-                                        <div className="w-full h-full bg-teal-500/5 flex items-center justify-center">
-                                            <div className="w-6 h-6 border-2 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
+                                        <div className="w-full h-full bg-emerald-500/5 flex items-center justify-center">
+                                            <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-teal-500 rounded-full animate-spin" />
                                         </div>
                                     ) : editPhoto ? (
                                         <>
@@ -745,7 +745,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         key={g}
                                         onClick={() => setEditGender(editGender === g ? '' : g)}
                                         className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editGender === g
-                                            ? 'bg-gradient-to-r from-teal-500/25 to-cyan-500/25 text-teal-200 border border-teal-400/25'
+                                            ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                             : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                             }`}
                                     >
@@ -770,7 +770,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             setEditAge(next.join(', '));
                                         }}
                                         className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editAge.split(', ').includes(age)
-                                            ? 'bg-gradient-to-r from-teal-500/25 to-cyan-500/25 text-teal-200 border border-teal-400/25'
+                                            ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                             : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                             }`}
                                     >
@@ -789,7 +789,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 <button
                                     onClick={() => setEditHasPartner(false)}
                                     className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${!editHasPartner
-                                        ? 'bg-gradient-to-r from-teal-500/25 to-cyan-500/25 text-teal-200 border border-teal-400/25'
+                                        ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                         : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                         }`}
                                 >
@@ -798,7 +798,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 <button
                                     onClick={() => setEditHasPartner(true)}
                                     className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${editHasPartner
-                                        ? 'bg-gradient-to-r from-teal-500/25 to-cyan-500/25 text-teal-200 border border-teal-400/25'
+                                        ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                         : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                         }`}
                                 >
@@ -810,7 +810,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     value={editPartnerDetails}
                                     onChange={e => setEditPartnerDetails(e.target.value)}
                                     placeholder="Partner's skills or notes..."
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-teal-500/30 transition-colors"
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                     maxLength={100}
                                 />
                             )}
@@ -829,7 +829,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             key={skill}
                                             onClick={() => toggleEditSkill(skill)}
                                             className={`px-3 py-2 rounded-full text-sm font-medium transition-all active:scale-95 ${selected
-                                                ? 'bg-gradient-to-r from-teal-500/25 to-cyan-500/25 text-teal-200 border border-teal-400/25'
+                                                ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                                 : 'bg-white/[0.03] text-white/35 border border-white/[0.05] hover:bg-white/[0.05]'
                                                 }`}
                                         >
@@ -851,7 +851,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         key={level}
                                         onClick={() => setEditExperience(editExperience === level ? '' : level)}
                                         className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${editExperience === level
-                                            ? 'bg-gradient-to-r from-teal-500/15 to-cyan-500/15 text-teal-200 border border-teal-400/15'
+                                            ? 'bg-gradient-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
                                             : 'bg-white/[0.02] text-white/35 border border-white/[0.04] hover:bg-white/[0.04]'
                                             }`}
                                     >
@@ -870,7 +870,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 value={editRegion}
                                 onChange={e => setEditRegion(e.target.value)}
                                 placeholder="East Coast Australia, Mediterranean, Caribbean..."
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-teal-500/30 transition-colors"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                 maxLength={80}
                             />
                         </div>
@@ -887,7 +887,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         type="date"
                                         value={editAvailFrom}
                                         onChange={e => setEditAvailFrom(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500/30 transition-colors [color-scheme:dark]"
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
                                     />
                                 </div>
                                 <div className="flex-1">
@@ -896,12 +896,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         type="date"
                                         value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
                                         onChange={e => setEditAvailTo(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500/30 transition-colors [color-scheme:dark]"
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
                                     />
                                     {editAvailTo && (
                                         <button
                                             onClick={() => setEditAvailTo('')}
-                                            className="text-[11px] text-teal-400/50 hover:text-teal-400/80 mt-1 transition-colors"
+                                            className="text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
                                         >
                                             ✕ Clear end date
                                         </button>
@@ -922,7 +922,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     ? "Tell crew about your vessel, planned passages, what you're looking for..."
                                     : "Tell skippers about yourself, your experience, what you can bring to the crew..."
                                 }
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-teal-500/30 transition-colors resize-none"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
                                 rows={4}
                                 maxLength={500}
                             />
@@ -933,7 +933,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         <button
                             onClick={handleSaveProfile}
                             disabled={saving}
-                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-400 hover:to-cyan-500 text-base text-white font-bold transition-all disabled:opacity-30 active:scale-[0.98] shadow-xl shadow-teal-500/15"
+                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-base text-white font-bold transition-all disabled:opacity-30 active:scale-[0.98] shadow-xl shadow-emerald-500/15"
                         >
                             {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}
                         </button>
@@ -961,13 +961,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <button
                                         key={match.user_id}
                                         onClick={() => onOpenDM(match.user_id, match.display_name)}
-                                        className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-teal-400/10 transition-all active:scale-[0.98]"
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98]"
                                     >
-                                        <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-teal-400/20 flex-shrink-0">
+                                        <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
                                             {match.avatar_url ? (
                                                 <img src={match.avatar_url} alt="" className="w-full h-full object-cover" />
                                             ) : (
-                                                <div className="w-full h-full bg-gradient-to-br from-teal-500/10 to-cyan-500/10 flex items-center justify-center">
+                                                <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
                                                     <span className="text-xl">⛵</span>
                                                 </div>
                                             )}
@@ -981,11 +981,11 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {match.vessel_name && match.home_port ? ' • ' : ''}
                                                 {match.home_port ? `📍 ${match.home_port}` : ''}
                                             </p>
-                                            <p className="text-xs text-teal-400/50 mt-0.5">
+                                            <p className="text-xs text-emerald-400/50 mt-0.5">
                                                 Connected {new Date(match.matched_at).toLocaleDateString()}
                                             </p>
                                         </div>
-                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-teal-500/20 to-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-emerald-500/20 to-sky-500/20 flex items-center justify-center flex-shrink-0">
                                             <span className="text-sm">💬</span>
                                         </div>
                                     </button>

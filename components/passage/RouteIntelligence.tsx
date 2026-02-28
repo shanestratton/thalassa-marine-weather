@@ -202,11 +202,11 @@ export const RouteIntelligence: React.FC<RouteIntelligenceProps> = ({
                             </div>
 
                             {/* Wind */}
-                            <div className={`rounded-lg p-2 ${fc.conditions.wind > 20 ? 'bg-orange-500/20' : 'bg-black/20'}`}>
+                            <div className={`rounded-lg p-2 ${fc.conditions.wind > 20 ? 'bg-amber-500/20' : 'bg-black/20'}`}>
                                 <div className="text-sm text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-1">
                                     <WindIcon className="w-2.5 h-2.5" /> Wind
                                 </div>
-                                <div className={`text-sm font-bold ${fc.conditions.wind > 20 ? 'text-orange-300' : 'text-white'}`}>
+                                <div className={`text-sm font-bold ${fc.conditions.wind > 20 ? 'text-amber-300' : 'text-white'}`}>
                                     {fc.conditions.wind} kt
                                 </div>
                             </div>

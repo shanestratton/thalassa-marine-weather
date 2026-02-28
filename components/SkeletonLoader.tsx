@@ -21,7 +21,7 @@ export const SkeletonDashboard = () => {
                         <div className="h-4 w-24 bg-white/10 rounded"></div>
                     </div>
 
-                    <div className="h-24 w-40 bg-white/10 rounded-3xl mb-4"></div>
+                    <div className="h-24 w-40 bg-white/10 rounded-2xl mb-4"></div>
 
                     <div className="flex items-center gap-3 mb-6">
                         <div className="h-8 w-8 bg-white/10 rounded-full"></div>
@@ -49,14 +49,14 @@ export const SkeletonDashboard = () => {
 
             {/* Vessel Status & Tides Skeleton */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-2 opacity-50">
-                <div className="h-24 bg-slate-900/40 border border-white/5 rounded-3xl animate-pulse"></div>
-                <div className="h-24 bg-slate-900/40 border border-white/5 rounded-3xl animate-pulse"></div>
+                <div className="h-24 bg-slate-900/40 border border-white/5 rounded-2xl animate-pulse"></div>
+                <div className="h-24 bg-slate-900/40 border border-white/5 rounded-2xl animate-pulse"></div>
             </div>
 
             {/* Primary Metrics Grid Skeleton */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-2 opacity-40">
                 {[...Array(4)].map((_, i) => (
-                    <div key={i} className="h-32 bg-slate-900/40 border border-white/5 rounded-3xl p-6 flex flex-col items-center justify-center gap-3 animate-pulse">
+                    <div key={i} className="h-32 bg-slate-900/40 border border-white/5 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 animate-pulse">
                         <div className="h-6 w-6 bg-sky-500/20 rounded-full"></div>
                         <div className="h-3 w-16 bg-white/10 rounded"></div>
                         <div className="h-8 w-12 bg-white/10 rounded"></div>
@@ -66,7 +66,7 @@ export const SkeletonDashboard = () => {
 
             {/* Detailed Wind Analysis Skeleton */}
             <div className="px-2 opacity-30">
-                <div className="h-48 bg-slate-900/40 border border-white/5 rounded-3xl p-6 animate-pulse">
+                <div className="h-48 bg-slate-900/40 border border-white/5 rounded-2xl p-6 animate-pulse">
                     <div className="flex items-center justify-between h-full">
                         <div className="flex items-center gap-6">
                             <div className="w-20 h-20 rounded-full border-4 border-white/5 bg-white/5"></div>
@@ -85,7 +85,7 @@ export const SkeletonDashboard = () => {
 
             {/* Forecast Chart Skeleton */}
             <div className="mx-2 opacity-20">
-                <div className="h-80 bg-slate-900/40 border border-white/5 rounded-3xl p-6 animate-pulse flex flex-col gap-4">
+                <div className="h-80 bg-slate-900/40 border border-white/5 rounded-2xl p-6 animate-pulse flex flex-col gap-4">
                     <div className="flex justify-between">
                         <div className="h-6 w-32 bg-white/10 rounded"></div>
                         <div className="h-8 w-24 bg-white/10 rounded-lg"></div>

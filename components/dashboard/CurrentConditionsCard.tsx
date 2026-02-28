@@ -48,7 +48,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
                         <svg
-                            className="w-3 h-3 text-teal-400"
+                            className="w-3 h-3 text-emerald-400"
                             style={{ transform: `rotate(${windRotation + 180}deg)` }}
                             viewBox="0 0 24 24"
                             fill="currentColor"
@@ -56,7 +56,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                             <path d="M12 2L8 10h8L12 2z" />
                             <rect x="10" y="10" width="4" height="12" />
                         </svg>
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">{windDir}</span>
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{windDir}</span>
                     </div>
                     <div className="flex items-baseline mt-1">
                         <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{windSpeed}</span>
@@ -67,8 +67,8 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* UV */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <SunIcon className="w-3 h-3 text-teal-400" />
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">UV</span>
+                        <SunIcon className="w-3 h-3 text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">UV</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{uvIndex}</span>
                 </div>
@@ -76,8 +76,8 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* Visibility */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <EyeIcon className="w-3 h-3 text-teal-400" />
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Vis</span>
+                        <EyeIcon className="w-3 h-3 text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Vis</span>
                     </div>
                     <div className="flex items-baseline mt-1">
                         <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{visibility}</span>
@@ -88,8 +88,8 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* Humidity */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <DropletIcon className="w-3 h-3 text-teal-400" />
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">HUM</span>
+                        <DropletIcon className="w-3 h-3 text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">HUM</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{humidity}</span>
                 </div>
@@ -97,8 +97,8 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* Rain */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <RainIcon className="w-3 h-3 text-teal-400" />
-                        <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Rain</span>
+                        <RainIcon className="w-3 h-3 text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Rain</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{rainChance}</span>
                 </div>

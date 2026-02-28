@@ -150,7 +150,7 @@ export const WeatherWindowsPanel: React.FC<WeatherWindowsPanelProps> = ({
 
     const ratingColors = {
         go: 'from-emerald-500 to-emerald-600',
-        caution: 'from-amber-500 to-orange-600',
+        caution: 'from-amber-500 to-amber-600',
         nogo: 'from-red-500 to-red-600'
     };
 

@@ -274,8 +274,8 @@ const InstrumentCell: React.FC<{
         <div className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`} onClick={onClick}>
             {/* Label with icon */}
             <div className="flex items-center gap-1.5 opacity-90">
-                <span className={`w-3 h-3 ${tealHeading ? 'text-teal-400' : 'text-amber-400'}`}>{icon}</span>
-                <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-teal-300' : 'text-amber-300'}`}>
+                <span className={`w-3 h-3 ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}>{icon}</span>
+                <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}>
                     {label}
                 </span>
                 <TrendArrow trend={trend} improving={improving} />
@@ -309,8 +309,8 @@ const BarometerCell: React.FC<{
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
             {/* Label — no trend arrow here (moved to value line) */}
             <div className="flex items-center gap-1.5 opacity-90">
-                <span className="w-3 h-3 text-teal-400"><GaugeIcon className="w-3 h-3" /></span>
-                <span className="text-[11px] font-sans font-bold tracking-widest uppercase text-teal-300">HPA</span>
+                <span className="w-3 h-3 text-emerald-400"><GaugeIcon className="w-3 h-3" /></span>
+                <span className="text-[11px] font-sans font-bold tracking-widest uppercase text-emerald-300">HPA</span>
             </div>
 
             {/* Value with inline trend arrow */}
@@ -539,8 +539,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
                         {/* Title */}
                         <div className="flex items-center gap-1.5">
-                            <CompassIcon className="w-3.5 h-3.5 text-teal-400" rotation={0} />
-                            <span className="text-[11px] font-bold text-teal-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
+                            <CompassIcon className="w-3.5 h-3.5 text-emerald-400" rotation={0} />
+                            <span className="text-[11px] font-bold text-emerald-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
                         </div>
 
                         {/* Compass — compact size */}
@@ -551,7 +551,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             <span className="text-3xl font-light text-white tracking-tight" style={{ fontFeatureSettings: '"tnum"' }}>
                                 {windDeg}°
                             </span>
-                            <span className="text-base font-semibold text-teal-400/80 tracking-wider">{windDir}</span>
+                            <span className="text-base font-semibold text-emerald-400/80 tracking-wider">{windDir}</span>
                         </div>
                     </div>
                 </div>

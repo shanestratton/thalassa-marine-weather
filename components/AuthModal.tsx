@@ -211,7 +211,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
             <div className="absolute inset-0 bg-black/90 backdrop-blur-md transition-opacity" onClick={onClose} />
 
-            <div className="relative modal-panel-enter bg-[#0f172a] w-full max-w-md tablet-modal rounded-3xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95">
+            <div className="relative modal-panel-enter bg-[#0f172a] w-full max-w-md tablet-modal rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95">
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
                     <XIcon className="w-5 h-5" />
                 </button>

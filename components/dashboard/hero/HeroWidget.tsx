@@ -18,16 +18,16 @@ interface HeroWidgetProps {
 export const getWidgetTheme = (wid: string) => {
     switch (wid) {
         case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
-        case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
+        case 'gust': return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-red-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'wave': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
-        case 'uv': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-slate-900/10 border-orange-400/20 shadow-orange-900/5';
+        case 'uv': return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
-        case 'humidity': return 'bg-gradient-to-br from-cyan-900/40 via-sky-900/20 to-slate-900/10 border-cyan-400/20 shadow-cyan-900/5';
-        case 'pressure': return 'bg-gradient-to-br from-teal-900/40 via-emerald-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
-        case 'waterTemp': return 'bg-gradient-to-br from-sky-900/40 via-cyan-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
-        case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
-        case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
-        case 'sunrise': return 'bg-gradient-to-br from-amber-900/40 via-orange-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
+        case 'humidity': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+        case 'pressure': return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+        case 'waterTemp': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+        case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+        case 'currentDirection': return 'bg-gradient-to-br from-emerald-900/40 via-sky-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+        case 'sunrise': return 'bg-gradient-to-br from-amber-900/40 via-amber-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
         case 'sunset': return 'bg-gradient-to-br from-sky-900/40 via-purple-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'clouds': return 'bg-gradient-to-br from-slate-800/60 via-gray-900/40 to-black/30 border-slate-500/20 shadow-slate-900/5';
         default: return 'bg-black/10 border-white/5';
@@ -92,7 +92,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                                 {data.windDirection || 'VAR'}
                             </div>
                             {hasWind && isLive && (
-                                <span className="text-sm md:text-sm text-orange-300 font-bold ml-auto hidden md:inline">G {values.gusts || '--'}</span>
+                                <span className="text-sm md:text-sm text-amber-300 font-bold ml-auto hidden md:inline">G {values.gusts || '--'}</span>
                             )}
                         </div>
                     </div>
@@ -101,8 +101,8 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between w-full">
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
+                            <WindIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Gusts</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.gusts || '--'}</span>
@@ -110,7 +110,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             {renderTrend(trend, true)}
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
-                            <span className="text-sm md:text-sm font-bold text-orange-300 opacity-80">Max</span>
+                            <span className="text-sm md:text-sm font-bold text-amber-300 opacity-80">Max</span>
                         </div>
                     </div>
                 );
@@ -140,15 +140,15 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
+                            <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Barometer</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.pressure}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">hPa</span>
                             {renderTrend(trend, false)}
                         </div>
-                        <div className={`mt-auto pt-1 text-sm md:text-sm text-teal-300 font-bold opacity-70 ${textClass} w-full`}>
+                        <div className={`mt-auto pt-1 text-sm md:text-sm text-emerald-300 font-bold opacity-70 ${textClass} w-full`}>
                             MSL
                         </div>
                     </div>
@@ -174,15 +174,15 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
+                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Humidity</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.humidity}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">%</span>
                             {renderTrend(trend, true)}
                         </div>
-                        <div className={`mt-auto pt-1 text-sm md:text-sm text-cyan-300 font-bold opacity-70 ${textClass} w-full`}>
+                        <div className={`mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70 ${textClass} w-full`}>
                             --
                         </div>
                     </div>
@@ -247,15 +247,15 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
+                            <SunIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>UV Index</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.uv}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">/11</span>
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
-                            <span className="text-sm md:text-sm font-bold text-orange-300 opacity-80">
+                            <span className="text-sm md:text-sm font-bold text-amber-300 opacity-80">
                                 {data.uvIndex && data.uvIndex > 8 ? 'Extreme' : data.uvIndex && data.uvIndex > 5 ? 'High' : 'Moderate'}
                             </span>
                         </div>
@@ -289,15 +289,15 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
+                            <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Sea Temp</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.waterTemperature}</span>
                             <span className="text-sm md:text-sm font-medium text-gray-400">°{units.temp}</span>
                             {renderTrend(trend, true)}
                         </div>
-                        <div className={`mt-auto pt-1 text-sm md:text-sm text-cyan-300 font-bold opacity-70 ${textClass} w-full`}>
+                        <div className={`mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70 ${textClass} w-full`}>
                             Surface
                         </div>
                     </div>
@@ -324,15 +324,15 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
                             <CompassIcon
-                                className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `}
+                                className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `}
                                 rotation={typeof data.currentDirection === 'number' ? data.currentDirection : 0}
                             />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Set</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.currentDirection}</span>
                         </div>
-                        <div className={`mt-auto pt-1 text-sm md:text-sm text-teal-300 font-bold opacity-70 ${textClass} w-full`}>
+                        <div className={`mt-auto pt-1 text-sm md:text-sm text-emerald-300 font-bold opacity-70 ${textClass} w-full`}>
                             {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True
                         </div>
                     </div>

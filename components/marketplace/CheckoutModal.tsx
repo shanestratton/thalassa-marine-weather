@@ -184,7 +184,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         {/* Option B: Secure Escrow */}
                         <button
                             onClick={handleEscrow}
-                            className="w-full p-4 rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.06] to-cyan-500/[0.03] text-left group hover:border-sky-500/50 transition-all active:scale-[0.98] relative overflow-hidden"
+                            className="w-full p-4 rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.06] to-sky-500/[0.03] text-left group hover:border-sky-500/50 transition-all active:scale-[0.98] relative overflow-hidden"
                         >
                             <div className="absolute top-2.5 right-3 px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/30">
                                 <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">Recommended</span>
@@ -247,7 +247,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         </div>
 
                         {/* THE PIN — large, prominent */}
-                        <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-500/[0.08] to-cyan-500/[0.04] border-2 border-sky-500/30 text-center">
+                        <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-500/[0.08] to-sky-500/[0.04] border-2 border-sky-500/30 text-center">
                             <p className="text-[11px] font-bold text-sky-400/70 uppercase tracking-widest mb-3">Your Handoff PIN</p>
                             <div className="flex justify-center gap-3 mb-4">
                                 {holdData.escrowPin.split('').map((digit, i) => (

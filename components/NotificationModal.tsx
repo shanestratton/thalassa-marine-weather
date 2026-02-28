@@ -52,7 +52,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
       />
 
       {/* Modal Content */}
-      <div className={`relative bg-slate-900/90 ${t.border.default} rounded-3xl w-full max-w-md shadow-2xl p-6 overflow-hidden transform transition-all scale-100`}>
+      <div className={`relative bg-slate-900/90 ${t.border.default} rounded-2xl w-full max-w-md shadow-2xl p-6 overflow-hidden transform transition-all scale-100`}>
         <div className="flex items-center justify-between mb-6">
           <h3 id="notification-title" className="text-xl font-semibold text-white">Weather Alerts</h3>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors" aria-label="Close">

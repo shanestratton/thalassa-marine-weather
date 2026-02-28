@@ -304,7 +304,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                             <>
                                 {/* Card */}
                                 <div
-                                    className="relative w-full max-w-[340px] rounded-3xl overflow-hidden border border-white/[0.06] shadow-2xl transition-transform touch-pan-y"
+                                    className="relative w-full max-w-[340px] rounded-2xl overflow-hidden border border-white/[0.06] shadow-2xl transition-transform touch-pan-y"
                                     style={{
                                         transform: `translateX(${swipeX}px) rotate(${swipeX * 0.05}deg)`,
                                         transition: swiping ? 'none' : 'transform 0.3s ease-out',
@@ -415,7 +415,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 <div className="flex items-center gap-6 mt-6">
                                     <button
                                         onClick={() => handleSwipeAction(false)}
-                                        className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500/10 to-orange-500/10 border-2 border-red-400/20 flex items-center justify-center text-3xl transition-all active:scale-90 hover:border-red-400/40 shadow-lg shadow-red-500/5"
+                                        className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500/10 to-amber-500/10 border-2 border-red-400/20 flex items-center justify-center text-3xl transition-all active:scale-90 hover:border-red-400/40 shadow-lg shadow-red-500/5"
                                     >
                                         👋
                                     </button>

@@ -124,7 +124,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                         }
 
                         return (
-                            <div key={idx} className="flex-none w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.67rem)] snap-start bg-slate-900/80 rounded-3xl p-5 border border-white/10 hover:bg-slate-900 transition-colors shadow-lg">
+                            <div key={idx} className="flex-none w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.67rem)] snap-start bg-slate-900/80 rounded-2xl p-5 border border-white/10 hover:bg-slate-900 transition-colors shadow-lg">
                                 <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-4">
                                     <div className="flex flex-col"><span className="text-2xl font-bold text-white">{item.time}</span><span className="text-xs text-gray-400 uppercase tracking-widest truncate max-w-[100px]">{item.condition}</span></div>
                                     <div className="flex items-center gap-4">
@@ -133,7 +133,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between"><div className="flex justify-between items-center mb-1"><span className="text-[11px] uppercase text-gray-400 font-bold">Wind</span>{item.windDirection && <div className="flex items-center gap-1 text-[11px] text-sky-300"><CompassIcon rotation={item.windDegree || 0} className="w-3 h-3" /> {item.windDirection}</div>}</div><div className="flex items-baseline gap-1"><span className="text-xl font-bold text-white">{windSpeedDisplay}</span><span className="text-xs text-gray-500">{units.speed}</span></div><div className="text-xs text-orange-400 font-medium mt-1">Gusting {gustDisplay}</div></div>
+                                    <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between"><div className="flex justify-between items-center mb-1"><span className="text-[11px] uppercase text-gray-400 font-bold">Wind</span>{item.windDirection && <div className="flex items-center gap-1 text-[11px] text-sky-300"><CompassIcon rotation={item.windDegree || 0} className="w-3 h-3" /> {item.windDirection}</div>}</div><div className="flex items-baseline gap-1"><span className="text-xl font-bold text-white">{windSpeedDisplay}</span><span className="text-xs text-gray-500">{units.speed}</span></div><div className="text-xs text-amber-400 font-medium mt-1">Gusting {gustDisplay}</div></div>
 
                                     {waveCell}
                                     {tideCell}
@@ -179,7 +179,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                             'Ocean State';
 
                     return (
-                        <div key={i} className={`flex flex-col bg-slate-900/40 hover:bg-slate-900/60 border border-white/5 rounded-3xl p-5 gap-4 transition-all shadow-md ${isLocked ? 'blur-md opacity-30 pointer-events-none select-none grayscale' : ''}`}>
+                        <div key={i} className={`flex flex-col bg-slate-900/40 hover:bg-slate-900/60 border border-white/5 rounded-2xl p-5 gap-4 transition-all shadow-md ${isLocked ? 'blur-md opacity-30 pointer-events-none select-none grayscale' : ''}`}>
 
                             <div className="flex justify-between items-center border-b border-white/5 pb-3">
                                 <div className="flex items-center gap-4">
@@ -212,7 +212,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                     <div className="flex justify-between items-center mb-1 relative z-10"><span className="text-[11px] text-gray-400 uppercase font-bold">Wind</span></div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2"><span className="text-2xl font-bold text-white">{dayWind}</span><span className="text-xs text-gray-500">{units.speed}</span></div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all ${day.windSpeed > 20 ? 'bg-red-500' : day.windSpeed > 10 ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${Math.min(day.windSpeed * 3, 100)}%` }}></div></div>
-                                    <div className="pt-2 border-t border-white/10 flex justify-between items-center"><span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">Gusts</span><span className="text-xs text-orange-300 font-mono font-bold">{dayGust}</span></div>
+                                    <div className="pt-2 border-t border-white/10 flex justify-between items-center"><span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">Gusts</span><span className="text-xs text-amber-300 font-mono font-bold">{dayGust}</span></div>
                                 </div>
 
                                 <div className="bg-white/5 rounded-xl p-3 border border-white/5 relative overflow-hidden group flex flex-col justify-between">
@@ -227,11 +227,11 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
                                         <div className="flex justify-between items-center"><span className="text-[11px] text-gray-400 uppercase font-bold">Tide</span><TideCurveIcon className="w-4 h-4 text-purple-400" /></div>
                                         <div className="text-sm font-medium text-white truncate my-1">{day.tideSummary}</div>
-                                        {day.sunrise && (<div className="flex justify-between items-center mt-1 pt-1 border-t border-white/5 text-[11px] text-gray-400"><span className="flex items-center gap-1"><SunIcon className="w-3 h-3 text-orange-400" /> {day.sunrise}</span><span>{day.sunset}</span></div>)}
+                                        {day.sunrise && (<div className="flex justify-between items-center mt-1 pt-1 border-t border-white/5 text-[11px] text-gray-400"><span className="flex items-center gap-1"><SunIcon className="w-3 h-3 text-amber-400" /> {day.sunrise}</span><span>{day.sunset}</span></div>)}
                                     </div>
                                 ) : (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
-                                        <div className="flex justify-between items-center"><span className="text-[11px] text-gray-400 uppercase font-bold">Solar Cycle</span><SunIcon className="w-4 h-4 text-orange-400" /></div>
+                                        <div className="flex justify-between items-center"><span className="text-[11px] text-gray-400 uppercase font-bold">Solar Cycle</span><SunIcon className="w-4 h-4 text-amber-400" /></div>
                                         <div className="grid grid-cols-2 gap-2 mt-2"><div><span className="text-[11px] text-gray-500 block uppercase">Sunrise</span><span className="text-sm font-bold text-white">{day.sunrise || '--:--'}</span></div><div className="text-right"><span className="text-[11px] text-gray-500 block uppercase">Sunset</span><span className="text-sm font-bold text-white">{day.sunset || '--:--'}</span></div></div>
                                         <div className="mt-2 pt-1 border-t border-white/5 text-[11px] text-gray-400 text-center uppercase tracking-wide">Daylight Hours</div>
                                     </div>
@@ -240,7 +240,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                 <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
                                     <div className="flex justify-between items-center mb-1"><span className="text-[11px] text-gray-400 uppercase font-bold">Precip</span><span className="text-xs text-sky-300 font-bold">{precipMm > 0 ? `${convertPrecip(precipMm, units.temp)}` : '0'}</span></div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all bg-sky-500`} style={{ width: `${Math.min(precipMm * 10, 100)}%` }}></div></div>
-                                    <div className="flex justify-between items-center pt-1 border-t border-white/5"><span className="text-[11px] text-gray-400 uppercase font-bold">UV Index</span><span className={`text-xs font-bold ${day.uvIndex && day.uvIndex > 5 ? 'text-orange-400' : 'text-emerald-400'}`}>{day.uvIndex ? Math.round(day.uvIndex) : '--'}</span></div>
+                                    <div className="flex justify-between items-center pt-1 border-t border-white/5"><span className="text-[11px] text-gray-400 uppercase font-bold">UV Index</span><span className={`text-xs font-bold ${day.uvIndex && day.uvIndex > 5 ? 'text-amber-400' : 'text-emerald-400'}`}>{day.uvIndex ? Math.round(day.uvIndex) : '--'}</span></div>
                                 </div>
 
                             </div>

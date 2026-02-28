@@ -49,7 +49,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
     });
 
     return (
-        <div className="w-full bg-slate-900 ${t.border.default} rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+        <div className="w-full bg-slate-900 ${t.border.default} rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
             <div className="relative z-10">

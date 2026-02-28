@@ -14,8 +14,8 @@ const AutoFitConditionLabel: React.FC<{ text: string; condition?: string }> = ({
     const [fontSize, setFontSize] = useState(14);
 
     const colorClass = condition?.includes('STORM') ? 'text-red-500 animate-pulse'
-        : condition?.includes('POURING') ? 'text-orange-400'
-            : condition?.includes('SHOWERS') ? 'text-cyan-400'
+        : condition?.includes('POURING') ? 'text-amber-400'
+            : condition?.includes('SHOWERS') ? 'text-sky-400'
                 : 'text-sky-300';
 
     useEffect(() => {
@@ -166,7 +166,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex-1" />
                             <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
-                                    <ArrowUpIcon className="w-3 h-3 text-orange-400" />
+                                    <ArrowUpIcon className="w-3 h-3 text-amber-400" />
                                     <span className="text-sm font-mono font-bold text-white leading-none">{cardDisplayValues.highTemp}°</span>
                                 </div>
                                 <div className="w-px h-3 bg-white/20" />
@@ -185,7 +185,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             </div>
 
                             {/* 3. Rain */}
-                            <div className="flex items-center gap-1 text-sm font-bold text-cyan-300 justify-end">
+                            <div className="flex items-center gap-1 text-sm font-bold text-sky-300 justify-end">
                                 <RainIcon className="w-2.5 h-2.5" />
                                 {cardIsLive
                                     ? (cardData.precipValue || '0.0 mm')
@@ -240,7 +240,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                 <div className="flex flex-row items-center justify-between w-full relative z-10 px-4 py-2 bg-white/5 min-h-[40px] gap-2">
                     {/* Humidity (Replaces Cloud) */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <DropletIcon className="w-3.5 h-3.5 text-cyan-400 mb-0.5" />
+                        <DropletIcon className="w-3.5 h-3.5 text-sky-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardData.humidity ? Math.round(cardData.humidity) : '--'}%</span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Hum</span>
                     </div>
@@ -254,7 +254,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Sunrise */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <SunriseIcon className="w-3.5 h-3.5 text-orange-400 mb-0.5" />
+                        <SunriseIcon className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.sunrise}</span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Rise</span>
                     </div>
@@ -268,14 +268,14 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* UV Index */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <SunIcon className="w-3.5 h-3.5 text-orange-400 mb-0.5" />
+                        <SunIcon className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.uv !== '--' ? cardDisplayValues.uv : '0'}</span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">UV:{cardData.uvIndex}</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Pressure */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <GaugeIcon className="w-3.5 h-3.5 text-teal-400 mb-0.5" />
+                        <GaugeIcon className="w-3.5 h-3.5 text-emerald-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">
                             {cardDisplayValues.pressure && cardDisplayValues.pressure !== '--' ? Math.round(parseFloat(cardDisplayValues.pressure.toString())).toString() : '--'}
                         </span>

@@ -53,7 +53,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
         ? { color: 'text-red-400', bg: 'from-red-500/25 to-red-600/25 border-red-500/30' }
         : anchorStatus === 'armed'
             ? { color: 'text-emerald-400', bg: 'from-emerald-500/20 to-emerald-500/20 border-emerald-500/20' }
-            : { color: 'text-red-400', bg: 'from-red-500/15 to-orange-500/15 border-red-500/20' };
+            : { color: 'text-red-400', bg: 'from-red-500/15 to-amber-500/15 border-red-500/20' };
 
     // Zone 2 cards — now 8 cards in compact 4x2 grid
     const officeCards: OfficeCard[] = [
@@ -63,8 +63,8 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             sublabel: 'Route Planning',
             icon: <CompassIcon />,
             page: 'route',
-            accentColor: 'text-teal-400',
-            accentBg: 'from-teal-500/20 to-cyan-500/20 border-teal-500/20',
+            accentColor: 'text-emerald-400',
+            accentBg: 'from-emerald-500/20 to-sky-500/20 border-emerald-500/20',
         },
         {
             id: 'diary',
@@ -82,7 +82,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             icon: <BoxIcon />,
             page: 'inventory',
             accentColor: 'text-amber-400',
-            accentBg: 'from-amber-500/20 to-orange-500/20 border-amber-500/20',
+            accentBg: 'from-amber-500/20 to-amber-500/20 border-amber-500/20',
         },
         {
             id: 'maintenance',
@@ -91,7 +91,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             icon: <WrenchIcon />,
             page: 'maintenance',
             accentColor: 'text-sky-400',
-            accentBg: 'from-sky-500/20 to-cyan-500/20 border-sky-500/20',
+            accentBg: 'from-sky-500/20 to-sky-500/20 border-sky-500/20',
         },
         {
             id: 'polars',
@@ -100,7 +100,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             icon: <ChartIcon />,
             page: 'polars',
             accentColor: 'text-emerald-400',
-            accentBg: 'from-emerald-500/20 to-teal-500/20 border-emerald-500/20',
+            accentBg: 'from-emerald-500/20 to-emerald-500/20 border-emerald-500/20',
         },
         {
             id: 'nmea',
@@ -126,8 +126,8 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             sublabel: 'Legal',
             icon: <ShieldIcon />,
             page: 'documents',
-            accentColor: 'text-cyan-400',
-            accentBg: 'from-cyan-500/20 to-sky-500/20 border-cyan-500/20',
+            accentColor: 'text-sky-400',
+            accentBg: 'from-sky-500/20 to-sky-500/20 border-sky-500/20',
         },
     ];
 
@@ -167,7 +167,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             triggerHaptic('light');
                             onNavigate('details');
                         }}
-                        className="bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                        className="bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
                     >
                         <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                             <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

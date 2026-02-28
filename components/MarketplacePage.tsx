@@ -52,15 +52,15 @@ const getConditionColor = (condition: string): string => {
         case 'New': return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
         case 'Like New': return 'text-sky-400 bg-sky-500/10 border-sky-500/20';
         case 'Used - Good': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
-        case 'Used - Fair': return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
+        case 'Used - Fair': return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
         case 'Needs Repair': return 'text-red-400 bg-red-500/10 border-red-500/20';
         default: return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
     }
 };
 
 const AVATAR_GRADIENTS = [
-    'from-sky-400 to-sky-600', 'from-emerald-400 to-teal-600', 'from-violet-400 to-purple-600',
-    'from-red-400 to-red-600', 'from-amber-400 to-orange-600', 'from-cyan-400 to-sky-600',
+    'from-sky-400 to-sky-600', 'from-emerald-400 to-emerald-600', 'from-violet-400 to-purple-600',
+    'from-red-400 to-red-600', 'from-amber-400 to-amber-600', 'from-sky-400 to-sky-600',
 ];
 
 const getAvatarGradient = (id: string): string => {
@@ -542,7 +542,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${submitting || !title.trim() || !price || !category || !condition
                             ? 'bg-white/[0.04] text-white/40 border border-white/[0.06]'
-                            : 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20'}`}
+                            : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'}`}
                     >
                         {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
                     </button>
@@ -731,7 +731,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                         </p>
                         <button
                             onClick={() => setShowCreate(true)}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-500 text-xs font-bold text-white uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
+                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-sky-500 text-xs font-bold text-white uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
                         >
                             🏪 List Something for Sale
                         </button>
@@ -756,7 +756,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
             {!showCreate && listings.length > 0 && (
                 <button
                     onClick={() => setShowCreate(true)}
-                    className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-600 shadow-xl shadow-sky-500/30 flex items-center justify-center text-2xl active:scale-90 transition-transform border border-sky-400/30"
+                    className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 shadow-xl shadow-sky-500/30 flex items-center justify-center text-2xl active:scale-90 transition-transform border border-sky-400/30"
                 >
                     +
                 </button>

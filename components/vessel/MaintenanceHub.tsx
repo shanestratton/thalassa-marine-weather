@@ -495,7 +495,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             setIsEditingHours(true);
                             setTimeout(() => hoursInputRef.current?.focus(), 100);
                         }}
-                        className="w-full bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-cyan-500/20 transition-all active:scale-[0.98]"
+                        className="w-full bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -620,7 +620,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Sheet */}
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -702,7 +702,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <button
                                     onClick={handleLogService}
                                     disabled={sheetSaving}
-                                    className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-[0.97] disabled:opacity-50"
+                                    className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
                                 >
                                     {sheetSaving ? (
                                         <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
@@ -723,7 +723,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -850,7 +850,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <button
                                 onClick={handleAddTask}
                                 disabled={!newTitle.trim()}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
                             >
                                 Create Task
                             </button>
@@ -865,7 +865,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             <button onClick={() => { setShowEditForm(false); setEditTask(null); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -937,7 +937,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <button
                                 onClick={handleEditTask}
                                 disabled={!newTitle.trim()}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-cyan-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
                             >
                                 Save Changes
                             </button>
@@ -952,7 +952,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -1007,7 +1007,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                         <div
-                            className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-3xl p-6 animate-in fade-in zoom-in-95 duration-200"
+                            className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
                             onClick={e => e.stopPropagation()}
                         >
                             <h3 className="text-lg font-black text-white mb-1">Export PDF</h3>
@@ -1017,7 +1017,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <button
                                 onClick={() => handleExport('checklist')}
                                 disabled={exporting}
-                                className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-cyan-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                                className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2.5 bg-sky-500/20 rounded-xl">
@@ -1036,7 +1036,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <button
                                 onClick={() => handleExport('history')}
                                 disabled={exporting}
-                                className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                                className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2.5 bg-amber-500/20 rounded-xl">

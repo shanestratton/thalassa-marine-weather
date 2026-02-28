@@ -81,7 +81,7 @@ export const CompactHeaderRow = ({
                 {/* Sunrise */}
                 {sunrise && (
                     <div className="flex items-center gap-1.5">
-                        <SunriseIcon className="w-3.5 h-3.5 text-orange-400" />
+                        <SunriseIcon className="w-3.5 h-3.5 text-amber-400" />
                         <span className="text-white font-bold text-sm font-mono tracking-tight">
                             {sunrise}
                         </span>

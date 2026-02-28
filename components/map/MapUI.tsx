@@ -133,7 +133,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
     return (
         <div className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
             <div
-                className="w-full max-w-md bg-[#0f172a] border border-white/10 rounded-3xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
+                className="w-full max-w-md bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="h-32 bg-slate-800 relative">
@@ -179,7 +179,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
                                     <BoatIcon className="w-4 h-4 text-sky-400" /> Facilities
                                 </h4>
                                 <div className="flex flex-wrap gap-2">
-                                    {details.fuelAvailable && <span className="px-2 py-1 rounded bg-orange-500/10 text-orange-300 text-[11px] font-bold border border-orange-500/20">FUEL DOCK</span>}
+                                    {details.fuelAvailable && <span className="px-2 py-1 rounded bg-amber-500/10 text-amber-300 text-[11px] font-bold border border-amber-500/20">FUEL DOCK</span>}
                                     {details.marinaFacilities?.slice(0, 6).map((f, i) => (
                                         <span key={i} className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10">{f}</span>
                                     ))}

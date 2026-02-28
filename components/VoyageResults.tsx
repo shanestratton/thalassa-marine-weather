@@ -44,7 +44,7 @@ export const CHECKLIST_DATA = [
     {
         category: "Systems & Propulsion",
         id: "systems",
-        icon: <GearIcon className="w-4 h-4 text-orange-400" />,
+        icon: <GearIcon className="w-4 h-4 text-amber-400" />,
         items: ["Engine Oil & Coolant", "Transmission Fluid", "Bilge Pumps Test", "Battery Voltage", "Fuel Filters", "Raw Water Strainer", "Steering Gear"]
     },
     {
@@ -98,7 +98,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
             {/* ═══════════════════════════════════════════════════════════════════
                 VOYAGE OVERVIEW CARD — Always visible hero card (not collapsible)
                 ═══════════════════════════════════════════════════════════════════ */}
-            <div className="w-full bg-[#0f172a] border border-white/10 rounded-3xl p-0 relative overflow-hidden shadow-2xl flex flex-col mb-4">
+            <div className="w-full bg-[#0f172a] border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col mb-4">
                 {/* Background Decorations */}
                 <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
@@ -163,9 +163,9 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
 
                     {/* Max Conditions */}
                     <div className="bg-white/5 rounded-xl px-4 py-3 border border-white/5 flex items-center justify-between group hover:bg-white/10 transition-colors">
-                        <div className="flex items-center gap-3 text-gray-400 group-hover:text-orange-300 transition-colors">
-                            <div className="p-1.5 bg-orange-500/10 rounded-lg">
-                                <WindIcon className="w-4 h-4 text-orange-400" />
+                        <div className="flex items-center gap-3 text-gray-400 group-hover:text-amber-300 transition-colors">
+                            <div className="p-1.5 bg-amber-500/10 rounded-lg">
+                                <WindIcon className="w-4 h-4 text-amber-400" />
                             </div>
                             <span className="text-xs font-bold uppercase tracking-widest text-gray-300">Max Conditions</span>
                         </div>
@@ -199,7 +199,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 <div className="px-6 md:px-8 pb-2">
                     <div className="bg-sky-500/5 border border-sky-500/15 rounded-xl px-4 py-3">
                         <div className="flex items-start gap-2.5">
-                            <div className="p-1 bg-sky-500/10 rounded-md mt-0.5 shrink-0">
+                            <div className="p-1 bg-sky-500/10 rounded-lg mt-0.5 shrink-0">
                                 <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
                                 </svg>
@@ -322,7 +322,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             </td>
                                             <td className="py-3.5">
                                                 {wp.depth_m !== undefined ? (
-                                                    <div className={`flex items-center gap-1 font-mono text-xs ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>
+                                                    <div className={`flex items-center gap-1 font-mono text-xs ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}>
                                                         ⚓ {wp.depth_m}m
                                                     </div>
                                                 ) : (
@@ -342,7 +342,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             <td className="py-3.5">
                                                 <div className="flex flex-col gap-1">
                                                     {(wp.windSpeed || 0) > 20 && (
-                                                        <span className="text-[11px] font-bold text-orange-400 px-1.5 py-0.5 bg-orange-500/10 rounded w-fit border border-orange-500/20">HIGH WIND</span>
+                                                        <span className="text-[11px] font-bold text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded w-fit border border-amber-500/20">HIGH WIND</span>
                                                     )}
                                                     {(wp.waveHeight || 0) > 4 && (
                                                         <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded w-fit border border-sky-500/20">ROUGH SEAS</span>
@@ -422,7 +422,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             )}
                                             {wp.depth_m !== undefined && (
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                    <span className={`text-[11px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>⚓ {wp.depth_m}m</span>
+                                                    <span className={`text-[11px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}>⚓ {wp.depth_m}m</span>
                                                 </div>
                                             )}
                                         </div>
@@ -668,7 +668,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                         {item}
                                     </span>
 
-                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${checklistState[item]
+                                    <div className={`w-5 h-5 rounded-lg flex items-center justify-center transition-all ${checklistState[item]
                                         ? 'bg-emerald-500 text-slate-900 shadow-lg shadow-emerald-500/20'
                                         : 'bg-black/40 border border-white/10 group-hover:border-white/20'
                                         }`}>
@@ -712,7 +712,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </button>
                     <button
                         onClick={() => downloadRouteGPX(voyagePlan)}
-                        className="bg-gradient-to-r from-emerald-500/10 to-teal-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-teal-600/20 transition-all"
+                        className="bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-emerald-600/20 transition-all"
                     >
                         <RouteIcon className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
                         <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-widest text-center">Export GPX</span>

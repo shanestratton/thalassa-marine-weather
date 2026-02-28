@@ -26,7 +26,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
             title: "Swipe Horizontally",
             description: "Scrub through hours to see weather changes throughout the day",
             icon: (
-                <svg className="w-16 h-16 text-cyan-400" viewBox="0 0 64 64" fill="none">
+                <svg className="w-16 h-16 text-sky-400" viewBox="0 0 64 64" fill="none">
                     <path d="M8 32h48M48 32l-8-8M48 32l-8 8M16 32l8-8M16 32l8 8"
                         stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
@@ -36,7 +36,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
             title: "Swipe Vertically",
             description: "Navigate between days - up for tomorrow, down for yesterday",
             icon: (
-                <svg className="w-16 h-16 text-cyan-400" viewBox="0 0 64 64" fill="none">
+                <svg className="w-16 h-16 text-sky-400" viewBox="0 0 64 64" fill="none">
                     <path d="M32 8v48M32 8l-8 8M32 8l8 8M32 56l-8-8M32 56l8-8"
                         stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
@@ -47,7 +47,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
             description: "Toggle between quick glance (Essential) and detailed view (Full) using the button in the header",
             icon: (
                 <div className="flex gap-3">
-                    <div className="px-3 py-1.5 bg-cyan-500/30 border border-cyan-400/50 rounded-lg text-cyan-300 font-bold text-sm">ESS</div>
+                    <div className="px-3 py-1.5 bg-sky-500/30 border border-sky-400/50 rounded-lg text-sky-300 font-bold text-sm">ESS</div>
                     <div className={`px-3 py-1.5 bg-white/10 ${t.border.strong} rounded-lg text-white/60 font-bold text-sm`}>FULL</div>
                 </div>
             ),
@@ -96,7 +96,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                     {steps.map((_, i) => (
                         <div
                             key={i}
-                            className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-cyan-400' : 'bg-white/20'
+                            className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-sky-400' : 'bg-white/20'
                                 }`}
                         />
                     ))}
@@ -121,7 +121,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                 <div className="space-y-3">
                     <button
                         onClick={handleNext}
-                        className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
+                        className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
                      aria-label="Next">
                         {step < steps.length - 1 ? 'Next' : 'Get Started'}
                     </button>

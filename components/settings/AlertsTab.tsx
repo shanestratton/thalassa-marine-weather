@@ -51,7 +51,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 {/* 2. Gusts */}
                 <Row onClick={() => updateAlert('gusts', 'enabled', !settings.notifications.gusts.enabled)}>
                     <div className="flex items-center gap-4">
-                        <div className="p-2 bg-orange-500/20 text-orange-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
+                        <div className="p-2 bg-amber-500/20 text-amber-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Gusts</p>
                             <p className="text-[11px] text-gray-500 uppercase tracking-wide">Peak Gust Forecast</p>
@@ -160,7 +160,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 {/* 8. Freeze Alert */}
                 <Row onClick={() => updateAlert('tempLow', 'enabled', !settings.notifications.tempLow.enabled)}>
                     <div className="flex items-center gap-4">
-                        <div className="p-2 bg-cyan-500/20 text-cyan-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
+                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Freeze Alert</p>
                             <p className="text-[11px] text-gray-500 uppercase tracking-wide">Low Temp</p>

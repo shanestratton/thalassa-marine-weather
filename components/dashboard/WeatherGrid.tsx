@@ -11,14 +11,14 @@ import { CSS } from '@dnd-kit/utilities';
 
 const getBeaufortConfig = (force: number) => {
     const configs = [
-        { range: "< 1", desc: "Calm", sea: "Mirror-like", color: "from-sky-400 to-cyan-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
-        { range: "1-3", desc: "Light Air", sea: "Ripples", color: "from-cyan-400 to-sky-300", bg: "bg-gradient-to-r from-cyan-900/40 to-slate-900/40", border: "border-cyan-500/30", text: "text-cyan-200" },
-        { range: "4-6", desc: "Light Breeze", sea: "Small wavelets", color: "from-sky-400 to-teal-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
-        { range: "7-10", desc: "Gentle Breeze", sea: "Large wavelets", color: "from-teal-400 to-emerald-300", bg: "bg-gradient-to-r from-teal-900/40 to-slate-900/40", border: "border-teal-500/30", text: "text-teal-200" },
+        { range: "< 1", desc: "Calm", sea: "Mirror-like", color: "from-sky-400 to-sky-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
+        { range: "1-3", desc: "Light Air", sea: "Ripples", color: "from-sky-400 to-sky-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
+        { range: "4-6", desc: "Light Breeze", sea: "Small wavelets", color: "from-sky-400 to-emerald-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
+        { range: "7-10", desc: "Gentle Breeze", sea: "Large wavelets", color: "from-emerald-400 to-emerald-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-emerald-500/30", text: "text-emerald-200" },
         { range: "11-16", desc: "Moderate Breeze", sea: "Small waves", color: "from-emerald-400 to-emerald-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-emerald-500/30", text: "text-emerald-200" },
         { range: "17-21", desc: "Fresh Breeze", sea: "Moderate waves", color: "from-emerald-400 to-yellow-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-yellow-500/30", text: "text-emerald-200" },
-        { range: "22-27", desc: "Strong Breeze", sea: "Large waves", color: "from-yellow-400 to-orange-400", bg: "bg-gradient-to-r from-yellow-900/40 to-slate-900/40", border: "border-orange-500/30", text: "text-yellow-200" },
-        { range: "28-33", desc: "Near Gale", sea: "Sea heaps up", color: "from-orange-400 to-red-400", bg: "bg-gradient-to-r from-orange-900/40 to-slate-900/40", border: "border-red-500/30", text: "text-orange-200" },
+        { range: "22-27", desc: "Strong Breeze", sea: "Large waves", color: "from-yellow-400 to-amber-400", bg: "bg-gradient-to-r from-yellow-900/40 to-slate-900/40", border: "border-amber-500/30", text: "text-yellow-200" },
+        { range: "28-33", desc: "Near Gale", sea: "Sea heaps up", color: "from-amber-400 to-red-400", bg: "bg-gradient-to-r from-amber-900/40 to-slate-900/40", border: "border-red-500/30", text: "text-amber-200" },
         { range: "34-40", desc: "Gale", sea: "High waves", color: "from-red-400 to-red-400", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
         { range: "41-47", desc: "Strong Gale", sea: "High waves", color: "from-red-400 to-red-500", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
         { range: "48-55", desc: "Storm", sea: "Very high", color: "from-red-500 to-purple-500", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
@@ -210,11 +210,11 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Tide Trend"
                 value={convertLength(currTide, unit) ?? 0}
                 unit={unit}
-                colorClass={isRising ? "text-emerald-400" : "text-orange-400"}
+                colorClass={isRising ? "text-emerald-400" : "text-amber-400"}
                 icon={<TideCurveIcon className="w-4 h-4" />}
                 subContent={
                     <div className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-gray-400">
-                        {isRising ? <ArrowUpIcon className="w-3 h-3 text-emerald-400" /> : <ArrowDownIcon className="w-3 h-3 text-orange-400" />}
+                        {isRising ? <ArrowUpIcon className="w-3 h-3 text-emerald-400" /> : <ArrowDownIcon className="w-3 h-3 text-amber-400" />}
                         <span>{isRising ? "Rising" : "Falling"}</span>
                         <span className="opacity-60 ml-1">{convertLength(rate, unit)}/hr</span>
                     </div>
@@ -277,7 +277,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                     label="Precipitation"
                     value={precipValue || '0'}
                     unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
-                    colorClass="text-cyan-300"
+                    colorClass="text-sky-300"
                     icon={<RainIcon className="w-4 h-4" />}
                     subContent={<span className="text-[11px] text-gray-400">{chance !== undefined ? `${chance}% chance this hour` : (precipValue ? 'Accumulating' : 'Dry Conditions')}</span>}
                 />
@@ -318,7 +318,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Wind Chill"
                 value={`${convertTemp(current.feelsLike, units.temp)}°`}
                 unit=""
-                colorClass="text-teal-300"
+                colorClass="text-emerald-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Feels Like</span>}
             />
@@ -358,7 +358,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="UV Index"
                 value={`${current.uvIndex !== undefined ? Math.round(current.uvIndex) : '--'}`}
                 unit=""
-                colorClass="text-orange-400"
+                colorClass="text-amber-400"
                 icon={<SunIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Radiation Lvl</span>}
             />

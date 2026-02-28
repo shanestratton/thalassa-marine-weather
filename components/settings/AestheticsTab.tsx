@@ -40,7 +40,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                             const isActive = envMode === mode;
                             const labels: Record<EnvironmentMode, { name: string, desc: string, icon: string, gradient: string }> = {
                                 auto: { name: 'Auto', desc: 'Detects your location', icon: '🌊', gradient: 'from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-sky-500/20' },
-                                onshore: { name: 'Onshore', desc: 'Beautiful & polished', icon: '🏖️', gradient: 'from-emerald-500/20 to-teal-600/20 border-emerald-500/40 shadow-emerald-500/20' },
+                                onshore: { name: 'Onshore', desc: 'Beautiful & polished', icon: '🏖️', gradient: 'from-emerald-500/20 to-emerald-600/20 border-emerald-500/40 shadow-emerald-500/20' },
                                 offshore: { name: 'Offshore', desc: 'Practical & readable', icon: '⚓', gradient: 'from-sky-500/20 to-purple-600/20 border-sky-500/40 shadow-sky-500/20' },
                             };
                             const cfg = labels[mode];

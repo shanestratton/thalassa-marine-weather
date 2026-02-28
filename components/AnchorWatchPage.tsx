@@ -978,7 +978,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     {/* Label text */}
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none"
                                         style={{ opacity: 1 - (slideX / ((slideTrackRef.current?.getBoundingClientRect().width ?? 300) - 56)) }}>
-                                        <span className="text-sm font-bold text-orange-300/70 tracking-wider uppercase">
+                                        <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
                                             Slide to Drop Anchor
                                         </span>
                                     </div>

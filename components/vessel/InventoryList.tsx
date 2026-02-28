@@ -15,6 +15,7 @@ import { InventoryScanner } from './InventoryScanner';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
+import { PageHeader } from '../ui/PageHeader';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -156,23 +157,17 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             <div className="flex flex-col h-full">
 
-                {/* ── Header ── */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Inventory</h1>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                                {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
-                                {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
-                            </p>
-                        </div>
-                    </div>
-                </div>
+                <PageHeader
+                    title="Inventory"
+                    onBack={onBack}
+                    breadcrumbs={['Ship\'s Office', 'Inventory']}
+                    subtitle={
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                            {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
+                            {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
+                        </p>
+                    }
+                />
 
                 {/* ── Search ── */}
                 <div className="shrink-0 px-4 pb-3">
@@ -363,7 +358,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             triggerHaptic('medium');
                             setShowScanner(true);
                         }}
-                        theme="orange"
+                        theme="emerald"
                     />
                 </div>
             </div>
@@ -373,7 +368,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 <div className="fixed inset-0 z-[999] flex items-end justify-center px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} onClick={() => setEditItem(null)}>
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto no-scrollbar"
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto no-scrollbar"
                         onClick={e => e.stopPropagation()}
                     >
                         <button onClick={() => setEditItem(null)} className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -486,7 +481,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         </div>
 
                         <button onClick={handleSaveEdit} disabled={!editName.trim()}
-                            className="w-full mt-3 py-2.5 bg-gradient-to-r from-sky-600 to-cyan-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-cyan-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                            className="w-full mt-3 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
                         >
                             Save Changes
                         </button>
