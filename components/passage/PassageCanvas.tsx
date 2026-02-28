@@ -21,6 +21,7 @@ import { WindStore } from '../../stores/WindStore';
 import { fetchWW3Grid } from '../../services/ww3CacheClient';
 import { fetchGlobalWindField } from '../../services/weather/windField';
 import { downloadRouteGPX } from '../../utils/gpxRouteExport';
+import { toast } from '../Toast';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import '../../styles/bioluminescent.css';
 
@@ -117,7 +118,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                         fontFamily: "'JetBrains Mono', monospace",
                         fontSize: 8, color: '#64748b',
                     }}>
-                        {summary.total_distance_nm}NM · {(summary.total_duration_hours / 24).toFixed(1)}d · ⚡{summary.computation_ms}ms
+                        {summary.total_distance_nm}NM · {(summary.total_duration_hours / 24).toFixed(1)}d · {track.length} waypoints
                     </div>
                 </div>
                 <div style={{ color: '#64748b', flexShrink: 0 }}>
@@ -247,10 +248,12 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
             downloadRouteGPX(plan as any);
             setSaveState('saved');
+            toast.success('GPX route exported');
             setTimeout(() => setSaveState('idle'), 3000);
         } catch (err) {
             console.error('[4DMap] GPX export error:', err);
             setSaveState('error');
+            toast.error('Failed to export GPX');
             setTimeout(() => setSaveState('idle'), 2000);
         }
     }, [payload, saveState]);
@@ -284,14 +287,18 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
             if (voyageId) {
                 setLogbookState('saved');
+                const dest = track[track.length - 1]?.name || 'Destination';
+                toast.success(`Route to ${dest} saved to logbook`);
                 setTimeout(() => setLogbookState('idle'), 3000);
             } else {
                 setLogbookState('error');
+                toast.error('Failed to save route');
                 setTimeout(() => setLogbookState('idle'), 2000);
             }
         } catch (err) {
             console.error('[4DMap] Save to logbook error:', err);
             setLogbookState('error');
+            toast.error('Failed to save route');
             setTimeout(() => setLogbookState('idle'), 2000);
         }
     }, [payload, logbookState]);
@@ -348,6 +355,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
         };
     }, [payload.pilotage]);
 
+    const [mapReady, setMapReady] = useState(false);
+
     return (
         <div style={{
             position: 'relative',
@@ -356,6 +365,40 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             overflow: 'hidden',
             background: '#040d1a',
         }}>
+            {/* ═══ MAP LOADING STATE ═══ */}
+            <div style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: mapReady ? -1 : 5,
+                opacity: mapReady ? 0 : 1,
+                transition: 'opacity 0.6s ease',
+                pointerEvents: mapReady ? 'none' : 'auto',
+                background: '#040d1a',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 16,
+            }}>
+                <div style={{
+                    width: 48, height: 48,
+                    border: '3px solid rgba(56, 189, 248, 0.15)',
+                    borderTopColor: '#38bdf8',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                }} />
+                <div style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.15em',
+                    textTransform: 'uppercase' as const,
+                    color: '#64748b',
+                }}>
+                    Plotting Course…
+                </div>
+            </div>
+
             {/* ═══ LAYER 1: WebGL Map (full bleed) ═══ */}
             <SpatiotemporalMap
                 track={payload.track}
@@ -366,6 +409,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 currentTimeHours={currentTimeHours}
                 seamarkGeoJSON={seamarkGeoJSON}
                 channelPolygonGeoJSON={channelPolygonGeoJSON}
+                onMapReady={() => setMapReady(true)}
             />
 
             {/* ═══ LAYER 2: UI Overlay ═══ */}

@@ -20,6 +20,7 @@ import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaGpsProvider } from './services/NmeaGpsProvider';
+import { ToastPortal, toast } from './components/Toast';
 
 
 
@@ -76,7 +77,6 @@ const App: React.FC = () => {
     // 2. APP LOGIC / CONTROLLER
     const {
         query, bgImage, showOnboarding,
-        toastMessage, showToast,
         handleSearchSubmit, handleOnboardingComplete,
         handleLocate, toggleFavorite, handleFavoriteSelect, handleMapTargetSelect,
         effectiveMode,
@@ -176,7 +176,7 @@ const App: React.FC = () => {
             </Suspense>
 
             <IOSInstallPrompt />
-            <NotificationManager onNotify={showToast} />
+            <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* BACKGROUND */}
             {showBackgroundImage ? (
@@ -198,15 +198,8 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {/* TOASTS */}
-                {toastMessage && (
-                    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[1300] animate-in fade-in slide-in-from-top-2">
-                        <div className="bg-slate-900/90 backdrop-blur-md border border-white/20 text-white text-sm font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
-                            <StarIcon filled={true} className="w-4 h-4 text-yellow-400" />
-                            {toastMessage}
-                        </div>
-                    </div>
-                )}
+                {/* GLOBAL TOAST PORTAL */}
+                <ToastPortal />
 
 
 

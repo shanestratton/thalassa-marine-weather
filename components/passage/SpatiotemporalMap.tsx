@@ -358,6 +358,8 @@ interface SpatiotemporalMapProps {
     seamarkGeoJSON?: GeoJSON.FeatureCollection | null;
     /** GeoJSON polygon of the navigable channel corridor */
     channelPolygonGeoJSON?: GeoJSON.Feature<GeoJSON.Polygon> | null;
+    /** Callback when map is fully loaded and ready */
+    onMapReady?: () => void;
 }
 
 const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
@@ -369,6 +371,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     currentTimeHours = 0,
     seamarkGeoJSON,
     channelPolygonGeoJSON,
+    onMapReady,
 }) => {
     const mapRef = useRef<MapRef>(null);
     const windLayerRef = useRef<WindParticleLayer | null>(null);
@@ -439,6 +442,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     // ── Wind Particle Layer ──
     const onLoad = useCallback(() => {
         setMapReady(true);
+        onMapReady?.();
 
         const map = mapRef.current?.getMap();
         if (!map) return;
