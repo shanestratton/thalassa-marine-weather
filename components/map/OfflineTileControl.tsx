@@ -58,22 +58,18 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
         tileLayer.on('savestart', (e: any) => {
             totalTiles = e._tilesforSave?.length || 0;
             savedTiles = 0;
-            console.log(`[OfflineTiles] Saving ${totalTiles} tiles...`);
         });
 
         tileLayer.on('savetileend', () => {
             savedTiles++;
             if (savedTiles % 50 === 0 || savedTiles === totalTiles) {
-                console.log(`[OfflineTiles] ${savedTiles}/${totalTiles} saved`);
             }
         });
 
         tileLayer.on('loadend', () => {
-            console.log('[OfflineTiles] All tiles saved to IndexedDB');
         });
 
         tileLayer.on('tilesremoved', () => {
-            console.log('[OfflineTiles] Cache cleared');
         });
 
         return () => {

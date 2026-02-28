@@ -56,7 +56,6 @@ export const fetchSG = async <T>(
                 // Forward quota info from proxy response
                 const quotaRemaining = res.headers?.['x-quota-remaining'];
                 const quotaTotal = res.headers?.['x-quota-total'];
-                console.warn(`[StormGlass] Quota exceeded: ${quotaRemaining}/${quotaTotal} remaining`);
                 throw new Error(`SG_QUOTA: ${res.status} - ${JSON.stringify(res.data)}`);
             }
             throw new Error(`SG_HTTP_${res.status}: ${JSON.stringify(res.data)}`);
@@ -69,7 +68,6 @@ export const fetchSG = async <T>(
         // Log quota for monitoring
         const quotaRemaining = res.headers?.['x-quota-remaining'];
         if (quotaRemaining) {
-            console.log(`[StormGlass] Quota remaining: ${quotaRemaining}`);
         }
 
         return res.data as T;
@@ -97,7 +95,6 @@ export const fetchSG = async <T>(
             // Log quota from headers
             const quotaRemaining = res.headers.get('x-quota-remaining');
             if (quotaRemaining) {
-                console.log(`[StormGlass] Quota remaining: ${quotaRemaining}`);
             }
 
             return await res.json() as T;

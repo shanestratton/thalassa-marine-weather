@@ -256,7 +256,6 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         const floatExt = gl.getExtension('OES_texture_float');
         this.hasFloat = !!floatExt;
         if (!this.hasFloat) {
-            console.warn('[WindGL] OES_texture_float not available — low-precision particles');
         }
 
         this.initGL();
@@ -274,7 +273,6 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             this.pendingGrid = null;
         }
 
-        console.log(`[WindGL] Custom layer added. ${NUM_PARTICLES} particles, float=${this.hasFloat}`);
     }
 
     render(gl: WebGLRenderingContext, matrix: number[]) {
@@ -346,7 +344,6 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         [this.windTex, this.pState0, this.pState1, this.trail0, this.trail1].forEach(t => gl.deleteTexture(t));
         [this.quadBuf, this.idxBuf].forEach(b => gl.deleteBuffer(b));
         gl.deleteFramebuffer(this.fbo);
-        console.log('[WindGL] Custom layer removed');
     }
 
     // ── Public API ────────────────────────────────────────────

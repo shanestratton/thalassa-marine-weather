@@ -75,7 +75,6 @@ export async function fetchBathymetricRoute(
     region?: string,
 ): Promise<BathymetricResponse | null> {
     try {
-        console.log(`[BathyRouter] Requesting route: ${origin.lat.toFixed(2)},${origin.lon.toFixed(2)} → ${destination.lat.toFixed(2)},${destination.lon.toFixed(2)}`);
 
         const { orchestrateRoute } = await import('./RouteOrchestrator');
 
@@ -87,7 +86,6 @@ export async function fetchBathymetricRoute(
         );
 
         if (!result) {
-            console.warn('[BathyRouter] Orchestrator returned no route');
             return null;
         }
 
@@ -110,7 +108,6 @@ export async function fetchBathymetricRoute(
             geojson: result.geojson,
         };
 
-        console.log(`[BathyRouter] ✓ ${waypoints.length} waypoints, ${result.totalNM} NM, ${result.computeMs}ms [${result.engines.join(' → ')}]`);
         return response;
 
     } catch (err) {
@@ -187,7 +184,6 @@ export function mergeBathymetricRoute(
     // Combine: exit route + AI waypoints beyond exit
     merged.waypoints = [...exitWaypoints, ...aiAfterExit];
 
-    console.log(`[BathyMerge] ${exitWaypoints.length} exit WPs + ${aiAfterExit.length} AI WPs = ${merged.waypoints.length} total`);
 
     // ── Store the full GeoJSON from the edge function ──
     // This is the key fix: the geojson has ALL graph waypoints
@@ -217,7 +213,6 @@ export async function enhanceVoyagePlanWithBathymetry(
     vessel: VesselProfile,
 ): Promise<VoyagePlan> {
     if (!voyagePlan.originCoordinates || !voyagePlan.destinationCoordinates) {
-        console.warn('[BathyRouter] Missing coordinates — cannot route');
         return voyagePlan;
     }
 
@@ -232,7 +227,6 @@ export async function enhanceVoyagePlanWithBathymetry(
     );
 
     if (!bathyRoute) {
-        console.warn('[BathyRouter] Routing unavailable — using AI waypoints');
         return voyagePlan;
     }
 

@@ -17,11 +17,6 @@ export const WaveIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export const TideIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v9l-5-5Z" />
-  </svg>
-);
 
 export const TideCurveIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -223,12 +218,7 @@ export const ArrowRightIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export const PauseIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="6" y="4" width="4" height="16" />
-    <rect x="14" y="4" width="4" height="16" />
-  </svg>
-);
+
 
 export const ArrowUpIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -392,29 +382,6 @@ export const AlertTriangleIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// New Complex Buoy Icon for Map
-export const BuoyIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" className={className}>
-    {/* Base */}
-    <path d="M4 16C4 17.1046 7.58172 18 12 18C16.4183 18 20 17.1046 20 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="rgba(255,200,0,0.2)" />
-    <path d="M20 16L17 21H7L4 16" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    {/* Tower */}
-    <line x1="12" y1="18" x2="12" y2="6" stroke="currentColor" strokeWidth="2" />
-    <line x1="8" y1="16" x2="10" y2="6" stroke="currentColor" strokeWidth="1" />
-    <line x1="16" y1="16" x2="14" y2="6" stroke="currentColor" strokeWidth="1" />
-    {/* Top mark (X shape) */}
-    <line x1="9" y1="3" x2="15" y2="9" stroke="currentColor" strokeWidth="2" />
-    <line x1="15" y1="3" x2="9" y2="9" stroke="currentColor" strokeWidth="2" />
-  </svg>
-);
-
-export const BuoyMarkerIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" className={className}>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="#f59e0b" fillOpacity="0.9" stroke="white" strokeWidth="1.5" />
-    <circle cx="12" cy="10" r="3" fill="#fff" />
-    <path d="M12 2v4" stroke="black" strokeWidth="2" />
-  </svg>
-);
 
 export const FlagIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>

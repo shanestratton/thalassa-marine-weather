@@ -49,27 +49,23 @@ export const fetchWeatherByStrategy = async (
     const [wkResult, sgResult, omResult, tideResult] = await Promise.allSettled([
         // 1. WeatherKit: PRIMARY atmospheric source
         fetchWeatherKitFull(lat, lon).catch((e) => {
-            console.warn('[Strategy] WeatherKit failed:', e);
             return null;
         }),
 
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
             ? fetchStormGlassWeather(lat, lon, name, locationType).catch((e) => {
-                console.warn('[Strategy] StormGlass failed, continuing:', e);
                 return null;
             })
             : Promise.resolve(null),
 
         // 3. OpenMeteo: Fallback atmospheric + CAPE for wind field map
         fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
-            console.warn('[Strategy] OpenMeteo failed:', e);
             return null;
         }),
 
         // 4. WorldTides: Direct tide fetch (24h cached — always fires)
         fetchRealTides(lat, lon).catch((e) => {
-            console.warn('[Strategy] WorldTides failed:', e);
             return null;
         }),
     ]);
@@ -81,11 +77,6 @@ export const fetchWeatherByStrategy = async (
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
 
     // --- DIAGNOSTIC LOGGING ---
-    console.log(`[Strategy] API Results for "${name}" (type: ${locationType || 'auto'}):`);
-    console.log(`  WeatherKit:  ${wkResult.status === 'fulfilled' ? (weatherKitFull ? `✅ obs=${!!weatherKitFull.observation} hourly=${weatherKitFull.hourly?.length || 0} daily=${weatherKitFull.daily?.length || 0}` : '⚠️ null') : '❌ ' + (wkResult as PromiseRejectedResult).reason}`);
-    console.log(`  StormGlass:  ${!needsStormGlass ? '⏭️ skipped (inland)' : sgResult.status === 'fulfilled' ? (stormGlassReport ? '✅ OK' : '⚠️ null') : '❌ ' + (sgResult as PromiseRejectedResult).reason}`);
-    console.log(`  OpenMeteo:   ${omResult.status === 'fulfilled' ? (openMeteoReport ? '✅ OK' : '⚠️ null') : '❌ ' + (omResult as PromiseRejectedResult).reason}`);
-    console.log(`  WorldTides:  ${tideResult.status === 'fulfilled' ? (tideData?.tides?.length ? `✅ ${tideData.tides.length} extremes` : '⚠️ no tides') : '❌ ' + (tideResult as PromiseRejectedResult).reason}`);
 
     // --- BUILD BASE REPORT ---
     // WeatherKit is base for ALL locations (model-based forecasts work globally).
@@ -95,7 +86,6 @@ export const fetchWeatherByStrategy = async (
     if (weatherKitFull) {
         // ✅ PRIMARY PATH: Build report from WeatherKit (works globally)
         report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
-        console.log(`[Strategy] Base: WeatherKit (${weatherKitFull.observation?.condition || 'no obs'})`);
 
         // OFFSHORE BLEND: WeatherKit's currentWeather observation is unreliable at sea
         // (sparse station data). Override current atmospheric fields with StormGlass.
@@ -117,16 +107,13 @@ export const fetchWeatherByStrategy = async (
             if (sg.condition) current.condition = sg.condition;
             if (sg.description) current.description = sg.description;
             report.current = current;
-            console.log('[Strategy] Offshore blend: SG current obs → WK forecasts');
         }
     } else if (stormGlassReport) {
         // WeatherKit failed — use StormGlass as full fallback
         report = stormGlassReport;
-        console.log('[Strategy] Base: StormGlass (WeatherKit unavailable)');
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
         report = openMeteoReport;
-        console.log('[Strategy] Base: OpenMeteo (all other sources failed)');
     } else {
         throw new Error(`All weather APIs failed for ${name}`);
     }
@@ -227,7 +214,6 @@ export const fetchWeatherByStrategy = async (
     if (tideData?.tides?.length) {
         report.tides = tideData.tides;
         if (tideData.guiDetails) report.tideGUIDetails = tideData.guiDetails;
-        console.log(`[Strategy] ✅ Applied ${tideData.tides.length} tides from WorldTides (station: ${tideData.guiDetails?.stationName || 'unknown'})`);
 
         // Generate dense hourly tide data for the graph (cosine interpolation)
         const sorted = [...tideData.tides].sort((a, b) =>

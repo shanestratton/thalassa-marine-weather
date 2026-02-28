@@ -125,7 +125,6 @@ async function fetchShard(cycle: string, forecastHour: number): Promise<WW3Shard
 export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGrid | null> {
     const meta = await fetchMetadata();
     if (!meta) {
-        console.warn('[WW3] No metadata available — wave cache not populated');
         return null;
     }
 
@@ -133,7 +132,6 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
     const hoursNeeded = meta.hours_available.filter(h => h <= durationHours);
     if (hoursNeeded.length === 0) return null;
 
-    console.log(`[WW3] Fetching ${hoursNeeded.length} shards for cycle ${meta.cycle}`);
 
     // Fetch all shards in parallel (capped at 10 concurrent)
     const shards: (WW3Shard | null)[] = [];
@@ -150,11 +148,9 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
     // Filter successful shards
     const validShards = shards.filter(Boolean) as WW3Shard[];
     if (validShards.length === 0) {
-        console.warn('[WW3] No valid shards downloaded');
         return null;
     }
 
-    console.log(`[WW3] Decoded ${validShards.length} shards`);
 
     // Use first shard's grid info
     const gridInfo = validShards[0].grid;
@@ -226,7 +222,6 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
         totalHours: validShards.length,
     };
 
-    console.log(`[WW3] Grid ready: ${width}×${height}, ${validShards.length} timesteps`);
     return grid;
 }
 

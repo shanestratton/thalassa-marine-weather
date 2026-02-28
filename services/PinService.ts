@@ -57,7 +57,6 @@ class PinServiceClass {
             .single();
 
         if (error) {
-            console.warn('[PinService] Failed to save pin:', error.message);
             return null;
         }
         return data as SavedPin;
@@ -80,7 +79,6 @@ class PinServiceClass {
             .limit(limit);
 
         if (error) {
-            console.warn('[PinService] Failed to fetch pins:', error.message);
             return [];
         }
         return (data || []) as SavedPin[];

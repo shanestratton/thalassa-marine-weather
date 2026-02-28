@@ -104,8 +104,6 @@ export async function routeThroughMarina(
     obstacles?: FeatureCollection<Polygon | MultiPolygon>,
 ): Promise<MarinaRouteResult | null> {
     const t0 = performance.now();
-    console.log(`[MarinaGrid] Routing from [${startLon.toFixed(4)}, ${startLat.toFixed(4)}] to exit [${exitLon.toFixed(4)}, ${exitLat.toFixed(4)}]`);
-
     // 1. Buffer obstacles by 15m for safety margin
     let bufferedObstacles: Feature<Polygon | MultiPolygon>[] = [];
     if (obstacles && obstacles.features.length > 0) {
@@ -116,13 +114,11 @@ export async function routeThroughMarina(
                 } catch { return null; }
             })
             .filter((f): f is Feature<Polygon | MultiPolygon> => f !== null);
-        console.log(`[MarinaGrid] Buffered ${bufferedObstacles.length} obstacle polygons by ${OBSTACLE_BUFFER_M}m`);
     }
 
     // 2. Generate point grid inside marina bounds
     const bbox = turf.bbox(marinaBounds);
     const grid = turf.pointGrid(bbox, GRID_SPACING_M, { units: 'meters' });
-    console.log(`[MarinaGrid] Generated ${grid.features.length} grid points`);
 
     // 3. Filter out points inside obstacles or outside marina bounds
     const safePoints: Feature<Point>[] = [];
@@ -137,10 +133,8 @@ export async function routeThroughMarina(
         }
         if (!blocked) safePoints.push(pt);
     }
-    console.log(`[MarinaGrid] Safe points after filtering: ${safePoints.length}`);
 
     if (safePoints.length < 2) {
-        console.warn('[MarinaGrid] Not enough safe points — cannot route');
         return null;
     }
 
@@ -194,17 +188,14 @@ export async function routeThroughMarina(
     const exitNodeId = findNearestNode(exitLon, exitLat, nodes);
 
     if (startNodeId === -1 || exitNodeId === -1) {
-        console.warn(`[MarinaGrid] Cannot snap to grid: start=${startNodeId}, exit=${exitNodeId}`);
         return null;
     }
 
-    console.log(`[MarinaGrid] Snapped: start→node[${startNodeId}], exit→node[${exitNodeId}]`);
 
     // 7. A* pathfinding
     const path = aStarSearch(nodes, startNodeId, exitNodeId);
 
     if (!path) {
-        console.warn('[MarinaGrid] No path found through marina');
         return null;
     }
 
@@ -237,11 +228,6 @@ export async function routeThroughMarina(
 
     const computeMs = performance.now() - t0;
     const distanceNM = distanceM * NM_PER_METER;
-
-    console.log(
-        `[MarinaGrid] ✓ ${smoothCoords.length} waypoints, ${distanceNM.toFixed(2)} NM, ${computeMs.toFixed(0)}ms`
-    );
-
     return {
         coordinates: smoothCoords,
         distanceNM: Math.round(distanceNM * 100) / 100,

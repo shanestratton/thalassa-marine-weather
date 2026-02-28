@@ -87,7 +87,7 @@ export async function fetchWindGrid(
 
         // Use commercial API (required — no free fallback for App Store compliance)
         const omKey = getOpenMeteoKey();
-        if (!omKey) { console.warn('[WindField] No Open-Meteo API key'); return null; }
+        if (!omKey) return null;
         const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
@@ -157,7 +157,6 @@ export async function fetchWindGrid(
             totalHours,
         };
     } catch (e) {
-        console.warn('[WindField] Failed to fetch wind grid:', e);
         return null;
     }
 }
@@ -216,7 +215,6 @@ let globalFetchInProgress: Promise<WindGrid | null> | null = null;
 export async function fetchGlobalWindField(): Promise<WindGrid | null> {
     // Return cached if fresh
     if (globalCache && Date.now() - globalCache.fetchedAt < GLOBAL_CACHE_TTL) {
-        console.log('[WindField] Returning cached global grid');
         return globalCache.grid;
     }
 
@@ -240,14 +238,12 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
             (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
         if (!supabaseUrl) {
-            console.warn('[WindField] No Supabase URL — falling back to Open-Meteo');
             return _doFetchGlobalOpenMeteo();
         }
 
         const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
         const body = { north: 90, south: -90, east: 180, west: -180 };
 
-        console.log('[WindField] Fetching global grid via NOAA GRIB edge function...');
 
         const resp = await fetch(url, {
             method: 'POST',
@@ -259,13 +255,11 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
         });
 
         if (!resp.ok) {
-            console.warn(`[WindField] GRIB edge function failed: ${resp.status}, falling back to Open-Meteo`);
             return _doFetchGlobalOpenMeteo();
         }
 
         const buffer = await resp.arrayBuffer();
         if (buffer.byteLength < 200) {
-            console.warn('[WindField] GRIB response too small, falling back to Open-Meteo');
             return _doFetchGlobalOpenMeteo();
         }
 
@@ -308,10 +302,8 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
         };
 
         globalCache = { grid, fetchedAt: Date.now() };
-        console.log(`[WindField] Global GRIB grid ready: ${width}×${height} (${buffer.byteLength} bytes)`);
         return grid;
     } catch (e) {
-        console.warn('[WindField] Global GRIB fetch failed, falling back to Open-Meteo:', e);
         return _doFetchGlobalOpenMeteo();
     }
 }
@@ -340,13 +332,12 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
             }
         }
 
-        console.log(`[WindField] Fetching global grid via Open-Meteo: ${rows}×${cols} = ${allPoints.length} points`);
 
         const BATCH_SIZE = 50;
         const allResults: any[] = new Array(allPoints.length).fill(null);
 
         const omKey = getOpenMeteoKey();
-        if (!omKey) { console.warn('[WindField] No Open-Meteo API key for global fallback'); return null; }
+        if (!omKey) return null;
         const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
         const keyParam = `&apikey=${omKey}`;
 
@@ -367,7 +358,6 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
 
                 const response = await fetch(url);
                 if (!response.ok) {
-                    console.warn(`[WindField] Global batch failed: HTTP ${response.status}`);
                     return;
                 }
 
@@ -384,7 +374,6 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
 
         const validCount = allResults.filter(r => r?.hourly).length;
         if (validCount < allPoints.length * 0.5) {
-            console.warn(`[WindField] Global grid too sparse: ${validCount}/${allPoints.length} valid`);
             return null;
         }
 
@@ -441,10 +430,8 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
         };
 
         globalCache = { grid, fetchedAt: Date.now() };
-        console.log(`[WindField] Global grid ready: ${cols}×${rows}, ${totalHours}h, ${validCount} valid points`);
         return grid;
     } catch (e) {
-        console.warn('[WindField] Global Open-Meteo fetch failed:', e);
         return null;
     }
 }

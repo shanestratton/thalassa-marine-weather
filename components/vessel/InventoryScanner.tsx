@@ -172,7 +172,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 if (err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
                     // User pressed back — that's fine
                 } else {
-                    console.warn('[InventoryScanner] Native scan error:', err);
                     setCameraError('Scanner unavailable. Enter barcode manually.');
                 }
             }

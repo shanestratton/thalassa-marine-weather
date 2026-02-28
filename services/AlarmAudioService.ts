@@ -41,7 +41,6 @@ class AlarmAudioServiceClass {
                 this.isPlaying = true;
                 return;
             } catch (err) {
-                console.warn('[AlarmAudio] Native plugin failed, falling back to Web Audio:', err);
             }
         }
 
@@ -111,7 +110,6 @@ class AlarmAudioServiceClass {
             playTone();
             this.webAlarmInterval = setInterval(playTone, 1500);
         } catch (e) {
-            console.warn('[AlarmAudio] Web Audio fallback failed:', e);
         }
     }
 

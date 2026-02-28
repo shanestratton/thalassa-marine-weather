@@ -230,7 +230,6 @@ export function decodeGrib2Pressure(buffer: ArrayBuffer): DecodedPressureGrid {
 
             offset = nextOffset;
         } catch (e) {
-            console.warn(`[GRIB2-Pressure] Parse error at offset ${offset}:`, e);
             // Try to find next GRIB magic
             offset++;
             while (offset < buffer.byteLength - 4) {
@@ -245,7 +244,6 @@ export function decodeGrib2Pressure(buffer: ArrayBuffer): DecodedPressureGrid {
         throw new Error('[GRIB2-Pressure] No valid messages found');
     }
 
-    console.log(`[GRIB2-Pressure] Decoded ${frames.length} forecast frames, grid ${frames[0].width}×${frames[0].height}`);
 
     const f0 = frames[0];
 

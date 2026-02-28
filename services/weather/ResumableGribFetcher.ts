@@ -75,11 +75,6 @@ export class ResumableGribFetcher {
             // Network error (satellite drop, DNS failure, etc.)
             if (this.signal?.aborted) throw err;
 
-            console.warn(
-                `[ResumableGribFetcher] Network error on attempt ${this.attempt}, ` +
-                `${this.downloadedBytes} bytes so far. Retrying in ${this.retryDelay}ms...`,
-                err,
-            );
             await this.sleep(this.retryDelay);
             return this.fetchWithResume();
         }
@@ -134,11 +129,6 @@ export class ResumableGribFetcher {
             // Stream interrupted mid-transfer (satellite link dropped)
             if (this.signal?.aborted) throw err;
 
-            console.warn(
-                `[ResumableGribFetcher] Stream interrupted at ${this.downloadedBytes} bytes ` +
-                `on attempt ${this.attempt}. Resuming in ${this.retryDelay}ms...`,
-                err,
-            );
             reader.releaseLock();
             await this.sleep(this.retryDelay);
             return this.fetchWithResume();
@@ -178,8 +168,7 @@ export class ResumableGribFetcher {
  *     {
  *         retryDelay: 5000,
  *         onProgress: ({ downloadedBytes, totalBytes }) => {
- *             console.log(`${downloadedBytes}/${totalBytes ?? '?'} bytes`);
- *         },
+ * *         },
  *     },
  * );
  * ```

@@ -82,20 +82,16 @@ async function fetchViaProxy(lat: number, lon: number, days: number): Promise<Wo
 
         if (res.status !== 200) {
             const errorData = await res.json().catch(() => ({}));
-            console.warn(`[WorldTides] Proxy error: HTTP ${res.status}`, errorData);
             return null;
         }
 
         const data = await res.json();
         if (!data || data.error) {
-            console.warn('[WorldTides] Proxy returned error:', data?.error);
             return null;
         }
 
-        console.log(`[WorldTides] ✓ Via proxy — station: ${data.station || 'unknown'}`);
         return processResponse(data, lat, lon);
     } catch (e) {
-        console.warn('[WorldTides] Proxy fetch failed:', e instanceof Error ? e.message : e);
         return null;
     }
 }
@@ -107,7 +103,6 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
     if (!key) return null;
 
     if (isRateLimited()) {
-        console.warn('[WorldTides] RATE LIMITED — max calls/hour reached. Skipping direct API call.');
         return null;
     }
 
@@ -123,11 +118,9 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
         const res = await CapacitorHttp.get({ url });
         if (res.status === 200 && res.data) {
             recordCall();
-            console.log('[WorldTides] ✓ Via CapacitorHttp (direct)');
             return processResponse(res.data, lat, lon);
         } else {
             const errorBody = typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data);
-            console.warn(`[WorldTides] Direct API error: HTTP ${res.status} — ${errorBody}`);
             return null;
         }
     } catch {
@@ -137,7 +130,6 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
             const nativeData = await nativeRes.json();
             if (nativeData && !nativeData.error) {
                 recordCall();
-                console.log('[WorldTides] ✓ Via native fetch (direct)');
                 return nativeData as WorldTidesResponse;
             }
         } catch {
@@ -189,6 +181,5 @@ export const fetchWorldTides = async (
     if (proxyResult) return proxyResult;
 
     // 2. Fallback: Direct API call (key in client bundle)
-    console.log('[WorldTides] Proxy unavailable, falling back to direct API...');
     return fetchDirect(lat, lon, days);
 };

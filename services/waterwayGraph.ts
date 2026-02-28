@@ -79,12 +79,7 @@ async function loadGraph(): Promise<void> {
             canalAdj.get(edge.to)!.push({ nodeId: edge.from, dist_m: edge.dist_m, name: edge.name });
         }
 
-        const ms = (performance.now() - t0).toFixed(0);
-        console.log(
-            `[WaterwayGraph] Loaded: ${graphData!.metadata.node_count} total nodes, ` +
-            `canal-only: ${canalNodeIds.size} nodes, ${canalEdgeCount} edges (${ms}ms)`
-        );
-    } catch (err) {
+        const ms = (performance.now() - t0).toFixed(0);    } catch (err) {
         console.error('[WaterwayGraph] Failed to load graph:', err);
         graphData = null;
         canalAdj = null;
@@ -211,7 +206,6 @@ function astarCanal(startId: string, goalId: string): string[] | null {
                 c = cameFrom.get(c)!;
                 path.unshift(c);
             }
-            console.log(`[A*] Found path: ${path.length} nodes, ${iterations} iterations`);
             return path;
         }
 
@@ -239,7 +233,6 @@ function astarCanal(startId: string, goalId: string): string[] | null {
         }
     }
 
-    console.warn(`[A*] No path found after ${iterations} iterations`);
     return null;
 }
 
@@ -256,34 +249,24 @@ export async function graphRoute(
 
     // Step 1: Snap origin to nearest CANAL node
     const originSnap = snapToCanalNode(originLat, originLon, 2000);
-    if (!originSnap) {
-        console.log(`[WaterwayGraph] No canal node within 2000m of origin [${originLat.toFixed(4)}, ${originLon.toFixed(4)}]`);
-        return null;
+    if (!originSnap) {        return null;
     }
-    console.log(`[WaterwayGraph] Origin snap: canal node ${originSnap.nodeId} at ${originSnap.distM.toFixed(0)}m`);
-
     // Step 2: BFS through CANAL edges only
     const reachable = findReachableCanalNodes(originSnap.nodeId);
-    console.log(`[WaterwayGraph] Reachable canal nodes: ${reachable.size}`);
 
     if (reachable.size < 3) {
-        console.log(`[WaterwayGraph] Canal component too small — returning null`);
         return null;
     }
 
     // Step 3: Find exit node (closest canal node to destination)
     const exitNode = findExitNode(reachable, destLat, destLon);
     if (!exitNode) {
-        console.log(`[WaterwayGraph] No exit node found`);
         return null;
     }
     const exitGeo = graphData.nodes[exitNode.nodeId];
-    console.log(`[WaterwayGraph] Exit node: [${exitGeo.lat.toFixed(5)}, ${exitGeo.lon.toFixed(5)}], ${(exitNode.distM / 1852).toFixed(1)} NM from dest`);
-
     // Step 4: A* through canal edges only
     const path = astarCanal(originSnap.nodeId, exitNode.nodeId);
     if (!path) {
-        console.log(`[WaterwayGraph] A* failed within canal component`);
         return null;
     }
 
@@ -309,7 +292,5 @@ export async function graphRoute(
     const distNM = totalM / 1852;
 
     const ms = (performance.now() - t0).toFixed(0);
-    console.log(`[WaterwayGraph] Route: ${coords.length} WPs, ${distNM.toFixed(1)} NM, ${ms}ms`);
-
     return { coords, distNM, snapDistM: originSnap.distM };
 }

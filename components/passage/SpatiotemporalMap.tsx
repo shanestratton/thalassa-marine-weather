@@ -388,9 +388,8 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             .then(r => r.json())
             .then((geojson: any) => {
                 setFetchedSeamarks(geojson);
-                console.log(`[4DMap] ✓ Fetched ${geojson.features?.length} seamark markers`);
             })
-            .catch((err: any) => console.warn('[4DMap] Seamark markers unavailable:', err));
+            .catch(() => {});
     }, []);
 
     // Merge prop-based seamarks with fetched ones
@@ -425,12 +424,10 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     // ── Fit bounds on route load ──
     useEffect(() => {
         if (!mapReady || !mapRef.current || !boundingBox) {
-            console.log('[SpatiotemporalMap] fitBounds skipped:', { mapReady, hasBBox: !!boundingBox });
             return;
         }
 
         const [minLon, minLat, maxLon, maxLat] = boundingBox;
-        console.log('[SpatiotemporalMap] fitBounds:', { minLon, minLat, maxLon, maxLat });
         const bounds: LngLatBoundsLike = [[minLon, minLat], [maxLon, maxLat]];
 
         mapRef.current.fitBounds(bounds, {
@@ -456,7 +453,6 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.addLayer(windLayer as any);
         } catch (e) {
-            console.warn('[SpatiotemporalMap] WindParticleLayer unavailable:', e);
         }
 
         // Feed initial wind data from WindStore (if available)

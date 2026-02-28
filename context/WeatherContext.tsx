@@ -761,7 +761,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             // If nextUpdate is in the past, schedule an immediate refresh
             if (target && now >= target) {
-                console.log('[WeatherContext] Wake from sleep — scheduling refresh');
                 const wakeNext = now + 5000; // 5s grace to let the device stabilize
                 nextUpdateRef.current = wakeNext;
                 setNextUpdate(wakeNext);

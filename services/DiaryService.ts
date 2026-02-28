@@ -369,7 +369,6 @@ class DiaryServiceClass {
 
                     if (!error && data) {
                         synced.push(entry.id);
-                        console.log('[Diary] Synced entry:', entry.title);
                     }
                 } catch (e) {
                     console.error('[Diary] Sync failed for entry:', entry.id, e);
