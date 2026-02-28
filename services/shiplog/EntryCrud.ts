@@ -31,18 +31,35 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
             return [];
         }
 
-        const { data, error } = await supabase
-            .from(SHIP_LOGS_TABLE)
-            .select('*')
-            .or('archived.is.null,archived.eq.false')  // Exclude archived entries
-            .order('timestamp', { ascending: false })
-            .limit(limit);
+        // Supabase caps queries at 1000 rows by default.
+        // Paginate to fetch all entries when limit is large.
+        const PAGE_SIZE = 1000;
+        const allEntries: ShipLogEntry[] = [];
+        let offset = 0;
+        const effectiveLimit = Math.min(limit, 10_000_000); // Safety cap
 
-        if (error) {
-            return [];
+        while (allEntries.length < effectiveLimit) {
+            const batchSize = Math.min(PAGE_SIZE, effectiveLimit - allEntries.length);
+            const { data, error } = await supabase
+                .from(SHIP_LOGS_TABLE)
+                .select('*')
+                .or('archived.is.null,archived.eq.false')  // Exclude archived entries
+                .order('timestamp', { ascending: false })
+                .range(offset, offset + batchSize - 1);
+
+            if (error) {
+                break;
+            }
+
+            const rows = data || [];
+            allEntries.push(...rows.map(row => fromDbFormat(row)));
+
+            // If we got fewer rows than requested, we've fetched everything
+            if (rows.length < batchSize) break;
+            offset += batchSize;
         }
 
-        return (data || []).map(row => fromDbFormat(row));
+        return allEntries;
     } catch (error) {
         log.error('getLogEntries failed', error);
         return [];
@@ -52,21 +69,36 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 /**
  * Fetch archived log entries for current user.
  */
-export async function getArchivedEntries(limit: number = 500): Promise<ShipLogEntry[]> {
+export async function getArchivedEntries(limit: number = 10000): Promise<ShipLogEntry[]> {
     if (!supabase) return [];
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return [];
 
-        const { data, error } = await supabase
-            .from(SHIP_LOGS_TABLE)
-            .select('*')
-            .eq('archived', true)
-            .order('timestamp', { ascending: false })
-            .limit(limit);
+        // Paginate to fetch all archived entries
+        const PAGE_SIZE = 1000;
+        const allEntries: ShipLogEntry[] = [];
+        let offset = 0;
 
-        if (error) return [];
-        return (data || []).map(row => fromDbFormat(row));
+        while (allEntries.length < limit) {
+            const batchSize = Math.min(PAGE_SIZE, limit - allEntries.length);
+            const { data, error } = await supabase
+                .from(SHIP_LOGS_TABLE)
+                .select('*')
+                .eq('archived', true)
+                .order('timestamp', { ascending: false })
+                .range(offset, offset + batchSize - 1);
+
+            if (error) break;
+
+            const rows = data || [];
+            allEntries.push(...rows.map(row => fromDbFormat(row)));
+
+            if (rows.length < batchSize) break;
+            offset += batchSize;
+        }
+
+        return allEntries;
     } catch (error) {
         log.error('getArchivedEntries failed', error);
         return [];
