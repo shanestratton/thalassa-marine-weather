@@ -587,7 +587,20 @@ export function useLogPageState() {
         waypoint: state.entries.filter(e => e.entryType === 'waypoint').length,
     }), [state.entries]);
 
-    const voyageGroups = useMemo(() => groupEntriesByVoyage(state.entries), [state.entries]);
+    const voyageGroups = useMemo(() => {
+        const groups = groupEntriesByVoyage(state.entries);
+        // Sort: planned routes first, then by newest timestamp
+        return groups.sort((a, b) => {
+            const aPlanned = a.entries.some(e => e.source === 'planned_route');
+            const bPlanned = b.entries.some(e => e.source === 'planned_route');
+            if (aPlanned && !bPlanned) return -1;
+            if (!aPlanned && bPlanned) return 1;
+            // Then by most recent timestamp
+            const aTime = Math.max(...a.entries.map(e => new Date(e.timestamp).getTime()));
+            const bTime = Math.max(...b.entries.map(e => new Date(e.timestamp).getTime()));
+            return bTime - aTime;
+        });
+    }, [state.entries]);
 
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId

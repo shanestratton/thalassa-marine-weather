@@ -607,7 +607,7 @@ export interface ShipLogEntry {
 
     // Entry metadata
     entryType: 'auto' | 'manual' | 'waypoint'; // Auto = GPS tracking, Manual = user added, Waypoint = navigation mark
-    source?: 'device' | 'gpx_import' | 'community_download'; // Track provenance: device = live GPS, gpx_import = imported file, community_download = DL'd from community
+    source?: 'device' | 'gpx_import' | 'community_download' | 'planned_route'; // Track provenance: device = live GPS, gpx_import = imported file, community_download = DL'd from community, planned_route = passage plan proposal
     eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
     engineStatus?: 'running' | 'stopped' | 'maneuvering';
     notes?: string; // User notes

@@ -1310,7 +1310,8 @@ const VoyageCard: React.FC<{
         : 0;
 
     // Detect imported/community tracks (not official device data)
-    const isImported = voyage.entries.some(e => e.source && e.source !== 'device');
+    const isImported = voyage.entries.some(e => e.source && e.source !== 'device' && e.source !== 'planned_route');
+    const isPlannedRoute = voyage.entries.some(e => e.source === 'planned_route');
 
     // Reverse-geocode start and end locations for card title
     const [startLocName, setStartLocName] = useState<string | null>(null);
@@ -1366,24 +1367,26 @@ const VoyageCard: React.FC<{
 
     return (
         <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">
-            {/* Action buttons revealed on swipe-left: Archive + Delete */}
+            {/* Action buttons revealed on swipe-left */}
             <div className={`absolute right-0 top-0 bottom-0 flex transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                {/* Archive */}
-                <button
-                    onClick={() => { setSwipeOffset(0); onArchive(); }}
-                    className="w-20 bg-amber-600 flex items-center justify-center"
-                >
-                    <div className="flex flex-col items-center gap-1">
-                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
-                        </svg>
-                        <span className="text-[9px] font-bold text-white uppercase">Archive</span>
-                    </div>
-                </button>
+                {/* Archive — hidden for planned routes */}
+                {!isPlannedRoute && (
+                    <button
+                        onClick={() => { setSwipeOffset(0); onArchive(); }}
+                        className="w-20 bg-amber-600 flex items-center justify-center"
+                    >
+                        <div className="flex flex-col items-center gap-1">
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
+                            </svg>
+                            <span className="text-[9px] font-bold text-white uppercase">Archive</span>
+                        </div>
+                    </button>
+                )}
                 {/* Delete */}
                 <button
                     onClick={() => { setSwipeOffset(0); onDelete(); }}
-                    className="w-20 bg-red-600 flex items-center justify-center rounded-r-2xl"
+                    className={`w-20 bg-red-600 flex items-center justify-center ${isPlannedRoute ? 'rounded-r-2xl rounded-l-2xl' : 'rounded-r-2xl'}`}
                 >
                     <div className="flex flex-col items-center gap-1">
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1396,13 +1399,17 @@ const VoyageCard: React.FC<{
             <div
                 className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isSelected
                     ? 'bg-sky-900/30 border-2 border-sky-400/50 shadow-[0_0_12px_rgba(56,189,248,0.15)]'
-                    : isImported
+                    : isPlannedRoute
                         ? (isExpanded
-                            ? 'bg-amber-900/30 border border-amber-500/30'
-                            : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25')
-                        : (isExpanded
-                            ? 'bg-slate-800/50 border border-sky-500/30'
-                            : 'bg-slate-900/40 border border-white/5 hover:border-white/15')
+                            ? 'bg-violet-900/30 border border-violet-500/30'
+                            : 'bg-violet-950/30 border border-violet-500/15 hover:border-violet-500/25')
+                        : isImported
+                            ? (isExpanded
+                                ? 'bg-amber-900/30 border border-amber-500/30'
+                                : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25')
+                            : (isExpanded
+                                ? 'bg-slate-800/50 border border-sky-500/30'
+                                : 'bg-slate-900/40 border border-white/5 hover:border-white/15')
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === deleteThreshold ? 'transform 0.2s ease-out' : 'none' }}
                 onTouchStart={handleSwipeStart}
@@ -1445,11 +1452,17 @@ const VoyageCard: React.FC<{
                         {hasManual && (
                             <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[9px] font-bold text-purple-400 uppercase">Manual</span>
                         )}
-                        {isImported && (
+                        {isPlannedRoute && (
+                            <span className="px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/20 text-[9px] font-bold text-violet-400 uppercase">Suggested</span>
+                        )}
+                        {isImported && !isPlannedRoute && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[9px] font-bold text-amber-400 uppercase">Imported</span>
                         )}
                     </div>
-                    {isImported && (
+                    {isPlannedRoute && (
+                        <div className="text-[9px] text-violet-400/60 mt-1">📐 Suggested route — not from onboard GPS</div>
+                    )}
+                    {isImported && !isPlannedRoute && (
                         <div className="text-[9px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
                     )}
                 </button>

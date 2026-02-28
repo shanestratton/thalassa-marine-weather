@@ -138,13 +138,17 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         const trackCoords = sorted.map(e => [e.latitude!, e.longitude!] as [number, number]);
 
+        // Detect if this is a planned route
+        const isPlannedRoute = sorted.some(e => e.source === 'planned_route');
+
         // Color-segmented polylines
         let currentSegment: [number, number][] = [];
         let currentIsWater = sorted[0].isOnWater ?? true;
 
         const addSegment = (coords: [number, number][], isWater: boolean) => {
             if (coords.length < 2) return;
-            const color = isWater ? '#38bdf8' : '#34d399';
+            // Planned routes use violet, regular tracks use blue/green
+            const color = isPlannedRoute ? '#a78bfa' : (isWater ? '#38bdf8' : '#34d399');
 
             L.polyline(coords, {
                 color, weight: 8, opacity: 0.2,
