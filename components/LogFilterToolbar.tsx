@@ -113,13 +113,13 @@ interface FilterPillProps {
 const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, color }) => {
     const colorClasses = {
         green: active
-            ? 'bg-green-500/30 border-green-500/60 text-green-400'
+            ? 'bg-emerald-500/30 border-emerald-500/60 text-emerald-400'
             : 'bg-slate-800/60 border-white/5 text-slate-500',
         purple: active
             ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
             : 'bg-slate-800/60 border-white/5 text-slate-500',
         blue: active
-            ? 'bg-blue-500/30 border-blue-500/60 text-blue-400'
+            ? 'bg-sky-500/30 border-sky-500/60 text-sky-400'
             : 'bg-slate-800/60 border-white/5 text-slate-500'
     };
 

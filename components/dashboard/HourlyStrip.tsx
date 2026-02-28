@@ -25,7 +25,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
     const getWeatherIcon = (condition?: string, precipitation?: number | null) => {
         const cond = (condition || '').toLowerCase();
         if (cond.includes('rain') || cond.includes('shower') || (precipitation && precipitation > 1)) {
-            return <RainIcon className="w-5 h-5 text-blue-400" />;
+            return <RainIcon className="w-5 h-5 text-sky-400" />;
         }
         if (cond.includes('cloud') || cond.includes('overcast')) {
             return <CloudIcon className="w-5 h-5 text-gray-300" />;

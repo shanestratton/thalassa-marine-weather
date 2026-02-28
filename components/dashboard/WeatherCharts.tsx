@@ -40,14 +40,14 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                 <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[11px] uppercase text-gray-400 font-bold">Humidity</span>
-                                        <DropletIcon className="w-3 h-3 text-blue-300 opacity-60" />
+                                        <DropletIcon className="w-3 h-3 text-sky-300 opacity-60" />
                                     </div>
                                     <div className="flex items-baseline gap-1">
-                                        <span className="text-xl font-bold text-blue-100">--</span>
+                                        <span className="text-xl font-bold text-sky-100">--</span>
                                         <span className="text-xs text-gray-500">%</span>
                                     </div>
                                     <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">
-                                        <div className="h-full bg-blue-400 opacity-50" style={{ width: '50%' }}></div>
+                                        <div className="h-full bg-sky-400 opacity-50" style={{ width: '50%' }}></div>
                                     </div>
                                 </div>
                             );
@@ -72,7 +72,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                 <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between">
                                     <div className="flex justify-between items-center mb-1"><span className="text-[11px] uppercase text-gray-400 font-bold">Wave</span></div>
                                     <div className="flex items-baseline gap-1"><span className="text-xl font-bold text-white">{convertLength(item.waveHeight, units.length)}</span><span className="text-xs text-gray-500">{units.length}</span></div>
-                                    <div className="text-xs text-blue-300 font-medium mt-1">{item.swellPeriod ? `${item.swellPeriod}s` : 'Choppy'}</div>
+                                    <div className="text-xs text-sky-300 font-medium mt-1">{item.swellPeriod ? `${item.swellPeriod}s` : 'Choppy'}</div>
                                 </div>
                             );
 
@@ -138,7 +138,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                     {waveCell}
                                     {tideCell}
 
-                                    <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between"><div className="flex justify-between items-center mb-1"><span className="text-[11px] uppercase text-gray-400 font-bold">Precip</span></div><div className="flex items-center gap-2 mt-1">{precipStr ? (<><DropletIcon className="w-4 h-4 text-blue-400" /><span className="text-sm font-medium text-white">{precipStr}</span></>) : (<span className="text-xs text-gray-500 italic">None</span>)}</div></div>
+                                    <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex flex-col justify-between"><div className="flex justify-between items-center mb-1"><span className="text-[11px] uppercase text-gray-400 font-bold">Precip</span></div><div className="flex items-center gap-2 mt-1">{precipStr ? (<><DropletIcon className="w-4 h-4 text-sky-400" /><span className="text-sm font-medium text-white">{precipStr}</span></>) : (<span className="text-xs text-gray-500 italic">None</span>)}</div></div>
                                 </div>
                             </div>
                         );
@@ -211,7 +211,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                     <div className="absolute top-0 right-0 p-1 opacity-20"><WindIcon className="w-12 h-12" /></div>
                                     <div className="flex justify-between items-center mb-1 relative z-10"><span className="text-[11px] text-gray-400 uppercase font-bold">Wind</span></div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2"><span className="text-2xl font-bold text-white">{dayWind}</span><span className="text-xs text-gray-500">{units.speed}</span></div>
-                                    <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all ${day.windSpeed > 20 ? 'bg-red-500' : day.windSpeed > 10 ? 'bg-emerald-400' : 'bg-blue-400'}`} style={{ width: `${Math.min(day.windSpeed * 3, 100)}%` }}></div></div>
+                                    <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all ${day.windSpeed > 20 ? 'bg-red-500' : day.windSpeed > 10 ? 'bg-emerald-400' : 'bg-sky-400'}`} style={{ width: `${Math.min(day.windSpeed * 3, 100)}%` }}></div></div>
                                     <div className="pt-2 border-t border-white/10 flex justify-between items-center"><span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">Gusts</span><span className="text-xs text-orange-300 font-mono font-bold">{dayGust}</span></div>
                                 </div>
 
@@ -219,8 +219,8 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                     <div className="absolute top-0 right-0 p-1 opacity-20"><WaveIcon className="w-12 h-12" /></div>
                                     <div className="flex justify-between items-center mb-1 relative z-10"><span className="text-[11px] text-gray-400 uppercase font-bold">Sea State</span></div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2"><span className="text-2xl font-bold text-white">{dayWave}</span><span className="text-xs text-gray-500">{units.length}</span></div>
-                                    <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all bg-blue-500`} style={{ width: `${Math.min(day.waveHeight * 10, 100)}%` }}></div></div>
-                                    <div className="pt-2 border-t border-white/10 flex justify-between items-center"><span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">Period</span><span className="text-xs text-blue-300 font-mono font-bold">{day.swellPeriod ? `${day.swellPeriod}s` : '--'}</span></div>
+                                    <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2"><div className={`h-full rounded-full transition-all bg-sky-500`} style={{ width: `${Math.min(day.waveHeight * 10, 100)}%` }}></div></div>
+                                    <div className="pt-2 border-t border-white/10 flex justify-between items-center"><span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">Period</span><span className="text-xs text-sky-300 font-mono font-bold">{day.swellPeriod ? `${day.swellPeriod}s` : '--'}</span></div>
                                 </div>
 
                                 {hasTideData ? (

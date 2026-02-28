@@ -165,7 +165,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(({ data, i
                                             <span className="text-sm text-gray-400 uppercase font-bold">{units.speed}</span>
                                         </div>
                                         <div className={`bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center ${t.border.subtle}`}>
-                                            <div className="text-blue-400 mb-1"><WaveIcon className="w-5 h-5" /></div>
+                                            <div className="text-sky-400 mb-1"><WaveIcon className="w-5 h-5" /></div>
                                             <span className="text-lg font-bold text-white">{current.waveHeight}</span>
                                             <span className="text-sm text-gray-400 uppercase font-bold">{units.length}</span>
                                         </div>
@@ -178,7 +178,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(({ data, i
 
                                     <button
                                         onClick={onViewFull}
-                                        className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+                                        className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 hover:from-sky-500 hover:to-sky-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
                                      aria-label="View Full">
                                         View Full Report
                                         <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

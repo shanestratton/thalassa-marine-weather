@@ -442,7 +442,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             {/* Info */}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-0.5">
-                                                    <h4 className="text-[17px] font-bold text-white/90 truncate">{card.display_name}</h4>
+                                                    <h4 className="text-lg font-bold text-white/90 truncate">{card.display_name}</h4>
                                                     {card.age_range && (
                                                         <span className="text-[11px] text-white/35 bg-white/[0.04] px-1.5 py-0.5 rounded-md flex-shrink-0">{card.age_range}</span>
                                                     )}
@@ -468,7 +468,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {/* Skills preview — with SEEKING label */}
                                                 {card.skills.length > 0 && (
                                                     <div>
-                                                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/20 mb-0.5">Seeking:</p>
+                                                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40 mb-0.5">Seeking:</p>
                                                         <div className="flex flex-wrap gap-1">
                                                             {card.skills.slice(0, 4).map(skill => (
                                                                 <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[11px] text-white/40">{skill}</span>
@@ -482,7 +482,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                                 {/* Bio preview */}
                                                 {card.bio && (
-                                                    <p className="text-[13px] text-white/25 line-clamp-2 leading-relaxed mt-1">
+                                                    <p className="text-xs text-white/25 line-clamp-2 leading-relaxed mt-1">
                                                         {card.bio}
                                                     </p>
                                                 )}
@@ -651,7 +651,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </button>
                             <button
                                 onClick={() => handleLike(selectedCard)}
-                                className="w-16 rounded-2xl bg-gradient-to-br from-pink-500/20 to-rose-500/20 hover:from-pink-500/30 hover:to-rose-500/30 border border-pink-400/20 flex items-center justify-center text-2xl transition-all active:scale-90"
+                                className="w-16 rounded-2xl bg-gradient-to-br from-red-500/20 to-red-500/20 hover:from-red-500/30 hover:to-red-500/30 border border-red-400/20 flex items-center justify-center text-2xl transition-all active:scale-90"
                             >
                                 ⭐
                             </button>
@@ -718,7 +718,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             onClick={() => fileInputRef.current?.click()}
                                             className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                         >
-                                            <span className="text-3xl text-white/10">📷</span>
+                                            <span className="text-3xl text-white/40">📷</span>
                                             <span className="text-[11px] text-white/10 mt-1">Add Photo</span>
                                         </button>
                                     )}
@@ -882,7 +882,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </label>
                             <div className="flex gap-3">
                                 <div className="flex-1">
-                                    <p className="text-[11px] text-white/20 uppercase mb-1">From</p>
+                                    <p className="text-[11px] text-white/40 uppercase mb-1">From</p>
                                     <input
                                         type="date"
                                         value={editAvailFrom}
@@ -891,7 +891,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <p className="text-[11px] text-white/20 uppercase mb-1">To (optional)</p>
+                                    <p className="text-[11px] text-white/40 uppercase mb-1">To (optional)</p>
                                     <input
                                         type="date"
                                         value={isOpenEnded(editAvailTo) ? '' : editAvailTo}

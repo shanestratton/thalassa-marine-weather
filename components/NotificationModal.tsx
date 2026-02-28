@@ -138,7 +138,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           <div className={`bg-white/5 rounded-2xl p-4 ${t.border.subtle}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="bg-blue-500/20 p-2 rounded-lg text-blue-300">
+                <div className="bg-sky-500/20 p-2 rounded-lg text-sky-300">
                   <RainIcon className="w-5 h-5" />
                 </div>
                 <div>
@@ -153,7 +153,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                   checked={localSettings.precipitation.enabled}
                   onChange={(e) => updateSetting('precipitation', 'enabled', e.target.checked)}
                 />
-                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
               </label>
             </div>
           </div>

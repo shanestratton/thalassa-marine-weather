@@ -31,11 +31,11 @@ export const ALL_DETAIL_WIDGETS = [
 export const ALL_ROW_WIDGETS = [
     { id: 'beaufort', label: 'Current Conditions', icon: <WindIcon className="w-4 h-4 text-sky-400" /> },
 
-    { id: 'tides', label: 'Tide Graph', icon: <TideCurveIcon className="w-4 h-4 text-blue-400" /> },
+    { id: 'tides', label: 'Tide Graph', icon: <TideCurveIcon className="w-4 h-4 text-sky-400" /> },
     { id: 'sunMoon', label: 'Sun & Moon', icon: <SunIcon className="w-4 h-4 text-orange-400" /> },
     { id: 'vessel', label: 'Vessel Status', icon: <StarIcon className="w-4 h-4 text-emerald-400" /> },
     { id: 'advice', label: 'Captain\'s Log', icon: <StarIcon className="w-4 h-4 text-yellow-400" /> },
     { id: 'hourly', label: 'Hourly Forecast', icon: <StarIcon className="w-4 h-4 text-cyan-400" /> },
     { id: 'daily', label: 'Daily Forecast', icon: <StarIcon className="w-4 h-4 text-purple-400" /> },
-    { id: 'map', label: 'Map Overview', icon: <StarIcon className="w-4 h-4 text-green-400" /> },
+    { id: 'map', label: 'Map Overview', icon: <StarIcon className="w-4 h-4 text-emerald-400" /> },
 ];

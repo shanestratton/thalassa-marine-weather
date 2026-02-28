@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
+import { toast } from './Toast';
 
 interface MarketplaceThreadProps {
     listing: MarketplaceListing;
@@ -125,6 +126,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
             setInput('');
         } catch (e) {
             console.error('Failed to send:', e);
+            toast.error('Failed to send message');
         } finally {
             setSending(false);
         }
@@ -166,6 +168,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
             });
         } catch (e) {
             console.error('Failed to secure funds:', e);
+            toast.error('Failed to secure funds — try again');
         } finally {
             setSecuringFunds(false);
         }
@@ -297,14 +300,14 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                     ) : (
                                         // ── GENERIC SYSTEM BUBBLE ──
                                         <div className={`px-4 py-2 rounded-2xl text-center max-w-xs ${msg.escrow_type === 'released'
-                                                ? 'bg-emerald-500/15 border border-emerald-500/20'
-                                                : msg.escrow_type === 'funds_held'
-                                                    ? 'bg-amber-500/15 border border-amber-500/20'
-                                                    : 'bg-white/[0.04] border border-white/[0.06]'
+                                            ? 'bg-emerald-500/15 border border-emerald-500/20'
+                                            : msg.escrow_type === 'funds_held'
+                                                ? 'bg-amber-500/15 border border-amber-500/20'
+                                                : 'bg-white/[0.04] border border-white/[0.06]'
                                             }`}>
                                             <p className={`text-xs font-bold ${msg.escrow_type === 'released' ? 'text-emerald-400'
-                                                    : msg.escrow_type === 'funds_held' ? 'text-amber-400'
-                                                        : 'text-gray-500'
+                                                : msg.escrow_type === 'funds_held' ? 'text-amber-400'
+                                                    : 'text-gray-500'
                                                 }`}>
                                                 {msg.content}
                                             </p>
@@ -318,8 +321,8 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                         return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${isOwn
-                                        ? 'bg-sky-600/30 border border-sky-500/20 rounded-br-md'
-                                        : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
+                                    ? 'bg-sky-600/30 border border-sky-500/20 rounded-br-md'
+                                    : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
                                     }`}>
                                     <p className="text-sm text-white leading-relaxed">{msg.content}</p>
                                     <p className="text-[11px] text-gray-600 text-right mt-1">
@@ -343,10 +346,10 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                             <div className="flex items-center justify-center gap-3 mb-4">
                                 {[0, 1, 2, 3].map(i => (
                                     <div key={i} className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${pinError
-                                            ? 'border-red-500/50 bg-red-500/10 animate-[shake_0.3s_ease-in-out]'
-                                            : pinInput[i]
-                                                ? 'border-amber-400/40 bg-amber-500/15'
-                                                : 'border-white/10 bg-white/[0.04]'
+                                        ? 'border-red-500/50 bg-red-500/10 animate-[shake_0.3s_ease-in-out]'
+                                        : pinInput[i]
+                                            ? 'border-amber-400/40 bg-amber-500/15'
+                                            : 'border-white/10 bg-white/[0.04]'
                                         }`}>
                                         <span className="text-2xl font-black text-white">
                                             {pinInput[i] || ''}

@@ -315,8 +315,8 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 >
                                     {/* Swipe indicators */}
                                     {swipeX > 30 && (
-                                        <div className="absolute top-6 left-6 z-10 px-4 py-2 rounded-xl bg-green-500/30 border-2 border-green-400 -rotate-12">
-                                            <span className="text-green-300 font-black text-xl">LIKE 💚</span>
+                                        <div className="absolute top-6 left-6 z-10 px-4 py-2 rounded-xl bg-emerald-500/30 border-2 border-emerald-400 -rotate-12">
+                                            <span className="text-emerald-300 font-black text-xl">LIKE 💚</span>
                                         </div>
                                     )}
                                     {swipeX < -30 && (
@@ -326,7 +326,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                     )}
 
                                     {/* Photo gallery / Avatar header */}
-                                    <div className="h-64 bg-gradient-to-br from-[#FF7F50]/15 via-purple-500/10 to-blue-500/15 flex items-center justify-center relative">
+                                    <div className="h-64 bg-gradient-to-br from-[#FF7F50]/15 via-purple-500/10 to-sky-500/15 flex items-center justify-center relative">
                                         {currentPhotos.length > 0 ? (
                                             <>
                                                 <img
@@ -404,7 +404,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                     </span>
                                                 ))}
                                                 {currentCard.interests.filter(t => !t.startsWith('role:')).length > 6 && (
-                                                    <span className="text-[11px] text-white/20">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
+                                                    <span className="text-[11px] text-white/40">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
                                                 )}
                                             </div>
                                         )}
@@ -472,7 +472,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                 {/* ══════ MATCHES ══════ */}
                 {view === 'matches' && (
                     <div className="px-4 py-5">
-                        <p className="text-xs text-white/20 text-center mb-4">
+                        <p className="text-xs text-white/40 text-center mb-4">
                             Both sailors must like each other to connect — your safety matters ⚓
                         </p>
 
@@ -567,7 +567,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                 }}
                                                 className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                             >
-                                                <span className="text-2xl text-white/10">📷</span>
+                                                <span className="text-2xl text-white/40">📷</span>
                                                 <span className="text-[11px] text-white/10 mt-1">{idx === 0 ? 'Main Photo' : `Photo ${idx + 1}`}</span>
                                             </button>
                                         )}

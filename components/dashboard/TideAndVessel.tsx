@@ -480,7 +480,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
     if (isSlack) {
         TrendIcon = MinusIcon;
-        trendColor = "text-blue-200"; // Neutral color for slack
+        trendColor = "text-sky-200"; // Neutral color for slack
     }
 
     // Scale Y-Axis based on GLOBAL markers (props.tides) to prevent "Zooming" on low-variance days.
@@ -517,7 +517,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find(m => m.time > currentHour && m.type === 'Low');
 
-    const heroLabelClass = "text-[11px] text-blue-300/80 font-bold uppercase tracking-widest";
+    const heroLabelClass = "text-[11px] text-sky-300/80 font-bold uppercase tracking-widest";
     const heroValueClass = "text-xl font-bold text-white tracking-tight leading-none";
 
     return (
@@ -532,7 +532,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             <span className={heroLabelClass}>Height</span>
                             <div className="flex items-baseline gap-0.5">
                                 <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">{currentHeight.toFixed(1)}</span>
-                                <span className="text-[11px] text-blue-200 font-medium">{unit}</span>
+                                <span className="text-[11px] text-sky-200 font-medium">{unit}</span>
                             </div>
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                         </div>
@@ -553,7 +553,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                                             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
                                         })()}
                                     </span>
-                                    <span className="text-sm font-medium text-blue-200/80 leading-none mt-1 font-mono">
+                                    <span className="text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
                                         {event!.height.toFixed(1)} {unit}
                                     </span>
                                 </div>
@@ -649,8 +649,8 @@ export const SunMoonWidget = ({ current, units, timeZone, lat }: { current: Weat
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col gap-4">
             {/* Header */}
             <div className="flex items-center gap-2 mb-2">
-                <StarIcon className="w-5 h-5 text-indigo-300" />
-                <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-widest">Celestial</h3>
+                <StarIcon className="w-5 h-5 text-sky-300" />
+                <h3 className="text-sm font-bold text-sky-300 uppercase tracking-widest">Celestial</h3>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
@@ -773,7 +773,7 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                 {/* Card 2: Lunar & Atmosphere (Replaces Vessel Physics) */}
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-start">
                     <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-2 text-indigo-300">
+                        <div className="flex items-center gap-2 text-sky-300">
                             <MoonIcon className="w-5 h-5" />
                             <span className="text-sm font-bold uppercase tracking-widest">Lunar & Atmosphere</span>
                         </div>

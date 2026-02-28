@@ -52,7 +52,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
         <Card className="bg-[#0f172a] p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
             {!isPro && (
                 <div className="absolute inset-0 z-20 backdrop-blur-md bg-slate-900/60 flex items-center justify-center">
-                    <button onClick={onUpgrade} className={`bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`} aria-label="Upgrade">
+                    <button onClick={onUpgrade} className={`bg-gradient-to-r from-sky-500 to-sky-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`} aria-label="Upgrade">
                         <DiamondIcon className="w-5 h-5" />
                         Unlock Digital Captain's Log
                     </button>
@@ -65,18 +65,18 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                 <div className="flex flex-1 flex-col relative">
                     {/* Background Texture */}
                     <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/nautical-charts.png')] opacity-5 pointer-events-none"></div>
-                    <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#0f172a] to-blue-950/30"></div>
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#0f172a] to-sky-950/30"></div>
 
                     {/* Content Layer */}
                     <div className="relative z-10 p-6 md:p-8 flex flex-col h-full">
                         {/* Header */}
                         <div className="flex items-center justify-between w-full border-b border-white/5 pb-4 mb-6">
                             <div className="flex items-center gap-4">
-                                <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-400 shrink-0 border border-indigo-500/20 shadow-[0_0_15px_rgba(99,102,241,0.1)]">
+                                <div className="p-3 bg-sky-500/10 rounded-xl text-sky-400 shrink-0 border border-sky-500/20 shadow-[0_0_15px_rgba(99,102,241,0.1)]">
                                     <BoatIcon className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <h3 className="text-sm font-bold text-indigo-300 uppercase tracking-widest flex items-center gap-2">
+                                    <h3 className="text-sm font-bold text-sky-300 uppercase tracking-widest flex items-center gap-2">
                                         Captain's Log
                                     </h3>
                                     <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
 
                         {/* Text Area - Auto Expanding */}
                         <div className="relative flex-1 min-h-[120px] pr-2">
-                            <div className="absolute top-0 left-0 bottom-0 w-[2px] bg-gradient-to-b from-indigo-500/50 via-indigo-500/10 to-transparent"></div>
+                            <div className="absolute top-0 left-0 bottom-0 w-[2px] bg-gradient-to-b from-sky-500/50 via-sky-500/10 to-transparent"></div>
                             <div className="pl-6 py-1">
                                 <QuoteIcon className="w-6 h-6 text-white/10 mb-4 transform -scale-x-100" />
 
@@ -123,8 +123,8 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                                 )}
 
                                 <div className="mt-6 flex items-center gap-2 opacity-50">
-                                    <div className="h-[1px] w-8 bg-indigo-400"></div>
-                                    <span className="text-sm font-mono text-indigo-300">END LOG</span>
+                                    <div className="h-[1px] w-8 bg-sky-400"></div>
+                                    <span className="text-sm font-mono text-sky-300">END LOG</span>
                                 </div>
                             </div>
                         </div>
@@ -145,7 +145,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                         <p className="text-sm text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-[#141b29] py-1 z-10 opacity-90">Recommended Gear</p>
                         <div className="flex flex-wrap gap-2 content-start pb-2">
                             {lockerItems.map((item, idx) => (
-                                <span key={idx} className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-indigo-100 ${t.border.default} rounded-lg shadow-sm transition-all hover:border-indigo-500/30 cursor-default flex items-center gap-1.5`}>
+                                <span key={idx} className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-sky-100 ${t.border.default} rounded-lg shadow-sm transition-all hover:border-sky-500/30 cursor-default flex items-center gap-1.5`}>
                                     <span>{item.icon}</span>
                                     {item.name}
                                 </span>

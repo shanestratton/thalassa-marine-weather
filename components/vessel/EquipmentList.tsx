@@ -17,6 +17,7 @@ import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentServi
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
+import { toast } from '../Toast';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -333,6 +334,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setItems(LocalEquipmentService.getAll());
         } catch (e) {
             console.error('Failed to load equipment:', e);
+            toast.error('Failed to load equipment');
         } finally {
             setLoading(false);
         }
@@ -377,6 +379,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             loadItems();
         } catch (e) {
             console.error('Failed to add equipment:', e);
+            toast.error('Failed to add equipment');
         }
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
@@ -390,6 +393,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             loadItems();
         } catch (e) {
             console.error('Failed to delete equipment:', e);
+            toast.error('Failed to delete equipment');
         }
     }, [loadItems]);
 
@@ -429,6 +433,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             } : null);
         } catch (e) {
             console.error('Failed to update equipment:', e);
+            toast.error('Failed to update equipment');
         }
     }, [selectedItem, newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 

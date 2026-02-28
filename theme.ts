@@ -189,11 +189,11 @@ const onshoreColors: ThemeColors = {
             borderActive: 'border-red-500/40',
         },
         purple: {
-            bg: 'bg-rose-500/10',
-            bgActive: 'bg-rose-500/30',
-            text: 'text-rose-400',
-            border: 'border-rose-500/20',
-            borderActive: 'border-rose-500/60',
+            bg: 'bg-red-500/10',
+            bgActive: 'bg-red-500/30',
+            text: 'text-red-400',
+            border: 'border-red-500/20',
+            borderActive: 'border-red-500/60',
         },
     },
     border: {
@@ -208,17 +208,27 @@ const onshoreColors: ThemeColors = {
 // ── Shared Tokens (same for both themes) ────────────────────────
 
 export const typography = {
-    pageTitle: 'text-lg font-black text-white tracking-tight',
+    /* ── 8-Tier type scale (standardised) ──────────────────────────
+     * caption  = 11px  — timestamps, badges, fine print
+     * label    = 12px  — section labels, chip text, small metadata
+     * body     = 14px  — primary body text, descriptions
+     * bodyLg   = 16px  — large body, small titles
+     * title    = 18px  — card/section titles
+     * heading  = 20px  — page headings
+     * hero     = 24px  — big data values
+     * heroLg   = 30px  — hero numbers, primary readings
+     * ─────────────────────────────────────────────────────────── */
+    pageTitle: 'text-xl font-extrabold text-white uppercase tracking-wider',
     sectionTitle: 'text-sm font-bold text-white',
     dataLg: 'text-lg font-black text-white font-mono',
     dataMd: 'text-base font-black text-white font-mono',
     dataSm: 'text-sm font-black text-white font-mono',
-    label: 'text-sm text-slate-400 uppercase tracking-wider',
-    labelSm: 'text-sm text-slate-400 uppercase tracking-wider',
+    label: 'text-[11px] text-slate-400 font-bold uppercase tracking-widest',
+    labelSm: 'text-[11px] text-slate-500 font-bold uppercase tracking-widest',
     body: 'text-sm text-slate-300',
     bodyMuted: 'text-sm text-slate-400',
-    caption: 'text-sm text-slate-400',
-    unit: 'text-sm text-slate-400',
+    caption: 'text-[11px] text-slate-500',
+    unit: 'text-xs text-slate-400',
 } as const;
 
 export const spacing = {

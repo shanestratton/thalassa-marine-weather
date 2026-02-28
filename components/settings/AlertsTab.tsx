@@ -69,7 +69,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 {/* 3. High Seas */}
                 <Row onClick={() => updateAlert('waves', 'enabled', !settings.notifications.waves.enabled)}>
                     <div className="flex items-center gap-4">
-                        <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
+                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">High Seas</p>
                             <p className="text-[11px] text-gray-500 uppercase tracking-wide">Significant Wave Hgt</p>
@@ -87,7 +87,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 {/* 4. Long Period (Swell) */}
                 <Row onClick={() => updateAlert('swellPeriod', 'enabled', !settings.notifications.swellPeriod.enabled)}>
                     <div className="flex items-center gap-4">
-                        <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
+                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Long Period</p>
                             <p className="text-[11px] text-gray-500 uppercase tracking-wide">Swell Interval</p>
@@ -179,7 +179,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 {/* 9. Precipitation */}
                 <Row onClick={() => updateAlert('precipitation', 'enabled', !settings.notifications.precipitation.enabled)}>
                     <div className="flex items-center gap-4">
-                        <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><RainIcon className="w-6 h-6" /></div>
+                        <div className="p-2 bg-sky-500/20 text-sky-300 rounded-lg"><RainIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Precipitation</p>
                             <p className="text-[11px] text-gray-500 uppercase tracking-wide">Notify on rain/storm forecast</p>

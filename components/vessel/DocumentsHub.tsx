@@ -14,6 +14,7 @@ import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
+import { toast } from '../Toast';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -166,6 +167,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setDocuments(LocalDocumentService.getAll());
         } catch (e) {
             console.error('Failed to load documents:', e);
+            toast.error('Failed to load documents');
         } finally {
             setLoading(false);
         }
@@ -243,6 +245,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             loadDocs();
         } catch (e) {
             console.error('Failed to save document:', e);
+            toast.error('Failed to save document');
         }
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, loadDocs]);
 
@@ -254,6 +257,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             loadDocs();
         } catch (e) {
             console.error('Failed to delete document:', e);
+            toast.error('Failed to delete document');
         }
     }, [loadDocs]);
 

@@ -41,10 +41,10 @@ export const DepthDisplay: React.FC<Props> = ({ lat, lon }) => {
         <div className="p-4 bg-slate-800 text-white rounded-lg border border-slate-600">
             <div className="text-gray-400 text-sm uppercase tracking-wider">Tide Height</div>
             <div className="flex items-baseline">
-                <span className="text-4xl font-mono font-bold text-blue-400">
+                <span className="text-4xl font-mono font-bold text-sky-400">
                     {tide.height.toFixed(2)}m
                 </span>
-                <span className="ml-2 text-sm font-bold bg-blue-900 px-2 py-1 rounded text-blue-100">
+                <span className="ml-2 text-sm font-bold bg-sky-900 px-2 py-1 rounded text-sky-100">
                     {tide.datum}
                 </span>
             </div>
