@@ -96,7 +96,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
         {
             id: 'polars',
             label: 'Polars',
-            sublabel: 'Performance',
+            sublabel: 'Tuning',
             icon: <ChartIcon />,
             page: 'polars',
             accentColor: 'text-emerald-400',
