@@ -328,29 +328,58 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 zIndex: 10,
                 display: 'flex',
                 flexDirection: 'column',
-                padding: '10px 10px 140px 10px',
+                padding: 'max(56px, calc(env(safe-area-inset-top) + 10px)) 10px 140px 10px',
             }}>
-                {/* ── Top Row: CommandDeck (left) + Close (right) ── */}
+                {/* ── Top Row: Back (left) + CommandDeck + Save (right) ── */}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'flex-start',
                     gap: 8,
                 }}>
+                    {/* Back button (left) */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
+                        {onClose && (
+                            <button
+                                onClick={onClose}
+                                style={{
+                                    pointerEvents: 'auto',
+                                    width: 36, height: 36,
+                                    borderRadius: '50%',
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    background: 'rgba(10, 20, 35, 0.8)',
+                                    backdropFilter: 'blur(12px)',
+                                    WebkitBackdropFilter: 'blur(12px)',
+                                    color: '#94a3b8',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                }}
+                                aria-label="Back"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
+                    {/* CommandDeck (center-ish) */}
                     <CommandDeck
                         payload={payload}
                         collapsed={deckCollapsed}
                         onToggle={() => setDeckCollapsed(c => !c)}
                     />
+
+                    {/* Save to Logbook (right) */}
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
-                        {/* Save to Logbook */}
                         <button
                             onClick={handleSaveToLogbook}
                             disabled={saveState === 'saving'}
                             style={{
                                 pointerEvents: 'auto',
-                                width: 34, height: 34,
-                                borderRadius: 8,
+                                width: 36, height: 36,
+                                borderRadius: '50%',
                                 border: `1px solid ${saveState === 'saved' ? 'rgba(52,211,153,0.4)' : saveState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(167,139,250,0.3)'}`,
                                 background: saveState === 'saved' ? 'rgba(6,78,59,0.6)' : saveState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(10, 20, 35, 0.8)',
                                 backdropFilter: 'blur(12px)',
@@ -381,28 +410,6 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 </svg>
                             )}
                         </button>
-                        {/* Close */}
-                        {onClose && (
-                            <button
-                                onClick={onClose}
-                                style={{
-                                    pointerEvents: 'auto',
-                                    width: 34, height: 34,
-                                    borderRadius: 8,
-                                    border: '1px solid rgba(255,255,255,0.15)',
-                                    background: 'rgba(10, 20, 35, 0.8)',
-                                    backdropFilter: 'blur(12px)',
-                                    WebkitBackdropFilter: 'blur(12px)',
-                                    color: '#94a3b8',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    flexShrink: 0,
-                                }}
-                                aria-label="Close passage canvas"
-                            >
-                                <CloseIcon />
-                            </button>
-                        )}
                     </div>
                 </div>
 
