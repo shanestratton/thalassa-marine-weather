@@ -126,7 +126,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                     </div>
                     <div>
                         <h2 className="text-lg font-black text-white tracking-wide">OFFSHORE WEATHER</h2>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">GRIB download for satellite connections</p>
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest">GRIB download for satellite connections</p>
                     </div>
                 </div>
             </div>
@@ -135,13 +135,13 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {/* ESTIMATED FILE SIZE — THE HERO METRIC */}
             {/* ═══════════════════════════════════════════ */}
             <div className={`border rounded-2xl p-4 mb-6 text-center ${sizeBgColors[sizeTier]}`}>
-                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Estimated Download</p>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1">Estimated Download</p>
                 <p className={`text-3xl font-black tracking-tight ${sizeColors[sizeTier]}`}>{formattedSize}</p>
-                <p className="text-[10px] text-gray-500 mt-1">
+                <p className="text-[11px] text-gray-500 mt-1">
                     {gridInfo.totalPoints.toLocaleString()} grid points × {gridInfo.timeSteps} time steps × {request.parameters.length} params
                 </p>
                 {sizeTier === 'large' && (
-                    <p className="text-[10px] text-red-400 font-bold mt-2">⚠️ Large file — reduce area or disable parameters</p>
+                    <p className="text-[11px] text-red-400 font-bold mt-2">⚠️ Large file — reduce area or disable parameters</p>
                 )}
             </div>
 
@@ -171,14 +171,14 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-4">
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
-                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Download Area</span>
-                    <span className="text-[9px] text-gray-500 ml-auto">Drag corners on map to adjust</span>
+                    <span className="text-[11px] font-bold text-sky-400 uppercase tracking-widest">Download Area</span>
+                    <span className="text-[11px] text-gray-500 ml-auto">Drag corners on map to adjust</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                     {(['north', 'south', 'west', 'east'] as const).map(field => (
                         <div key={field}>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{field}</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{field}</label>
                             <input
                                 type="number"
                                 step="0.5"
@@ -193,13 +193,13 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                 {bboxErrors.length > 0 && (
                     <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-xl">
                         {bboxErrors.map((e, i) => (
-                            <p key={i} className="text-[10px] text-red-400">⚠️ {e}</p>
+                            <p key={i} className="text-[11px] text-red-400">⚠️ {e}</p>
                         ))}
                     </div>
                 )}
 
                 {/* Area info */}
-                <div className="flex gap-4 mt-3 text-[10px] text-gray-500">
+                <div className="flex gap-4 mt-3 text-[11px] text-gray-500">
                     <span>{Math.abs(request.bbox.north - request.bbox.south).toFixed(1)}° lat span</span>
                     <span>{Math.abs(request.bbox.east - request.bbox.west).toFixed(1)}° lon span</span>
                     <span>{gridInfo.latPoints}×{gridInfo.lonPoints} = {gridInfo.totalPoints.toLocaleString()} points</span>
@@ -212,7 +212,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-4">
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Data Parameters</span>
+                    <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Data Parameters</span>
                 </div>
 
                 <div className="space-y-2">
@@ -242,14 +242,14 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-bold text-white">{param.label}</span>
                                         {param.essential && (
-                                            <span className="text-[8px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">ESSENTIAL</span>
+                                            <span className="text-[11px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">ESSENTIAL</span>
                                         )}
                                     </div>
-                                    <p className="text-[10px] text-gray-500">{param.description}</p>
+                                    <p className="text-[11px] text-gray-500">{param.description}</p>
                                 </div>
 
                                 {/* Size impact */}
-                                <span className={`text-[10px] font-mono font-bold flex-shrink-0 ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
+                                <span className={`text-[11px] font-mono font-bold flex-shrink-0 ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
                                     +{GribRequestBuilder.formatSize(paramSize)}
                                 </span>
                             </button>
@@ -264,12 +264,12 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-4">
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-1 h-4 rounded-full bg-amber-500" />
-                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Resolution & Timing</span>
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">Resolution & Timing</span>
                 </div>
 
                 {/* Resolution */}
                 <div className="mb-4">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Grid Resolution</p>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Grid Resolution</p>
                     <div className="flex gap-2">
                         {RESOLUTION_OPTIONS.map(opt => (
                             <button
@@ -281,7 +281,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                                     }`}
                             >
                                 <p className="text-sm font-black">{opt.label}</p>
-                                <p className="text-[9px] text-gray-500 mt-0.5">{opt.description}</p>
+                                <p className="text-[11px] text-gray-500 mt-0.5">{opt.description}</p>
                             </button>
                         ))}
                     </div>
@@ -289,7 +289,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
 
                 {/* Time step */}
                 <div className="mb-4">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Forecast Interval</p>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Forecast Interval</p>
                     <div className="flex gap-2">
                         {TIME_STEP_OPTIONS.map(opt => (
                             <button
@@ -308,7 +308,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
 
                 {/* Forecast hours */}
                 <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Forecast Span</p>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Forecast Span</p>
                     <div className="flex gap-2">
                         {FORECAST_HOURS_OPTIONS.map(opt => (
                             <button
@@ -332,7 +332,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-6">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-violet-500" />
-                    <span className="text-[10px] font-bold text-violet-400 uppercase tracking-widest">Weather Model</span>
+                    <span className="text-[11px] font-bold text-violet-400 uppercase tracking-widest">Weather Model</span>
                 </div>
                 <div className="flex gap-2">
                     {(['GFS', 'ECMWF'] as const).map(model => (
@@ -345,7 +345,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                                 }`}
                         >
                             <p className="text-sm font-black">{model}</p>
-                            <p className="text-[9px] text-gray-500">{model === 'GFS' ? 'NOAA • Free' : 'European • Premium'}</p>
+                            <p className="text-[11px] text-gray-500">{model === 'GFS' ? 'NOAA • Free' : 'European • Premium'}</p>
                         </button>
                     ))}
                 </div>
@@ -358,12 +358,12 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                 <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-4 mb-6">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-1 h-4 rounded-full bg-orange-500" />
-                        <span className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Saildocs Command</span>
+                        <span className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Saildocs Command</span>
                     </div>
                     <div className="bg-black/40 rounded-xl p-3 font-mono text-xs text-orange-300 break-all select-all">
                         {saildocsString}
                     </div>
-                    <p className="text-[9px] text-gray-500 mt-2">
+                    <p className="text-[11px] text-gray-500 mt-2">
                         This will be emailed to query@saildocs.com. The GRIB file will be returned via email.
                     </p>
                 </div>
@@ -375,7 +375,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {isDownloading && progress && (
                 <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-4 mb-6">
                     <div className="flex items-center justify-between mb-3">
-                        <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">
+                        <span className="text-[11px] font-bold text-sky-400 uppercase tracking-widest">
                             {downloadState.status === 'paused' ? '⏸ Paused' : '📡 Downloading…'}
                         </span>
                         <span className="text-sm font-black text-white">{progress.percent}%</span>
@@ -390,7 +390,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                         />
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                    <div className="flex items-center justify-between text-[11px] text-gray-500">
                         <span>
                             {GribRequestBuilder.formatSize(progress.downloadedBytes)} / {GribRequestBuilder.formatSize(progress.totalBytes)}
                         </span>
@@ -425,7 +425,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {downloadState.status === 'complete' && (
                 <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 mb-6 text-center">
                     <p className="text-lg font-black text-emerald-400">✅ Download Complete</p>
-                    <p className="text-[10px] text-gray-500 mt-1">
+                    <p className="text-[11px] text-gray-500 mt-1">
                         {GribRequestBuilder.formatSize(downloadState.totalBytes)} saved to device
                     </p>
                 </div>
@@ -435,7 +435,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {downloadState.status === 'error' && (
                 <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 mb-6">
                     <p className="text-sm font-bold text-red-400">⚠️ {downloadState.errorMessage || 'Download failed'}</p>
-                    <p className="text-[10px] text-gray-500 mt-1">Auto-retrying with exponential backoff…</p>
+                    <p className="text-[11px] text-gray-500 mt-1">Auto-retrying with exponential backoff…</p>
                 </div>
             )}
 

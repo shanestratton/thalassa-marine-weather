@@ -28,7 +28,7 @@ export const renderHeroWidget = (
     locationType?: 'coastal' | 'offshore' | 'inland'
 ) => {
     const valSize = compact ? 'text-lg' : 'text-2xl';
-    const subSize = compact ? 'text-[10px]' : 'text-sm';
+    const subSize = compact ? 'text-[11px]' : 'text-sm';
     const trend = trends ? trends[id] : undefined;
 
     // Alignment Classes
@@ -382,7 +382,7 @@ export const renderHeroWidget = (
                         <span className={`${valSize} font-mono font-medium tracking-tight ${capeColor}`}>{capeDisplay}</span>
                         <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>J/kg</span>
                     </div>
-                    <span className={`text-[9px] font-bold uppercase tracking-wider ${capeColor} opacity-80`}>{capeLabel}</span>
+                    <span className={`text-[11px] font-bold uppercase tracking-wider ${capeColor} opacity-80`}>{capeLabel}</span>
                 </div>
             );
         }
@@ -398,7 +398,7 @@ export const renderHeroWidget = (
                         <span className={`${valSize} font-mono font-medium tracking-tight text-white`}>{sogDisplay}</span>
                         <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>kts</span>
                     </div>
-                    <span className="text-[9px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                    <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
                 </div>
             );
         }
@@ -422,7 +422,7 @@ export const renderHeroWidget = (
                             <span>{cogCardinal}</span>
                         </div>
                     </div>
-                    <span className="text-[9px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                    <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
                 </div>
             );
         }

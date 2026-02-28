@@ -465,7 +465,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     )}
                 </button>
                 <div className="flex-1">
-                    <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-wider">Voice Memo</p>
+                    <p className="text-[11px] font-bold text-emerald-400/70 uppercase tracking-wider">Voice Memo</p>
                     <div className="flex items-center gap-1 mt-0.5">
                         {/* Waveform visualization */}
                         {[3, 5, 8, 12, 6, 10, 4, 7, 11, 5, 8, 3, 6, 9, 4].map((h, i) => (
@@ -482,7 +482,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <button
                             onClick={() => handleTranscribe(url)}
                             disabled={transcribing}
-                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-violet-300 hover:bg-violet-500/15 transition-colors disabled:opacity-40"
+                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-violet-300 hover:bg-violet-500/15 transition-colors disabled:opacity-40"
                             title="Transcribe to text"
                         >
                             {transcribing ? '⏳' : '📝'} {transcribing ? 'Transcribing…' : 'To Text'}
@@ -568,7 +568,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         </svg>
                                     </div>
                                     <div className="flex-1">
-                                        <p className="text-[10px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                        <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
                                         <p className="text-sm font-bold text-white font-mono tracking-wide">
                                             {formatCoord(e.latitude!, e.longitude!)}
                                         </p>
@@ -612,7 +612,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         {e.tags.length > 0 && (
                             <div className="flex flex-wrap gap-2 pt-2">
                                 {e.tags.map(tag => (
-                                    <span key={tag} className="text-[10px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
+                                    <span key={tag} className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
                                         #{tag}
                                     </span>
                                 ))}
@@ -620,7 +620,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         )}
 
                         {e._offline && (
-                            <div className="flex items-center gap-2 text-[10px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
+                            <div className="flex items-center gap-2 text-[11px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
                                 <span>⏳</span>
                                 <span className="font-bold uppercase tracking-wider">Pending sync — will upload when online</span>
                             </div>
@@ -710,7 +710,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 </svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
                                 {lat != null && lon != null ? (
                                     <p className="text-sm font-bold text-white font-mono tracking-wide">{formatCoord(lat, lon)}</p>
                                 ) : (
@@ -738,7 +738,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice to Text</span>
-                            <span className="text-[10px] text-gray-600">Dictate or type below</span>
+                            <span className="text-[11px] text-gray-600">Dictate or type below</span>
                         </div>
 
                         {isRecording ? (
@@ -772,7 +772,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         ))}
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-red-400/50 mt-2 text-center font-bold uppercase tracking-wider">
+                                <p className="text-[11px] text-red-400/50 mt-2 text-center font-bold uppercase tracking-wider">
                                     Tap stop — your words will appear in the text box below
                                 </p>
                             </div>
@@ -792,7 +792,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 </div>
                                 <div className="text-left flex-1">
                                     <p className="text-sm font-bold text-white">Record Voice to Text</p>
-                                    <p className="text-[10px] text-gray-500">Speak — your words fill the entry below</p>
+                                    <p className="text-[11px] text-gray-500">Speak — your words fill the entry below</p>
                                 </div>
                                 <svg className="w-4 h-4 text-gray-600 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -848,14 +848,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Photos</span>
                             {photos.length > 0 && (
-                                <span className="text-[10px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
+                                <span className="text-[11px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
                             )}
                         </div>
                         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
                             {photos.map((url, i) => (
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                                     <img src={url} alt="" className="w-full h-full object-cover" />
-                                    <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                                    <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                                 </div>
                             ))}
                             {/* Fill remaining slots with Add buttons */}
@@ -901,14 +901,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
-                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Diary</h1>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                                 {selectMode ? `${selectedIds.size} Selected` : `${entries.length} ${entries.length === 1 ? 'Entry' : 'Entries'}`}
                             </p>
                         </div>
@@ -1035,20 +1035,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                                 <div className="flex items-center gap-2 mb-1">
                                                                     <span className="text-sm">{moodCfg.emoji}</span>
                                                                     <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
-                                                                    {entry.audio_url && <span className="text-[9px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
-                                                                    {entry._offline && <span className="text-[9px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
+                                                                    {entry.audio_url && <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
+                                                                    {entry._offline && <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
                                                                 </div>
                                                                 <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
                                                                     {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
                                                                 </p>
                                                             </div>
-                                                            <span className="text-[10px] text-gray-600 font-mono shrink-0 mt-0.5">
+                                                            <span className="text-[11px] text-gray-600 font-mono shrink-0 mt-0.5">
                                                                 {formatTime(entry.created_at)}
                                                             </span>
                                                         </div>
 
                                                         {entryHasCoords && (
-                                                            <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/60">
+                                                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/60">
                                                                 <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
@@ -1060,7 +1060,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                             </div>
                                                         )}
                                                         {!entryHasCoords && entry.location_name && (
-                                                            <div className="flex items-center gap-1.5 mt-2 text-[10px] text-sky-500/50">
+                                                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/50">
                                                                 <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />

@@ -95,7 +95,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     )}
                     <div className="flex-1">
                         <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
-                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Route Planning</p>
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Route Planning</p>
                     </div>
                 </div>
             </div>
@@ -111,7 +111,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         </div>
                         <div className="min-w-0">
                             <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">Route Calculation Temporarily Disabled</p>
-                            <p className="text-[10px] text-amber-300/60 mt-0.5">Awaiting Navionics / i-Boating chart SDK approval. OpenSeaMap overlay is active on the 4D map.</p>
+                            <p className="text-[11px] text-amber-300/60 mt-0.5">Awaiting Navionics / i-Boating chart SDK approval. OpenSeaMap overlay is active on the 4D map.</p>
                         </div>
                     </div>
                 </div>
@@ -164,7 +164,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                         </div>
                                         <div>
                                             <h2 className="text-sm font-bold text-white uppercase tracking-widest">Passage Plan</h2>
-                                            <p className="text-[10px] text-gray-500 font-mono tracking-wide">
+                                            <p className="text-[11px] text-gray-500 font-mono tracking-wide">
                                                 {vessel?.name.toUpperCase() || "VESSEL"} // {vessel?.length}FT {vessel?.type.toUpperCase()}
                                             </p>
                                         </div>
@@ -173,7 +173,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                         {!isPro && (
                                             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-white/10">
                                                 <LockIcon className="w-3 h-3 text-sky-400" />
-                                                <span className="text-[10px] font-bold text-white uppercase tracking-widest">Premium</span>
+                                                <span className="text-[11px] font-bold text-white uppercase tracking-widest">Premium</span>
                                             </div>
                                         )}
                                         {spatiotemporalPayload && (
@@ -189,7 +189,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                 aria-label="Open 4D route visualization"
                                             >
                                                 <MapIcon className="w-4 h-4" />
-                                                <span className="text-[10px] font-bold uppercase tracking-widest">4D Route</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-widest">4D Route</span>
                                             </button>
                                         )}
                                         <button

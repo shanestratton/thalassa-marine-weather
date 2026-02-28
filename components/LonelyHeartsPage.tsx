@@ -290,7 +290,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <line x1="10" y1="18" x2="14" y2="18" />
                                 </svg>
                                 {activeFilterCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-teal-500 text-[9px] text-white font-bold flex items-center justify-center">{activeFilterCount}</span>
+                                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-teal-500 text-[11px] text-white font-bold flex items-center justify-center">{activeFilterCount}</span>
                                 )}
                             </button>
                         </div>
@@ -379,10 +379,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         )}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-teal-400/50 mb-0.5">Your Listing</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-teal-400/50 mb-0.5">Your Listing</p>
                                         <h4 className="text-sm font-bold text-white/80 truncate">{profile.first_name || 'You'}</h4>
                                         {editListingType && (
-                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mt-0.5 ${editListingType === 'seeking_crew'
+                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider mt-0.5 ${editListingType === 'seeking_crew'
                                                 ? 'bg-teal-500/15 text-teal-300/80'
                                                 : 'bg-amber-500/15 text-amber-300/80'
                                                 }`}>
@@ -450,7 +450,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                                                 {/* Type badge */}
                                                 {card.listing_type && (
-                                                    <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider mb-1.5 ${card.listing_type === 'seeking_crew'
+                                                    <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider mb-1.5 ${card.listing_type === 'seeking_crew'
                                                         ? 'bg-teal-500/15 text-teal-300/80'
                                                         : 'bg-amber-500/15 text-amber-300/80'
                                                         }`}>
@@ -468,13 +468,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {/* Skills preview — with SEEKING label */}
                                                 {card.skills.length > 0 && (
                                                     <div>
-                                                        <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/20 mb-0.5">Seeking:</p>
+                                                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/20 mb-0.5">Seeking:</p>
                                                         <div className="flex flex-wrap gap-1">
                                                             {card.skills.slice(0, 4).map(skill => (
-                                                                <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[10px] text-white/40">{skill}</span>
+                                                                <span key={skill} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[11px] text-white/40">{skill}</span>
                                                             ))}
                                                             {card.skills.length > 4 && (
-                                                                <span className="text-[10px] text-white/25">+{card.skills.length - 4}</span>
+                                                                <span className="text-[11px] text-white/25">+{card.skills.length - 4}</span>
                                                             )}
                                                         </div>
                                                     </div>
@@ -492,7 +492,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         {/* Availability bar — smart date display */}
                                         {(card.available_from || (card.available_to && !isOpenEnded(card.available_to))) && (
                                             <div className="px-4 pb-3">
-                                                <div className="flex items-center gap-1.5 text-[10px] text-teal-400/60">
+                                                <div className="flex items-center gap-1.5 text-[11px] text-teal-400/60">
                                                     <span>📅</span>
                                                     {card.available_from && isOpenEnded(card.available_to) ? (
                                                         <span>Starts {formatDate(card.available_from)}</span>
@@ -555,37 +555,37 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <div className="grid grid-cols-2 gap-2">
                                 {selectedCard.vessel_name && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Vessel</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Vessel</p>
                                         <p className="text-sm text-white/70">⛵ {selectedCard.vessel_name}</p>
                                     </div>
                                 )}
                                 {selectedCard.home_port && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Home Port</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Home Port</p>
                                         <p className="text-sm text-white/70">🏠 {selectedCard.home_port}</p>
                                     </div>
                                 )}
                                 {selectedCard.sailing_region && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Region</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Region</p>
                                         <p className="text-sm text-white/70">📍 {selectedCard.sailing_region}</p>
                                     </div>
                                 )}
                                 {selectedCard.sailing_experience && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Experience</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Experience</p>
                                         <p className="text-sm text-white/70">🧭 {selectedCard.sailing_experience}</p>
                                     </div>
                                 )}
                                 {selectedCard.gender && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Gender</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Gender</p>
                                         <p className="text-sm text-white/70">{selectedCard.gender}</p>
                                     </div>
                                 )}
                                 {selectedCard.age_range && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Age</p>
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Age</p>
                                         <p className="text-sm text-white/70">{selectedCard.age_range}</p>
                                     </div>
                                 )}
@@ -603,7 +603,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             {/* Availability — smart date display */}
                             {(selectedCard.available_from || (selectedCard.available_to && !isOpenEnded(selectedCard.available_to))) && (
                                 <div className="p-3 rounded-xl bg-teal-500/5 border border-teal-500/10">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-teal-300/40 mb-1">Availability</p>
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-teal-300/40 mb-1">Availability</p>
                                     <p className="text-sm text-teal-200/70">
                                         📅 {selectedCard.available_from ? formatDate(selectedCard.available_from) : 'Flexible'}
                                         {!isOpenEnded(selectedCard.available_to) && selectedCard.available_to
@@ -616,7 +616,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             {/* Skills */}
                             {selectedCard.skills.length > 0 && (
                                 <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 mb-2">Seeking:</p>
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-2">Seeking:</p>
                                     <div className="flex flex-wrap gap-1.5">
                                         {selectedCard.skills.map(skill => (
                                             <span key={skill} className="px-3 py-1.5 rounded-full bg-teal-500/10 text-xs text-teal-200/70 border border-teal-500/15">
@@ -719,7 +719,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                         >
                                             <span className="text-3xl text-white/10">📷</span>
-                                            <span className="text-[10px] text-white/10 mt-1">Add Photo</span>
+                                            <span className="text-[11px] text-white/10 mt-1">Add Photo</span>
                                         </button>
                                     )}
                                 </div>
@@ -882,7 +882,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </label>
                             <div className="flex gap-3">
                                 <div className="flex-1">
-                                    <p className="text-[10px] text-white/20 uppercase mb-1">From</p>
+                                    <p className="text-[11px] text-white/20 uppercase mb-1">From</p>
                                     <input
                                         type="date"
                                         value={editAvailFrom}
@@ -891,7 +891,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <p className="text-[10px] text-white/20 uppercase mb-1">To (optional)</p>
+                                    <p className="text-[11px] text-white/20 uppercase mb-1">To (optional)</p>
                                     <input
                                         type="date"
                                         value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
@@ -901,7 +901,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     {editAvailTo && (
                                         <button
                                             onClick={() => setEditAvailTo('')}
-                                            className="text-[10px] text-teal-400/50 hover:text-teal-400/80 mt-1 transition-colors"
+                                            className="text-[11px] text-teal-400/50 hover:text-teal-400/80 mt-1 transition-colors"
                                         >
                                             ✕ Clear end date
                                         </button>
@@ -938,7 +938,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}
                         </button>
 
-                        <p className="text-[10px] text-white/15 text-center">
+                        <p className="text-[11px] text-white/15 text-center">
                             Your listing is visible to other Crew Talk members who have opted in
                         </p>
                     </div>

@@ -59,17 +59,17 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                         <div className="flex justify-center gap-4 text-center">
                             <div>
                                 <div className="text-lg font-bold text-white">{voyageInfo.totalDays}</div>
-                                <div className="text-[10px] text-slate-400 uppercase">Days</div>
+                                <div className="text-[11px] text-slate-400 uppercase">Days</div>
                             </div>
                             <div className="w-px bg-slate-700" />
                             <div>
                                 <div className="text-lg font-bold text-white">{voyageInfo.totalEntries}</div>
-                                <div className="text-[10px] text-slate-400 uppercase">Entries</div>
+                                <div className="text-[11px] text-slate-400 uppercase">Entries</div>
                             </div>
                             <div className="w-px bg-slate-700" />
                             <div>
                                 <div className="text-lg font-bold text-white">{(voyageInfo.totalDistance ?? 0).toFixed(1)}</div>
-                                <div className="text-[10px] text-slate-400 uppercase">NM</div>
+                                <div className="text-[11px] text-slate-400 uppercase">NM</div>
                             </div>
                         </div>
                     </div>

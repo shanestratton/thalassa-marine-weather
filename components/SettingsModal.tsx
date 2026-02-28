@@ -114,8 +114,8 @@ const MetricInput = ({ label, valInStandard, unitType, unitOptions, onChangeValu
     return (
         <div className="flex-1 min-w-[120px] group">
             <div className="flex justify-between items-center mb-1.5 ml-1">
-                <label className={`text-[10px] uppercase tracking-wider font-bold block transition-colors ${isEstimated ? "text-red-400" : "text-gray-500 group-hover:text-sky-300"}`}>{label}</label>
-                {isEstimated && <span className="text-[9px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold uppercase shadow-[0_0_10px_rgba(239,68,68,0.2)]">Est.</span>}
+                <label className={`text-[11px] uppercase tracking-wider font-bold block transition-colors ${isEstimated ? "text-red-400" : "text-gray-500 group-hover:text-sky-300"}`}>{label}</label>
+                {isEstimated && <span className="text-[11px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold uppercase shadow-[0_0_10px_rgba(239,68,68,0.2)]">Est.</span>}
             </div>
             <div className={`flex bg-black/40 border rounded-xl overflow-hidden transition-all duration-300 ${isEstimated ? "border-red-500/50 focus-within:border-red-500 focus-within:shadow-[0_0_15px_rgba(239,68,68,0.3)]" : "border-white/10 focus-within:border-sky-500 focus-within:shadow-[0_0_15px_rgba(14,165,233,0.3)] group-hover:border-white/20"}`}>
                 <input
@@ -220,8 +220,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     <span className="text-xs font-bold text-white uppercase tracking-wider">{label}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-mono font-medium ${textColor}`}>{displayText}</span>
-                    {onTest && <button onClick={onTest} className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[9px] font-bold text-white uppercase">Test</button>}
+                    <span className={`text-[11px] font-mono font-medium ${textColor}`}>{displayText}</span>
+                    {onTest && <button onClick={onTest} className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase">Test</button>}
                 </div>
             </div>
         );
@@ -246,7 +246,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                         <GearIcon className="w-6 h-6 text-sky-400" />
                         SETTINGS
                     </h2>
-                    <p className="text-[10px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
+                    <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
                 </div>
 
                 <div className="space-y-1">
@@ -265,7 +265,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                             <StarIcon className="w-4 h-4 text-indigo-300" filled />
                             <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider">Thalassa Pro</span>
                         </div>
-                        <p className="text-[10px] text-indigo-200/70 mb-3">Your subscription is active. Access to all premium features.</p>
+                        <p className="text-[11px] text-indigo-200/70 mb-3">Your subscription is active. Access to all premium features.</p>
                     </div>
                 </div>
             </div>
@@ -278,7 +278,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
                         </h2>
-                        <p className="text-[10px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
+                        <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">Control Center</p>
                     </div>
                     <div className="flex-1 px-4 pb-32 space-y-2">
                         {MENU_ITEMS.map(item => (
@@ -381,7 +381,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             </div>
                                             <div>
                                                 <p className="text-white font-bold text-sm">Cloud Sync</p>
-                                                <p className="text-[10px] text-emerald-400 uppercase tracking-wide font-bold">Connected</p>
+                                                <p className="text-[11px] text-emerald-400 uppercase tracking-wide font-bold">Connected</p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -394,7 +394,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             <label className="text-sm text-white font-medium block">Supabase</label>
                                             <p className="text-xs text-gray-500">{isSupabaseConfigured() ? 'Backend configured and ready' : 'Backend not configured'}</p>
                                         </div>
-                                        <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isSupabaseConfigured() ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+                                        <div className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${isSupabaseConfigured() ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
                                             {isSupabaseConfigured() ? 'Ready' : 'Missing'}
                                         </div>
                                     </Row>

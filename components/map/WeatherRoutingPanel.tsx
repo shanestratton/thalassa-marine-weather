@@ -165,7 +165,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                     <div className="flex-1 text-left">
                         <h3 className="text-sm font-black text-white">Weather Routing</h3>
                         {analysis && (
-                            <p className="text-[10px] text-gray-500 font-bold">
+                            <p className="text-[11px] text-gray-500 font-bold">
                                 {formatDistance(analysis.totalDistance)} · {formatDuration(analysis.estimatedDuration)} · {waypoints.length} waypoints
                             </p>
                         )}
@@ -198,7 +198,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         {/* ── Weather Along Route ── */}
                         {analysis && analysis.maxWindSpeed != null && (
                             <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Route Wx:</span>
+                                <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Route Wx:</span>
                                 <span className="text-xs text-white font-bold">💨 {analysis.maxWindSpeed}kts max</span>
                                 {analysis.maxWaveHeight != null && (
                                     <span className="text-xs text-white font-bold">🌊 {analysis.maxWaveHeight.toFixed(1)}m</span>
@@ -239,13 +239,13 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                                         ) : (
                                             <button onClick={() => setEditingName(wp.id)} className="flex-1 text-left min-w-0">
                                                 <p className="text-xs font-black text-white truncate">{wp.name}</p>
-                                                <p className="text-[9px] text-gray-600 font-mono">{wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
+                                                <p className="text-[11px] text-gray-600 font-mono">{wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
                                             </button>
                                         )}
 
                                         {/* ETA badge */}
                                         {wp.arrivalTime && idx > 0 && (
-                                            <span className="text-[8px] text-gray-500 font-bold shrink-0">
+                                            <span className="text-[11px] text-gray-500 font-bold shrink-0">
                                                 {formatETA(wp.arrivalTime)}
                                             </span>
                                         )}
@@ -274,7 +274,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         <div className="flex gap-2">
                             <button
                                 onClick={addCurrentLocation}
-                                className="flex-1 py-2.5 bg-white/[0.04] border border-white/[0.08] rounded-xl text-[10px] font-black text-gray-400 uppercase tracking-widest hover:bg-white/[0.08] transition-all active:scale-[0.97] flex items-center justify-center gap-1.5"
+                                className="flex-1 py-2.5 bg-white/[0.04] border border-white/[0.08] rounded-xl text-[11px] font-black text-gray-400 uppercase tracking-widest hover:bg-white/[0.08] transition-all active:scale-[0.97] flex items-center justify-center gap-1.5"
                             >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -285,7 +285,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
 
                             <button
                                 onClick={toggleAddMode}
-                                className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 ${addingWaypoint
+                                className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 ${addingWaypoint
                                         ? 'bg-sky-600 text-white'
                                         : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
                                     }`}
@@ -299,7 +299,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                             {waypoints.length > 0 && (
                                 <button
                                     onClick={clearRoute}
-                                    className="px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] font-black text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-all active:scale-[0.97]"
+                                    className="px-3 py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl text-[11px] font-black text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-all active:scale-[0.97]"
                                 >
                                     Clear
                                 </button>
@@ -309,7 +309,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         {/* ── Route Config (toggle) ── */}
                         <button
                             onClick={() => setShowConfig(!showConfig)}
-                            className="mt-3 w-full text-left text-[9px] text-gray-600 font-bold uppercase tracking-widest hover:text-gray-400 transition-colors"
+                            className="mt-3 w-full text-left text-[11px] text-gray-600 font-bold uppercase tracking-widest hover:text-gray-400 transition-colors"
                         >
                             {showConfig ? '▼' : '▶'} Route Settings
                         </button>
@@ -317,7 +317,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         {showConfig && (
                             <div className="mt-2 flex gap-3">
                                 <div className="flex-1">
-                                    <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Speed (kts)</label>
+                                    <label className="text-[11px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Speed (kts)</label>
                                     <input
                                         type="number"
                                         value={speed}
@@ -326,7 +326,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[9px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Fuel Rate (L/hr)</label>
+                                    <label className="text-[11px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Fuel Rate (L/hr)</label>
                                     <input
                                         type="text"
                                         inputMode="decimal"
@@ -351,6 +351,6 @@ const SummaryCard: React.FC<{ label: string; value: string; icon: string }> = ({
     <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-center">
         <span className="text-base">{icon}</span>
         <p className="text-xs font-black text-white mt-0.5 truncate">{value}</p>
-        <p className="text-[8px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
     </div>
 );

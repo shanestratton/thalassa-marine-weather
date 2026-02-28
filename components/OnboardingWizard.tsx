@@ -545,7 +545,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             <AnchorIcon className="w-3 h-3 text-cyan-400" /> Crew Aboard (incl. Captain)
                                         </label>
                                         <input type="number" min="1" max="99" value={crewCount} onChange={(e) => setCrewCount(e.target.value)} placeholder="2" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
-                                        <p className="text-[10px] text-gray-500 mt-1">Used for provisioning and watch schedules</p>
+                                        <p className="text-[11px] text-gray-500 mt-1">Used for provisioning and watch schedules</p>
                                     </div>
                                 </div>
                                 <button onClick={handleNext} className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Next</button>

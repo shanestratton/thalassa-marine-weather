@@ -98,7 +98,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    <span className="text-[10px] font-bold">Delete</span>
+                    <span className="text-[11px] font-bold">Delete</span>
                 </div>
             </div>
 
@@ -119,20 +119,20 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 text-left">
                             <h4 className="text-sm font-black text-white tracking-wide mb-0.5">{doc.document_name}</h4>
-                            <p className={`text-[10px] font-bold uppercase tracking-widest ${colors.text}`}>
+                            <p className={`text-[11px] font-bold uppercase tracking-widest ${colors.text}`}>
                                 {colors.label}
                             </p>
                         </div>
 
                         <div className="shrink-0 flex flex-col items-end gap-1">
                             {doc.expiry_date && (
-                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
+                                <span className={`px-2 py-0.5 rounded-lg text-[11px] font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
                                     {status === 'expired' ? 'Exp ' : 'Exp '}
                                     {new Date(doc.expiry_date).toLocaleDateString()}
                                 </span>
                             )}
                             {doc.file_uri && (
-                                <span className="text-[9px] text-sky-400 font-bold">📄 PDF</span>
+                                <span className="text-[11px] text-sky-400 font-bold">📄 PDF</span>
                             )}
                         </div>
                     </div>
@@ -277,14 +277,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
-                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Documents</h1>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                                 {documents.length} Documents
                                 {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
                                 {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
@@ -360,8 +360,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             <div key={group.id}>
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="text-xs">{group.icon}</span>
-                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
-                                    <span className="text-[9px] text-gray-600 font-bold">({group.docs.length})</span>
+                                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
+                                    <span className="text-[11px] text-gray-600 font-bold">({group.docs.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.docs.map(doc => (
@@ -413,13 +413,13 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                             {/* Document Name */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
                                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Category */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {CATEGORIES.map(cat => (
                                         <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
@@ -432,18 +432,18 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             {/* Dates */}
                             <div className="grid grid-cols-1 gap-3 mb-4">
                                 <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
                                     <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
                                     <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                             </div>
 
                             {/* Notes */}
                             <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
                                 <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 

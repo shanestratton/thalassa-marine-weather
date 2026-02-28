@@ -153,10 +153,10 @@ export const SellerPinInput: React.FC<SellerPinInputProps> = ({ escrow, onCaptur
                         <span className="text-lg">🔐</span>
                         <div>
                             <h3 className="text-[13px] font-bold text-white">Escrow Handoff</h3>
-                            <p className="text-[10px] text-white/40">{escrow.listing_title}</p>
+                            <p className="text-[11px] text-white/40">{escrow.listing_title}</p>
                         </div>
                     </div>
-                    <div className="text-[10px] text-amber-400/70 font-medium">⏱ {timeLeft}</div>
+                    <div className="text-[11px] text-amber-400/70 font-medium">⏱ {timeLeft}</div>
                 </div>
 
                 <div className="p-4">
@@ -215,7 +215,7 @@ export const SellerPinInput: React.FC<SellerPinInputProps> = ({ escrow, onCaptur
                                     <span className="text-white/40">You'll receive</span>
                                     <span className="text-emerald-400 font-bold">{formatCents(escrow.seller_payout_cents, escrow.currency)}</span>
                                 </div>
-                                <div className="flex justify-between text-[10px]">
+                                <div className="flex justify-between text-[11px]">
                                     <span className="text-white/30">Platform fee (6%)</span>
                                     <span className="text-white/30">{formatCents(escrow.platform_fee_cents, escrow.currency)}</span>
                                 </div>

@@ -290,7 +290,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(({
                     </p>
                     <p style={{
                         margin: 0,
-                        fontSize: 8,
+                        fontSize: SIZE.xs,
                         color: '#64748b',
                         fontFamily: FONT.ui,
                         fontWeight: 700,

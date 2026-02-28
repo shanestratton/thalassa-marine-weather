@@ -135,7 +135,7 @@ export const NmeaReconnectBanner: React.FC = () => {
                     <p className="text-white text-sm font-black tracking-wide">
                         ⚠️ Axiom Network Lost
                     </p>
-                    <p className="text-red-200 text-[10px] font-bold uppercase tracking-widest">
+                    <p className="text-red-200 text-[11px] font-bold uppercase tracking-widest">
                         Reconnecting — instrument data frozen
                     </p>
                 </div>
@@ -171,7 +171,7 @@ const StaleTimer: React.FC<{ lastUpdate: number }> = ({ lastUpdate }) => {
 
     return (
         <div className="bg-red-900/80 text-center py-1">
-            <span className="text-[9px] font-mono font-bold text-red-300 uppercase tracking-widest">
+            <span className="text-[11px] font-mono font-bold text-red-300 uppercase tracking-widest">
                 Last data: {formatElapsed(elapsed)}
             </span>
         </div>
@@ -198,7 +198,7 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
     return (
         <div className={`flex items-center gap-1.5 ${className}`} title={c.label}>
             <div className={`w-2 h-2 rounded-full ${c.color}`} />
-            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{c.label}</span>
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{c.label}</span>
         </div>
     );
 };

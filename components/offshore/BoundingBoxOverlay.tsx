@@ -157,16 +157,16 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({ map, bbo
     // Coordinate display overlay (positioned outside the map in the React tree)
     return (
         <div className="absolute bottom-2 left-2 z-[500] bg-black/80 backdrop-blur-sm border border-white/10 rounded-xl px-3 py-2">
-            <p className="text-[9px] font-bold text-sky-400 uppercase tracking-widest mb-1">Bounding Box</p>
+            <p className="text-[11px] font-bold text-sky-400 uppercase tracking-widest mb-1">Bounding Box</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                <span className="text-[9px] text-gray-400">N</span>
-                <span className="text-[10px] text-white font-mono">{localBbox.north.toFixed(2)}°</span>
-                <span className="text-[9px] text-gray-400">S</span>
-                <span className="text-[10px] text-white font-mono">{localBbox.south.toFixed(2)}°</span>
-                <span className="text-[9px] text-gray-400">W</span>
-                <span className="text-[10px] text-white font-mono">{localBbox.west.toFixed(2)}°</span>
-                <span className="text-[9px] text-gray-400">E</span>
-                <span className="text-[10px] text-white font-mono">{localBbox.east.toFixed(2)}°</span>
+                <span className="text-[11px] text-gray-400">N</span>
+                <span className="text-[11px] text-white font-mono">{localBbox.north.toFixed(2)}°</span>
+                <span className="text-[11px] text-gray-400">S</span>
+                <span className="text-[11px] text-white font-mono">{localBbox.south.toFixed(2)}°</span>
+                <span className="text-[11px] text-gray-400">W</span>
+                <span className="text-[11px] text-white font-mono">{localBbox.west.toFixed(2)}°</span>
+                <span className="text-[11px] text-gray-400">E</span>
+                <span className="text-[11px] text-white font-mono">{localBbox.east.toFixed(2)}°</span>
             </div>
         </div>
     );

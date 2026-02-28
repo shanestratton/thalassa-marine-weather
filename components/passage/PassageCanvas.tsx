@@ -155,7 +155,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                         <div>
                             <div className="bio-label">DISTANCE</div>
                             <div className="bio-data" style={{ fontSize: 13 }}>
-                                {summary.total_distance_nm}<span style={{ fontSize: 8, opacity: 0.5 }}>NM</span>
+                                {summary.total_distance_nm}<span style={{ fontSize: SIZE.xs, opacity: 0.5 }}>NM</span>
                             </div>
                         </div>
                         <div>
@@ -173,7 +173,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                         <div>
                             <div className="bio-label">CORRIDOR</div>
                             <div className="bio-data" style={{ fontSize: 13 }}>
-                                ±{mesh_stats.corridor_width_nm}<span style={{ fontSize: 8, opacity: 0.5 }}>NM</span>
+                                ±{mesh_stats.corridor_width_nm}<span style={{ fontSize: SIZE.xs, opacity: 0.5 }}>NM</span>
                             </div>
                         </div>
                     </div>
@@ -429,7 +429,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 onClick={onClose}
                                 style={{
                                     pointerEvents: 'auto',
-                                    width: 42, height: 42,
+                                    width: 44, height: 44,
                                     borderRadius: '50%',
                                     border: '1px solid rgba(255,255,255,0.15)',
                                     background: 'rgba(15, 23, 42, 0.85)',
@@ -464,7 +464,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             disabled={logbookState === 'saving'}
                             style={{
                                 pointerEvents: 'auto',
-                                width: 42, height: 42,
+                                width: 44, height: 44,
                                 borderRadius: '50%',
                                 border: `1px solid ${logbookState === 'saved' ? 'rgba(52,211,153,0.4)' : logbookState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)'}`,
                                 background: logbookState === 'saved' ? 'rgba(6,78,59,0.6)' : logbookState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(15, 23, 42, 0.85)',
@@ -503,7 +503,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             disabled={saveState === 'saving'}
                             style={{
                                 pointerEvents: 'auto',
-                                width: 42, height: 42,
+                                width: 44, height: 44,
                                 borderRadius: '50%',
                                 border: `1px solid ${saveState === 'saved' ? 'rgba(52,211,153,0.4)' : saveState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)'}`,
                                 background: saveState === 'saved' ? 'rgba(6,78,59,0.6)' : saveState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(15, 23, 42, 0.85)',
@@ -546,12 +546,15 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     {/* Toggle tab */}
                     <button
                         onClick={() => setHudCollapsed(c => !c)}
+                        aria-label={hudCollapsed ? 'Show telemetry panel' : 'Hide telemetry panel'}
+                        aria-expanded={!hudCollapsed}
                         style={{
                             pointerEvents: 'auto',
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 5,
-                            padding: '5px 12px',
+                            padding: '8px 12px',
+                            minHeight: 44,
                             borderRadius: hudCollapsed ? 10 : '10px 10px 0 0',
                             border: '1px solid rgba(255, 255, 255, 0.08)',
                             borderBottom: hudCollapsed ? undefined : 'none',
@@ -561,7 +564,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             color: '#64748b',
                             cursor: 'pointer',
                             fontFamily: FONT.ui,
-                            fontSize: SIZE.micro, letterSpacing: '0.08em',
+                            fontSize: SIZE.xs, letterSpacing: '0.08em',
                             fontWeight: 600,
                             textTransform: 'uppercase' as const,
                         }}

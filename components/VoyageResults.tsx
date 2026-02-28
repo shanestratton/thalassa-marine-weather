@@ -106,28 +106,28 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 <div className="p-6 md:p-8 pb-0 flex items-center gap-4 relative z-10">
                     {/* Origin — Left */}
                     <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Departing</span>
+                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Departing</span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">{(voyagePlan.origin && typeof voyagePlan.origin === 'string') ? voyagePlan.origin.split(',')[0] : "Unknown"}</span>
-                        <span className="text-[10px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}</span>
+                        <span className="text-[11px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}</span>
                     </div>
 
                     {/* Connecting Route Line */}
                     <div className="flex flex-col items-center justify-center shrink-0 gap-1 py-2 min-w-[80px] md:min-w-[160px]">
-                        <span className="text-[10px] font-bold text-sky-400">{voyagePlan.distanceApprox}</span>
+                        <span className="text-[11px] font-bold text-sky-400">{voyagePlan.distanceApprox}</span>
                         <div className="w-full h-0.5 bg-gradient-to-r from-gray-700 via-sky-500 to-gray-700 relative">
                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-1 bg-[#0f172a] border border-sky-500 rounded-full">
                                 <BoatIcon className="w-3 h-3 md:w-4 md:h-4 text-white" />
                             </div>
                         </div>
-                        <span className="text-[9px] text-gray-500 uppercase tracking-widest">{vessel?.type.toUpperCase()}</span>
-                        <span className="text-[10px] text-gray-400 font-medium">{voyagePlan.departureDate}</span>
+                        <span className="text-[11px] text-gray-500 uppercase tracking-widest">{vessel?.type.toUpperCase()}</span>
+                        <span className="text-[11px] text-gray-400 font-medium">{voyagePlan.departureDate}</span>
                     </div>
 
                     {/* Destination — Right */}
                     <div className="flex flex-col text-right items-end min-w-0 flex-1">
-                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Arriving</span>
+                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Arriving</span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">{(voyagePlan.destination && typeof voyagePlan.destination === 'string') ? voyagePlan.destination.split(',')[0] : "Unknown"}</span>
-                        <span className="text-[10px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon, 2)}</span>
+                        <span className="text-[11px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon, 2)}</span>
                     </div>
                 </div>
 
@@ -143,7 +143,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </div>
                         <div className="text-right">
                             <span className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</span>
-                            <span className="text-[10px] text-gray-500 block">Nautical Miles</span>
+                            <span className="text-[11px] text-gray-500 block">Nautical Miles</span>
                         </div>
                     </div>
 
@@ -157,7 +157,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </div>
                         <div className="text-right">
                             <span className="text-lg font-bold text-white">{voyagePlan.durationApprox}</span>
-                            <span className="text-[10px] text-gray-500 block">Estimated Time</span>
+                            <span className="text-[11px] text-gray-500 block">Estimated Time</span>
                         </div>
                     </div>
 
@@ -172,9 +172,9 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         <div className="text-right flex items-baseline gap-3">
                             <div>
                                 <span className="text-lg font-bold text-white">{voyagePlan.suitability?.maxWindEncountered ?? '--'}</span>
-                                <span className="text-[10px] text-gray-500 ml-0.5">kts</span>
+                                <span className="text-[11px] text-gray-500 ml-0.5">kts</span>
                             </div>
-                            <div className="text-[10px] text-blue-300 font-medium border-l border-white/10 pl-3">
+                            <div className="text-[11px] text-blue-300 font-medium border-l border-white/10 pl-3">
                                 {voyagePlan.suitability?.maxWaveEncountered ?? '--'} ft seas
                             </div>
                         </div>
@@ -188,7 +188,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             </div>
                             <div>
                                 <span className="text-lg font-black uppercase tracking-wide">{voyagePlan.suitability?.status}</span>
-                                <span className="text-[10px] opacity-70 block leading-tight">{voyagePlan.suitability?.reasoning || "Route analyzed."}</span>
+                                <span className="text-[11px] opacity-70 block leading-tight">{voyagePlan.suitability?.reasoning || "Route analyzed."}</span>
                             </div>
                         </div>
                     </div>
@@ -205,7 +205,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 </svg>
                             </div>
                             <div>
-                                <h4 className="text-[10px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
+                                <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
                                 <p className="text-[12px] text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
                             </div>
                         </div>
@@ -268,7 +268,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     <div className="overflow-x-auto -mx-5 px-5">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="text-[10px] text-gray-500 uppercase tracking-widest border-b border-white/10">
+                                <tr className="text-[11px] text-gray-500 uppercase tracking-widest border-b border-white/10">
                                     <th className="pb-3 pl-2 font-bold">Waypoint / ETA</th>
                                     <th className="pb-3 font-bold">Position</th>
                                     <th className="pb-3 font-bold">Depth</th>
@@ -282,11 +282,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <tr className="border-b border-white/5 group hover:bg-white/5 transition-colors">
                                     <td className="py-3.5 pl-2">
                                         <div className="font-bold text-white">DEPARTURE</div>
-                                        <div className="text-[10px] text-gray-500">T+00:00</div>
+                                        <div className="text-[11px] text-gray-500">T+00:00</div>
                                     </td>
                                     <td className="py-3.5">
                                         <div className="text-white">{(voyagePlan.origin && typeof voyagePlan.origin === 'string') ? voyagePlan.origin.split(',')[0] : "Origin"}</div>
-                                        <div className="text-[10px] text-gray-500 opacity-60">
+                                        <div className="text-[11px] text-gray-500 opacity-60">
                                             {fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon)}
                                         </div>
                                     </td>
@@ -310,7 +310,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                         <tr key={i} className="border-b border-white/5 group hover:bg-white/5 transition-colors">
                                             <td className="py-3.5 pl-2">
                                                 <div className="font-bold text-sky-400">WP-{String(i + 1).padStart(2, '0')}</div>
-                                                <div className="text-[10px] text-gray-500">{wp.name}</div>
+                                                <div className="text-[11px] text-gray-500">{wp.name}</div>
                                             </td>
                                             <td className="py-3.5">
                                                 {wp.coordinates ? (
@@ -342,10 +342,10 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             <td className="py-3.5">
                                                 <div className="flex flex-col gap-1">
                                                     {(wp.windSpeed || 0) > 20 && (
-                                                        <span className="text-[10px] font-bold text-orange-400 px-1.5 py-0.5 bg-orange-500/10 rounded w-fit border border-orange-500/20">HIGH WIND</span>
+                                                        <span className="text-[11px] font-bold text-orange-400 px-1.5 py-0.5 bg-orange-500/10 rounded w-fit border border-orange-500/20">HIGH WIND</span>
                                                     )}
                                                     {(wp.waveHeight || 0) > 4 && (
-                                                        <span className="text-[10px] font-bold text-blue-400 px-1.5 py-0.5 bg-blue-500/10 rounded w-fit border border-blue-500/20">ROUGH SEAS</span>
+                                                        <span className="text-[11px] font-bold text-blue-400 px-1.5 py-0.5 bg-blue-500/10 rounded w-fit border border-blue-500/20">ROUGH SEAS</span>
                                                     )}
                                                 </div>
                                             </td>
@@ -357,11 +357,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <tr className="group hover:bg-white/5 transition-colors">
                                     <td className="py-3.5 pl-2">
                                         <div className="font-bold text-white">ARRIVAL</div>
-                                        <div className="text-[10px] text-gray-500">Est. {voyagePlan.durationApprox}</div>
+                                        <div className="text-[11px] text-gray-500">Est. {voyagePlan.durationApprox}</div>
                                     </td>
                                     <td className="py-3.5">
                                         <div className="text-white">{(voyagePlan.destination && typeof voyagePlan.destination === 'string') ? voyagePlan.destination.split(',')[0] : "Destination"}</div>
-                                        <div className="text-[10px] text-gray-500 opacity-60">
+                                        <div className="text-[11px] text-gray-500 opacity-60">
                                             {fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon)}
                                         </div>
                                     </td>
@@ -391,7 +391,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             {voyagePlan.waypoints.map((wp, i) => (
                                 <div key={i} className="flex gap-3 relative group cursor-pointer select-none bg-white/5 hover:bg-white/10 border border-white/5 hover:border-sky-500/30 rounded-xl p-4 transition-all" onClick={() => setIsMapOpen(true)}>
                                     {/* Node Number Badge */}
-                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[9px] font-mono text-gray-500 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-500 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
                                         {i + 1}
                                     </div>
 
@@ -404,25 +404,25 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
 
                                     <div className="flex-1 min-w-0">
                                         <h4 className="text-sm font-bold text-white tracking-wide truncate mb-1 pr-4">{wp.name}</h4>
-                                        <span className="text-[10px] font-mono text-gray-400 block mb-2">{fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}</span>
+                                        <span className="text-[11px] font-mono text-gray-400 block mb-2">{fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}</span>
 
                                         {/* Conditions Mini-Grid */}
                                         <div className="grid grid-cols-2 gap-2">
                                             {wp.windSpeed !== undefined && (
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
                                                     <WindIcon className="w-3 h-3 text-sky-400" />
-                                                    <span className="text-[10px] text-gray-300 font-medium">{wp.windSpeed}kt</span>
+                                                    <span className="text-[11px] text-gray-300 font-medium">{wp.windSpeed}kt</span>
                                                 </div>
                                             )}
                                             {wp.waveHeight !== undefined && (
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
                                                     <WaveIcon className="w-3 h-3 text-blue-400" />
-                                                    <span className="text-[10px] text-gray-300 font-medium">{wp.waveHeight}ft</span>
+                                                    <span className="text-[11px] text-gray-300 font-medium">{wp.waveHeight}ft</span>
                                                 </div>
                                             )}
                                             {wp.depth_m !== undefined && (
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                    <span className={`text-[10px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>⚓ {wp.depth_m}m</span>
+                                                    <span className={`text-[11px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-cyan-400'}`}>⚓ {wp.depth_m}m</span>
                                                 </div>
                                             )}
                                         </div>
@@ -489,11 +489,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     {/* Tactical Grid */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Fuel & Engine</h4>
+                                            <h4 className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Fuel & Engine</h4>
                                             <p className="text-xs text-gray-400 leading-relaxed">{deepReport.fuelTactics}</p>
                                         </div>
                                         <div>
-                                            <h4 className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Watch System</h4>
+                                            <h4 className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Watch System</h4>
                                             <p className="text-xs text-gray-400 leading-relaxed">{deepReport.watchSchedule}</p>
                                         </div>
                                     </div>
@@ -542,7 +542,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     <div>
                                         <div className="flex justify-between items-center mb-2 gap-2">
                                             <span className="text-sm font-bold text-red-100 uppercase tracking-wider">{h.name}</span>
-                                            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-red-500/20 text-red-300 rounded border border-red-500/20 shadow-sm whitespace-nowrap">{h.severity}</span>
+                                            <span className="text-[11px] font-bold px-1.5 py-0.5 bg-red-500/20 text-red-300 rounded border border-red-500/20 shadow-sm whitespace-nowrap">{h.severity}</span>
                                         </div>
                                         <p className="text-xs text-red-200/70 leading-relaxed font-light">{h.description}</p>
                                     </div>
@@ -615,7 +615,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     </div>
                                     {voyagePlan.customs.contactPhone && (
                                         <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-indigo-500/20 pt-4 md:pt-0 md:pl-6">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">Port Authority / Customs</span>
+                                            <span className="text-[11px] text-gray-500 uppercase font-bold tracking-widest mb-1">Port Authority / Customs</span>
                                             <div className="flex items-center gap-2 text-white font-mono text-lg">
                                                 <PhoneIcon className="w-4 h-4 text-emerald-400" />
                                                 <a href={`tel:${voyagePlan.customs.contactPhone}`} className="hover:text-emerald-300 transition-colors">
@@ -646,7 +646,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <button
                                     key={cat.id}
                                     onClick={() => setActiveChecklistTab(cat.id)}
-                                    className={`px-4 py-2 text-[10px] md:text-xs font-bold uppercase rounded-lg transition-all flex-1 ${activeChecklistTab === cat.id ? 'bg-white/10 text-white shadow-lg border border-white/10' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+                                    className={`px-4 py-2 text-[11px] md:text-xs font-bold uppercase rounded-lg transition-all flex-1 ${activeChecklistTab === cat.id ? 'bg-white/10 text-white shadow-lg border border-white/10' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
                                 >
                                     {cat.category}
                                 </button>
@@ -708,14 +708,14 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         className="bg-gradient-to-r from-sky-500/10 to-blue-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-blue-600/20 transition-all"
                     >
                         <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-[9px] font-bold text-sky-300 uppercase tracking-widest text-center">Export PDF</span>
+                        <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">Export PDF</span>
                     </button>
                     <button
                         onClick={() => downloadRouteGPX(voyagePlan)}
                         className="bg-gradient-to-r from-emerald-500/10 to-teal-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-teal-600/20 transition-all"
                     >
                         <RouteIcon className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-widest text-center">Export GPX</span>
+                        <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-widest text-center">Export GPX</span>
                     </button>
                     <button
                         onClick={async () => {
@@ -744,7 +744,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         className="bg-gradient-to-r from-violet-500/10 to-purple-600/10 border border-violet-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-violet-500/20 hover:to-purple-600/20 transition-all"
                     >
                         <MapPinIcon className="w-5 h-5 text-violet-400 group-hover:scale-110 transition-transform" />
-                        <span id="save-route-btn" className="text-[9px] font-bold text-violet-300 uppercase tracking-widest text-center">Save to Log</span>
+                        <span id="save-route-btn" className="text-[11px] font-bold text-violet-300 uppercase tracking-widest text-center">Save to Log</span>
                     </button>
                 </div>
             </div >
@@ -756,7 +756,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 </div>
                 <div>
                     <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Warning: Not For Navigation</h4>
-                    <p className="text-[10px] text-amber-200/80 leading-relaxed font-medium">
+                    <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
                         This automated voyage plan is generated by AI using weather model data. It does not account for real-time hazards, Notices to Mariners, or local regulations.
                         <span className="block mt-1 text-amber-100 opacity-60">
                             The captain is solely responsible for the safety of the vessel and crew. Do not rely on this tool for critical navigation decisions. Always verify with official charts.

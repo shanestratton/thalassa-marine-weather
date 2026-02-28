@@ -203,13 +203,13 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
                     {hasData && data.windSpeeds.map((tws, i) => (
                         <div key={`f-${tws}`} className="flex items-center gap-1.5">
                             <div className="w-3 h-0.5 rounded-full" style={{ backgroundColor: WIND_COLORS[i % WIND_COLORS.length] }} />
-                            <span className="text-[9px] font-mono font-bold text-gray-400">{tws}kts</span>
+                            <span className="text-[11px] font-mono font-bold text-gray-400">{tws}kts</span>
                         </div>
                     ))}
                     {hasOverlay && (
                         <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-white/10">
                             <div className="w-4 h-0.5 rounded-full bg-emerald-400" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #4ade80 0 4px, transparent 4px 7px)' }} />
-                            <span className="text-[9px] font-mono font-bold text-emerald-400">SMART</span>
+                            <span className="text-[11px] font-mono font-bold text-emerald-400">SMART</span>
                         </div>
                     )}
                 </div>

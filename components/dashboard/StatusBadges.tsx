@@ -104,7 +104,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     const [showInfoModal, setShowInfoModal] = useState(false);
     const env = useEnvironment();
     const { refreshData } = useWeather();
-    const badgeTextSize = env === 'onshore' ? 'text-[10px]' : 'text-xs';
+    const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
 
     const shortenSourceName = (name: string): string => {
         name = name.replace(/Brisbane/i, 'Bris');
@@ -213,7 +213,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                             <span className="relative w-1.5 h-1.5 rounded-full bg-teal-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
                         </span>
                         {/* Telemetry string */}
-                        <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase truncate">
+                        <span className="text-[11px] font-mono tracking-wider text-slate-500 uppercase truncate">
                             <span className="text-teal-400/70 font-bold mr-1">AI BLEND:</span>
                             {beaconName && (
                                 <><span className="text-slate-400">{shortenSourceName(beaconName)}</span><span className="text-slate-600 mx-0.5">•</span></>
@@ -267,7 +267,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                 <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
                                 <h2 className="text-base font-bold text-white tracking-tight">Data Sources</h2>
                                 {!isLive && (
-                                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-md uppercase">Forecast</span>
+                                    <span className="text-[11px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-md uppercase">Forecast</span>
                                 )}
                             </div>
                             <button
@@ -298,11 +298,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                             <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
                                             <span className={`${cfg.color} font-bold text-sm`}>{displayName}</span>
                                             {metricCount > 0 && (
-                                                <span className="text-slate-600 text-[10px] font-medium ml-1">
+                                                <span className="text-slate-600 text-[11px] font-medium ml-1">
                                                     {metricCount} metric{metricCount > 1 ? 's' : ''}
                                                 </span>
                                             )}
-                                            <span className="text-slate-500 text-sm ml-auto uppercase text-[10px] font-bold tracking-wider">{cfg.label === displayName ? '' : cfg.label}</span>
+                                            <span className="text-slate-500 text-sm ml-auto uppercase text-[11px] font-bold tracking-wider">{cfg.label === displayName ? '' : cfg.label}</span>
                                         </div>
                                     );
                                 })}
@@ -315,7 +315,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                             {metricProvenance.length > 0 && (
                                 <div>
                                     <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
-                                        Metric Sources {!isLive && <span className="text-amber-400 normal-case text-[10px]">(forecast hour)</span>}
+                                        Metric Sources {!isLive && <span className="text-amber-400 normal-case text-[11px]">(forecast hour)</span>}
                                     </p>
                                     <div className="space-y-1.5">
                                         {metricProvenance.map((mp, i) => (

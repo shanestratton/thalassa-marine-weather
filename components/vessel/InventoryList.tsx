@@ -159,14 +159,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 {/* ── Header ── */}
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
-                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Inventory</h1>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                                 {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
                                 {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
                             </p>
@@ -257,15 +257,15 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         <div className="flex-1 min-w-0">
                                             <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
                                             {item.location_zone && (
-                                                <p className="text-[10px] text-gray-500 truncate">
+                                                <p className="text-[11px] text-gray-500 truncate">
                                                     📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
                                                 </p>
                                             )}
                                             {isExpired && (
-                                                <p className="text-[9px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
+                                                <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
                                             )}
                                             {isExpiringSoon && (
-                                                <p className="text-[9px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
+                                                <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
                                             )}
                                         </div>
                                         <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
@@ -281,7 +281,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     {/* Expanded detail */}
                                     {isExpanded && (
                                         <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
-                                            <div className="grid grid-cols-2 gap-2 text-[10px] mb-3">
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
                                                 <div>
                                                     <span className="text-gray-500">Category</span>
                                                     <p className="text-white font-bold">{item.category}</p>
@@ -327,20 +327,20 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                 </div>
                                                 <button
                                                     onClick={() => openEdit(item)}
-                                                    className="flex-1 py-2 rounded-xl bg-sky-500/10 text-sky-400 text-[10px] font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-all text-center"
+                                                    className="flex-1 py-2 rounded-xl bg-sky-500/10 text-sky-400 text-[11px] font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-all text-center"
                                                 >
                                                     Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(item.id)}
-                                                    className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all text-center"
+                                                    className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all text-center"
                                                 >
                                                     Delete
                                                 </button>
                                             </div>
 
                                             {isLow && (
-                                                <p className="text-[10px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
+                                                <p className="text-[11px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
                                             )}
                                         </div>
                                     )}
@@ -386,14 +386,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         <div className="space-y-2">
                             {/* Name */}
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
                                 <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
                                     className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
                             </div>
 
                             {/* Barcode */}
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                                 <div className="flex gap-1.5 mt-0.5">
                                     <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
                                         className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
@@ -430,11 +430,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                             {/* Category */}
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
                                 <div className="grid grid-cols-4 gap-1 mt-0.5">
                                     {CATEGORIES.map(cat => (
                                         <button key={cat} type="button" onClick={() => setEditCategory(cat)}
-                                            className={`py-1 rounded-lg text-[9px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                            className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
                                         >
                                             {CATEGORY_ICONS[cat]} {cat}
                                         </button>
@@ -445,12 +445,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {/* Quantity + Min */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
                                     <input type="number" value={editQty} onChange={e => setEditQty(Math.max(0, parseInt(e.target.value) || 0))}
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Min Qty</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Qty</label>
                                     <input type="number" value={editMinQty} onChange={e => setEditMinQty(Math.max(0, parseInt(e.target.value) || 0))}
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
                                 </div>
@@ -459,12 +459,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {/* Location */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
                                     <input type="text" value={editZone} onChange={e => setEditZone(e.target.value)} placeholder="Engine Room"
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Specific</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Specific</label>
                                     <input type="text" value={editSpecific} onChange={e => setEditSpecific(e.target.value)} placeholder="Port locker"
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
                                 </div>
@@ -473,12 +473,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {/* Notes + Expiry side by side */}
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
                                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Part no, batch"
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
                                     <input type="date" value={editExpiry} onChange={e => setEditExpiry(e.target.value)}
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
                                 </div>

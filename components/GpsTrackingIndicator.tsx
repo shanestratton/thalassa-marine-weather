@@ -88,7 +88,7 @@ export const GpsTrackingIndicator: React.FC = () => {
                 </svg>
 
                 {/* Interval label */}
-                <span className="text-white font-bold text-[10px] tracking-wide leading-none">
+                <span className="text-white font-bold text-[11px] tracking-wide leading-none">
                     {label}
                 </span>
             </div>
@@ -104,7 +104,7 @@ export const GpsTrackingIndicator: React.FC = () => {
                     <svg className="w-3 h-3 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
-                    <span className="text-slate-300 text-[9px] font-medium tracking-wide whitespace-nowrap">
+                    <span className="text-slate-300 text-[11px] font-medium tracking-wide whitespace-nowrap">
                         No movement
                     </span>
                 </div>

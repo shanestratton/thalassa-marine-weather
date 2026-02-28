@@ -404,7 +404,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                     </span>
                                                 ))}
                                                 {currentCard.interests.filter(t => !t.startsWith('role:')).length > 6 && (
-                                                    <span className="text-[10px] text-white/20">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
+                                                    <span className="text-[11px] text-white/20">+{currentCard.interests.filter(t => !t.startsWith('role:')).length - 6}</span>
                                                 )}
                                             </div>
                                         )}
@@ -428,7 +428,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                 </div>
 
                                 {/* Progress */}
-                                <p className="text-[10px] text-white/15 mt-4">
+                                <p className="text-[11px] text-white/15 mt-4">
                                     {currentIndex + 1} of {cards.length}
                                 </p>
                             </>
@@ -556,7 +556,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                     ✕
                                                 </button>
                                                 {idx === 0 && (
-                                                    <span className="absolute bottom-1 left-1 text-[8px] font-bold bg-[#FF7F50]/80 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Main</span>
+                                                    <span className="absolute bottom-1 left-1 text-[11px] font-bold bg-[#FF7F50]/80 text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">Main</span>
                                                 )}
                                             </>
                                         ) : (
@@ -568,7 +568,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                                 className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                             >
                                                 <span className="text-2xl text-white/10">📷</span>
-                                                <span className="text-[9px] text-white/10 mt-1">{idx === 0 ? 'Main Photo' : `Photo ${idx + 1}`}</span>
+                                                <span className="text-[11px] text-white/10 mt-1">{idx === 0 ? 'Main Photo' : `Photo ${idx + 1}`}</span>
                                             </button>
                                         )}
                                     </div>
@@ -758,7 +758,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                             {saved ? '✓ Profile Saved!' : saving ? 'Saving...' : '⚓ Save Profile'}
                         </button>
 
-                        <p className="text-[10px] text-white/15 text-center">
+                        <p className="text-[11px] text-white/15 text-center">
                             Your dating profile is only visible to other opted-in First Mates members.
                             Your main sailing profile photo is never shown here.
                         </p>

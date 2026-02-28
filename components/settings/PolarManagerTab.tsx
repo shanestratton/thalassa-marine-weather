@@ -181,13 +181,13 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                 {/* Save status */}
                 <div className="flex items-center justify-center gap-2 mt-3">
                     {saving && (
-                        <span className="flex items-center gap-1.5 text-[10px] text-sky-400">
+                        <span className="flex items-center gap-1.5 text-[11px] text-sky-400">
                             <div className="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin" />
                             Saving…
                         </span>
                     )}
                     {lastSaved && !saving && (
-                        <span className="text-[10px] text-emerald-400">✓ Saved {lastSaved}</span>
+                        <span className="text-[11px] text-emerald-400">✓ Saved {lastSaved}</span>
                     )}
                 </div>
             </div>
@@ -286,7 +286,7 @@ const SmartPolarsCard: React.FC<{
                     <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
                     <span className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-500' : 'text-emerald-400'}`}>Smart Polars</span>
                     {!hasRpmData && smartEnabled && (
-                        <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
+                        <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
                     )}
                 </div>
                 {/* Smart Polars Toggle */}
@@ -333,7 +333,7 @@ const SmartPolarsCard: React.FC<{
                     {/* NMEA Connection Status */}
                     <div className="flex items-center gap-2 mb-3 p-2 bg-black/20 rounded-xl">
                         <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                        <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">NMEA: {status.label}</span>
+                        <span className="text-[11px] font-bold text-gray-300 uppercase tracking-wider">NMEA: {status.label}</span>
                     </div>
 
                     {/* Filter Gate Status */}
@@ -352,15 +352,15 @@ const SmartPolarsCard: React.FC<{
                         <div className="grid grid-cols-3 gap-2 mb-4">
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{smartStats.totalSamples.toLocaleString()}</p>
-                                <p className="text-[9px] text-gray-500 uppercase tracking-widest">Samples</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Samples</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{smartStats.filledBuckets}</p>
-                                <p className="text-[9px] text-gray-500 uppercase tracking-widest">Buckets</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Buckets</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{fillPercent}%</p>
-                                <p className="text-[9px] text-gray-500 uppercase tracking-widest">Coverage</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Coverage</p>
                             </div>
                         </div>
                     )}
@@ -369,8 +369,8 @@ const SmartPolarsCard: React.FC<{
                     {filterStatus?.recording && (
                         <div className="flex items-center gap-2 mb-3 p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
                             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Recording clean data</span>
-                            <span className="text-[10px] text-emerald-400/60 ml-auto font-mono">{filterStatus.totalAccepted} accepted</span>
+                            <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Recording clean data</span>
+                            <span className="text-[11px] text-emerald-400/60 ml-auto font-mono">{filterStatus.totalAccepted} accepted</span>
                         </div>
                     )}
                 </>
@@ -379,7 +379,7 @@ const SmartPolarsCard: React.FC<{
             {/* Polar Source Toggle */}
             {smartStats && smartStats.totalSamples > 0 && (
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Routing Uses:</span>
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Routing Uses:</span>
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
                         <button
                             onClick={() => onToggleSource('factory')}
@@ -396,7 +396,7 @@ const SmartPolarsCard: React.FC<{
                     </div>
                     <button
                         onClick={onReset}
-                        className="text-[10px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
+                        className="text-[11px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
                     >
                         Reset
                     </button>
@@ -416,7 +416,7 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
     return (
         <div className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border ${c.bg}`}>
             <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-            <span className={`text-[10px] font-bold uppercase tracking-widest ${c.text}`}>{label}</span>
+            <span className={`text-[11px] font-bold uppercase tracking-widest ${c.text}`}>{label}</span>
         </div>
     );
 };
@@ -468,7 +468,7 @@ const ImportTab: React.FC<{
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-amber-500" />
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Import Polar File</span>
+                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">Import Polar File</span>
             </div>
 
             <div
@@ -484,7 +484,7 @@ const ImportTab: React.FC<{
                 <input ref={fileInputRef} type="file" accept=".pol,.csv,.txt" onChange={handleInputChange} className="hidden" />
                 <div className="text-3xl mb-3">{fileName ? '✅' : '📄'}</div>
                 <p className="text-sm font-bold text-white mb-1">{fileName ? fileName : 'Drop polar file here'}</p>
-                <p className="text-[10px] text-gray-500">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
+                <p className="text-[11px] text-gray-500">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
             </div>
 
             {error && (
@@ -497,14 +497,14 @@ const ImportTab: React.FC<{
                 <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                     <p className="text-xs text-amber-400 font-bold mb-1">⚠️ Warnings:</p>
                     {warnings.map((w, i) => (
-                        <p key={i} className="text-[10px] text-amber-300/70">• {w}</p>
+                        <p key={i} className="text-[11px] text-amber-300/70">• {w}</p>
                     ))}
                 </div>
             )}
 
             <div className="mt-4 p-3 bg-white/[0.02] rounded-xl">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Expected Format</p>
-                <pre className="text-[9px] text-gray-500 font-mono overflow-x-auto">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Expected Format</p>
+                <pre className="text-[11px] text-gray-500 font-mono overflow-x-auto">
                     {`TWA    6    8    10   12   15   20   25
 45   4.2  5.1  5.8  6.2  6.5  6.4  6.0
 60   4.8  5.7  6.4  6.9  7.2  7.1  6.7
@@ -535,19 +535,19 @@ const ManualTab: React.FC<{
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Manual Entry</span>
-                <span className="text-[9px] text-gray-500 ml-auto">Boat speed in knots</span>
+                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Manual Entry</span>
+                <span className="text-[11px] text-gray-500 ml-auto">Boat speed in knots</span>
             </div>
 
             <div className="overflow-x-auto custom-scrollbar -mx-1 px-1">
                 <table className="w-full border-collapse min-w-[500px]">
                     <thead>
                         <tr>
-                            <th className="text-[9px] font-bold text-gray-500 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]">
+                            <th className="text-[11px] font-bold text-gray-500 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]">
                                 TWA\TWS
                             </th>
                             {polarData.windSpeeds.map(ws => (
-                                <th key={ws} className="text-[9px] font-bold text-sky-400 uppercase tracking-wider p-2 text-center min-w-[52px]">
+                                <th key={ws} className="text-[11px] font-bold text-sky-400 uppercase tracking-wider p-2 text-center min-w-[52px]">
                                     {ws}kts
                                 </th>
                             ))}
@@ -556,7 +556,7 @@ const ManualTab: React.FC<{
                     <tbody>
                         {polarData.angles.map((angle, aIdx) => (
                             <tr key={angle} className="border-t border-white/5">
-                                <td className="text-[10px] font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10">{angle}°</td>
+                                <td className="text-[11px] font-bold text-amber-400 p-2 sticky left-0 bg-slate-950 z-10">{angle}°</td>
                                 {polarData.windSpeeds.map((_, wIdx) => {
                                     const val = polarData.matrix[aIdx]?.[wIdx] ?? 0;
                                     const isAnomaly = checkAnomaly(polarData, aIdx, wIdx);
@@ -589,7 +589,7 @@ const ManualTab: React.FC<{
             <div className="flex gap-2 mt-4">
                 <button
                     onClick={() => onChange(createEmptyPolar())}
-                    className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                    className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                 >
                     Clear All
                 </button>

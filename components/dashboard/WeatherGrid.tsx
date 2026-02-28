@@ -80,12 +80,12 @@ const DetailTile: React.FC<DetailTileProps> = React.memo(({ label, value, unit, 
             <div className={`p-1.5 rounded-lg bg-black/20 ${colorClass}`}>
                 {icon}
             </div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mr-4">{label}</span>
+            <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mr-4">{label}</span>
         </div>
         <div className="z-10 mt-1">
             <div className="flex items-baseline gap-1">
                 <span className="text-lg font-bold text-white tracking-tight">{value}</span>
-                {unit && <span className="text-[10px] font-medium text-gray-400">{unit}</span>}
+                {unit && <span className="text-[11px] font-medium text-gray-400">{unit}</span>}
             </div>
             {subContent}
         </div>
@@ -138,7 +138,7 @@ export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | n
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center gap-1.5 mb-0.5">
                             <WindIcon className={`w-3.5 h-3.5 ${config.text}`} />
-                            <span className={`text-[10px] font-bold uppercase tracking-widest ${config.text}`}>Beaufort</span>
+                            <span className={`text-[11px] font-bold uppercase tracking-widest ${config.text}`}>Beaufort</span>
                         </div>
                         <span className={`text-base font-bold text-white leading-none whitespace-nowrap`}>{config.desc}</span>
                     </div>
@@ -213,7 +213,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 colorClass={isRising ? "text-emerald-400" : "text-orange-400"}
                 icon={<TideCurveIcon className="w-4 h-4" />}
                 subContent={
-                    <div className="flex items-center gap-1 mt-0.5 text-[9px] font-medium text-gray-400">
+                    <div className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-gray-400">
                         {isRising ? <ArrowUpIcon className="w-3 h-3 text-emerald-400" /> : <ArrowDownIcon className="w-3 h-3 text-orange-400" />}
                         <span>{isRising ? "Rising" : "Falling"}</span>
                         <span className="opacity-60 ml-1">{convertLength(rate, unit)}/hr</span>
@@ -229,7 +229,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit=""
                 colorClass="text-gray-400"
                 icon={<TideCurveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">No Data</span>}
+                subContent={<span className="text-[11px] text-gray-400">No Data</span>}
             />
         );
     }
@@ -243,7 +243,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit="/ 100"
                 colorClass={scoreColor}
                 icon={<StarIcon className="w-4 h-4" filled={score > 80} />}
-                subContent={<span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{scoreText} Conditions</span>}
+                subContent={<span className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">{scoreText} Conditions</span>}
             />
         ),
         tide: tideNode,
@@ -254,7 +254,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit="mb"
                 colorClass="text-sky-300"
                 icon={<GaugeIcon className="w-4 h-4" />}
-                subContent={<div className="flex items-center gap-1 mt-0.5 text-[9px] font-medium text-gray-400">{current.pressureTrend === 'rising' ? <><ArrowUpIcon className="w-3 h-3 text-emerald-400" /> Rising</> : current.pressureTrend === 'falling' ? <><ArrowDownIcon className="w-3 h-3 text-red-400" /> Falling</> : "Steady"}</div>}
+                subContent={<div className="flex items-center gap-1 mt-0.5 text-[11px] font-medium text-gray-400">{current.pressureTrend === 'rising' ? <><ArrowUpIcon className="w-3 h-3 text-emerald-400" /> Rising</> : current.pressureTrend === 'falling' ? <><ArrowDownIcon className="w-3 h-3 text-red-400" /> Falling</> : "Steady"}</div>}
             />
         ),
         humidity: (
@@ -279,7 +279,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                     unit={precipValue ? '' : units.length === 'ft' ? 'in' : 'mm'}
                     colorClass="text-cyan-300"
                     icon={<RainIcon className="w-4 h-4" />}
-                    subContent={<span className="text-[9px] text-gray-400">{chance !== undefined ? `${chance}% chance this hour` : (precipValue ? 'Accumulating' : 'Dry Conditions')}</span>}
+                    subContent={<span className="text-[11px] text-gray-400">{chance !== undefined ? `${chance}% chance this hour` : (precipValue ? 'Accumulating' : 'Dry Conditions')}</span>}
                 />
             );
         })(),
@@ -290,7 +290,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit=""
                 colorClass="text-rose-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">Saturation Temp</span>}
+                subContent={<span className="text-[11px] text-gray-400">Saturation Temp</span>}
             />
         ),
         cloud: (
@@ -310,7 +310,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit={units.visibility || 'mi'}
                 colorClass="text-purple-300"
                 icon={<EyeIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>}
+                subContent={<span className="text-[11px] text-gray-400">{vis !== '--' && parseFloat(vis) < 3 ? 'Restricted' : 'Clear'}</span>}
             />
         ),
         chill: (
@@ -320,7 +320,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit=""
                 colorClass="text-teal-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">Feels Like</span>}
+                subContent={<span className="text-[11px] text-gray-400">Feels Like</span>}
             />
         ),
         swell: (
@@ -330,7 +330,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit="s"
                 colorClass="text-indigo-300"
                 icon={<WaveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
+                subContent={<span className="text-[11px] text-gray-400 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
             />
         ),
         wave: (
@@ -340,7 +340,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit={units.waveHeight || 'ft'}
                 colorClass="text-blue-300"
                 icon={<WaveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">{current.swellDirection ? `From ${current.swellDirection}` : 'Combined Sea'}</span>}
+                subContent={<span className="text-[11px] text-gray-400">{current.swellDirection ? `From ${current.swellDirection}` : 'Combined Sea'}</span>}
             />
         ),
         wavePeriod: (
@@ -350,7 +350,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit="s"
                 colorClass="text-blue-300"
                 icon={<CloudIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">Peak Energy</span>}
+                subContent={<span className="text-[11px] text-gray-400">Peak Energy</span>}
             />
         ),
         uv: (
@@ -360,7 +360,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit=""
                 colorClass="text-orange-400"
                 icon={<SunIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">Radiation Lvl</span>}
+                subContent={<span className="text-[11px] text-gray-400">Radiation Lvl</span>}
             />
         ),
         waterTemp: (
@@ -370,14 +370,14 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 unit=""
                 colorClass="text-blue-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
-                subContent={<span className="text-[9px] text-gray-400">Surface</span>}
+                subContent={<span className="text-[11px] text-gray-400">Surface</span>}
             />
         )
     };
 
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-4 pt-8">
-            <div className="absolute top-3 left-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            <div className="absolute top-3 left-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <GearIcon className="w-3 h-3" /> Atmospherics
             </div>
 

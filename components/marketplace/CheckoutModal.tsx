@@ -187,7 +187,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             className="w-full p-4 rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.06] to-cyan-500/[0.03] text-left group hover:border-sky-500/50 transition-all active:scale-[0.98] relative overflow-hidden"
                         >
                             <div className="absolute top-2.5 right-3 px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/30">
-                                <span className="text-[9px] font-bold text-sky-300 uppercase tracking-wider">Recommended</span>
+                                <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">Recommended</span>
                             </div>
 
                             <div className="flex items-center gap-2.5 mb-2">

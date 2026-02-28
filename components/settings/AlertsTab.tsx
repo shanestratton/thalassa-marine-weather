@@ -36,7 +36,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-purple-500/20 text-purple-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">High Wind</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sustained Forecast</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Sustained Forecast</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -54,7 +54,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-orange-500/20 text-orange-300 rounded-lg"><WindIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Gusts</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Peak Gust Forecast</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Peak Gust Forecast</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -72,7 +72,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">High Seas</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Significant Wave Hgt</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Significant Wave Hgt</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -90,7 +90,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg"><WaveIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Long Period</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Swell Interval</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Swell Interval</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -108,7 +108,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-gray-500/20 text-gray-300 rounded-lg"><EyeIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Low Vis</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Fog / Mist</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Fog / Mist</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -127,7 +127,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-yellow-500/20 text-yellow-300 rounded-lg"><SunIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">High UV</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sun Intensity</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Sun Intensity</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -145,7 +145,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-red-500/20 text-red-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Heat Alert</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">High Temp</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">High Temp</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -163,7 +163,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-cyan-500/20 text-cyan-300 rounded-lg"><ThermometerIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Freeze Alert</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Low Temp</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Low Temp</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -182,7 +182,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="p-2 bg-blue-500/20 text-blue-300 rounded-lg"><RainIcon className="w-6 h-6" /></div>
                         <div>
                             <p className="text-white font-bold">Precipitation</p>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Notify on rain/storm forecast</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Notify on rain/storm forecast</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
