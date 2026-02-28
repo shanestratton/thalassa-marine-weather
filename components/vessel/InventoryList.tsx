@@ -208,8 +208,17 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 {/* ── Item List (scrollable, stops above CTA) ── */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
                     {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="space-y-3 px-1">
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg skeleton-shimmer" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-4 w-1/2 rounded-lg skeleton-shimmer" />
+                                        <div className="h-3 w-1/4 rounded-lg skeleton-shimmer" />
+                                    </div>
+                                    <div className="w-12 h-4 rounded-lg skeleton-shimmer" />
+                                </div>
+                            ))}
                         </div>
                     ) : filtered.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">

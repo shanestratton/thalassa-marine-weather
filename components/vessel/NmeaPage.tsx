@@ -130,7 +130,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
                     <h3 className="shrink-0 text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
-                    <div className="flex-1 grid grid-cols-2 gap-2 min-h-0 auto-rows-fr">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 min-h-0 auto-rows-fr">
                         {instruments.map(inst => (
                             <div
                                 key={inst.label}

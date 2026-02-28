@@ -491,7 +491,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                             </Section>
 
                             <Section title="Units">
-                                <div className="grid grid-cols-2 gap-4 p-4">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                                     {/* Speed */}
                                     <div>
                                         <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">Wind Speed</label>

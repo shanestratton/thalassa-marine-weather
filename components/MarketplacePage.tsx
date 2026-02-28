@@ -712,11 +712,11 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                     <div className="space-y-3 px-3">
                         {[1, 2, 3].map(i => (
                             <div key={i} className="rounded-2xl border border-white/[0.06] bg-white/[0.03] overflow-hidden">
-                                <div className="w-full aspect-[16/10] listing-shimmer bg-white/[0.04]" />
+                                <div className="w-full aspect-[16/10] skeleton-shimmer" />
                                 <div className="p-4 space-y-3">
-                                    <div className="h-4 w-3/4 rounded-lg listing-shimmer bg-white/[0.04]" />
-                                    <div className="h-3 w-1/3 rounded-lg listing-shimmer bg-white/[0.04]" />
-                                    <div className="h-8 w-full rounded-xl listing-shimmer bg-white/[0.04]" />
+                                    <div className="h-4 w-3/4 rounded-lg skeleton-shimmer" />
+                                    <div className="h-3 w-1/3 rounded-lg skeleton-shimmer" />
+                                    <div className="h-8 w-full rounded-xl skeleton-shimmer" />
                                 </div>
                             </div>
                         ))}

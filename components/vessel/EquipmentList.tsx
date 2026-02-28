@@ -187,7 +187,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                     {/* Specs card */}
                     <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5">
                         <h3 className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-4">Specifications</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div>
                                 <p className="text-[11px] text-gray-600 uppercase tracking-widest font-bold mb-0.5">Make</p>
                                 <p className="text-sm font-bold text-white">{item.make || '—'}</p>
@@ -619,8 +619,18 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 {/* ── Equipment list (scrollable) ── */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="space-y-3 px-1">
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl skeleton-shimmer" />
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-4 w-2/3 rounded-lg skeleton-shimmer" />
+                                            <div className="h-3 w-1/3 rounded-lg skeleton-shimmer" />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     ) : filteredItems.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">

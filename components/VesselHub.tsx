@@ -143,7 +143,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
@@ -189,7 +189,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
                     {officeCards.map(card => {
                         const disabled = card.id === 'passage' && isObserver;
                         return (
@@ -224,11 +224,11 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
                 </div>
 
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06]">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06] md:max-w-xl">
                     {/* Account & Subscription */}
                     <button
                         onClick={() => onNavigate('settings')}
-                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
+                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
                     >
                         <div className="p-1.5 bg-white/5 rounded-lg">
                             <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -246,7 +246,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     {/* Terms & Privacy */}
                     <button
                         onClick={() => window.open('https://thalassa.app/terms', '_blank')}
-                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
+                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
                     >
                         <div className="p-1.5 bg-white/5 rounded-lg">
                             <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
