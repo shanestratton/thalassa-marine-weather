@@ -2,7 +2,7 @@
  * VesselTab — Vessel configuration: type, name, dimensions, performance, capacity.
  * Extracted from SettingsModal monolith (63 lines → standalone component).
  */
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { LengthUnit, WeightUnit, SpeedUnit, VolumeUnit, VesselDimensionUnits, VesselProfile } from '../../types';
 import { YachtDatabaseSearch } from './YachtDatabaseSearch';
@@ -52,19 +52,19 @@ function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValu
                 {label}
                 {isEstimated && <span className="text-amber-400/70 ml-1 text-[9px]">(est.)</span>}
             </label>
-            <div className="flex gap-2 min-w-0">
+            <div className="flex gap-1.5 min-w-0">
                 <input
                     type="number"
                     value={localVal}
                     onChange={handleChange}
                     onBlur={handleBlur}
                     placeholder={placeholder}
-                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
+                    className={`flex-1 min-w-0 bg-white/5 border rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors ${isEstimated ? 'border-amber-500/30 focus:border-amber-400' : 'border-white/10 focus:border-sky-500'}`}
                 />
                 <select
                     value={unitType}
                     onChange={(e) => onChangeUnit(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-2 py-2.5 text-xs text-gray-400 font-bold uppercase outline-none focus:border-sky-500"
+                    className="bg-white/5 border border-white/10 rounded-xl px-1.5 py-2.5 text-[10px] text-gray-400 font-bold uppercase outline-none focus:border-sky-500 shrink-0"
                 >
                     {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
@@ -74,6 +74,8 @@ function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValu
 }
 
 export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+    const [saved, setSaved] = useState(false);
+
     const updateVessel = (field: string, value: string | number) => {
         let newEstimatedFields = settings.vessel?.estimatedFields;
         if (newEstimatedFields && newEstimatedFields.includes(field)) {
@@ -148,7 +150,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Hull Dimensions</span>
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                         <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
                         <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
                         <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
@@ -165,7 +167,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Performance</span>
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                         <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
                         <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
                     </div>
@@ -179,7 +181,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Capacity</span>
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                    <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                         <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                         <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                     </div>
@@ -189,6 +191,24 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <p className="text-[10px] text-gray-500 mt-1">Used for provisioning and watch scheduling in passage plans</p>
                     </div>
                 </div>
+            </div>
+
+            {/* Save CTA — 8px above menu bar */}
+            <div className="mx-4 mb-2" style={{ paddingBottom: 'calc(8px)' }}>
+                <button
+                    onClick={() => {
+                        setSaved(true);
+                        setTimeout(() => setSaved(false), 2000);
+                        // Settings are already auto-saved via onSave calls above,
+                        // this button is UX reassurance for the user
+                    }}
+                    className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] ${saved
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/20'
+                            : 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
+                        }`}
+                >
+                    {saved ? '✓ Profile Saved' : 'Save Vessel Profile'}
+                </button>
             </div>
         </div>
     );
