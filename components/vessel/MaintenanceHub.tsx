@@ -612,7 +612,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Sheet */}
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -715,7 +715,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -857,7 +857,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             <button onClick={() => { setShowEditForm(false); setEditTask(null); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -944,7 +944,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
@@ -1048,6 +1048,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 };

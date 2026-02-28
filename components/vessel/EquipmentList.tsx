@@ -460,7 +460,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowEditForm(false)}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in zoom-in-95 duration-300 max-h-[85vh] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                             onClick={e => e.stopPropagation()}
                         >
                             <button onClick={() => setShowEditForm(false)} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -519,14 +519,14 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500/30" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="grid grid-cols-1 gap-3 mb-4">
                     <div>
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Install Date</label>
-                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                     <div>
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Warranty Expiry</label>
-                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                 </div>
 
@@ -793,10 +793,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <div className="fixed inset-0 z-[999] flex items-end justify-center px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} onClick={() => setShowAddForm(false)}>
+                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[85vh] overflow-y-auto"
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-3xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
                         onClick={e => e.stopPropagation()}
                     >
                         <button onClick={() => setShowAddForm(false)} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
