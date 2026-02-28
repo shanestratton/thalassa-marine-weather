@@ -20,6 +20,7 @@ import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
 import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
+import { LiveMiniMap } from '../components/LiveMiniMap';
 import { VoyageHeader } from '../components/VoyageHeader';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
@@ -380,6 +381,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             <div className="text-[10px] text-slate-500 uppercase">Avg kts</div>
                                         </div>
                                     </div>
+                                    {/* Live Mini Map */}
+                                    {activeEntries.length >= 2 && (
+                                        <div className="mt-3">
+                                            <LiveMiniMap entries={activeEntries} height={140} isLive={true} />
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })()}
@@ -1505,15 +1512,23 @@ const VoyageCard: React.FC<{
 
             {/* Expanded: show full timeline */}
             {isExpanded && (
-                <div className="ml-2 border-l-2 border-sky-500/20 pl-3 mt-1 mb-1">
-                    <DateGroupedTimeline
-                        groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
-                        onDeleteEntry={onDeleteEntry}
-                        onEditEntry={onEditEntry}
-                        voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
-                        voyageLastEntryId={voyage.entries[0]?.id}
-                    />
-                </div>
+                <>
+                    {/* Inline map for planned routes */}
+                    {isPlannedRoute && voyage.entries.length >= 2 && (
+                        <div className="px-4 pt-3">
+                            <LiveMiniMap entries={voyage.entries} height={140} />
+                        </div>
+                    )}
+                    <div className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-violet-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}>
+                        <DateGroupedTimeline
+                            groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                            onDeleteEntry={onDeleteEntry}
+                            onEditEntry={onEditEntry}
+                            voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
+                            voyageLastEntryId={voyage.entries[0]?.id}
+                        />
+                    </div>
+                </>
             )}
         </div>
     );
