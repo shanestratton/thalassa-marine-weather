@@ -26,6 +26,25 @@ export const NmeaGpsIndicator: React.FC = () => {
     const [hdop, setHdop] = useState<number | null>(null);
     const [avgAccuracy, setAvgAccuracy] = useState<number | null>(null);
 
+    // ── Passive GPS accuracy monitor ──
+    // Feeds GpsPrecision even when no voyage/anchor is active,
+    // so Bluetooth GPS devices (Bad Elf, Garmin GLO) are detected immediately.
+    useEffect(() => {
+        if (!navigator.geolocation) return;
+
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                if (pos.coords.accuracy > 0) {
+                    GpsPrecision.feed(pos.coords.accuracy);
+                }
+            },
+            () => { /* GPS error — ignore silently */ },
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        );
+
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, []);
+
     useEffect(() => {
         // Poll both NMEA and precision tracker every second
         const id = setInterval(() => {
