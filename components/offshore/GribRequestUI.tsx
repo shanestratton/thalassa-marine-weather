@@ -119,8 +119,8 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {/* Header */}
             <div className="mb-6">
                 <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500/20 to-red-500/20 border border-orange-500/30">
-                        <svg className="w-5 h-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-500/20 to-red-500/20 border border-amber-500/30">
+                        <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                         </svg>
                     </div>
@@ -158,7 +158,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                 </button>
                 <button
                     onClick={() => setDownloadMode('iridium')}
-                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${downloadMode === 'iridium' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/30' : 'text-gray-400 hover:text-white'
+                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${downloadMode === 'iridium' ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/30' : 'text-gray-400 hover:text-white'
                         }`}
                 >
                     📧 Iridium Email
@@ -229,7 +229,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                                     }`}
                             >
                                 {/* Checkbox */}
-                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${active ? 'bg-emerald-500 border-emerald-500' : 'border-gray-600'
+                                <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all ${active ? 'bg-emerald-500 border-emerald-500' : 'border-gray-600'
                                     }`}>
                                     {active && (
                                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -355,12 +355,12 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {/* IRIDIUM SAILDOCS PREVIEW */}
             {/* ═══════════════════════════════════════════ */}
             {downloadMode === 'iridium' && (
-                <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-4 mb-6">
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 mb-6">
                     <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-orange-500" />
-                        <span className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Saildocs Command</span>
+                        <div className="w-1 h-4 rounded-full bg-amber-500" />
+                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">Saildocs Command</span>
                     </div>
-                    <div className="bg-black/40 rounded-xl p-3 font-mono text-xs text-orange-300 break-all select-all">
+                    <div className="bg-black/40 rounded-xl p-3 font-mono text-xs text-amber-300 break-all select-all">
                         {saildocsString}
                     </div>
                     <p className="text-[11px] text-gray-500 mt-2">
@@ -449,8 +449,8 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                     className={`w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all ${bboxErrors.length > 0
                             ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
                             : downloadMode === 'iridium'
-                                ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-xl shadow-orange-500/20 hover:shadow-orange-500/40'
-                                : 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-xl shadow-sky-500/20 hover:shadow-sky-500/40'
+                                ? 'bg-gradient-to-r from-amber-600 to-red-600 text-white shadow-xl shadow-amber-500/20 hover:shadow-amber-500/40'
+                                : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-xl shadow-sky-500/20 hover:shadow-sky-500/40'
                         }`}
                 >
                     {downloadMode === 'iridium'

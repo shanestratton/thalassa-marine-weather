@@ -447,7 +447,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         allowTranscribe?: boolean;
         allowRemove?: boolean;
     }> = ({ url, allowTranscribe, allowRemove }) => (
-        <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/15 rounded-xl p-3">
+        <div className="bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/15 rounded-xl p-3">
             <div className="flex items-center gap-2.5">
                 <button
                     onClick={() => togglePlayback(url)}
@@ -559,7 +559,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* GPS Position */}
                         {hasCoords && (
-                            <div className="bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
+                            <div className="bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-3">
                                 <div className="flex items-center gap-2.5">
                                     <div className="p-2 bg-sky-500/15 rounded-lg">
                                         <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -701,7 +701,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* GPS Position */}
-                    <div className="shrink-0 bg-gradient-to-r from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-3">
+                    <div className="shrink-0 bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-3">
                         <div className="flex items-center gap-2.5">
                             <div className="p-2 bg-sky-500/15 rounded-lg">
                                 <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -743,7 +743,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {isRecording ? (
                             /* Active recording UI */
-                            <div className="bg-gradient-to-r from-red-500/15 to-orange-500/15 border border-red-500/20 rounded-xl p-4">
+                            <div className="bg-gradient-to-r from-red-500/15 to-amber-500/15 border border-red-500/20 rounded-xl p-4">
                                 <div className="flex items-center gap-4">
                                     <button
                                         onClick={stopRecording}

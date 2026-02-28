@@ -828,10 +828,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* Browse Community Card */}
                             <button
                                 onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border-cyan-500/20 hover:border-cyan-400/40"
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
                             >
-                                <div className="w-14 h-14 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                                     </svg>
                                 </div>
@@ -970,10 +970,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* Browse Community */}
                             <button
                                 onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-cyan-600/5 border border-cyan-500/20 hover:border-cyan-400/40 active:scale-[0.98] transition-all"
+                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
                             >
-                                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                                     </svg>
                                 </div>
@@ -1500,11 +1500,11 @@ const VoyageCard: React.FC<{
                     {hasLinkedPlan && !isPlannedRoute && (
                         <div className="mt-1.5 flex items-center gap-2 text-[11px]">
                             <span className="text-violet-400">📐 vs planned:</span>
-                            <span className={distDelta > 0 ? 'text-orange-400' : 'text-emerald-400'}>
+                            <span className={distDelta > 0 ? 'text-amber-400' : 'text-emerald-400'}>
                                 {distDelta > 0 ? '+' : ''}{distDelta.toFixed(1)} NM
                             </span>
                             <span className="text-slate-600">·</span>
-                            <span className={timeDeltaMs > 0 ? 'text-orange-400' : 'text-emerald-400'}>
+                            <span className={timeDeltaMs > 0 ? 'text-amber-400' : 'text-emerald-400'}>
                                 {timeDeltaMs > 0 ? '+' : ''}{Math.round(timeDeltaMs / 60000)}m
                             </span>
                             {onUnlink && (

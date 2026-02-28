@@ -69,7 +69,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
                 {onRetry && (
                     <button
                         onClick={onRetry}
-                        className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 min-h-[44px]"
+                        className="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors flex items-center gap-2 min-h-[44px]"
                      aria-label="Retry">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

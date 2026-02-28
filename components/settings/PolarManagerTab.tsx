@@ -155,7 +155,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             <div className="mt-4 flex-1 min-h-0 bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4 mx-auto max-w-lg w-full flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex flex-col items-start gap-1">
-                        <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">Polar Diagram</span>
+                        <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</span>
                         {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
                         {!boatModel && (
                             <span className="text-xs text-gray-500">No yacht selected — choose one in Settings → Vessel Profile</span>
@@ -279,14 +279,14 @@ const SmartPolarsCard: React.FC<{
     return (
         <div className={`rounded-2xl p-4 transition-all ${isDisconnected
             ? 'bg-white/[0.02] border border-white/[0.06] opacity-70'
-            : 'bg-gradient-to-br from-emerald-500/5 to-cyan-500/5 border border-emerald-500/20'
+            : 'bg-gradient-to-br from-emerald-500/5 to-sky-500/5 border border-emerald-500/20'
             }`}>
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                     <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
                     <span className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-500' : 'text-emerald-400'}`}>Smart Polars</span>
                     {!hasRpmData && smartEnabled && (
-                        <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md font-bold">⚠️ No RPM Data</span>
+                        <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold">⚠️ No RPM Data</span>
                     )}
                 </div>
                 {/* Smart Polars Toggle */}
@@ -383,13 +383,13 @@ const SmartPolarsCard: React.FC<{
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
                         <button
                             onClick={() => onToggleSource('factory')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
                         >
                             Factory
                         </button>
                         <button
                             onClick={() => onToggleSource('smart')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}
                         >
                             Smart
                         </button>

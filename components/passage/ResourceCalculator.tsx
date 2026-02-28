@@ -257,9 +257,9 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                 </div>
 
                 {/* ═══ PROVISIONS ═══ */}
-                <div className="rounded-xl p-5 border bg-cyan-500/5 border-cyan-500/15">
+                <div className="rounded-xl p-5 border bg-sky-500/5 border-sky-500/15">
                     <div className="flex items-center gap-2 mb-3">
-                        <FoodIcon className="w-4 h-4 text-cyan-400" />
+                        <FoodIcon className="w-4 h-4 text-sky-400" />
                         <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Provisions</span>
                     </div>
 
@@ -278,8 +278,8 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                             {durationDays >= 2 && <div>✓ 48hr emergency rations</div>}
                         </div>
 
-                        <div className="flex items-start gap-2 p-2 bg-cyan-500/10 rounded-lg">
-                            <span className="text-xs text-cyan-300">Don't forget snacks, caffeine, and seasickness meds!</span>
+                        <div className="flex items-start gap-2 p-2 bg-sky-500/10 rounded-lg">
+                            <span className="text-xs text-sky-300">Don't forget snacks, caffeine, and seasickness meds!</span>
                         </div>
                     </div>
                 </div>

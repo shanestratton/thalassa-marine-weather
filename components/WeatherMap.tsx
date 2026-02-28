@@ -429,7 +429,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             </button>
                             <button
                                 onClick={() => { setActiveLayer('velocity'); setPendingSelection(null); }}
-                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <WindIcon className="w-3 h-3" /> Velocity
                             </button>

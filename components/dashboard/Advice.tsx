@@ -27,7 +27,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
         let colorClass = "bg-emerald-400";
         let label = "Low";
         if (roundedValue > 2) { colorClass = "bg-yellow-400"; label = "Moderate"; }
-        if (roundedValue > 5) { colorClass = "bg-orange-500"; label = "High"; }
+        if (roundedValue > 5) { colorClass = "bg-amber-500"; label = "High"; }
         if (roundedValue > 7) { colorClass = "bg-red-500"; label = "Very High"; }
         if (roundedValue > 10) { colorClass = "bg-purple-500"; label = "Extreme"; }
         return (
@@ -134,7 +134,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
                 {/* RIGHT: SIDEBAR */}
                 <div className="w-full md:w-72 bg-black/20 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col backdrop-blur-md">
                     <div className="flex items-center gap-2 mb-6">
-                        <div className="h-1 w-4 bg-orange-400 rounded-full"></div>
+                        <div className="h-1 w-4 bg-amber-400 rounded-full"></div>
                         <h4 className="text-sm font-bold uppercase tracking-widest text-gray-300">Skipper's Locker</h4>
                     </div>
 

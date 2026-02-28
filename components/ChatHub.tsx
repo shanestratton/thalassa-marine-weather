@@ -223,7 +223,7 @@ export const ChatHub: React.FC = () => {
                                         <div className="flex-1 text-left min-w-0">
                                             <div className="flex items-center gap-2 mb-0.5">
                                                 <h4 className="text-sm font-black text-white truncate">{convo.listing.title}</h4>
-                                                <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-black">
+                                                <span className="shrink-0 px-1.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-[11px] font-black">
                                                     ${convo.listing.price}
                                                 </span>
                                             </div>

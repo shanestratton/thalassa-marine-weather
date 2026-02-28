@@ -608,8 +608,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                             <span className="text-violet-300">Planned</span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-                            <span className="text-orange-300">Deviation</span>
+                            <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                            <span className="text-amber-300">Deviation</span>
                         </div>
                     </>
                 )}

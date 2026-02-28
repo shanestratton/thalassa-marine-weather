@@ -209,12 +209,12 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                     >
                         {/* Pulsing live dot */}
                         <span className="relative shrink-0 flex items-center justify-center w-2 h-2">
-                            <span className="absolute inset-0 rounded-full bg-teal-400/40 animate-ping" />
-                            <span className="relative w-1.5 h-1.5 rounded-full bg-teal-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
+                            <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+                            <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
                         </span>
                         {/* Telemetry string */}
                         <span className="text-[11px] font-mono tracking-wider text-slate-500 uppercase truncate">
-                            <span className="text-teal-400/70 font-bold mr-1">AI BLEND:</span>
+                            <span className="text-emerald-400/70 font-bold mr-1">AI BLEND:</span>
                             {beaconName && (
                                 <><span className="text-slate-400">{shortenSourceName(beaconName)}</span><span className="text-slate-600 mx-0.5">•</span></>
                             )}
@@ -267,7 +267,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                 <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
                                 <h2 className="text-base font-bold text-white tracking-tight">Data Sources</h2>
                                 {!isLive && (
-                                    <span className="text-[11px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-md uppercase">Forecast</span>
+                                    <span className="text-[11px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-lg uppercase">Forecast</span>
                                 )}
                             </div>
                             <button

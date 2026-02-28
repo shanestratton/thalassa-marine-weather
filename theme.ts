@@ -168,11 +168,11 @@ const onshoreColors: ThemeColors = {
             borderActive: 'border-amber-500/40',
         },
         amber: {
-            bg: 'bg-orange-500/10',
-            bgActive: 'bg-orange-500/30',
-            text: 'text-orange-400',
-            border: 'border-orange-500/20',
-            borderActive: 'border-orange-500/60',
+            bg: 'bg-amber-500/10',
+            bgActive: 'bg-amber-500/30',
+            text: 'text-amber-400',
+            border: 'border-amber-500/20',
+            borderActive: 'border-amber-500/60',
         },
         emerald: {
             bg: 'bg-emerald-500/10',

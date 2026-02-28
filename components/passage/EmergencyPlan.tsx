@@ -77,7 +77,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
     ];
 
     return (
-        <div className={`w-full bg-slate-900 ${t.border.default} rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden`}>
+        <div className={`w-full bg-slate-900 ${t.border.default} rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden`}>
             <div className="absolute top-0 left-0 w-96 h-96 bg-red-500/5 rounded-full blur-3xl -translate-y-1/2 -translate-x-1/2 pointer-events-none" aria-live="assertive"></div>
 
             <div className="relative z-10">
@@ -178,7 +178,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                 {/* WEATHER DIVERSION PROCEDURES */}
                 <div className="mt-6 pt-6 border-t border-white/10">
                     <h4 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 mb-4">
-                        <WindIcon className="w-4 h-4 text-orange-400" />
+                        <WindIcon className="w-4 h-4 text-amber-400" />
                         Weather Diversion Procedures
                     </h4>
 
@@ -186,9 +186,9 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         {diversionScenarios.map((scenario, idx) => (
                             <div key={idx} className={`bg-white/5 ${t.border.default} rounded-lg p-3 hover:bg-white/10 transition-colors`}>
                                 <div className="flex items-start gap-2 mb-2">
-                                    <AlertTriangleIcon className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                                    <AlertTriangleIcon className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                                     <div className="flex-1">
-                                        <h5 className="text-sm font-bold text-orange-300 mb-1">{scenario.condition}</h5>
+                                        <h5 className="text-sm font-bold text-amber-300 mb-1">{scenario.condition}</h5>
                                         <p className="text-sm text-white mb-1"><span className="font-bold">Action:</span> {scenario.action}</p>
                                         <p className="text-sm text-gray-400">{scenario.recommendation}</p>
                                     </div>

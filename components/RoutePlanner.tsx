@@ -310,13 +310,13 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                         style={{ WebkitAppearance: 'none' }} />
                                 </div>
                                 <div className="relative w-full min-w-0 group">
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-teal-400 transition-colors">
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-emerald-400 transition-colors">
                                         <ClockIcon className="w-4 h-4" />
                                     </div>
                                     <input type="time" value={departureTime}
                                         onChange={(e) => setDepartureTime(e.target.value)}
                                         aria-label="Departure time"
-                                        className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-teal-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                        className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-emerald-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }} />
                                 </div>
                             </div>
@@ -400,7 +400,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     }
                                     setSuggestingDeparture(false);
                                 }}
-                                className="w-full h-10 bg-gradient-to-r from-teal-500/10 to-cyan-500/10 border border-teal-500/20 rounded-xl flex items-center justify-center gap-2 text-teal-300 hover:from-teal-500/20 hover:to-cyan-500/20 transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="w-full h-10 bg-gradient-to-r from-emerald-500/10 to-sky-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center gap-2 text-emerald-300 hover:from-emerald-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                                 {suggestingDeparture ? (
                                     <span className="text-xs font-bold uppercase tracking-widest animate-pulse">Analysing 10-Day Forecast…</span>
@@ -416,9 +416,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
                             {/* AI Reasoning display */}
                             {suggestedReasoning && (
-                                <div className="bg-teal-500/5 border border-teal-500/15 rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-2">
-                                    <p className="text-[11px] text-teal-300/80 leading-relaxed whitespace-pre-line">
-                                        <span className="font-bold text-teal-300">⚡ AI: </span>{suggestedReasoning}
+                                <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-2">
+                                    <p className="text-[11px] text-emerald-300/80 leading-relaxed whitespace-pre-line">
+                                        <span className="font-bold text-emerald-300">⚡ AI: </span>{suggestedReasoning}
                                     </p>
                                 </div>
                             )}
@@ -476,7 +476,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     onClick={onTriggerUpgrade}
                                     className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
                                 >
-                                    <LockIcon className="w-4 h-4 text-teal-400" />
+                                    <LockIcon className="w-4 h-4 text-emerald-400" />
                                     Unlock Route Planning
                                 </button>
                             ) : (
@@ -486,7 +486,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     onConfirm={() => formRef.current?.requestSubmit()}
                                     loading={loading}
                                     loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
-                                    theme="teal"
+                                    theme="emerald"
                                 />
                             )}
                         </div>

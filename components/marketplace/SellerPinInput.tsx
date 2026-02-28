@@ -146,7 +146,7 @@ export const SellerPinInput: React.FC<SellerPinInputProps> = ({ escrow, onCaptur
 
     return (
         <div className="mx-3 mb-3">
-            <div className="rounded-2xl overflow-hidden border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.04] to-cyan-500/[0.02]">
+            <div className="rounded-2xl overflow-hidden border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.04] to-sky-500/[0.02]">
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-sky-500/10 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -227,7 +227,7 @@ export const SellerPinInput: React.FC<SellerPinInputProps> = ({ escrow, onCaptur
                                 disabled={status === 'verifying' || digits.some(d => !d)}
                                 className={`w-full py-3.5 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all active:scale-[0.98] ${status === 'verifying' || digits.some(d => !d)
                                         ? 'bg-white/[0.04] text-white/40 border border-white/[0.06]'
-                                        : 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20'
+                                        : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'
                                     }`}
                             >
                                 {status === 'verifying' ? '⏳ Verifying PIN...' : '🔐 Capture Payment'}

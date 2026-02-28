@@ -170,7 +170,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(({ data, i
                                             <span className="text-sm text-gray-400 uppercase font-bold">{units.length}</span>
                                         </div>
                                         <div className={`bg-white/5 rounded-2xl p-3 flex flex-col items-center justify-center text-center ${t.border.subtle}`}>
-                                            <div className="text-orange-400 mb-1"><CompassIcon rotation={current.windDegree ?? 0} className="w-5 h-5" /></div>
+                                            <div className="text-amber-400 mb-1"><CompassIcon rotation={current.windDegree ?? 0} className="w-5 h-5" /></div>
                                             <span className="text-lg font-bold text-white">{current.windDirection}</span>
                                             <span className="text-sm text-gray-400 uppercase font-bold">Dir</span>
                                         </div>

@@ -1824,7 +1824,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                 });
                             }}
                             className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${windState.isGlobalMode
-                                ? 'bg-cyan-600/90 border-cyan-500/30'
+                                ? 'bg-sky-600/90 border-sky-500/30'
                                 : 'bg-amber-600/90 border-amber-500/30'
                                 }`}
                             title={windState.isGlobalMode ? 'Global Live Wind' : 'Passage Wind'}

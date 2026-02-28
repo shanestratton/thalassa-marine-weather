@@ -40,7 +40,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 <div className="w-1 h-4 rounded-full bg-sky-500" />
                 <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Yacht</span>
                 {localSelected && (
-                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg">
                         ✓ {localSelected}
                     </span>
                 )}
@@ -83,7 +83,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                                             </div>
                                         </div>
                                         {localSelected === entry.model && (
-                                            <span className="text-[11px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
+                                            <span className="text-[11px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-lg">Active</span>
                                         )}
                                     </button>
                                 ))}

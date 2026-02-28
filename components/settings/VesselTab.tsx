@@ -123,8 +123,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <Row>
                     <div><label className="text-sm text-white font-medium block">Vessel Type</label></div>
                     <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
-                        <button onClick={() => updateVessel('type', 'sail')} className={`px-4 py-2 rounded-md text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Sail</button>
-                        <button onClick={() => updateVessel('type', 'power')} className={`px-4 py-2 rounded-md text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Power</button>
+                        <button onClick={() => updateVessel('type', 'sail')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Sail</button>
+                        <button onClick={() => updateVessel('type', 'power')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>Power</button>
                     </div>
                 </Row>
                 <Row>
@@ -203,8 +203,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         // this button is UX reassurance for the user
                     }}
                     className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] ${saved
-                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/20'
-                            : 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
+                            ? 'bg-gradient-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                            : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                         }`}
                 >
                     {saved ? '✓ Profile Saved' : 'Save Vessel Profile'}

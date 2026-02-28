@@ -196,7 +196,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
-                    <span className="text-sm font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-3 h-3 text-orange-400" /> {sunrise}</span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-3 h-3 text-amber-400" /> {sunrise}</span>
                 </div>
             )}
 
@@ -236,7 +236,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
-                    <span className="text-sm font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-3 h-3 text-orange-400" /></span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-3 h-3 text-amber-400" /></span>
                 </div>
             )}
 
@@ -244,11 +244,11 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
                 <div className="flex justify-between w-full px-8 -mt-2">
                     <div className="flex flex-col items-start">
                         <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
-                        <span className="text-xl font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-4 h-4 text-orange-400" /> {sunrise}</span>
+                        <span className="text-xl font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-4 h-4 text-amber-400" /> {sunrise}</span>
                     </div>
                     <div className="flex flex-col items-end">
                         <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
-                        <span className="text-xl font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-4 h-4 text-orange-400" /></span>
+                        <span className="text-xl font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-4 h-4 text-amber-400" /></span>
                     </div>
                 </div>
             )}

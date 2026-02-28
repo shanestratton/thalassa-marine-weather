@@ -342,10 +342,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     {activeTab === 'account' && (
                         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
                             {/* Account Connection Hero */}
-                            <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-3xl p-6 mb-8 shadow-2xl relative overflow-hidden">
+                            <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-32 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -translate-y-1/2 translate-x-1/2"></div>
                                 <div className="flex flex-col items-center gap-4 relative z-10 text-center">
-                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/30' : 'bg-gradient-to-br from-slate-600 to-slate-700'}`}>
+                                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl ${user ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/30' : 'bg-gradient-to-br from-slate-600 to-slate-700'}`}>
                                         <CloudIcon className={`w-8 h-8 ${user ? 'text-white' : 'text-gray-400'}`} />
                                     </div>
                                     <div>

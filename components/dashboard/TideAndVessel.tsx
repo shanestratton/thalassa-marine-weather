@@ -699,7 +699,7 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px]">
             <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2 text-orange-300">
+                <div className="flex items-center gap-2 text-amber-300">
                     {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
                     <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
                 </div>
@@ -722,7 +722,7 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
                         {mcr && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Comfort</span>
-                                <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-orange-300'}`}>{Math.round(mcr)}</span>
+                                <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}>{Math.round(mcr)}</span>
                             </div>
                         )}
                         {csf && (
@@ -754,8 +754,8 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                 {/* Card 1: Solar Cycle (Replaces Tides) */}
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-start relative overflow-hidden gap-4">
                     <div className="flex items-center gap-2 mb-2">
-                        <SunIcon className="w-5 h-5 text-orange-400" />
-                        <span className="text-sm font-bold text-orange-300 uppercase tracking-widest">Solar Cycle</span>
+                        <SunIcon className="w-5 h-5 text-amber-400" />
+                        <span className="text-sm font-bold text-amber-300 uppercase tracking-widest">Solar Cycle</span>
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center items-center py-4">
@@ -852,7 +852,7 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
             {vessel && vessel.type !== 'observer' ? (
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px]">
                     <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-2 text-orange-300">
+                        <div className="flex items-center gap-2 text-amber-300">
                             {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
                             <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
                         </div>
@@ -875,7 +875,7 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                                 {mcr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                         <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Motion Comfort</span>
-                                        <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-orange-300'}`}>{Math.round(mcr)}</span>
+                                        <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}>{Math.round(mcr)}</span>
                                     </div>
                                 )}
                                 {csf && (

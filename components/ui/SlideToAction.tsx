@@ -21,7 +21,7 @@ interface SlideToActionProps {
     /** Disable the slider */
     disabled?: boolean;
     /** Color theme preset */
-    theme?: 'emerald' | 'orange' | 'teal' | 'sky';
+    theme?: 'emerald' | 'amber' | 'sky';
 }
 
 const THEMES = {
@@ -38,31 +38,18 @@ const THEMES = {
         spinnerBorder: 'border-emerald-400',
         loadingTextColor: 'text-emerald-300',
     },
-    orange: {
-        track: 'linear-gradient(135deg, rgba(234,88,12,0.25) 0%, rgba(194,65,12,0.2) 100%)',
-        trackBorder: '1px solid rgba(251,146,60,0.25)',
-        shimmer: 'rgba(251,146,60,0.08)',
-        shimmerPeak: 'rgba(251,146,60,0.15)',
-        labelColor: 'text-orange-300/70',
-        thumbBg: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
-        thumbShadow: '0 4px 16px rgba(249,115,22,0.4), 0 0 20px rgba(249,115,22,0.15)',
+    amber: {
+        track: 'linear-gradient(135deg, rgba(245,158,11,0.25) 0%, rgba(217,119,6,0.2) 100%)',
+        trackBorder: '1px solid rgba(251,191,36,0.25)',
+        shimmer: 'rgba(251,191,36,0.08)',
+        shimmerPeak: 'rgba(251,191,36,0.15)',
+        labelColor: 'text-amber-300/70',
+        thumbBg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+        thumbShadow: '0 4px 16px rgba(245,158,11,0.4), 0 0 20px rgba(245,158,11,0.15)',
         loadingTrack: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(217,119,6,0.1) 100%)',
         loadingBorder: '1px solid rgba(245,158,11,0.2)',
         spinnerBorder: 'border-amber-400',
         loadingTextColor: 'text-amber-300',
-    },
-    teal: {
-        track: 'linear-gradient(135deg, rgba(13,148,136,0.25) 0%, rgba(15,118,110,0.2) 100%)',
-        trackBorder: '1px solid rgba(45,212,191,0.25)',
-        shimmer: 'rgba(45,212,191,0.08)',
-        shimmerPeak: 'rgba(45,212,191,0.15)',
-        labelColor: 'text-teal-300/70',
-        thumbBg: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-        thumbShadow: '0 4px 16px rgba(20,184,166,0.4), 0 0 20px rgba(20,184,166,0.15)',
-        loadingTrack: 'linear-gradient(135deg, rgba(13,148,136,0.15) 0%, rgba(15,118,110,0.1) 100%)',
-        loadingBorder: '1px solid rgba(45,212,191,0.2)',
-        spinnerBorder: 'border-teal-400',
-        loadingTextColor: 'text-teal-300',
     },
     sky: {
         track: 'linear-gradient(135deg, rgba(14,165,233,0.25) 0%, rgba(2,132,199,0.2) 100%)',

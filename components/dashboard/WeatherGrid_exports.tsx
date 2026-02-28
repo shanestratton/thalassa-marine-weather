@@ -97,7 +97,7 @@ export const MetricsWidget = ({ current, units, displayValues }: { current: Weat
                 <div className="absolute top-2 right-2 flex gap-1">
                     {isSensorLocked && <span className="text-[7px] font-bold bg-emerald-500 text-white px-1 py-0.5 rounded leading-none uppercase tracking-tighter">Verified</span>}
                 </div>
-                <Metric icon={<WindIcon className="w-6 h-6" />} label={`Wind (${units.speed})`} value={`${displayValues.windSpeed}`} subValue={<span className="text-orange-300 font-medium">Gusting: {displayValues.gusts}</span>} isEstimated={current.isEstimated} />
+                <Metric icon={<WindIcon className="w-6 h-6" />} label={`Wind (${units.speed})`} value={`${displayValues.windSpeed}`} subValue={<span className="text-amber-300 font-medium">Gusting: {displayValues.gusts}</span>} isEstimated={current.isEstimated} />
             </Card>
             <Card className="col-span-1">
                 <Metric icon={<CompassIcon rotation={current.windDegree ?? 0} className="w-6 h-6" />} label="Direction" value={current.windDirection} subValue={`${current.windDegree || '--'}°`} isEstimated={current.isEstimated} />

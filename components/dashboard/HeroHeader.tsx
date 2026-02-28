@@ -209,13 +209,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     {/* Hi/Lo temps stacked */}
                     <div className="flex flex-col items-end gap-0.5">
                         <div className="flex items-center gap-0.5">
-                            <ArrowUpIcon className="w-2.5 h-2.5 text-orange-400 opacity-70" />
+                            <ArrowUpIcon className="w-2.5 h-2.5 text-amber-400 opacity-70" />
                             <span className="text-xs font-mono font-bold text-white/80">
                                 {data.highTemp !== undefined ? convertTemp(data.highTemp, units.temp) : '--'}°
                             </span>
                         </div>
                         <div className="flex items-center gap-0.5">
-                            <ArrowDownIcon className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
+                            <ArrowDownIcon className="w-2.5 h-2.5 text-sky-400 opacity-70" />
                             <span className="text-xs font-mono font-bold text-white/80">
                                 {data.lowTemp !== undefined ? convertTemp(data.lowTemp, units.temp) : '--'}°
                             </span>

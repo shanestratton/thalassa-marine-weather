@@ -340,7 +340,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
                         <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
 
-                        <div className="w-24 h-24 bg-gradient-to-br from-sky-400 to-sky-600 rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-[0_20px_50px_rgba(14,165,233,0.3)] ring-4 ring-white/10 relative z-10">
+                        <div className="w-24 h-24 bg-gradient-to-br from-sky-400 to-sky-600 rounded-2xl mx-auto mb-8 flex items-center justify-center shadow-[0_20px_50px_rgba(14,165,233,0.3)] ring-4 ring-white/10 relative z-10">
                             <BoatIcon className="w-12 h-12 text-white fill-white" />
                         </div>
 
@@ -530,7 +530,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     {/* Tankage */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><GearIcon className="w-3 h-3 text-orange-400" /> Fuel</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><GearIcon className="w-3 h-3 text-amber-400" /> Fuel</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
                                             <input type="number" value={fuel} onChange={(e) => setFuel(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
                                         </div>
                                         <div>
@@ -542,7 +542,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     {/* Crew */}
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                            <AnchorIcon className="w-3 h-3 text-cyan-400" /> Crew Aboard (incl. Captain)
+                                            <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Captain)
                                         </label>
                                         <input type="number" min="1" max="99" value={crewCount} onChange={(e) => setCrewCount(e.target.value)} placeholder="2" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
                                         <p className="text-[11px] text-gray-500 mt-1">Used for provisioning and watch schedules</p>
@@ -564,7 +564,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Wind Speed</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['kts', 'mph', 'kmh'].map((u) => (
-                                        <button key={u} onClick={() => setPrefSpeed(u as SpeedUnit)} className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button key={u} onClick={() => setPrefSpeed(u as SpeedUnit)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
                                     ))}
                                 </div>
                             </div>
@@ -574,7 +574,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Seas (Wave Height)</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['m', 'ft'].map((u) => (
-                                        <button key={u} onClick={() => setPrefWaveHeight(u as LengthUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button key={u} onClick={() => setPrefWaveHeight(u as LengthUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
                                     ))}
                                 </div>
                             </div>
@@ -584,7 +584,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Tide Height / Length</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['m', 'ft'].map((u) => (
-                                        <button key={u} onClick={() => setPrefLength(u as LengthUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button key={u} onClick={() => setPrefLength(u as LengthUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
                                     ))}
                                 </div>
                             </div>
@@ -593,7 +593,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Temperature</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['C', 'F'].map((u) => (
-                                        <button key={u} onClick={() => setPrefTemp(u as TempUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button key={u} onClick={() => setPrefTemp(u as TempUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
                                     ))}
                                 </div>
                             </div>
@@ -601,7 +601,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Distance</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['nm', 'mi', 'km'].map((u) => (
-                                        <button key={u} onClick={() => setPrefDist(u as DistanceUnit)} className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button key={u} onClick={() => setPrefDist(u as DistanceUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
                                     ))}
                                 </div>
                             </div>

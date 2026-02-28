@@ -9,6 +9,7 @@ import { useNmeaStore, NmeaValue, NmeaStatusDot } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
+import { PageHeader } from '../ui/PageHeader';
 
 interface NmeaPageProps {
     onBack: () => void;
@@ -61,21 +62,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             <div className="flex flex-col h-full">
 
-                {/* ═══ HEADER ═══ */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">NMEA</h1>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Instrument Data</p>
-                        </div>
-                        <NmeaStatusDot />
-                    </div>
-                </div>
+                <PageHeader
+                    title="NMEA"
+                    subtitle="Instrument Data"
+                    onBack={onBack}
+                    breadcrumbs={['Ship\'s Office', 'NMEA']}
+                    action={<NmeaStatusDot />}
+                />
 
                 {/* Content — fills viewport, no scroll */}
                 <div className="flex-1 flex flex-col px-4 min-h-0 overflow-hidden" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
@@ -126,7 +119,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                             disabled={connecting || isConnecting}
                             className={`w-full py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50 ${isConnected
                                 ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
-                                : 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500'
+                                : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                                 }`}
                         >
                             {connecting || isConnecting ? (

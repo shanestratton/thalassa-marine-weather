@@ -178,7 +178,7 @@ const TYPE_INDICATOR = {
 const getBfColor = (bf: number) => {
     if (bf <= 3) return 'text-sky-400';
     if (bf <= 5) return 'text-amber-400';
-    if (bf <= 7) return 'text-orange-400';
+    if (bf <= 7) return 'text-amber-400';
     return 'text-red-400';
 };
 

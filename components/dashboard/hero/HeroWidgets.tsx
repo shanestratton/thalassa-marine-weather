@@ -87,15 +87,15 @@ export const renderHeroWidget = (
                 <div className={`flex flex-col h-full justify-end ${alignClass}`}>
                     {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Gusts</span>
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Gusts</span>
                         {renderTrend(trend, true)}
                     </div>
                     {/* Main value + Max badge on same line */}
                     <div className="flex flex-wrap items-end gap-1">
                         <span className={`${valSize} md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('windGust')}`}>{values.gusts}</span>
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.speed}</span>
-                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-orange-300 border border-white/5 ml-1`}>
+                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-amber-300 border border-white/5 ml-1`}>
                             <span>Max</span>
                         </div>
                     </div>
@@ -129,15 +129,15 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Barometer</span>
+                        <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Barometer</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className={`text-2xl md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('pressure')}`}>{values.pressure}</span>
                         <span className="text-sm md:text-sm font-medium text-gray-400">hPa</span>
                         {renderTrend(trend, false)}
                     </div>
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-teal-300 font-bold opacity-70">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-emerald-300 font-bold opacity-70">
                         MSL
                     </div>
                 </div>
@@ -163,15 +163,15 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Humidity</span>
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Humidity</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className={`text-2xl md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('humidity')}`}>{values.humidity}</span>
                         <span className="text-sm md:text-sm font-medium text-gray-400">%</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-cyan-300 font-bold opacity-70">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70">
                         --
                     </div>
                 </div>
@@ -264,15 +264,15 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'} `}>Sea Temp</span>
+                        <ThermometerIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Sea Temp</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className={`text-2xl md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('waterTemperature')}`}>{values.waterTemperature}</span>
                         <span className="text-sm md:text-sm font-medium text-gray-400">°{units.temp}</span>
                         {renderTrend(trend, true)}
                     </div>
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-cyan-300 font-bold opacity-70">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70">
                         Surface
                     </div>
                 </div>
@@ -300,16 +300,16 @@ export const renderHeroWidget = (
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
                         {/* Fix: CompassIcon requires 'rotation' prop */}
                         <CompassIcon
-                            className={`w-3 h-3 ${isLive ? 'text-teal-400' : 'text-slate-400'} `}
+                            className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `}
                             rotation={typeof data.currentDirection === 'number' ? data.currentDirection : 0}
                         />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-teal-200' : 'text-slate-300'} `}>Set</span>
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}>Set</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         {/* We want just the cardinal direction here, e.g. "NE" */}
                         <span className={`text-2xl md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('currentDirection')}`}>{values.currentDirection}</span>
                     </div>
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-teal-300 font-bold opacity-70">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-emerald-300 font-bold opacity-70">
                         {/* Fix: Ensure currentDirection is a number before Math.round, handle string case */}
                         {typeof data.currentDirection === 'number' ? Math.round(data.currentDirection) + '°' : '--'} True
                     </div>
@@ -319,13 +319,13 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>UV Index</span>
+                        <SunIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>UV Index</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.uv}</span>
                     </div>
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-orange-300 font-bold opacity-70">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-amber-300 font-bold opacity-70">
                         --
                     </div>
                 </div>
@@ -334,8 +334,8 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-orange-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-orange-200' : 'text-slate-300'} `}>Sunrise</span>
+                        <SunriseIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}>Sunrise</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-xl md:text-3xl font-mono font-medium tracking-tight text-ivory">{values.sunrise}</span>
@@ -370,7 +370,7 @@ export const renderHeroWidget = (
             const capeVal = data.cape ?? 0;
             const capeDisplay = values.cape ?? '--';
             // CAPE severity colors: <300 = low (green), 300-1000 = moderate (yellow), 1000-2500 = high (orange), >2500 = extreme (red)
-            const capeColor = capeVal >= 2500 ? 'text-red-400' : capeVal >= 1000 ? 'text-orange-400' : capeVal >= 300 ? 'text-yellow-400' : 'text-emerald-400';
+            const capeColor = capeVal >= 2500 ? 'text-red-400' : capeVal >= 1000 ? 'text-amber-400' : capeVal >= 300 ? 'text-yellow-400' : 'text-emerald-400';
             const capeLabel = capeVal >= 2500 ? 'EXTREME' : capeVal >= 1000 ? 'HIGH' : capeVal >= 300 ? 'MOD' : 'LOW';
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
@@ -391,8 +391,8 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-cyan-200' : 'text-slate-300'}`}>SOG</span>
+                        <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'}`} />
+                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'}`}>SOG</span>
                     </div>
                     <div className="flex items-end gap-1">
                         <span className={`${valSize} font-mono font-medium tracking-tight text-white`}>{sogDisplay}</span>

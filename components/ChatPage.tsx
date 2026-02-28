@@ -66,14 +66,14 @@ type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' |
 // --- AVATAR COLOR SYSTEM ---
 const AVATAR_GRADIENTS = [
     'from-sky-400 to-sky-600',
-    'from-emerald-400 to-teal-600',
+    'from-emerald-400 to-emerald-600',
     'from-violet-400 to-purple-600',
     'from-red-400 to-red-600',
-    'from-amber-400 to-orange-600',
-    'from-cyan-400 to-sky-600',
+    'from-amber-400 to-amber-600',
+    'from-sky-400 to-sky-600',
     'from-fuchsia-400 to-violet-600',
     'from-lime-400 to-emerald-600',
-    'from-orange-400 to-red-600',
+    'from-amber-400 to-red-600',
     'from-sky-400 to-sky-700',
 ];
 
@@ -1050,7 +1050,7 @@ export const ChatPage: React.FC = () => {
                 <div className="mx-4 mt-3 fade-slide-down">
                     <div className="relative p-4 rounded-2xl overflow-hidden">
                         {/* Glassmorphism bg */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-cyan-500/10 backdrop-blur-xl border border-sky-400/20 rounded-2xl" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-sky-500/10 backdrop-blur-xl border border-sky-400/20 rounded-2xl" />
                         <div className="relative flex items-start justify-between">
                             <div>
                                 <p className="text-sm font-bold text-sky-300 mb-1.5">Welcome aboard, sailor! ⛵</p>
@@ -1135,7 +1135,7 @@ export const ChatPage: React.FC = () => {
                     <div className="flex-1 flex flex-col px-5 py-4 gap-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 11rem)' }}>
                         {/* Avatar section */}
                         <div className="flex flex-col items-center gap-3">
-                            <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-violet-400/20 shadow-lg shadow-violet-500/10">
+                            <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-violet-400/20 shadow-lg shadow-violet-500/10">
                                 {myAvatarUrl ? (
                                     <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
@@ -1398,7 +1398,7 @@ export const ChatPage: React.FC = () => {
                                                     >
                                                         <span className="text-[11px]">{rank.badge}</span>
                                                         {showRankTooltip === msg.id && (
-                                                            <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
+                                                            <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
                                                                 {rank.title} • {msg.helpful_count} helpful
                                                             </span>
                                                         )}
@@ -1469,7 +1469,7 @@ export const ChatPage: React.FC = () => {
                                                         </button>
                                                         <button
                                                             onClick={() => { setReportingMsg(msg); setReportSent(false); }}
-                                                            className="text-sm text-white/10 hover:text-orange-400/60 transition-colors"
+                                                            className="text-sm text-white/10 hover:text-amber-400/60 transition-colors"
                                                         >
                                                             🚩 Report
                                                         </button>
@@ -1500,7 +1500,7 @@ export const ChatPage: React.FC = () => {
                                                                 <button
                                                                     key={hrs}
                                                                     onClick={() => handleMuteUser(msg.user_id, hrs)}
-                                                                    className="text-[11px] text-orange-400/70 hover:bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/10 transition-colors"
+                                                                    className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/10 transition-colors"
                                                                 >
                                                                     {label}
                                                                 </button>
@@ -1611,7 +1611,7 @@ export const ChatPage: React.FC = () => {
                                             key={r}
                                             onClick={() => setReportReason(r)}
                                             className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${reportReason === r
-                                                ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
+                                                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
                                                 : 'bg-white/[0.02] border border-white/[0.04] text-white/40 hover:bg-white/[0.04]'
                                                 }`}
                                         >
@@ -1625,7 +1625,7 @@ export const ChatPage: React.FC = () => {
                                 </div>
                                 <div className="flex gap-2">
                                     <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                                    <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-orange-500/15 text-xs text-orange-400 font-medium hover:bg-orange-500/25 transition-colors">Submit Report</button>
+                                    <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors">Submit Report</button>
                                 </div>
                             </>
                         )}
@@ -1754,7 +1754,7 @@ export const ChatPage: React.FC = () => {
                                 />
                                 <button
                                     onClick={sendPoi}
-                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 hover:from-emerald-500/30 hover:to-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                                 >
                                     🗺️ Share
                                 </button>
@@ -1810,10 +1810,10 @@ export const ChatPage: React.FC = () => {
                                         <button
                                             onClick={() => sendTrack(v)}
                                             disabled={trackSharing}
-                                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-teal-500/15 to-emerald-500/15 hover:from-teal-500/25 hover:to-emerald-500/25 text-xs text-teal-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
+                                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 hover:from-emerald-500/25 hover:to-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
                                         >
                                             {trackSharing ? (
-                                                <div className="w-4 h-4 border-2 border-teal-500/30 rounded-full border-t-teal-500 animate-spin" />
+                                                <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />
                                             ) : '⛵ Share'}
                                         </button>
                                     </div>

@@ -31,7 +31,7 @@ export const HourlyStrip: React.FC<HourlyStripProps> = ({
             return <CloudIcon className="w-5 h-5 text-gray-300" />;
         }
         if (cond.includes('wind') || cond.includes('gust')) {
-            return <WindIcon className="w-5 h-5 text-cyan-400" />;
+            return <WindIcon className="w-5 h-5 text-sky-400" />;
         }
         // Default sunny/clear
         return <SunIcon className="w-5 h-5 text-yellow-400" />;

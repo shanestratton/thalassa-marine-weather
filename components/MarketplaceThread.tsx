@@ -281,7 +281,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                 <div key={msg.id} className="flex justify-center my-3">
                                     {msg.escrow_type === 'pin_reveal' && isOwn ? (
                                         // ── BUYER'S PIN BUBBLE ──
-                                        <div className="w-full max-w-xs bg-gradient-to-br from-sky-500/20 to-cyan-500/20 border-2 border-sky-500/30 rounded-3xl p-5 text-center">
+                                        <div className="w-full max-w-xs bg-gradient-to-br from-sky-500/20 to-sky-500/20 border-2 border-sky-500/30 rounded-2xl p-5 text-center">
                                             <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">Your Handoff PIN</p>
                                             <div className="flex items-center justify-center gap-3">
                                                 {(msg.pin_code || buyerPin || '????').split('').map((digit, i) => (
@@ -339,7 +339,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
             {!isBuyer && escrowState === 'holding' && (
                 <div className="mx-4 mb-2">
                     {showPinPad ? (
-                        <div className="bg-gradient-to-br from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl p-4">
+                        <div className="bg-gradient-to-br from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl p-4">
                             <p className="text-[11px] text-amber-400/70 font-bold uppercase tracking-widest mb-3 text-center">
                                 Enter Buyer's PIN
                             </p>
@@ -394,7 +394,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                 triggerHaptic('medium');
                                 setShowPinPad(true);
                             }}
-                            className="w-full py-3.5 bg-gradient-to-r from-amber-600 to-orange-600 rounded-2xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:from-amber-500 hover:to-orange-500 transition-all active:scale-[0.97]"
+                            className="w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-600 rounded-2xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:from-amber-500 hover:to-amber-500 transition-all active:scale-[0.97]"
                         >
                             🔐 Enter Buyer's PIN to Release Funds
                         </button>
@@ -409,7 +409,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                     <button
                         onClick={handleSecureFunds}
                         disabled={securingFunds}
-                        className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-[11px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95 disabled:opacity-50"
+                        className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-[11px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-95 disabled:opacity-50"
                     >
                         {securingFunds ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

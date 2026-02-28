@@ -132,7 +132,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                 {/* Rain glow animation when active */}
                 {isActive && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
-                        <div className="absolute -top-8 left-1/3 w-24 h-24 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
+                        <div className="absolute -top-8 left-1/3 w-24 h-24 bg-sky-500/10 rounded-full blur-3xl animate-pulse" />
                         <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-sky-500/10 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
                     </div>
                 )}
@@ -141,11 +141,11 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Header Row */}
                     <div className="flex items-center justify-center">
                         <div className="flex items-center gap-1.5">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-cyan-400" : "text-sky-400/60"}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-sky-400" : "text-sky-400/60"}>
                                 <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                     fill="currentColor" fillOpacity={isActive ? "0.5" : "0.3"} stroke="currentColor" strokeWidth="1.5" />
                             </svg>
-                            <span className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-cyan-300' : 'text-ivory'}`}>
+                            <span className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-sky-300' : 'text-ivory'}`}>
                                 {analysis.headline}
                             </span>
                         </div>
@@ -257,7 +257,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
             >
                 {/* Glow effects */}
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
-                    <div className="absolute -top-20 left-1/4 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl" />
+                    <div className="absolute -top-20 left-1/4 w-40 h-40 bg-sky-500/10 rounded-full blur-3xl" />
                     <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl" />
                 </div>
 
@@ -265,7 +265,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     {/* Header */}
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-cyan-400">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-sky-400">
                                 <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                     fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="1.5" />
                             </svg>
@@ -318,7 +318,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
-                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-sky-400/50'}`}>
+                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-sky-400' : 'text-sky-400/50'}`}>
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
                             <div className="text-2xl font-black text-white tabular-nums">
@@ -340,7 +340,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {/* Peak intensity marker */}
                         {analysis.hasRain && (
                             <div
-                                className="absolute -top-4 text-[11px] text-cyan-400 font-bold uppercase tracking-wider whitespace-nowrap"
+                                className="absolute -top-4 text-[11px] text-sky-400 font-bold uppercase tracking-wider whitespace-nowrap"
                                 style={{ left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`, transform: 'translateX(-50%)' }}
                             >
                                 Peak
@@ -392,7 +392,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Peak</div>
-                                <div className="text-sm font-bold text-cyan-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
+                                <div className="text-sm font-bold text-sky-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Type</div>
