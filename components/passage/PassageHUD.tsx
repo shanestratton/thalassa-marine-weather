@@ -194,10 +194,18 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
         : (c?.wave_ht_m ?? 0) > 2 ? '#ffb800' : '#0088ff';
 
     return (
-        <div className="glass-panel bio-animate-in" style={{
+        <div className="bio-animate-in" style={{
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(20px) saturate(1.2)',
+            WebkitBackdropFilter: 'blur(20px) saturate(1.2)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 16,
+            borderTopLeftRadius: 0,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
             width: 280,
             padding: '14px 16px',
             pointerEvents: 'auto',
+            color: '#e2e8f0',
         }}>
             {/* ── HEADER ── */}
             <h2 style={{
