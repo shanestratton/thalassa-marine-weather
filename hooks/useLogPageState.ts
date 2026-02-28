@@ -443,9 +443,34 @@ export function useLogPageState() {
 
     const handleConfirmDeleteVoyage = useCallback(async () => {
         if (!state.deleteVoyageId) return;
-        const success = await ShipLogService.deleteVoyage(state.deleteVoyageId);
+        const voyageId = state.deleteVoyageId;
+
+        // Check if this voyage has been shared to the community
+        try {
+            const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+            if (sharedTracks.length > 0) {
+                const trackInfo = sharedTracks.map(t =>
+                    `"${t.title}" (${t.download_count || 0} downloads)`
+                ).join(', ');
+                const shouldDeleteShared = confirm(
+                    `⚠️ This voyage has been shared to the community as ${trackInfo}.\n\n` +
+                    `Deleting this voyage will also remove it from the community.\n\n` +
+                    `Continue?`
+                );
+                if (!shouldDeleteShared) {
+                    dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
+                    return;
+                }
+                // Delete the community share(s) first
+                await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
+            }
+        } catch {
+            // Shared track check failed — proceed with local delete anyway
+        }
+
+        const success = await ShipLogService.deleteVoyage(voyageId);
         if (success) {
-            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== state.deleteVoyageId) });
+            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== voyageId) });
             reloadCareerData(); // Refresh career totals immediately
         } else {
             toast.error('Failed to delete voyage');
