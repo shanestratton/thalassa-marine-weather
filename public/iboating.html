@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Thalassa — i-Boating Nautical Charts</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Thalassa nautical chart development hub using i-Boating SDK">
+
+    <!-- i-Boating SDK v5.5 -->
+    <link rel='stylesheet'
+        href='https://fishing-app.gpsnauticalcharts.com/i-boating-fishing-marine-navigation-sdk/5.5/blc-maps.css' />
+    <script
+        src='https://fishing-app.gpsnauticalcharts.com/i-boating-fishing-marine-navigation-sdk/5.5/blc-maps.js'></script>
+
+    <!-- Google Fonts — match main Thalassa app -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0f1e;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        /* ── Header Bar ─────────────────────────────────── */
+        #header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 200;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background: linear-gradient(135deg,
+                    rgba(10, 15, 30, 0.92),
+                    rgba(15, 23, 42, 0.88));
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+        }
+
+        #header .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #header .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        #header h1 {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: linear-gradient(90deg, #e2e8f0, #94a3b8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        #header .badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(56, 189, 248, 0.12);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            letter-spacing: 0.3px;
+        }
+
+        /* ── Keel Alert ─────────────────────────────────── */
+        #keel-alert {
+            position: absolute;
+            top: 64px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 300;
+            background: linear-gradient(135deg,
+                    rgba(220, 38, 38, 0.92),
+                    rgba(185, 28, 28, 0.88));
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 10px 20px;
+            display: none;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            animation: pulse-alert 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-alert {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.8;
+            }
+        }
+
+        /* ── Info Panel (depth readout) ──────────────────── */
+        #info-panel {
+            position: absolute;
+            bottom: 24px;
+            left: 16px;
+            z-index: 200;
+            background: linear-gradient(135deg,
+                    rgba(10, 15, 30, 0.92),
+                    rgba(15, 23, 42, 0.88));
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.15);
+            border-radius: 10px;
+            padding: 14px 18px;
+            min-width: 260px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.7;
+            transition: opacity 0.3s ease;
+        }
+
+        #info-panel .label {
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        #info-panel .depth-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #38bdf8;
+        }
+
+        #info-panel .depth-value.warning {
+            color: #f59e0b;
+        }
+
+        #info-panel .depth-value.danger {
+            color: #ef4444;
+        }
+
+        #info-panel .coord {
+            color: #94a3b8;
+            font-size: 11px;
+        }
+
+        #info-panel .wuk-row {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        #info-panel .wuk-label {
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #info-panel .wuk-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #22c55e;
+        }
+
+        #info-panel .wuk-value.warning {
+            color: #f59e0b;
+        }
+
+        #info-panel .wuk-value.danger {
+            color: #ef4444;
+            animation: pulse-alert 1.5s ease-in-out infinite;
+        }
+
+        /* ── Tide Widget ────────────────────────────────── */
+        #tide-widget {
+            position: absolute;
+            top: 64px;
+            right: 16px;
+            z-index: 200;
+            background: linear-gradient(135deg,
+                    rgba(10, 15, 30, 0.92),
+                    rgba(15, 23, 42, 0.88));
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.15);
+            border-radius: 10px;
+            padding: 14px 18px;
+            min-width: 180px;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        #tide-widget .tide-label {
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        #tide-widget .tide-height {
+            font-size: 28px;
+            font-weight: 700;
+            color: #0ea5e9;
+            line-height: 1.2;
+        }
+
+        #tide-widget .tide-direction {
+            font-size: 12px;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+
+        #tide-widget .tide-direction.rising {
+            color: #22c55e;
+        }
+
+        #tide-widget .tide-direction.falling {
+            color: #f59e0b;
+        }
+
+        #tide-widget .tide-datum {
+            color: #475569;
+            font-size: 9px;
+            margin-top: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        #tide-widget .tide-source {
+            color: #334155;
+            font-size: 8px;
+            margin-top: 2px;
+        }
+
+        #tide-widget .tide-cached {
+            color: #334155;
+            font-size: 8px;
+            margin-top: 1px;
+            font-style: italic;
+        }
+
+        #tide-widget.flash-danger {
+            border-color: rgba(239, 68, 68, 0.5);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+
+        /* ── Map Container ──────────────────────────────── */
+        #map {
+            position: absolute;
+            top: 52px;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+
+        /* ── Loading Spinner ────────────────────────────── */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 500;
+            text-align: center;
+        }
+
+        #loading .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(56, 189, 248, 0.15);
+            border-top-color: #38bdf8;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        #loading .text {
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ── i-Boating popup overrides (dark theme) ──── */
+        .blcgl-popup-content {
+            background: rgba(10, 15, 30, 0.95) !important;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.2) !important;
+            border-radius: 8px !important;
+            color: #e2e8f0 !important;
+            font-family: 'JetBrains Mono', monospace !important;
+            font-size: 13px !important;
+            padding: 10px 14px !important;
+        }
+
+        .blcgl-popup-tip {
+            border-top-color: rgba(10, 15, 30, 0.95) !important;
+        }
+
+        .blcgl-popup-close-button {
+            color: #94a3b8 !important;
+        }
+
+        /* ── Scrollbar ──────────────────────────────────── */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Header -->
+    <div id="header">
+        <div class="logo">
+            <div class="logo-icon">⚓</div>
+            <h1>THALASSA</h1>
+        </div>
+        <span class="badge">i-Boating SDK v5.5 · DEV</span>
+    </div>
+
+    <!-- Keel Alert Banner -->
+    <div id="keel-alert">⚠ LOW CLEARANCE — DEPTH BELOW DRAFT THRESHOLD (2.5m)</div>
+
+    <!-- Tide Widget (top-right) -->
+    <div id="tide-widget">
+        <div class="tide-label">Current Tide</div>
+        <div class="tide-height" id="tide-height">—</div>
+        <div class="tide-direction" id="tide-direction"></div>
+        <div class="tide-datum">Datum: LAT</div>
+        <div class="tide-source" id="tide-source">WorldTides API</div>
+        <div class="tide-cached" id="tide-cached"></div>
+    </div>
+
+    <!-- Depth Info Panel (bottom-left) -->
+    <div id="info-panel">
+        <div class="label">Depth Probe</div>
+        <div class="depth-value" id="depth-display">— m</div>
+        <div class="coord" id="coord-display">Click chart to query</div>
+        <div class="wuk-row">
+            <span class="wuk-label">Water Under Keel</span>
+            <span class="wuk-value" id="wuk-display">—</span>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <div class="text">Initializing nautical charts…</div>
+    </div>
+    <div id="map"></div>
+
+    <script>
+        // ══════════════════════════════════════════════════
+        // ── Configuration ────────────────────────────────
+        // ══════════════════════════════════════════════════
+
+        var TAYANA_DRAFT_M = 2.5;       // Tayana 52 keel draft (meters)
+        var SAFETY_MARGIN_M = 0.5;      // Minimum under-keel clearance
+        var NEWPORT_LAT = -27.205;
+        var NEWPORT_LNG = 153.111;
+
+        // WorldTides API key — paste yours here
+        var WORLDTIDES_API_KEY = 'YOUR_WORLDTIDES_API_KEY';
+
+        // Tide cache settings: fetch once per hour, store 12h of data
+        var TIDE_CACHE_KEY = 'thalassa_tide_cache';
+        var TIDE_CACHE_MAX_AGE_MS = 60 * 60 * 1000;  // 1 hour
+
+        // ══════════════════════════════════════════════════
+        // ── State ────────────────────────────────────────
+        // ══════════════════════════════════════════════════
+
+        var _map = null;
+        var _currentTideHeight = null;   // Current interpolated tide (meters)
+        var _tideData = null;            // Cached tide heights array
+        var _lastChartDepth = null;      // Last queried depth from chart
+        var _activePopup = null;         // Track popup so we close old ones
+
+        // ══════════════════════════════════════════════════
+        // ── Map Initialization ───────────────────────────
+        // ══════════════════════════════════════════════════
+
+        window.onload = function () {
+            var options = {
+                container: 'map',
+                zoom: 13.5,
+                center: [NEWPORT_LNG, NEWPORT_LAT],
+                // Paste your i-Boating trial key here:
+                blc_access_token: 'YOUR_TRIAL_ACCESS_TOKEN_HERE'
+            };
+
+            var map = blcgl.external_to_js.blcCreateMapObject(options);
+
+            map.on('load', function () {
+                _map = map;
+
+                // Hide loading spinner
+                var loader = document.getElementById('loading');
+                if (loader) loader.style.display = 'none';
+
+                console.log('🚢 Thalassa Engine: i-Boating Map Loaded');
+                console.log('🔧 Draft: ' + TAYANA_DRAFT_M + 'm | Safety margin: ' + SAFETY_MARGIN_M + 'm');
+
+                // Set depth units to meters
+                map.setDepthUnit('meter');
+
+                // ── Depth Probe: Click Handler ───────────
+                map.on('click', function (e) {
+                    var lng = e.lngLat.lng.toFixed(5);
+                    var lat = e.lngLat.lat.toFixed(5);
+
+                    console.log('📍 Clicked: [' + lat + ', ' + lng + ']');
+
+                    // Update coordinate display
+                    document.getElementById('coord-display').textContent =
+                        'Lat ' + lat + ' · Lon ' + lng;
+
+                    // Close any existing popup
+                    if (_activePopup) {
+                        _activePopup.remove();
+                        _activePopup = null;
+                    }
+
+                    // Query the vector chart layers for depth/sounding data
+                    var features = map.queryRenderedFeatures(e.point);
+                    var depth = null;
+
+                    if (features && features.length > 0) {
+                        // Walk through features to find one with depth data
+                        for (var i = 0; i < features.length; i++) {
+                            var props = features[i].properties || {};
+                            // i-Boating vector charts may expose depth as
+                            // 'depth', 'DRVAL1' (min depth), 'value', or 'sounding'
+                            var d = props.depth || props.DRVAL1 || props.value ||
+                                props.sounding || props.VALDCO;
+                            if (d !== undefined && d !== null) {
+                                depth = parseFloat(d);
+                                if (!isNaN(depth)) break;
+                            }
+                        }
+
+                        // Log all feature properties for SDK exploration
+                        console.log('🗂️  Features at point (' + features.length + '):');
+                        features.forEach(function (f, idx) {
+                            console.log('   [' + idx + '] layer:', f.layer ? f.layer.id : '?',
+                                '| props:', JSON.stringify(f.properties));
+                        });
+                    }
+
+                    // Update the info panel
+                    updateDepthDisplay(depth, lat, lng);
+
+                    // Build popup HTML
+                    var popupHTML = buildDepthPopupHTML(depth);
+
+                    // Create i-Boating popup at click location
+                    try {
+                        _activePopup = new blcgl.external_to_js.blcPopup()
+                            .setLngLat(e.lngLat)
+                            .setHTML(popupHTML)
+                            .addTo(_map);
+                    } catch (err) {
+                        console.log('ℹ️  Popup creation skipped:', err.message || err);
+                    }
+                });
+
+                // ── Initialize Tide Data ─────────────────
+                initTideData();
+            });
+
+            map.on('error', function (err) {
+                console.error('❌ i-Boating Map Error:', err);
+                var loader = document.getElementById('loading');
+                if (loader) {
+                    loader.querySelector('.text').textContent =
+                        'Map failed to load — check console (Ctrl+Shift+J)';
+                    loader.querySelector('.spinner').style.display = 'none';
+                }
+            });
+        };
+
+        // ══════════════════════════════════════════════════
+        // ── Depth Probe Display ──────────────────────────
+        // ══════════════════════════════════════════════════
+
+        function updateDepthDisplay(depthM, lat, lng) {
+            var depthEl = document.getElementById('depth-display');
+            var alertEl = document.getElementById('keel-alert');
+            var wukEl = document.getElementById('wuk-display');
+
+            _lastChartDepth = depthM;
+
+            if (depthM === null || depthM === undefined || isNaN(depthM)) {
+                depthEl.textContent = 'No data';
+                depthEl.className = 'depth-value';
+                alertEl.style.display = 'none';
+                wukEl.textContent = '—';
+                wukEl.className = 'wuk-value';
+                return;
+            }
+
+            depthEl.textContent = depthM.toFixed(1) + ' m';
+
+            // Calculate total water depth = chart depth + current tide
+            var tideAdj = (_currentTideHeight !== null) ? _currentTideHeight : 0;
+            var totalWater = depthM + tideAdj;
+            var wuk = totalWater - TAYANA_DRAFT_M;
+
+            // Update Water Under Keel display
+            wukEl.textContent = wuk.toFixed(1) + ' m';
+
+            // Color-code based on clearance
+            if (wuk < 0) {
+                // GROUNDING — we cannot pass here
+                depthEl.className = 'depth-value danger';
+                wukEl.className = 'wuk-value danger';
+                alertEl.style.display = 'block';
+                console.warn('🚨 GROUNDING RISK: WUK ' + wuk.toFixed(1) +
+                    'm at [' + lat + ', ' + lng + '] (chart: ' + depthM.toFixed(1) +
+                    'm + tide: ' + tideAdj.toFixed(2) + 'm)');
+            } else if (wuk < SAFETY_MARGIN_M) {
+                // DANGER — below safety margin
+                depthEl.className = 'depth-value danger';
+                wukEl.className = 'wuk-value danger';
+                alertEl.style.display = 'block';
+                console.warn('🚨 KEEL ALERT: Only ' + wuk.toFixed(1) +
+                    'm clearance at [' + lat + ', ' + lng + ']');
+            } else if (wuk < 1.0) {
+                // WARNING — tight clearance
+                depthEl.className = 'depth-value warning';
+                wukEl.className = 'wuk-value warning';
+                alertEl.style.display = 'none';
+                console.warn('⚠️  Low clearance: ' + wuk.toFixed(1) +
+                    'm under keel at [' + lat + ', ' + lng + ']');
+            } else {
+                // SAFE
+                depthEl.className = 'depth-value';
+                wukEl.className = 'wuk-value';
+                alertEl.style.display = 'none';
+                console.log('✅ Depth: ' + depthM.toFixed(1) + 'm + tide ' +
+                    tideAdj.toFixed(2) + 'm = ' + totalWater.toFixed(1) +
+                    'm total → WUK: ' + wuk.toFixed(1) + 'm');
+            }
+        }
+
+        function buildDepthPopupHTML(depthM) {
+            if (depthM === null || depthM === undefined || isNaN(depthM)) {
+                return '<b>Depth:</b> No chart data at this point' +
+                    '<br><span style="color:#64748b;font-size:11px;">Try clicking on a sounding or depth area</span>';
+            }
+
+            var tideAdj = (_currentTideHeight !== null) ? _currentTideHeight : 0;
+            var totalWater = depthM + tideAdj;
+            var wuk = totalWater - TAYANA_DRAFT_M;
+
+            var html = '<b>Chart Depth:</b> ' + depthM.toFixed(1) + 'm';
+
+            if (_currentTideHeight !== null) {
+                html += '<br><b>Tide:</b> ' + (tideAdj >= 0 ? '+' : '') + tideAdj.toFixed(2) + 'm';
+                html += '<br><b>Total Water:</b> ' + totalWater.toFixed(1) + 'm';
+            }
+
+            html += '<br><b>Draft:</b> ' + TAYANA_DRAFT_M + 'm';
+            html += '<br><b>Water Under Keel:</b> ' + wuk.toFixed(1) + 'm';
+
+            // Safety alerts
+            if (wuk < 0) {
+                html += '<br><b style="color:#ef4444;">🚨 GROUNDING RISK — CANNOT TRANSIT</b>';
+            } else if (wuk < SAFETY_MARGIN_M) {
+                html += '<br><b style="color:#ef4444;">⚠️ BELOW SAFETY MARGIN (' + SAFETY_MARGIN_M + 'm)</b>';
+            } else if (wuk < 1.0) {
+                html += '<br><b style="color:#f59e0b;">⚠️ SHALLOW WATER — PROCEED WITH CAUTION</b>';
+            } else {
+                html += '<br><span style="color:#22c55e;">✅ Safe passage</span>';
+            }
+
+            return html;
+        }
+
+        // ══════════════════════════════════════════════════
+        // ── WorldTides Integration ───────────────────────
+        // ══════════════════════════════════════════════════
+
+        function initTideData() {
+            // Try to load from localStorage first
+            var cached = loadTideCache();
+            if (cached) {
+                _tideData = cached;
+                interpolateTide();
+                console.log('🌊 Tide data loaded from cache (' + cached.length + ' heights)');
+                document.getElementById('tide-cached').textContent = 'Cached data';
+            }
+
+            // Fetch fresh data if cache is stale or empty
+            if (!cached || isTideCacheStale()) {
+                fetchTideData(NEWPORT_LAT, NEWPORT_LNG);
+            }
+
+            // Refresh the tide interpolation every 5 minutes
+            setInterval(function () {
+                interpolateTide();
+                // Re-evaluate WUK if we have a chart depth
+                if (_lastChartDepth !== null) {
+                    updateDepthDisplay(_lastChartDepth);
+                }
+            }, 5 * 60 * 1000);
+
+            // Check for cache staleness every 30 minutes
+            setInterval(function () {
+                if (isTideCacheStale()) {
+                    console.log('🔄 Tide cache stale — refreshing from WorldTides…');
+                    fetchTideData(NEWPORT_LAT, NEWPORT_LNG);
+                }
+            }, 30 * 60 * 1000);
+        }
+
+        function fetchTideData(lat, lng) {
+            if (WORLDTIDES_API_KEY === 'YOUR_WORLDTIDES_API_KEY') {
+                console.log('ℹ️  WorldTides: No API key set — using placeholder display');
+                console.log('   Paste your key into WORLDTIDES_API_KEY to enable live tides');
+                document.getElementById('tide-height').textContent = '—';
+                document.getElementById('tide-direction').textContent = 'No API key';
+                document.getElementById('tide-direction').className = 'tide-direction';
+                return;
+            }
+
+            // Request 12 hours of tide data to minimize API calls
+            var url = 'https://www.worldtides.info/api/v3?heights' +
+                '&lat=' + lat +
+                '&lon=' + lng +
+                '&length=43200' +  // 12 hours in seconds
+                '&step=1800' +     // 30-minute intervals
+                '&key=' + WORLDTIDES_API_KEY;
+
+            console.log('🌊 Fetching tide data from WorldTides…');
+
+            fetch(url)
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.error) {
+                        console.error('WorldTides API error:', data.error);
+                        return;
+                    }
+
+                    if (data.heights && data.heights.length > 0) {
+                        _tideData = data.heights;
+                        saveTideCache(_tideData);
+                        interpolateTide();
+                        console.log('✅ WorldTides: Received ' + data.heights.length +
+                            ' tide heights for next 12h');
+                        console.log('💰 Credits remaining:', data.callCount || '?');
+                        document.getElementById('tide-cached').textContent = '';
+                    }
+                })
+                .catch(function (err) {
+                    console.error('WorldTides fetch error:', err);
+                    document.getElementById('tide-direction').textContent = 'Offline';
+                    document.getElementById('tide-direction').className = 'tide-direction';
+                });
+        }
+
+        // Interpolate current tide height from cached data array
+        function interpolateTide() {
+            if (!_tideData || _tideData.length === 0) return;
+
+            var nowEpoch = Math.floor(Date.now() / 1000);
+            var closest = null;
+            var nextPoint = null;
+            var minDiff = Infinity;
+
+            // Find the two points surrounding "now"
+            for (var i = 0; i < _tideData.length; i++) {
+                var diff = nowEpoch - _tideData[i].dt;
+                if (diff >= 0 && diff < minDiff) {
+                    minDiff = diff;
+                    closest = _tideData[i];
+                    nextPoint = (i + 1 < _tideData.length) ? _tideData[i + 1] : null;
+                }
+            }
+
+            if (!closest) {
+                // All data is in the future — use first point
+                closest = _tideData[0];
+                nextPoint = _tideData.length > 1 ? _tideData[1] : null;
+            }
+
+            // Linear interpolation between the two bracketing points
+            var height = closest.height;
+            if (nextPoint) {
+                var span = nextPoint.dt - closest.dt;
+                var elapsed = nowEpoch - closest.dt;
+                if (span > 0) {
+                    var frac = Math.min(elapsed / span, 1);
+                    height = closest.height + frac * (nextPoint.height - closest.height);
+                }
+            }
+
+            _currentTideHeight = height;
+
+            // Update tide widget UI
+            var heightEl = document.getElementById('tide-height');
+            var dirEl = document.getElementById('tide-direction');
+
+            heightEl.textContent = (height >= 0 ? '+' : '') + height.toFixed(2) + 'm';
+
+            // Determine if tide is rising or falling
+            if (nextPoint) {
+                if (nextPoint.height > closest.height) {
+                    dirEl.textContent = '▲ Rising';
+                    dirEl.className = 'tide-direction rising';
+                } else {
+                    dirEl.textContent = '▼ Falling';
+                    dirEl.className = 'tide-direction falling';
+                }
+            }
+
+            // Flash danger if WUK is tight with last known depth
+            var widget = document.getElementById('tide-widget');
+            if (_lastChartDepth !== null) {
+                var wuk = _lastChartDepth + height - TAYANA_DRAFT_M;
+                if (wuk < SAFETY_MARGIN_M) {
+                    widget.classList.add('flash-danger');
+                } else {
+                    widget.classList.remove('flash-danger');
+                }
+            }
+        }
+
+        // ══════════════════════════════════════════════════
+        // ── LocalStorage Tide Cache ──────────────────────
+        // ══════════════════════════════════════════════════
+        // Stores tide data in localStorage so it persists through
+        // page refreshes and brief internet dropouts.
+
+        function saveTideCache(tideHeights) {
+            try {
+                var cacheObj = {
+                    timestamp: Date.now(),
+                    data: tideHeights
+                };
+                localStorage.setItem(TIDE_CACHE_KEY, JSON.stringify(cacheObj));
+                console.log('💾 Tide data cached to localStorage');
+            } catch (err) {
+                console.warn('Failed to save tide cache:', err);
+            }
+        }
+
+        function loadTideCache() {
+            try {
+                var raw = localStorage.getItem(TIDE_CACHE_KEY);
+                if (!raw) return null;
+                var cached = JSON.parse(raw);
+                if (cached && cached.data && cached.data.length > 0) {
+                    return cached.data;
+                }
+            } catch (err) {
+                console.warn('Failed to load tide cache:', err);
+            }
+            return null;
+        }
+
+        function isTideCacheStale() {
+            try {
+                var raw = localStorage.getItem(TIDE_CACHE_KEY);
+                if (!raw) return true;
+                var cached = JSON.parse(raw);
+                return (Date.now() - cached.timestamp) > TIDE_CACHE_MAX_AGE_MS;
+            } catch (err) {
+                return true;
+            }
+        }
+    </script>
+
+</body>
+
+</html>
