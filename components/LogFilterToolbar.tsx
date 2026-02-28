@@ -94,7 +94,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
             </div>
 
             {/* Results - Very Compact */}
-            <div className="text-[10px] text-slate-500 text-center mt-1.5">
+            <div className="text-[11px] text-slate-500 text-center mt-1.5">
                 {filteredCount}/{totalEntries} entries
             </div>
         </div>

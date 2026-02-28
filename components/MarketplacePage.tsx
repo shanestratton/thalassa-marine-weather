@@ -138,11 +138,11 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 </div>
                             )}
                             {/* Category badge */}
-                            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] font-bold text-white/90 uppercase tracking-wider">
+                            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
                                 {CATEGORY_ICONS[listing.category]} {listing.category}
                             </div>
                             {/* Condition badge */}
-                            <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider backdrop-blur-md ${getConditionColor(listing.condition)}`}>
+                            <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider backdrop-blur-md ${getConditionColor(listing.condition)}`}>
                                 {listing.condition}
                             </div>
                         </div>
@@ -153,10 +153,10 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                         {/* If no image, show category inline */}
                         {!hasImages && (
                             <div className="flex items-center gap-2 mb-2">
-                                <span className={`px-2 py-0.5 rounded-full bg-white/[0.06] border ${t.border.default} text-[10px] font-bold text-white/70 uppercase tracking-wider`}>
+                                <span className={`px-2 py-0.5 rounded-full bg-white/[0.06] border ${t.border.default} text-[11px] font-bold text-white/70 uppercase tracking-wider`}>
                                     {CATEGORY_ICONS[listing.category]} {listing.category}
                                 </span>
-                                <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
+                                <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
                                     {listing.condition}
                                 </span>
                             </div>
@@ -180,7 +180,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                     {listing.description}
                                 </p>
                                 {listing.description.length > 100 && (
-                                    <span className="text-[10px] text-sky-400 font-medium">{expanded ? 'Less' : 'More'}</span>
+                                    <span className="text-[11px] text-sky-400 font-medium">{expanded ? 'Less' : 'More'}</span>
                                 )}
                             </button>
                         )}
@@ -218,7 +218,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 <div className="flex flex-col">
                                     <span className="text-[12px] font-semibold text-white/80">{listing.seller_name || 'Sailor'}</span>
                                     {listing.seller_vessel && (
-                                        <span className="text-[10px] text-white/30 flex items-center gap-0.5">
+                                        <span className="text-[11px] text-white/30 flex items-center gap-0.5">
                                             ⛵ {listing.seller_vessel}
                                         </span>
                                     )}
@@ -416,7 +416,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     <img src={url} className="w-full h-full object-cover" alt="" />
                                     <button
                                         onClick={() => removeImage(i)}
-                                        className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[10px]"
+                                        className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
                                     >✕</button>
                                 </div>
                             ))}
@@ -426,7 +426,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/30 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
                                 >
                                     <span className="text-xl">+</span>
-                                    <span className="text-[9px] mt-0.5">Add</span>
+                                    <span className="text-[11px] mt-0.5">Add</span>
                                 </button>
                             )}
                         </div>
@@ -530,7 +530,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[14px] text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
                         />
                         {gpsLat && (
-                            <p className="text-[10px] text-white/20 mt-1">
+                            <p className="text-[11px] text-white/20 mt-1">
                                 📍 {gpsLat.toFixed(4)}, {gpsLon?.toFixed(4)}
                             </p>
                         )}

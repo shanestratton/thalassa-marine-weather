@@ -1028,7 +1028,7 @@ const HeroSlideComponent = ({
                                                     <span className="text-lg">🌊</span>
                                                 </div>
                                                 <p className="text-xs font-semibold text-amber-400/80 uppercase tracking-widest">Tides Temporarily Unavailable</p>
-                                                <p className="text-[10px] text-white/30 leading-relaxed max-w-[200px]">
+                                                <p className="text-[11px] text-white/30 leading-relaxed max-w-[200px]">
                                                     Tide data source is currently unreachable. Data will restore automatically on next refresh.
                                                 </p>
                                             </div>
@@ -1095,13 +1095,13 @@ const HeroSlideComponent = ({
                                                     <div key={w.id} className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
                                                         <div className="flex items-center gap-1.5 opacity-90">
                                                             <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
-                                                            <span className={`text-[10px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>{w.label}</span>
+                                                            <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>{w.label}</span>
                                                         </div>
                                                         <div className="flex items-baseline gap-0.5">
                                                             <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
                                                                 {getVal(w.id)}
                                                             </span>
-                                                            {getUnit(w.id) && <span className="text-[10px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{getUnit(w.id)}</span>}
+                                                            {getUnit(w.id) && <span className="text-[11px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{getUnit(w.id)}</span>}
                                                         </div>
                                                     </div>
                                                 );

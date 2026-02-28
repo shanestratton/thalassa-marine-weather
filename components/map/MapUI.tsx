@@ -80,7 +80,7 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
                     <WindIcon className="w-4 h-4 text-sky-400" /> Global Winds
                 </div>
                 <div className="flex flex-col gap-2">
-                    <div className="text-[10px] text-gray-400 mb-1">Streamlines</div>
+                    <div className="text-[11px] text-gray-400 mb-1">Streamlines</div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
                         <div className="w-4 h-1 bg-[rgb(239,68,68)] rounded shadow-[0_0_6px_rgba(239,68,68,0.8)]"></div>
                         <span className="font-bold">60+ kts</span>
@@ -102,13 +102,13 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
                         <span className="text-gray-300 ml-auto">Light</span>
                     </div>
                     <div className="border-t border-white/10 my-2"></div>
-                    <div className="text-[10px] text-gray-400 mb-1">Pressure</div>
+                    <div className="text-[11px] text-gray-400 mb-1">Pressure</div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full border-2 border-red-500 flex items-center justify-center text-[8px] font-bold text-red-500">H</span>
+                        <span className="w-4 h-4 rounded-full border-2 border-red-500 flex items-center justify-center text-[11px] font-bold text-red-500">H</span>
                         <span className="text-gray-300">High</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full border-2 border-blue-500 flex items-center justify-center text-[8px] font-bold text-blue-500">L</span>
+                        <span className="w-4 h-4 rounded-full border-2 border-blue-500 flex items-center justify-center text-[11px] font-bold text-blue-500">L</span>
                         <span className="text-gray-300">Low</span>
                     </div>
                 </div>
@@ -179,9 +179,9 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
                                     <BoatIcon className="w-4 h-4 text-sky-400" /> Facilities
                                 </h4>
                                 <div className="flex flex-wrap gap-2">
-                                    {details.fuelAvailable && <span className="px-2 py-1 rounded bg-orange-500/10 text-orange-300 text-[10px] font-bold border border-orange-500/20">FUEL DOCK</span>}
+                                    {details.fuelAvailable && <span className="px-2 py-1 rounded bg-orange-500/10 text-orange-300 text-[11px] font-bold border border-orange-500/20">FUEL DOCK</span>}
                                     {details.marinaFacilities?.slice(0, 6).map((f, i) => (
-                                        <span key={i} className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[10px] font-medium border border-white/10">{f}</span>
+                                        <span key={i} className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10">{f}</span>
                                     ))}
                                 </div>
                             </div>

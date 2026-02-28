@@ -103,7 +103,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    <span className="text-[10px] font-bold">Delete</span>
+                    <span className="text-[11px] font-bold">Delete</span>
                 </div>
             </div>
 
@@ -140,17 +140,17 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 2: Status label + due info */}
                 <div className="flex items-center justify-between mt-1.5">
-                    <p className={`text-[10px] font-bold uppercase tracking-widest ${light.text}`}>
+                    <p className={`text-[11px] font-bold uppercase tracking-widest ${light.text}`}>
                         {task.statusLabel}
                     </p>
                     <div className="flex items-center gap-2">
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
-                            <span className="text-[10px] text-slate-400 font-mono">
+                            <span className="text-[11px] text-slate-400 font-mono">
                                 @ {task.next_due_hours?.toLocaleString()} hrs
                             </span>
                         )}
                         {task.next_due_date && (
-                            <span className="text-[10px] text-slate-400 font-mono">
+                            <span className="text-[11px] text-slate-400 font-mono">
                                 {new Date(task.next_due_date).toLocaleDateString()}
                             </span>
                         )}
@@ -159,7 +159,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 3: Last serviced */}
                 {task.last_completed && (
-                    <p className="text-[9px] text-slate-600 mt-1">
+                    <p className="text-[11px] text-slate-600 mt-1">
                         Last serviced: {new Date(task.last_completed).toLocaleDateString()}
                     </p>
                 )}
@@ -428,18 +428,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Maintenance</h1>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Tasks & Expiry</p>
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Tasks & Expiry</p>
                         </div>
 
                         {/* Status summary pills */}
                         <div className="flex items-center gap-1.5">
                             {counts.red > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-black">{counts.red}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[11px] font-black">{counts.red}</span>
                             )}
                             {counts.yellow > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-black">{counts.yellow}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[11px] font-black">{counts.yellow}</span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black">{counts.green}</span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black">{counts.green}</span>
                         </div>
 
                         {/* 3-dot menu */}
@@ -498,7 +498,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <div>
-                                    <p className="text-[10px] text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
+                                    <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
                                     {isEditingHours ? (
                                         <input
                                             ref={hoursInputRef}
@@ -639,14 +639,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Engine hours snapshot — only for engine-based tasks */}
                             {sheetTask.trigger_type === 'engine_hours' && (
                                 <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
-                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
+                                    <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
                                     <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
                                 </div>
                             )}
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
                                     Notes (Optional)
                                 </label>
                                 <textarea
@@ -659,7 +659,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Cost */}
                             <div className="mb-6">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
                                     Cost (Optional)
                                 </label>
                                 <div className="flex items-center gap-2">
@@ -731,7 +731,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Title */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
                                 <input
                                     type="text"
                                     value={newTitle}
@@ -743,7 +743,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
                                 <textarea
                                     value={newDescription}
                                     onChange={e => setNewDescription(e.target.value)}
@@ -755,7 +755,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Category chips */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {CATEGORIES.map(cat => (
                                         <button
@@ -774,7 +774,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Trigger type */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                         <button
@@ -795,7 +795,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {newTrigger === 'engine_hours' && (
                                 <>
                                     <div className="mb-4">
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
                                             Interval (Hours)
                                         </label>
                                         <input
@@ -809,7 +809,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </div>
 
                                     <div className="mb-6">
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
                                         <input
                                             type="text"
                                             inputMode="numeric"
@@ -825,14 +825,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Next due — for time-based triggers */}
                             {newTrigger !== 'engine_hours' && (
                                 <div className="mb-6">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
                                     <input
                                         type="date"
                                         value={newDueDate}
                                         onChange={e => setNewDueDate(e.target.value)}
                                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                     />
-                                    <p className="text-[10px] text-gray-600 mt-1">
+                                    <p className="text-[11px] text-gray-600 mt-1">
                                         Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
                                     </p>
                                 </div>
@@ -870,19 +870,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Task Name */}
                             <div className="mb-3">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
                                 <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
                                 <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 
                             {/* Category */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {CATEGORIES.map(cat => (
                                         <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
@@ -894,7 +894,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Trigger type */}
                             <div className="mb-4">
-                                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                         <button key={t} onClick={() => setNewTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
@@ -908,11 +908,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {newTrigger === 'engine_hours' && (
                                 <>
                                     <div className="mb-4">
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
+                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
                                         <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                                     </div>
                                     <div className="mb-6">
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
+                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
                                         <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                                     </div>
                                 </>
@@ -921,7 +921,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Due date — for non-engine triggers */}
                             {newTrigger !== 'engine_hours' && (
                                 <div className="mb-6">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
                                     <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                                 </div>
                             )}
@@ -969,7 +969,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     {new Date(h.completed_at).toLocaleDateString()}
                                                 </p>
                                                 {h.engine_hours_at_service !== null && (
-                                                    <span className="text-[10px] text-sky-400 font-bold">
+                                                    <span className="text-[11px] text-sky-400 font-bold">
                                                         @ {h.engine_hours_at_service?.toLocaleString()} hrs
                                                     </span>
                                                 )}
@@ -1014,7 +1014,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </div>
                                     <div>
                                         <p className="text-sm font-black text-white">Print Blank Checklist</p>
-                                        <p className="text-[10px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
+                                        <p className="text-[11px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
                                     </div>
                                 </div>
                             </button>
@@ -1033,7 +1033,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </div>
                                     <div>
                                         <p className="text-sm font-black text-white">Export Service History</p>
-                                        <p className="text-[10px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
+                                        <p className="text-[11px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
                                     </div>
                                 </div>
                             </button>

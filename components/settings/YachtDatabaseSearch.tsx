@@ -40,7 +40,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 <div className="w-1 h-4 rounded-full bg-sky-500" />
                 <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Yacht</span>
                 {localSelected && (
-                    <span className="ml-auto text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
                         ✓ {localSelected}
                     </span>
                 )}
@@ -64,7 +64,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 <div className="mt-3 space-y-3 max-h-72 overflow-y-auto custom-scrollbar">
                     {Object.entries(grouped).map(([mfr, entries]) => (
                         <div key={mfr}>
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
+                            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
                             <div className="space-y-1">
                                 {entries.map(entry => (
                                     <button
@@ -79,11 +79,11 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                                             <span className="text-lg">{entry.category === 'multihull' ? '🐈' : '⛵'}</span>
                                             <div>
                                                 <p className="text-sm font-bold">{entry.model}</p>
-                                                <p className="text-[10px] text-gray-500">{entry.loa}ft • {entry.category}</p>
+                                                <p className="text-[11px] text-gray-500">{entry.loa}ft • {entry.category}</p>
                                             </div>
                                         </div>
                                         {localSelected === entry.model && (
-                                            <span className="text-[9px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
+                                            <span className="text-[11px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
                                         )}
                                     </button>
                                 ))}
@@ -94,14 +94,14 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                         <p className="text-center text-sm text-gray-500 py-4">No boats match "{search}"</p>
                     )}
                     {results.length > 5 && (
-                        <p className="text-center text-[10px] text-gray-500 py-1">
+                        <p className="text-center text-[11px] text-gray-500 py-1">
                             Showing 5 of {results.length} results — refine your search
                         </p>
                     )}
                 </div>
             )}
 
-            <p className="text-[10px] text-gray-500 mt-3 text-center">
+            <p className="text-[11px] text-gray-500 mt-3 text-center">
                 {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
             </p>
         </div>

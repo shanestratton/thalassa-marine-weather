@@ -422,7 +422,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
                 <GaugeIcon className="w-8 h-8 text-gray-600 mb-2" />
-                <span className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">Awaiting Telemetry</span>
+                <span className="text-[11px] uppercase font-bold text-gray-500 tracking-widest">Awaiting Telemetry</span>
             </div>
         );
     }
@@ -517,7 +517,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
     const nextLow = allMarkers.find(m => m.time > currentHour && m.type === 'Low');
 
-    const heroLabelClass = "text-[9px] text-blue-300/80 font-bold uppercase tracking-widest";
+    const heroLabelClass = "text-[11px] text-blue-300/80 font-bold uppercase tracking-widest";
     const heroValueClass = "text-xl font-bold text-white tracking-tight leading-none";
 
     return (
@@ -532,7 +532,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             <span className={heroLabelClass}>Height</span>
                             <div className="flex items-baseline gap-0.5">
                                 <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">{currentHeight.toFixed(1)}</span>
-                                <span className="text-[10px] text-blue-200 font-medium">{unit}</span>
+                                <span className="text-[11px] text-blue-200 font-medium">{unit}</span>
                             </div>
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
                         </div>
@@ -566,7 +566,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-start pointer-events-none">
                     {/* Current Status Box */}
                     <div className="bg-slate-900/80 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-start pointer-events-auto">
-                        <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
+                        <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
                             Current Tide Level
                         </span>
                         <div className={`flex items-baseline gap-1.5 ${trendColor}`}>
@@ -579,14 +579,14 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     {/* Next Event Box */}
                     {nextEvent && (
                         <div className="bg-slate-900/80 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-end pointer-events-auto">
-                            <span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
+                            <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
                                 Next {nextEvent.type === 'High' ? 'High' : 'Low'}
                             </span>
                             <div className="flex items-center gap-2">
                                 <span className="text-2xl font-bold text-white tracking-tight">{nextEvent.labelTime.replace(/ [AP]M/, '')}</span>
                                 <span className="text-xs text-gray-500 font-bold self-end mb-1">{nextEvent.labelTime.includes('PM') ? 'PM' : 'AM'}</span>
                             </div>
-                            <span className="text-[10px] text-sky-400 font-mono font-bold">{nextEvent.height.toFixed(1)} {unit} Target</span>
+                            <span className="text-[11px] text-sky-400 font-mono font-bold">{nextEvent.height.toFixed(1)} {unit} Target</span>
                         </div>
                     )}
                 </div>
@@ -606,7 +606,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 />
                 {/* Station name — bottom left */}
                 {(guiDetails?.stationName || stationName) && (
-                    <span className="absolute bottom-1.5 left-2 text-[9px] font-semibold text-white/50 tracking-wide pointer-events-none select-none">
+                    <span className="absolute bottom-1.5 left-2 text-[11px] font-semibold text-white/50 tracking-wide pointer-events-none select-none">
                         {guiDetails?.stationName || stationName}
                     </span>
                 )}
@@ -669,7 +669,7 @@ export const SunMoonWidget = ({ current, units, timeZone, lat }: { current: Weat
                 <div className="flex items-center justify-center p-2 w-full">
                     {current.sunrise && current.sunset && (
                         <div className="w-full">
-                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-2 text-center">Solar Cycle</div>
+                            <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider mb-2 text-center">Solar Cycle</div>
                             <SolarArc sunrise={current.sunrise} sunset={current.sunset} size="normal" showTimes={true} timeZone={timeZone} />
                         </div>
                     )}
@@ -703,31 +703,31 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
                     {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
                     <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
                 </div>
-                <div className={`px-2 py-1 rounded border text-[10px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
+                <div className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
                     {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                 </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mt-2">
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                    <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Hull Speed</span>
+                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Hull Speed</span>
                     <span className="text-xl font-mono font-bold text-white">{hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span></span>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                    <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
+                    <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
                     <span className="text-xl font-mono font-bold text-white">{(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span></span>
                 </div>
                 {vessel.type === 'sail' && (
                     <>
                         {mcr && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Comfort</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Comfort</span>
                                 <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-orange-300'}`}>{Math.round(mcr)}</span>
                             </div>
                         )}
                         {csf && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Capsize</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize</span>
                                 <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(2)}</span>
                             </div>
                         )}
@@ -794,14 +794,14 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                         {/* Atmospherics Grid */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
-                                <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><EyeIcon className="w-3 h-3" /> Visibility</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><EyeIcon className="w-3 h-3" /> Visibility</span>
                                 <span className="text-xl font-mono font-bold text-white">
                                     {current.visibility ? convertDistance(current.visibility, units.visibility || 'mi') : '--'}
                                     <span className="text-xs text-gray-500 ml-1">{units.visibility || 'mi'}</span>
                                 </span>
                             </div>
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
-                                <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><GaugeIcon className="w-3 h-3" /> Pressure</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><GaugeIcon className="w-3 h-3" /> Pressure</span>
                                 <span className="text-xl font-mono font-bold text-white">
                                     {current.pressure ? Math.round(current.pressure) : '--'}
                                     <span className="text-xs text-gray-500 ml-1">hPa</span>
@@ -856,37 +856,37 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                             {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
                             <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
                         </div>
-                        <div className={`px-2 py-1 rounded border text-[10px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
+                        <div className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
                             {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mt-2">
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                            <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Theoretical Hull Speed</span>
+                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Theoretical Hull Speed</span>
                             <span className="text-xl font-mono font-bold text-white">{hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span></span>
                         </div>
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                            <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
+                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
                             <span className="text-xl font-mono font-bold text-white">{(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span></span>
                         </div>
                         {vessel.type === 'sail' && (
                             <>
                                 {mcr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Motion Comfort</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Motion Comfort</span>
                                         <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-orange-300'}`}>{Math.round(mcr)}</span>
                                     </div>
                                 )}
                                 {csf && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Capsize Risk</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize Risk</span>
                                         <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(2)}</span>
                                     </div>
                                 )}
                                 {dlr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">D/L Ratio</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">D/L Ratio</span>
                                         <span className="text-xl font-mono font-bold text-white">{Math.round(dlr)}</span>
                                     </div>
                                 )}

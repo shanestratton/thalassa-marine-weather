@@ -64,14 +64,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                 {/* ═══ HEADER ═══ */}
                 <div className="shrink-0 px-4 pt-3 pb-2">
                     <div className="flex items-center gap-3">
-                        <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                             </svg>
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">NMEA</h1>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Instrument Data</p>
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Instrument Data</p>
                         </div>
                         <NmeaStatusDot />
                     </div>
@@ -98,7 +98,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         {!isConnected && (
                             <div className="flex gap-2 mb-3">
                                 <div className="flex-1">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Host IP</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Host IP</label>
                                     <input
                                         type="text"
                                         value={host}
@@ -108,7 +108,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                     />
                                 </div>
                                 <div className="w-24">
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Port</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Port</label>
                                     <input
                                         type="text"
                                         inputMode="numeric"
@@ -136,7 +136,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
-                    <h3 className="shrink-0 text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
+                    <h3 className="shrink-0 text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
                     <div className="flex-1 grid grid-cols-2 gap-2 min-h-0 auto-rows-fr">
                         {instruments.map(inst => (
                             <div
@@ -145,7 +145,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                             >
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className="text-base">{inst.icon}</span>
-                                    <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
+                                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
                                 </div>
                                 <NmeaValue
                                     metric={inst.metric}

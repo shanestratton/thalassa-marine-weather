@@ -204,23 +204,23 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
 
             {/* ═══ NAV BAR ═══ */}
             <div className="px-4 pt-4 pb-2 flex items-center gap-3 shrink-0">
-                <button onClick={onBack} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                     <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
                 </button>
                 <div className="flex-1">
                     <h2 className="text-sm font-black text-white truncate">{listing.seller_name || 'Seller'}</h2>
-                    <p className="text-[10px] text-gray-500 font-bold">Transaction Room</p>
+                    <p className="text-[11px] text-gray-500 font-bold">Transaction Room</p>
                 </div>
                 {/* Escrow status badge */}
                 {escrowState === 'holding' && (
-                    <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-black border border-amber-500/20 animate-pulse">
+                    <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[11px] font-black border border-amber-500/20 animate-pulse">
                         💰 FUNDS HELD
                     </span>
                 )}
                 {escrowState === 'released' && (
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-black border border-emerald-500/20">
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black border border-emerald-500/20">
                         ✅ RELEASED
                     </span>
                 )}
@@ -246,7 +246,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                         <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-black">
                             ${listing.price}
                         </span>
-                        <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
                             {listing.condition}
                         </span>
                     </div>
@@ -279,7 +279,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                     {msg.escrow_type === 'pin_reveal' && isOwn ? (
                                         // ── BUYER'S PIN BUBBLE ──
                                         <div className="w-full max-w-xs bg-gradient-to-br from-sky-500/20 to-cyan-500/20 border-2 border-sky-500/30 rounded-3xl p-5 text-center">
-                                            <p className="text-[10px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">Your Handoff PIN</p>
+                                            <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">Your Handoff PIN</p>
                                             <div className="flex items-center justify-center gap-3">
                                                 {(msg.pin_code || buyerPin || '????').split('').map((digit, i) => (
                                                     <div key={i} className="w-12 h-14 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
@@ -287,7 +287,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                                     </div>
                                                 ))}
                                             </div>
-                                            <p className="text-[9px] text-gray-500 mt-3">
+                                            <p className="text-[11px] text-gray-500 mt-3">
                                                 Share this PIN with the seller at handoff
                                             </p>
                                         </div>
@@ -322,7 +322,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                         : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
                                     }`}>
                                     <p className="text-sm text-white leading-relaxed">{msg.content}</p>
-                                    <p className="text-[8px] text-gray-600 text-right mt-1">
+                                    <p className="text-[11px] text-gray-600 text-right mt-1">
                                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                 </div>
@@ -337,7 +337,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                 <div className="mx-4 mb-2">
                     {showPinPad ? (
                         <div className="bg-gradient-to-br from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-2xl p-4">
-                            <p className="text-[10px] text-amber-400/70 font-bold uppercase tracking-widest mb-3 text-center">
+                            <p className="text-[11px] text-amber-400/70 font-bold uppercase tracking-widest mb-3 text-center">
                                 Enter Buyer's PIN
                             </p>
                             <div className="flex items-center justify-center gap-3 mb-4">
@@ -406,7 +406,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                     <button
                         onClick={handleSecureFunds}
                         disabled={securingFunds}
-                        className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-[10px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95 disabled:opacity-50"
+                        className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl text-[11px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95 disabled:opacity-50"
                     >
                         {securingFunds ? (
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

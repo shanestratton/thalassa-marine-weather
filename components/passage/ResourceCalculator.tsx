@@ -38,11 +38,11 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                     </h4>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Distance</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Distance</div>
                             <div className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</div>
                         </div>
                         <div>
-                            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Duration</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Duration</div>
                             <div className="text-lg font-bold text-white">{voyagePlan.durationApprox}</div>
                         </div>
                     </div>
@@ -132,12 +132,12 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                 </p>
                                 {fuelCapacity > 0 && (
                                     <div className="pt-2 border-t border-white/10">
-                                        <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Tank Capacity</div>
+                                        <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Tank Capacity</div>
                                         <div className="text-sm font-mono text-gray-300">{fuelCapacity} L — depart full</div>
                                     </div>
                                 )}
                                 {fuelCapacity === 0 && (
-                                    <div className="text-[10px] text-gray-500 italic">
+                                    <div className="text-[11px] text-gray-500 italic">
                                         Set tank capacity in Settings for reserve monitoring.
                                     </div>
                                 )}
@@ -146,7 +146,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                             /* Sailing vessel WITH burn rate configured */
                             <>
                                 <div>
-                                    <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Motor Reserve (30% buffer)</div>
+                                    <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Motor Reserve (30% buffer)</div>
                                     <div className="text-xl font-bold text-white">
                                         {fuelWithReserve.toFixed(0)}<span className="text-xs font-normal text-gray-500 ml-1">L</span>
                                     </div>
@@ -172,7 +172,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                 {fuelBurnRate > 0 ? (
                                     <>
                                         <div>
-                                            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Required (30% reserve)</div>
+                                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Required (30% reserve)</div>
                                             <div className="text-xl font-bold text-white">
                                                 {fuelWithReserve.toFixed(0)}<span className="text-xs font-normal text-gray-500 ml-1">L</span>
                                             </div>
@@ -222,7 +222,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                     <div className="space-y-3">
                         <div>
-                            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Required</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Required</div>
                             <div className="text-xl font-bold text-white">
                                 {waterRequired.toFixed(0)}<span className="text-xs font-normal text-gray-500 ml-1">L</span>
                             </div>
@@ -242,7 +242,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-[10px] text-gray-500 italic">
+                            <div className="text-[11px] text-gray-500 italic">
                                 Set water capacity in Settings for tank monitoring.
                             </div>
                         )}
@@ -265,7 +265,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                     <div className="space-y-3">
                         <div>
-                            <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Meals Required</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Meals Required</div>
                             <div className="text-xl font-bold text-white">
                                 {mealsRequired}<span className="text-xs font-normal text-gray-500 ml-1">meals</span>
                             </div>

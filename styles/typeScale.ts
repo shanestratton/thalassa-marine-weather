@@ -5,14 +5,18 @@
  *   - Inter: All UI text (labels, headers, body, buttons)
  *   - JetBrains Mono: Data values and technical readouts only
  *
- * 6 named sizes (mobile-first, px-based for inline styles):
- *   - micro:   9px — timestamps, secondary annotations
- *   - caption: 10px — labels, status pills
- *   - body:    12px — default body text
- *   - subhead: 13px — card subheadings, data values
- *   - title:   15px — section titles, prominent data
- *   - display: 18px — hero numbers, large headings
- *   - hero:    22px — single focal numbers (cost score, etc.)
+ * ACCESSIBILITY: 11px floor for all text (WCAG 1.4.4 Resize Text).
+ * The only exception is SVG <text> inside fixed viewBox elements
+ * where the viewBox itself scales with the container.
+ *
+ * Named sizes (mobile-first, px-based for inline styles):
+ *   - xs:      11px — unit suffixes, tertiary annotations
+ *   - caption: 12px — labels, status pills, captions
+ *   - body:    13px — default body text
+ *   - subhead: 14px — card subheadings, data values
+ *   - title:   16px — section titles, prominent data
+ *   - display: 20px — hero numbers, large headings
+ *   - hero:    24px — single focal numbers (cost score, etc.)
  */
 
 // ── Font Stacks ────────────────────────────────────────────────────
@@ -24,25 +28,29 @@ export const FONT = {
 } as const;
 
 // ── Type Scale ─────────────────────────────────────────────────────
+// Floor: 11px. No text below this for accessibility.
 export const SIZE = {
-    micro: 9,
-    caption: 10,
-    body: 12,
-    subhead: 13,
-    title: 15,
-    display: 18,
-    hero: 22,
+    xs: 11,    // Unit suffixes ("NM", "kts"), tertiary info
+    caption: 12,    // Labels, status pills
+    body: 13,    // Default body text
+    subhead: 14,    // Card subheadings, data values
+    title: 16,    // Section titles, prominent data
+    display: 20,    // Hero numbers, large headings
+    hero: 24,    // Single focal numbers (cost score, etc.)
 } as const;
 
-// ── Predefined Styles ──────────────────────────────────────────────
-// Use these for common patterns to avoid repeating fontFamily + fontSize
+// ── Minimum tap target ─────────────────────────────────────────────
+// Apple HIG: 44pt minimum. Android Material: 48dp.
+export const TAP_TARGET = 44;
 
-/** Tiny label — "BRG", "WIND", "DISTANCE" */
+// ── Predefined Styles ──────────────────────────────────────────────
+
+/** Label — "BRG", "WIND", "DISTANCE" */
 export const LABEL_STYLE: React.CSSProperties = {
     fontFamily: FONT.ui,
     fontWeight: 500,
     fontSize: SIZE.caption,
-    letterSpacing: '0.12em',
+    letterSpacing: '0.1em',
     textTransform: 'uppercase',
     color: '#64748b',
 };
@@ -52,10 +60,10 @@ export const DATA_STYLE: React.CSSProperties = {
     fontFamily: FONT.data,
 };
 
-/** Small annotation — coordinates, timestamps */
+/** Small annotation — coordinates, timestamps, unit labels */
 export const MICRO_STYLE: React.CSSProperties = {
     fontFamily: FONT.data,
-    fontSize: SIZE.micro,
+    fontSize: SIZE.xs,
     color: '#e2e8f0',
 };
 
@@ -72,7 +80,7 @@ export const HEADER_STYLE: React.CSSProperties = {
 /** Subtle footnote — forecast info, metadata */
 export const FOOTNOTE_STYLE: React.CSSProperties = {
     fontFamily: FONT.data,
-    fontSize: 8, // Exception: footnotes are intentionally tiny
+    fontSize: SIZE.xs,
     color: '#64748b',
     lineHeight: 1.4,
 };

@@ -140,7 +140,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             <div className="mb-5">
                 <div className="flex items-center gap-2 mb-2">
                     <div className="w-1 h-4 rounded-full bg-red-500" />
-                    <span className="text-[9px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
+                    <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -158,7 +158,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-xs font-black text-white tracking-wide">Anchor Watch</h4>
-                        <p className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color}`}>{anchorSublabel}</p>
+                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color}`}>{anchorSublabel}</p>
                     </button>
 
                     {/* Log Book Card */}
@@ -175,7 +175,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-xs font-black text-white tracking-wide">Log Book</h4>
-                        <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Voyage Entries</p>
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Voyage Entries</p>
                     </button>
                 </div>
             </div>
@@ -186,7 +186,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             <div className="mb-5">
                 <div className="flex items-center gap-2 mb-2">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
-                    <span className="text-[9px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
+                    <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
                 </div>
 
                 <div className="grid grid-cols-4 gap-2">
@@ -206,7 +206,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                                     <div className={`${card.accentColor}`}>{card.icon}</div>
                                 </div>
                                 <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">{card.label}</h4>
-                                <p className={`text-[8px] font-bold uppercase tracking-widest mt-0.5 ${disabled ? 'text-gray-600' : card.accentColor}`}>
+                                <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${disabled ? 'text-gray-600' : card.accentColor}`}>
                                     {disabled ? 'Vessel Required' : card.sublabel}
                                 </p>
                             </button>
@@ -221,7 +221,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             <div>
                 <div className="flex items-center gap-2 mb-2">
                     <div className="w-1 h-4 rounded-full bg-gray-600" />
-                    <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
+                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
                 </div>
 
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06]">
@@ -237,7 +237,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                         </div>
                         <div className="flex-1">
                             <p className="text-xs font-bold text-white">Account, Subscription & Settings</p>
-                            <p className="text-[9px] text-gray-500">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
+                            <p className="text-[11px] text-gray-500">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
                         </div>
                         <ChevronRight />
                     </button>
@@ -260,7 +260,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     </button>
                 </div>
 
-                <p className="text-center text-[8px] text-gray-600 mt-3 font-bold uppercase tracking-widest">
+                <p className="text-center text-[11px] text-gray-600 mt-3 font-bold uppercase tracking-widest">
                     Thalassa Marine Weather v2.0
                 </p>
             </div>

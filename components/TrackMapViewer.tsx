@@ -576,7 +576,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     {/* Time + info label */}
                     <div className="shrink-0 text-right min-w-[64px]">
                         <p className="text-xs font-black text-white">{timeLabel}</p>
-                        <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                             {speedLabel}{speedLabel && tempLabel ? ' · ' : ''}{tempLabel}
                         </p>
                     </div>

@@ -126,7 +126,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                         }`}
                                 >
                                     <div className="text-lg">{cat.icon}</div>
-                                    <div className="text-[9px] mt-0.5 truncate">{cat.label}</div>
+                                    <div className="text-[11px] mt-0.5 truncate">{cat.label}</div>
                                 </button>
                             ))}
                         </div>

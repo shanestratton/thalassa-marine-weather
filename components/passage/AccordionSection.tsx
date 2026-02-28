@@ -84,12 +84,12 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(({
                 {/* Title + Subtitle */}
                 <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-bold text-white uppercase tracking-widest truncate">{title}</h3>
-                    {subtitle && <p className="text-[10px] text-gray-500 font-medium truncate mt-0.5">{subtitle}</p>}
+                    {subtitle && <p className="text-[11px] text-gray-500 font-medium truncate mt-0.5">{subtitle}</p>}
                 </div>
 
                 {/* Badge — visible when collapsed */}
                 {badge && !isOpen && (
-                    <div className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${colors.badge} shrink-0 animate-in fade-in duration-200`}>
+                    <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${colors.badge} shrink-0 animate-in fade-in duration-200`}>
                         {badge}
                     </div>
                 )}

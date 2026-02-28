@@ -124,19 +124,19 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                             {isToday ? 'Today' : group.displayDate}
                                         </span>
                                         {isToday && (
-                                            <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] font-bold rounded-full">
+                                            <span className="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
                                                 LIVE
                                             </span>
                                         )}
                                     </div>
-                                    <div className="text-[10px] text-slate-400">
+                                    <div className="text-[11px] text-slate-400">
                                         {group.stats.entryCount} entries · {(group.stats.totalDistance ?? 0).toFixed(1)} NM
                                     </div>
                                 </div>
                             </div>
 
                             {/* Day Stats - Compact */}
-                            <div className="flex gap-3 text-[10px] text-slate-400">
+                            <div className="flex gap-3 text-[11px] text-slate-400">
                                 <span><span className="text-white font-bold">{(group.stats.avgSpeed ?? 0).toFixed(1)}</span> avg</span>
                                 <span><span className="text-white font-bold">{(group.stats.maxSpeed ?? 0).toFixed(1)}</span> max</span>
                             </div>
@@ -220,12 +220,12 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
 
                 {/* Voyage Start/End Labels */}
                 {isVoyageStart && (
-                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-bold rounded-full">
+                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[11px] font-bold rounded-full">
                         Start
                     </span>
                 )}
                 {isVoyageEnd && (
-                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-bold rounded-full">
+                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[11px] font-bold rounded-full">
                         End
                     </span>
                 )}
@@ -290,7 +290,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                 <div className="px-3 pb-3 pt-1 border-t border-white/5">
                     {/* Position */}
                     <div className="mb-2">
-                        <div className="text-[10px] text-slate-500 uppercase">Position</div>
+                        <div className="text-[11px] text-slate-500 uppercase">Position</div>
                         <div className="text-emerald-400 font-mono font-bold text-sm">
                             {entry.positionFormatted}
                         </div>
@@ -300,19 +300,19 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     <div className="grid grid-cols-3 gap-2 mb-2">
                         {entry.distanceNM != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                <div className="text-[9px] text-slate-500 uppercase">Dist</div>
+                                <div className="text-[11px] text-slate-500 uppercase">Dist</div>
                                 <div className="text-xs font-bold text-white">{(entry.distanceNM ?? 0).toFixed(1)} NM</div>
                             </div>
                         )}
                         {entry.speedKts != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                <div className="text-[9px] text-slate-500 uppercase">Speed</div>
+                                <div className="text-[11px] text-slate-500 uppercase">Speed</div>
                                 <div className="text-xs font-bold text-white">{(entry.speedKts ?? 0).toFixed(1)} kts</div>
                             </div>
                         )}
                         {entry.courseDeg != null && (
                             <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                <div className="text-[9px] text-slate-500 uppercase">Course</div>
+                                <div className="text-[11px] text-slate-500 uppercase">Course</div>
                                 <div className="text-xs font-bold text-white">{formatCourseTrue(entry.courseDeg)}</div>
                             </div>
                         )}
@@ -362,7 +362,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     {/* Event Category */}
                     {entry.eventCategory && (
                         <div className="mt-2">
-                            <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[10px] text-slate-300 uppercase tracking-wider">
+                            <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[11px] text-slate-300 uppercase tracking-wider">
                                 {entry.eventCategory}
                             </span>
                         </div>
@@ -370,7 +370,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
 
                     {/* Watch Period */}
                     {entry.watchPeriod && (
-                        <div className="mt-2 text-[10px] text-slate-500">
+                        <div className="mt-2 text-[11px] text-slate-500">
                             {getWatchPeriodName(entry.watchPeriod)}
                         </div>
                     )}

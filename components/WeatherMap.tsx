@@ -393,7 +393,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             </div>
                             <div>
                                 <h2 className="text-white font-bold text-lg leading-none shadow-black drop-shadow-md">{locationName}</h2>
-                                <div className="flex gap-3 text-[10px] font-mono text-gray-400 mt-1">
+                                <div className="flex gap-3 text-[11px] font-mono text-gray-400 mt-1">
                                     <span>{Math.abs(centerLat).toFixed(4)}° {centerLat > 0 ? 'N' : 'S'}</span>
                                     <span>{Math.abs(centerLon).toFixed(4)}° {centerLon > 0 ? 'E' : 'W'}</span>
                                 </div>
@@ -405,37 +405,37 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                         <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 flex shadow-xl self-start">
                             <button
                                 onClick={() => { setActiveLayer('wind'); setPendingSelection(null); }}
-                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Wind
                             </button>
                             <button
                                 onClick={() => { setActiveLayer('rain'); setPendingSelection(null); }}
-                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Rain
                             </button>
                             <button
                                 onClick={() => { setActiveLayer('global-wind'); setPendingSelection(null); }}
-                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <CompassIcon rotation={0} className="w-3 h-3" /> Global
                             </button>
                             <button
                                 onClick={() => setActiveLayer('buoys')}
-                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <RadioTowerIcon className="w-3 h-3" /> Stations
                             </button>
                             <button
                                 onClick={() => { setActiveLayer('velocity'); setPendingSelection(null); }}
-                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <WindIcon className="w-3 h-3" /> Velocity
                             </button>
                             <button
                                 onClick={() => setShowNavMesh(v => !v)}
-                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                                className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                                 title="Toggle Nav Mesh X-Ray"
                             >
                                 ⊞
@@ -515,10 +515,10 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             onClick={() => setSelectedStop(wpObj.wp)}
                         >
                             <div className="flex flex-col items-center">
-                                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-500 shadow-lg text-[10px] font-bold text-amber-500 hover:bg-amber-500 hover:text-white transition-colors cursor-pointer">
+                                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-500 shadow-lg text-[11px] font-bold text-amber-500 hover:bg-amber-500 hover:text-white transition-colors cursor-pointer">
                                     {wpObj.idx + 1}
                                 </div>
-                                <div className={`mt-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-[10px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                <div className={`mt-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-[11px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
                                     {wpObj.name}
                                 </div>
                             </div>

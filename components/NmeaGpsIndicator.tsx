@@ -98,20 +98,20 @@ export const NmeaGpsIndicator: React.FC = () => {
                 </svg>
 
                 {/* Label */}
-                <span className="text-white font-bold text-[10px] tracking-wide leading-none whitespace-nowrap">
+                <span className="text-white font-bold text-[11px] tracking-wide leading-none whitespace-nowrap">
                     EXT {qualityLabel}
                 </span>
 
                 {/* Satellite count (NMEA only) */}
                 {satellites !== null && (
-                    <span className="text-sky-200/70 text-[9px] font-medium leading-none">
+                    <span className="text-sky-200/70 text-[11px] font-medium leading-none">
                         {satellites}sat
                     </span>
                 )}
 
                 {/* Average accuracy (Precision GPS / Bluetooth only) */}
                 {!nmeaActive && avgAccuracy !== null && (
-                    <span className="text-emerald-200/70 text-[9px] font-medium leading-none">
+                    <span className="text-emerald-200/70 text-[11px] font-medium leading-none">
                         ±{avgAccuracy}m
                     </span>
                 )}

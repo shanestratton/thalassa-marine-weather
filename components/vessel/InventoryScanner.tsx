@@ -350,7 +350,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     <div className="space-y-2">
                         {/* Item name */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
                             <input
                                 type="text"
                                 value={newItem.item_name}
@@ -363,7 +363,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Barcode + Scan button */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                             <div className="flex gap-2 mt-0.5">
                                 <input
                                     type="text"
@@ -404,7 +404,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 </div>
                                 {/* Scanning label */}
                                 <div className="absolute bottom-1 left-0 right-0 text-center">
-                                    <span className="text-[9px] font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
+                                    <span className="text-[11px] font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
                                 </div>
                                 {/* Close button */}
                                 <button
@@ -420,13 +420,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Category */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
                             <div className="flex flex-wrap gap-1.5 mt-0.5">
                                 {CATEGORIES.map(cat => (
                                     <button
                                         key={cat}
                                         onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
-                                        className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
+                                        className={`px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
                                             ? 'bg-sky-600 text-white'
                                             : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                             }`}
@@ -440,7 +440,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         {/* Quantity + Min */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -450,7 +450,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 />
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -464,7 +464,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         {/* Location */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
                                 <input
                                     type="text"
                                     value={newItem.location_zone}
@@ -474,7 +474,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 />
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
                                 <input
                                     type="text"
                                     value={newItem.location_specific}
@@ -487,7 +487,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Description */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
                             <input
                                 type="text"
                                 value={newItem.description}
@@ -499,7 +499,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Expiry / Service Date */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}
@@ -604,7 +604,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                     <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
-                            <p className="text-[9px] font-bold text-sky-400 uppercase tracking-widest mb-1">{foundItem.category}</p>
+                            <p className="text-[11px] font-bold text-sky-400 uppercase tracking-widest mb-1">{foundItem.category}</p>
                             <h3 className="text-lg font-black text-white leading-tight">{foundItem.item_name}</h3>
                             {foundItem.location_zone && (
                                 <p className="text-xs text-gray-400 mt-1">
@@ -612,7 +612,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 </p>
                             )}
                         </div>
-                        <span className="text-[9px] font-mono text-gray-600 bg-white/5 px-2 py-1 rounded-lg">{scannedBarcode}</span>
+                        <span className="text-[11px] font-mono text-gray-600 bg-white/5 px-2 py-1 rounded-lg">{scannedBarcode}</span>
                     </div>
 
                     {/* Quantity controls */}
@@ -626,7 +626,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </button>
                         <div className="text-center">
                             <p className="text-4xl font-black text-white tabular-nums">{foundItem.quantity}</p>
-                            <p className="text-[9px] text-gray-500 uppercase tracking-widest">In Stock</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-widest">In Stock</p>
                         </div>
                         <button
                             onClick={() => handleQuantityAdjust(1)}
@@ -663,7 +663,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     <div className="space-y-3">
                         {/* Item name */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
                             <input
                                 type="text"
                                 value={newItem.item_name}
@@ -676,7 +676,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Barcode (pre-filled if scanned) */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                             <input
                                 type="text"
                                 value={newItem.barcode}
@@ -688,13 +688,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Category */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
                             <div className="flex flex-wrap gap-1.5 mt-1">
                                 {CATEGORIES.map(cat => (
                                     <button
                                         key={cat}
                                         onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
-                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
+                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
                                             ? 'bg-sky-600 text-white'
                                             : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                             }`}
@@ -708,7 +708,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         {/* Quantity + Min */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -718,7 +718,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 />
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -732,7 +732,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         {/* Location */}
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
                                 <input
                                     type="text"
                                     value={newItem.location_zone}
@@ -742,7 +742,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 />
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
                                 <input
                                     type="text"
                                     value={newItem.location_specific}
@@ -755,7 +755,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Description */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
                             <input
                                 type="text"
                                 value={newItem.description}
@@ -767,7 +767,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Expiry / Service Date */}
                         <div>
-                            <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}

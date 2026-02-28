@@ -324,7 +324,7 @@ const WaypointBadge: React.FC<{
             }}>
                 <div style={{
                     fontFamily: FONT.data,
-                    fontSize: SIZE.micro,
+                    fontSize: SIZE.xs,
                     color: isEndpoint ? 'var(--neon-cyan)' : 'var(--text-secondary)',
                     letterSpacing: '0.05em',
                     textShadow: isEndpoint ? '0 0 6px rgba(56,189,248,0.4)' : 'none',
@@ -334,7 +334,7 @@ const WaypointBadge: React.FC<{
                 {!isEndpoint && (
                     <div style={{
                         fontFamily: FONT.data,
-                        fontSize: 8,
+                        fontSize: SIZE.xs,
                         color: 'var(--text-dim)',
                     }}>
                         {point.conditions.wind_spd_kts.toFixed(0)}kts · {point.conditions.wave_ht_m.toFixed(1)}m

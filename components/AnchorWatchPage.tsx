@@ -914,7 +914,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
                                         {wxRecommendation.label} · {wxRecommendation.wind.toFixed(0)}kts
                                     </div>
-                                    <div className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">
+                                    <div className="text-[11px] text-slate-500 group-hover:text-slate-400 transition-colors">
                                         {rodeLength === wxRecommendation.rode
                                             ? `✓ ${wxRecommendation.scope}:1 set`
                                             : `Tap → ${wxRecommendation.rode}m`}

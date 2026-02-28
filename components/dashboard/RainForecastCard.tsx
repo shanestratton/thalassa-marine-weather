@@ -151,7 +151,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                         </div>
 
                         {isActive && (
-                            <div className={`px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
+                            <div className={`px-1.5 py-0 rounded-full text-[11px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
                                 {analysis.category.label}
                             </div>
                         )}
@@ -186,7 +186,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Tap hint */}
                     {data && data.length > 0 && (
                         <div className="flex items-center justify-center mt-0.5">
-                            <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Tap for detail</span>
+                            <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Tap for detail</span>
                         </div>
                     )}
                 </div>
@@ -318,13 +318,13 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
-                            <div className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-blue-400/50'}`}>
+                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-blue-400/50'}`}>
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
                             <div className="text-2xl font-black text-white tabular-nums">
                                 {analysis.hasRain ? analysis.maxIntensity.toFixed(1) : '0.0'}
                             </div>
-                            <div className="text-[10px] text-white/40 uppercase tracking-wider">mm/hr peak</div>
+                            <div className="text-[11px] text-white/40 uppercase tracking-wider">mm/hr peak</div>
                         </div>
                     </div>
 
@@ -340,7 +340,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {/* Peak intensity marker */}
                         {analysis.hasRain && (
                             <div
-                                className="absolute -top-4 text-[8px] text-cyan-400 font-bold uppercase tracking-wider whitespace-nowrap"
+                                className="absolute -top-4 text-[11px] text-cyan-400 font-bold uppercase tracking-wider whitespace-nowrap"
                                 style={{ left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`, transform: 'translateX(-50%)' }}
                             >
                                 Peak
@@ -376,7 +376,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {/* Time Axis */}
                         <div className="flex justify-between mt-2 px-0">
                             {timeLabels.map(({ min, label }) => (
-                                <span key={min} className="text-[9px] text-white/40 font-bold uppercase tracking-wider">
+                                <span key={min} className="text-[11px] text-white/40 font-bold uppercase tracking-wider">
                                     {label}
                                 </span>
                             ))}
@@ -387,15 +387,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     {analysis.hasRain && (
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
-                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Total</div>
+                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Total</div>
                                 <div className="text-sm font-bold text-white tabular-nums">{analysis.totalPrecip.toFixed(1)} mm</div>
                             </div>
                             <div className="text-center">
-                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Peak</div>
+                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Peak</div>
                                 <div className="text-sm font-bold text-cyan-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
                             </div>
                             <div className="text-center">
-                                <div className="text-[9px] text-white/40 uppercase tracking-wider mb-0.5">Type</div>
+                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Type</div>
                                 <div className="text-sm font-bold text-white">{analysis.category.label}</div>
                             </div>
                         </div>

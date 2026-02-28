@@ -202,7 +202,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: 5,
                     padding: '2px 8px',
-                    fontSize: SIZE.micro,
+                    fontSize: SIZE.xs,
                     fontWeight: 700, letterSpacing: '0.12em',
                     color: C.primary,
                 }}>
@@ -252,7 +252,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                         <div style={LABEL_STYLE}>DIST</div>
                         <div style={{ ...DATA_STYLE, fontSize: SIZE.title, color: C.primary }}>
                             {Math.round(ghostShip.distanceNM)}
-                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>NM</span>
+                            <span style={{ fontSize: SIZE.xs, opacity: 0.4 }}>NM</span>
                         </div>
                     </div>
                     <div>
@@ -262,7 +262,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                             textShadow: windColor !== C.primary ? `0 0 8px ${windColor}55` : 'none',
                         }}>
                             {c.wind_spd_kts.toFixed(1)}
-                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>kts</span>
+                            <span style={{ fontSize: SIZE.xs, opacity: 0.4 }}>kts</span>
                         </div>
                     </div>
                     <div>
@@ -272,7 +272,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                             textShadow: waveColor !== C.primary ? `0 0 8px ${waveColor}55` : 'none',
                         }}>
                             {c.wave_ht_m.toFixed(1)}
-                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>m</span>
+                            <span style={{ fontSize: SIZE.xs, opacity: 0.4 }}>m</span>
                         </div>
                     </div>
                 </div>

@@ -91,7 +91,7 @@ export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({
             <span className="text-xs" style={{ lineHeight: 1 }}>⚓</span>
 
             {/* Status label */}
-            <span className={`${config.textColor} font-bold text-[10px] tracking-wide leading-none`}>
+            <span className={`${config.textColor} font-bold text-[11px] tracking-wide leading-none`}>
                 {config.text}
             </span>
         </button>

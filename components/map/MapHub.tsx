@@ -1627,7 +1627,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         onChange={e => { setEmbRainPlaying(false); setEmbRainIdx(parseInt(e.target.value)); }}
                         className="emb-rain-slider flex-1 h-3"
                     />
-                    <span className="text-[10px] font-bold text-white/60 min-w-[32px] text-right font-mono">
+                    <span className="text-[11px] font-bold text-white/60 min-w-[32px] text-right font-mono">
                         {(() => {
                             const frames = embeddedRainFrames.current;
                             if (!frames.length) return '--';
@@ -1978,7 +1978,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     {/* GRIB Error Tooltip */}
                     {gribError && activeLayer === 'wind' && (
                         <div className="max-w-[200px] bg-red-900/95 backdrop-blur-xl border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
-                            <p className="text-[10px] font-bold text-red-300 leading-tight">{gribError}</p>
+                            <p className="text-[11px] font-bold text-red-300 leading-tight">{gribError}</p>
                         </div>
                     )}
 
@@ -2072,7 +2072,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
                         <div className="shrink-0 text-right min-w-[52px]">
                             <p className="text-xs font-black text-white">+{windHour.toFixed(1)}h</p>
-                            <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                                 {windHour < 24 ? 'Today' : windHour < 48 ? 'Tomorrow' : `+${Math.floor(windHour / 24)}d`}
                             </p>
                         </div>
@@ -2117,7 +2117,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     return `${diffMin > 0 ? '+' : ''}${diffMin}m`;
                                 })()}
                             </p>
-                            <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">Radar</p>
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Radar</p>
                         </div>
                     </div>
                 </div>
@@ -2143,20 +2143,20 @@ const PointInput: React.FC<{
         <div className={`w-3 h-3 rounded-full shrink-0 ${color === 'emerald' ? 'bg-emerald-400' : 'bg-red-400'
             }`} />
         <div className="flex-1 min-w-0">
-            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
+            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
             <p className="text-xs text-white font-bold truncate">
                 {point ? point.name : 'Not set'}
             </p>
         </div>
         <button
             onClick={onUseCurrent}
-            className="text-[8px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10"
+            className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10"
         >
             📍 Here
         </button>
         <button
             onClick={onSet}
-            className={`text-[8px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive
+            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive
                 ? 'text-amber-400 bg-amber-500/10'
                 : 'text-gray-500 hover:bg-white/5'
                 }`}
@@ -2169,6 +2169,6 @@ const PointInput: React.FC<{
 const ResultCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-center">
         <p className="text-xs font-black text-white truncate">{value}</p>
-        <p className="text-[8px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
     </div>
 );

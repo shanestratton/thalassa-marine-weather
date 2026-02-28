@@ -159,7 +159,7 @@ export const ChatHub: React.FC = () => {
                         </svg>
                         <span className="text-xs font-black uppercase tracking-widest">Marketplace</span>
                         {unreadMarketplace > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-[8px] font-black text-white min-w-[16px] text-center">
+                            <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-[11px] font-black text-white min-w-[16px] text-center">
                                 {unreadMarketplace}
                             </span>
                         )}
@@ -223,11 +223,11 @@ export const ChatHub: React.FC = () => {
                                         <div className="flex-1 text-left min-w-0">
                                             <div className="flex items-center gap-2 mb-0.5">
                                                 <h4 className="text-sm font-black text-white truncate">{convo.listing.title}</h4>
-                                                <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[9px] font-black">
+                                                <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-black">
                                                     ${convo.listing.price}
                                                 </span>
                                             </div>
-                                            <p className="text-[10px] text-gray-500 truncate">
+                                            <p className="text-[11px] text-gray-500 truncate">
                                                 {convo.otherPartyName}
                                                 {convo.lastMessage ? ` · ${convo.lastMessage}` : ''}
                                             </p>
@@ -236,12 +236,12 @@ export const ChatHub: React.FC = () => {
                                         {/* Time + unread */}
                                         <div className="shrink-0 text-right">
                                             {convo.lastMessageAt && (
-                                                <p className="text-[9px] text-gray-600 font-bold">
+                                                <p className="text-[11px] text-gray-600 font-bold">
                                                     {timeAgo(convo.lastMessageAt)}
                                                 </p>
                                             )}
                                             {convo.unread > 0 && (
-                                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded-full bg-sky-500 text-[8px] font-black text-white">
+                                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded-full bg-sky-500 text-[11px] font-black text-white">
                                                     {convo.unread}
                                                 </span>
                                             )}
