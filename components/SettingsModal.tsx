@@ -145,7 +145,7 @@ type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'lo
 const MENU_ITEMS: { id: SettingsTab; label: string; description: string; icon: (cls: string) => React.ReactNode; iconBg: string; iconHoverBg: string }[] = [
     { id: 'general', label: 'Preferences', description: 'Units, location & AI personality', icon: (c) => <GearIcon className={c} />, iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10', iconHoverBg: 'group-hover:bg-sky-500/25' },
     { id: 'locations', label: 'Locations', description: 'Saved ports & anchorages', icon: (c) => <MapPinIcon className={c} />, iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10', iconHoverBg: 'group-hover:bg-emerald-500/25' },
-    { id: 'account', label: 'System & Cloud', description: 'Cloud sync, API keys & account', icon: (c) => <ServerIcon className={c} />, iconBg: 'bg-violet-500/15 text-violet-400 shadow-violet-500/10', iconHoverBg: 'group-hover:bg-violet-500/25' },
+    { id: 'account', label: 'System & Cloud', description: 'Cloud sync, API keys & account', icon: (c) => <ServerIcon className={c} />, iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10', iconHoverBg: 'group-hover:bg-purple-500/25' },
     { id: 'vessel', label: 'Vessel Profile', description: 'Boat specs, rig & safety gear', icon: (c) => <BoatIcon className={c} />, iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10', iconHoverBg: 'group-hover:bg-amber-500/25' },
 
     { id: 'alerts', label: 'Notifications', description: 'Anchor alarm, weather alerts', icon: (c) => <BellIcon className={c} />, iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10', iconHoverBg: 'group-hover:bg-red-500/25' },

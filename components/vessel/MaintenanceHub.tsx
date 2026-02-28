@@ -19,6 +19,7 @@ import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 import { SlideToAction } from '../ui/SlideToAction';
 import { EmptyState } from '../ui/EmptyState';
+import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 
 interface MaintenanceHubProps {
@@ -422,24 +423,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             <div className="flex flex-col h-full">
 
-                {/* ═══ HEADER ═══ */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={onBack}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Maintenance</h1>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Tasks & Expiry</p>
-                        </div>
-
-                        {/* Status summary pills */}
-                        <div className="flex items-center gap-1.5">
+                <PageHeader
+                    title="Maintenance"
+                    subtitle="Tasks & Expiry"
+                    onBack={onBack}
+                    breadcrumbs={['Ship\'s Office', 'Maintenance']}
+                    status={
+                        <>
                             {counts.red > 0 && (
                                 <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[11px] font-black">{counts.red}</span>
                             )}
@@ -447,13 +437,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[11px] font-black">{counts.yellow}</span>
                             )}
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black">{counts.green}</span>
-                        </div>
-
-                        {/* 3-dot menu */}
+                        </>
+                    }
+                    action={
                         <div className="relative">
                             <button
                                 onClick={() => setMenuOpen(!menuOpen)}
-                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                             >
                                 <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
@@ -485,8 +475,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </>
                             )}
                         </div>
-                    </div>
-                </div>
+                    }
+                />
 
                 {/* ═══ ENGINE HOURS CARD ═══ */}
                 <div className="shrink-0 px-4 pb-3">

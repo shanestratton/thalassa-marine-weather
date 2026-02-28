@@ -17,6 +17,7 @@ import { SlideToAction } from './ui/SlideToAction';
 import { generateDiaryPDF } from '../utils/diaryExport';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
+import { PageHeader } from './ui/PageHeader';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -482,7 +483,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <button
                             onClick={() => handleTranscribe(url)}
                             disabled={transcribing}
-                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-violet-300 hover:bg-violet-500/15 transition-colors disabled:opacity-40"
+                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
                             title="Transcribe to text"
                         >
                             {transcribing ? '⏳' : '📝'} {transcribing ? 'Transcribing…' : 'To Text'}
@@ -815,7 +816,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <button
                                 onClick={handlePolish}
                                 disabled={polishing}
-                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-violet-500/20 to-purple-500/20 border border-violet-500/20 rounded-xl text-xs font-bold text-violet-300 hover:from-violet-500/30 hover:to-purple-500/30 transition-all disabled:opacity-50"
+                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500/20 to-purple-500/20 border border-purple-500/20 rounded-xl text-xs font-bold text-purple-300 hover:from-purple-500/30 hover:to-purple-500/30 transition-all disabled:opacity-50"
                             >
                                 <span className="text-sm">{polishing ? '⏳' : '✨'}</span>
                                 {polishing ? 'Polishing…' : 'Polish with Gemini'}
@@ -899,62 +900,53 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 </div>
             )}
             <div className="flex flex-col h-full">
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                            </svg>
+                <PageHeader
+                    title="Diary"
+                    onBack={onBack}
+                    breadcrumbs={['Ship\'s Office', 'Diary']}
+                    subtitle={selectMode ? `${selectedIds.size} Selected` : `${entries.length} ${entries.length === 1 ? 'Entry' : 'Entries'}`}
+                    action={selectMode ? (
+                        <button onClick={exitSelectMode} className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-white min-h-[44px]">
+                            Done
                         </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Diary</h1>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                                {selectMode ? `${selectedIds.size} Selected` : `${entries.length} ${entries.length === 1 ? 'Entry' : 'Entries'}`}
-                            </p>
-                        </div>
-                        {selectMode ? (
-                            <button onClick={exitSelectMode} className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-white">
-                                Done
+                    ) : entries.length > 0 ? (
+                        <div className="relative" ref={menuRef}>
+                            <button
+                                onClick={() => setMenuOpen(!menuOpen)}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                                </svg>
                             </button>
-                        ) : entries.length > 0 && (
-                            <div className="relative" ref={menuRef}>
-                                <button
-                                    onClick={() => setMenuOpen(!menuOpen)}
-                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                                >
-                                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
-                                    </svg>
-                                </button>
-                                {menuOpen && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            <button
-                                                onClick={() => { setSelectMode(true); setSelectedIds(new Set()); setMenuOpen(false); }}
-                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
-                                            >
-                                                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                                Select for Export
-                                            </button>
-                                            <button
-                                                onClick={() => { exportDiaryPdf(entries); setMenuOpen(false); }}
-                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
-                                            >
-                                                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
-                                                </svg>
-                                                Export All to PDF
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
+                            {menuOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <button
+                                            onClick={() => { setSelectMode(true); setSelectedIds(new Set()); setMenuOpen(false); }}
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                        >
+                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            Select for Export
+                                        </button>
+                                        <button
+                                            onClick={() => { exportDiaryPdf(entries); setMenuOpen(false); }}
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
+                                        >
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
+                                            </svg>
+                                            Export All to PDF
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    ) : undefined}
+                />
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>

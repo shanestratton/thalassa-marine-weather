@@ -52,7 +52,7 @@ const PlaceholderScreen: React.FC<{
     const colors: Record<string, { text: string; bg: string; border: string }> = {
         amber: { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
         sky: { text: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
-        violet: { text: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+        violet: { text: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
     };
     const c = colors[accentColor] || colors.sky;
 

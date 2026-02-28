@@ -331,8 +331,8 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
             {/* ═══════════════════════════════════════════ */}
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-6">
                 <div className="flex items-center gap-2 mb-3">
-                    <div className="w-1 h-4 rounded-full bg-violet-500" />
-                    <span className="text-[11px] font-bold text-violet-400 uppercase tracking-widest">Weather Model</span>
+                    <div className="w-1 h-4 rounded-full bg-purple-500" />
+                    <span className="text-[11px] font-bold text-purple-400 uppercase tracking-widest">Weather Model</span>
                 </div>
                 <div className="flex gap-2">
                     {(['GFS', 'ECMWF'] as const).map(model => (
@@ -340,7 +340,7 @@ export const GribRequestUI: React.FC<GribRequestUIProps> = ({
                             key={model}
                             onClick={() => setRequest(prev => ({ ...prev, model }))}
                             className={`flex-1 py-3 rounded-xl text-center transition-all border ${request.model === model
-                                    ? 'bg-violet-500/15 border-violet-500/30 text-white'
+                                    ? 'bg-purple-500/15 border-purple-500/30 text-white'
                                     : 'border-white/5 text-gray-400 hover:border-white/10'
                                 }`}
                         >

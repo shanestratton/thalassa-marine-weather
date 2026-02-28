@@ -290,7 +290,7 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
                             type="button"
                             onClick={() => selectSuggestion(suggestion)}
                             className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${i === highlightedIndex
-                                    ? 'bg-violet-600/30 text-white'
+                                    ? 'bg-purple-600/30 text-white'
                                     : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
                                 }`}
                         >

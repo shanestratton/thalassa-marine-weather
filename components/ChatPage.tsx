@@ -67,11 +67,11 @@ type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' |
 const AVATAR_GRADIENTS = [
     'from-sky-400 to-sky-600',
     'from-emerald-400 to-emerald-600',
-    'from-violet-400 to-purple-600',
+    'from-purple-400 to-purple-600',
     'from-red-400 to-red-600',
     'from-amber-400 to-amber-600',
     'from-sky-400 to-sky-600',
-    'from-fuchsia-400 to-violet-600',
+    'from-fuchsia-400 to-purple-600',
     'from-lime-400 to-emerald-600',
     'from-amber-400 to-red-600',
     'from-sky-400 to-sky-700',
@@ -1135,11 +1135,11 @@ export const ChatPage: React.FC = () => {
                     <div className="flex-1 flex flex-col px-5 py-4 gap-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 11rem)' }}>
                         {/* Avatar section */}
                         <div className="flex flex-col items-center gap-3">
-                            <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-violet-400/20 shadow-lg shadow-violet-500/10">
+                            <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-purple-400/20 shadow-lg shadow-purple-500/10">
                                 {myAvatarUrl ? (
                                     <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-violet-500/10 to-sky-500/10 flex items-center justify-center">
+                                    <div className="w-full h-full bg-gradient-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center">
                                         <span className="text-4xl opacity-40">🧑‍✈️</span>
                                     </div>
                                 )}
@@ -1148,7 +1148,7 @@ export const ChatPage: React.FC = () => {
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={!!uploadProgress}
-                                    className="text-sm text-violet-400 hover:text-violet-300 font-medium transition-colors"
+                                    className="text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
                                 >
                                     {myAvatarUrl ? '🔄 Change Photo' : '📷 Upload Photo'}
                                 </button>
@@ -1188,7 +1188,7 @@ export const ChatPage: React.FC = () => {
                                 value={profileDisplayName}
                                 onChange={e => setProfileDisplayName(e.target.value)}
                                 placeholder="Captain Jack"
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 transition-colors"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
                                 maxLength={30}
                             />
                             <p className="text-xs text-white/40 mt-1.5 px-1">This is how you appear in chat</p>
@@ -1201,7 +1201,7 @@ export const ChatPage: React.FC = () => {
                                 value={profileVesselName}
                                 onChange={e => setProfileVesselName(e.target.value)}
                                 placeholder={settings.vessel?.name || 'Black Pearl'}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 transition-colors"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
                                 maxLength={40}
                             />
                         </div>
@@ -1234,7 +1234,7 @@ export const ChatPage: React.FC = () => {
                         <button
                             onClick={handleSaveProfile}
                             disabled={profileSaving}
-                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-500/20 to-sky-500/20 hover:from-violet-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"
+                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-500/20 to-sky-500/20 hover:from-purple-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"
                         >
                             {profileSaved ? '✓ Saved!' : profileSaving ? 'Saving...' : '💾 Save Profile'}
                         </button>
@@ -2001,12 +2001,12 @@ export const ChatPage: React.FC = () => {
                                     onChange={(e) => setDmText(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && sendDMMessage()}
                                     placeholder={`Message ${dmPartner?.name || ''}...`}
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 focus:bg-white/[0.06] transition-all duration-200"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.06] transition-all duration-200"
                                 />
                                 <button
                                     onClick={sendDMMessage}
                                     disabled={!dmText.trim()}
-                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-400 hover:to-purple-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-violet-500/20 disabled:shadow-none"
+                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-purple-500/20 disabled:shadow-none"
                                 >
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={dmText.trim() ? 'text-white' : 'text-white/15'}>
                                         <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4z" />

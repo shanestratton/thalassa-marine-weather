@@ -73,7 +73,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             icon: <PenIcon />,
             page: 'diary',
             accentColor: 'text-sky-400',
-            accentBg: 'from-sky-500/20 to-violet-500/20 border-sky-500/20',
+            accentBg: 'from-sky-500/20 to-purple-500/20 border-sky-500/20',
         },
         {
             id: 'inventory',
@@ -108,8 +108,8 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             sublabel: 'Network',
             icon: <SignalIcon />,
             page: 'nmea',
-            accentColor: 'text-violet-400',
-            accentBg: 'from-violet-500/20 to-purple-500/20 border-violet-500/20',
+            accentColor: 'text-purple-400',
+            accentBg: 'from-purple-500/20 to-purple-500/20 border-purple-500/20',
         },
         {
             id: 'equipment',
