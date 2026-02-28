@@ -717,7 +717,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         return (
             <div ref={keyboardScrollRef} className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`} style={{ overscrollBehaviorY: 'none' }}>
                 {/* ── Header — consistent with other vessel pages ── */}
-                <div className="shrink-0 px-4 pt-3 pb-2">
+                <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             {onBack && (

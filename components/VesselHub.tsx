@@ -132,25 +132,25 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     ];
 
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pb-24 pt-4 animate-in fade-in duration-300">
+        <div className="w-full max-w-2xl mx-auto px-4 pt-4 pb-24 animate-in fade-in duration-300">
 
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 1: ACTIVE WATCH — Two compact cards */}
             {/* ═══════════════════════════════════════════ */}
-            <div className="mb-5">
-                <div className="flex items-center gap-2 mb-2">
+            <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-red-500" />
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('compass');
                         }}
-                        className={`bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
+                        className={`bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
                     >
                         <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                             <svg className={`w-4 h-4 ${anchorAccent.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -158,7 +158,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-xs font-black text-white tracking-wide">Anchor Watch</h4>
-                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color}`}>{anchorSublabel}</p>
+                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${anchorAccent.color}`}>{anchorSublabel}</p>
                     </button>
 
                     {/* Log Book Card */}
@@ -167,7 +167,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             triggerHaptic('light');
                             onNavigate('details');
                         }}
-                        className="bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                        className="bg-gradient-to-br from-sky-500/15 to-cyan-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
                     >
                         <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                             <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -175,7 +175,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-xs font-black text-white tracking-wide">Log Book</h4>
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Voyage Entries</p>
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-1">Voyage Entries</p>
                     </button>
                 </div>
             </div>
@@ -183,13 +183,13 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 2: SHIP'S OFFICE — 4x2 compact grid */}
             {/* ═══════════════════════════════════════════ */}
-            <div className="mb-5">
-                <div className="flex items-center gap-2 mb-2">
+            <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-3">
                     {officeCards.map(card => {
                         const disabled = card.id === 'passage' && isObserver;
                         return (
@@ -200,13 +200,13 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                                     triggerHaptic('light');
                                     onNavigate(card.page);
                                 }}
-                                className={`bg-gradient-to-br ${disabled ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : `${card.accentBg}`} border rounded-xl p-2.5 text-left group ${disabled ? '' : 'hover:scale-[1.03]'} transition-all active:scale-[0.97]`}
+                                className={`bg-gradient-to-br ${disabled ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : `${card.accentBg}`} border rounded-xl p-3 text-left group ${disabled ? '' : 'hover:scale-[1.03]'} transition-all active:scale-[0.97]`}
                             >
-                                <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                                <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                                     <div className={`${card.accentColor}`}>{card.icon}</div>
                                 </div>
                                 <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">{card.label}</h4>
-                                <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${disabled ? 'text-gray-600' : card.accentColor}`}>
+                                <p className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${disabled ? 'text-gray-600' : card.accentColor}`}>
                                     {disabled ? 'Vessel Required' : card.sublabel}
                                 </p>
                             </button>
@@ -219,7 +219,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             {/* ZONE 3: APP ADMINISTRATION */}
             {/* ═══════════════════════════════════════════ */}
             <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-gray-600" />
                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
                 </div>
@@ -228,7 +228,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     {/* Account & Subscription */}
                     <button
                         onClick={() => onNavigate('settings')}
-                        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
+                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
                     >
                         <div className="p-1.5 bg-white/5 rounded-lg">
                             <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -246,7 +246,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     {/* Terms & Privacy */}
                     <button
                         onClick={() => window.open('https://thalassa.app/terms', '_blank')}
-                        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
+                        className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-colors"
                     >
                         <div className="p-1.5 bg-white/5 rounded-lg">
                             <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -260,7 +260,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     </button>
                 </div>
 
-                <p className="text-center text-[11px] text-gray-600 mt-3 font-bold uppercase tracking-widest">
+                <p className="text-center text-[11px] text-gray-600 mt-4 font-bold uppercase tracking-widest">
                     Thalassa Marine Weather v2.0
                 </p>
             </div>

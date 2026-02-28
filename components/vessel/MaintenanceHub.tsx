@@ -18,6 +18,7 @@ import type { MaintenanceTask, MaintenanceCategory, MaintenanceTriggerType, Main
 import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 import { SlideToAction } from '../ui/SlideToAction';
+import { EmptyState } from '../ui/EmptyState';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -416,7 +417,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
 
                 {/* ═══ HEADER ═══ */}
-                <div className="shrink-0 px-4 pt-3 pb-2">
+                <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={onBack}
@@ -557,16 +558,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 </div>
 
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-2">
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
                     ) : tasksWithStatus.length === 0 ? (
-                        <div className="text-center py-12">
-                            <p className="text-gray-500 text-sm font-bold">No maintenance tasks yet</p>
-                            <p className="text-gray-600 text-xs mt-1">Tap + to add your first task</p>
-                        </div>
+                        <EmptyState
+                            icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.3 5.3a1.5 1.5 0 01-2.12 0l-.36-.36a1.5 1.5 0 010-2.12l5.3-5.3m2.1-2.1l4.24-4.24a3 3 0 014.24 0l.36.36a3 3 0 010 4.24l-4.24 4.24m-6.36-6.36l6.36 6.36" /></svg>}
+                            title="No Maintenance Tasks"
+                            subtitle="Set up service intervals for your engine, rigging, and safety gear. Slide below to create your first task."
+                        />
                     ) : (
                         tasksWithStatus.map(task => (
                             <SwipeableTaskCard
@@ -959,7 +961,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <h3 className="text-lg font-black text-white mb-4">Service History</h3>
 
                             {historyItems.length === 0 ? (
-                                <p className="text-gray-500 text-sm text-center py-8">No service history recorded</p>
+                                <EmptyState
+                                    icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                                    title="No Service History"
+                                    subtitle="Service records will appear here after you log your first maintenance task."
+                                    className="py-8"
+                                />
                             ) : (
                                 <div className="space-y-3">
                                     {historyItems.map(h => (

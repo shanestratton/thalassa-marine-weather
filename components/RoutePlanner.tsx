@@ -80,7 +80,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             )}
 
             {/* ═══ HEADER ═══ */}
-            <div className="shrink-0 px-4 pt-3 pb-2">
+            <div className="shrink-0 px-4 pt-4 pb-3">
                 <div className="flex items-center gap-3">
                     {onBack && (
                         <button
@@ -235,7 +235,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
                     {/* ─── TOP: Form inputs anchored to top ─── */}
                     <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4">
-                        <div className={`max-w-xl mx-auto w-full space-y-2.5 ${ROUTING_DISABLED ? 'opacity-40 pointer-events-none' : ''}`}>
+                        <div className={`max-w-xl mx-auto w-full space-y-3 ${ROUTING_DISABLED ? 'opacity-40 pointer-events-none' : ''}`}>
                             {/* Origin */}
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-emerald-400">

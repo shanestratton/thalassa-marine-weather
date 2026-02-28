@@ -275,7 +275,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
 
                 {/* Header */}
-                <div className="shrink-0 px-4 pt-3 pb-2">
+                <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
                         <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -320,7 +320,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 </div>
 
                 {/* Documents list (scrollable, grouped) */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-5">
+                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />

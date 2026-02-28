@@ -222,15 +222,24 @@ export const typography = {
 } as const;
 
 export const spacing = {
-    page: 'p-3',
-    pageX: 'px-3',
-    pageY: 'py-3',
-    card: 'p-2.5',
-    cardCompact: 'p-2',
-    cardRelaxed: 'p-3',
-    stack: 'space-y-2',
-    stackRelaxed: 'space-y-3',
+    /** Page-level horizontal padding (16px) */
+    page: 'px-4',
+    /** Page-level vertical padding (16px top, 24px+nav bottom) */
+    pageY: 'pt-4 pb-24',
+    /** Standard card padding (16px all sides) */
+    card: 'p-4',
+    /** Compact card padding (12px all sides) — for dense grids */
+    cardCompact: 'p-3',
+    /** Section gap between cards stacked vertically (16px) */
+    sectionGap: 'gap-4',
+    /** Item gap within cards/lists (8px) */
+    itemGap: 'gap-2',
+    /** Small gap within grouped items (4px) */
+    tightGap: 'gap-1',
+    /** Standard bottom clearance for nav bar */
     navClearance: 'pb-24',
+    /** Full page container: pad sides + bottom nav clearance */
+    pageContainer: 'px-4 pt-4 pb-24',
 } as const;
 
 export const radii = {
