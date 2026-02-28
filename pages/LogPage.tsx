@@ -1311,20 +1311,38 @@ const VoyageCard: React.FC<{
 
     useEffect(() => {
         const geocode = async (lat: number, lon: number): Promise<string | null> => {
+            // 1. Try the app's own reverseGeocode (Mapbox-backed, more reliable for coastal areas)
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=16&addressdetails=1`);
-                if (!res.ok) return null;
-                const data = await res.json();
-                // Prefer most local name: neighbourhood → suburb → village → town → city
-                const addr = data.address || {};
-                return addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city_district || addr.city || addr.hamlet || addr.county || null;
-            } catch { return null; }
+                const { reverseGeocode: appGeocode } = await import('../services/weatherService');
+                const name = await appGeocode(lat, lon);
+                if (name) {
+                    // Extract local part — take last meaningful segment
+                    // e.g. "Newport, Redcliffe, QLD" → "Newport"
+                    const parts = name.split(',').map(s => s.trim()).filter(Boolean);
+                    if (parts.length > 0) return parts[0];
+                }
+            } catch { /* fall through to Nominatim */ }
+
+            // 2. Fallback: Nominatim with progressive zoom levels (coastal/offshore positions)
+            const zoomLevels = [16, 14, 10, 8, 5];
+            for (const zoom of zoomLevels) {
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=${zoom}&addressdetails=1`);
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const addr = data.address || {};
+                    const local = addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city_district || addr.city || addr.hamlet || addr.county || null;
+                    if (local) return local;
+                } catch { continue; }
+            }
+            return null;
         };
 
         if (first?.latitude && first.latitude !== 0) {
             geocode(first.latitude, first.longitude ?? 0).then(name => { if (name) setStartLocName(name); });
         }
-        if (last?.latitude && last.latitude !== 0 && last !== first) {
+        if (last?.latitude && last.latitude !== 0) {
+            // Always geocode end — even if same entry, so single-entry voyages show the place name
             geocode(last.latitude, last.longitude ?? 0).then(name => { if (name) setEndLocName(name); });
         }
     }, [first?.latitude, first?.longitude, last?.latitude, last?.longitude]);
