@@ -650,16 +650,27 @@ export function useLogPageState() {
     // ── Archive handlers ─────────────────────────────────────────────────────
 
     const handleArchiveVoyage = useCallback(async (voyageId: string) => {
-        await ShipLogService.archiveVoyage(voyageId);
-        await loadData();
-        reloadCareerData();
-    }, [loadData, reloadCareerData]);
+        const success = await ShipLogService.archiveVoyage(voyageId);
+        if (success) {
+            // Immediately remove from active view
+            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== voyageId) });
+            toast.success('Voyage archived');
+            reloadCareerData();
+        } else {
+            toast.error('Failed to archive voyage — check if the "archived" column exists in Supabase');
+        }
+    }, [toast, reloadCareerData]);
 
     const handleUnarchiveVoyage = useCallback(async (voyageId: string) => {
-        await ShipLogService.unarchiveVoyage(voyageId);
-        await loadData();
-        reloadCareerData();
-    }, [loadData, reloadCareerData]);
+        const success = await ShipLogService.unarchiveVoyage(voyageId);
+        if (success) {
+            await loadData();
+            reloadCareerData();
+            toast.success('Voyage restored');
+        } else {
+            toast.error('Failed to unarchive voyage');
+        }
+    }, [loadData, reloadCareerData, toast]);
 
     // ── Public API ──────────────────────────────────────────────────────────
 

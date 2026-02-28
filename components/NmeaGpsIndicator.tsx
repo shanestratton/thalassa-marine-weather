@@ -39,7 +39,7 @@ export const NmeaGpsIndicator: React.FC = () => {
                 }
             },
             () => { /* GPS error — ignore silently */ },
-            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
         );
 
         return () => navigator.geolocation.clearWatch(watchId);
@@ -50,6 +50,7 @@ export const NmeaGpsIndicator: React.FC = () => {
         const id = setInterval(() => {
             const isNmea = NmeaGpsProvider.isActive();
             const isPrecision = GpsPrecision.isPrecision();
+            GpsPrecision.checkStaleness(); // Reset badge if no fresh samples in 30s
             setNmeaActive(isNmea);
             setPrecisionActive(isPrecision);
 
