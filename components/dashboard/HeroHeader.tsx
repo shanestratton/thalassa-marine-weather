@@ -118,14 +118,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2">
                     {isLive ? (
                         <>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 max-w-full">
                                 {/* Pulsing green live dot */}
                                 <div
                                     className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
                                     style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                                 />
-                                <span className="text-2xl leading-none">{conditionIcon}</span>
-                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-xl' : 'text-2xl'} font-mono font-bold tracking-tight leading-none`}>
+                                <span className="text-2xl leading-none shrink-0">{conditionIcon}</span>
+                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-xl' : 'text-2xl'} font-mono font-bold tracking-tight leading-none truncate`}>
                                     {displayCondition}
                                 </span>
                             </div>
@@ -135,9 +135,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             <span className="text-blue-400 font-extrabold text-[10px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
                                 {dateLabel}
                             </span>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xl leading-none">{conditionIcon}</span>
-                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-lg' : 'text-xl'} font-mono font-bold tracking-tight leading-none`}>
+                            <div className="flex items-center gap-2 max-w-full">
+                                <span className="text-xl leading-none shrink-0">{conditionIcon}</span>
+                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-lg' : 'text-xl'} font-mono font-bold tracking-tight leading-none truncate`}>
                                     {displayCondition}
                                 </span>
                             </div>
