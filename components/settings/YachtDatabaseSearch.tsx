@@ -3,6 +3,9 @@
  * Used in VesselTab (Settings) and OnboardingWizard to pick a yacht from
  * the polar database. Selecting a yacht provides the model name, LOA,
  * category, and polar performance data.
+ *
+ * Results only appear once the user types in the search box (min 2 chars).
+ * Dropdown limited to 5 results for a clean, focused UX.
  */
 import React, { useState } from 'react';
 import { POLAR_DATABASE, searchPolarDatabase, type PolarDatabaseEntry } from '../../data/polarDatabase';
@@ -20,9 +23,10 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
     const [search, setSearch] = useState('');
     const [localSelected, setLocalSelected] = useState(selectedModel || '');
 
-    const results = searchPolarDatabase(search);
-    const maxResults = compact ? 50 : results.length;
-    const displayResults = results.slice(0, maxResults);
+    // Only search when user has typed at least 2 characters
+    const hasQuery = search.trim().length >= 2;
+    const results = hasQuery ? searchPolarDatabase(search) : [];
+    const displayResults = results.slice(0, 5); // Show max 5 results
 
     const grouped = displayResults.reduce((acc, entry) => {
         if (!acc[entry.manufacturer]) acc[entry.manufacturer] = [];
@@ -42,7 +46,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 )}
             </div>
 
-            <div className="relative mb-4">
+            <div className="relative">
                 <input
                     type="text"
                     value={search}
@@ -55,39 +59,47 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 </svg>
             </div>
 
-            <div className={`overflow-y-auto custom-scrollbar space-y-3 ${compact ? 'max-h-48' : 'max-h-72'}`}>
-                {Object.entries(grouped).map(([mfr, entries]) => (
-                    <div key={mfr}>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
-                        <div className="space-y-1">
-                            {entries.map(entry => (
-                                <button
-                                    key={entry.model}
-                                    onClick={() => { setLocalSelected(entry.model); onSelect(entry); }}
-                                    className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${localSelected === entry.model
-                                        ? 'bg-sky-500/15 border border-sky-500/30 text-white'
-                                        : 'bg-white/[0.02] border border-transparent text-gray-300 hover:bg-white/[0.05] hover:border-white/10'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-lg">{entry.category === 'multihull' ? '🐈' : '⛵'}</span>
-                                        <div>
-                                            <p className="text-sm font-bold">{entry.model}</p>
-                                            <p className="text-[10px] text-gray-500">{entry.loa}ft • {entry.category}</p>
+            {/* Results — only shown when user is searching */}
+            {hasQuery && (
+                <div className="mt-3 space-y-3 max-h-72 overflow-y-auto custom-scrollbar">
+                    {Object.entries(grouped).map(([mfr, entries]) => (
+                        <div key={mfr}>
+                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">{mfr}</p>
+                            <div className="space-y-1">
+                                {entries.map(entry => (
+                                    <button
+                                        key={entry.model}
+                                        onClick={() => { setLocalSelected(entry.model); onSelect(entry); setSearch(''); }}
+                                        className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${localSelected === entry.model
+                                            ? 'bg-sky-500/15 border border-sky-500/30 text-white'
+                                            : 'bg-white/[0.02] border border-transparent text-gray-300 hover:bg-white/[0.05] hover:border-white/10'
+                                            }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-lg">{entry.category === 'multihull' ? '🐈' : '⛵'}</span>
+                                            <div>
+                                                <p className="text-sm font-bold">{entry.model}</p>
+                                                <p className="text-[10px] text-gray-500">{entry.loa}ft • {entry.category}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    {localSelected === entry.model && (
-                                        <span className="text-[9px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
-                                    )}
-                                </button>
-                            ))}
+                                        {localSelected === entry.model && (
+                                            <span className="text-[9px] font-bold text-sky-400 uppercase bg-sky-500/10 px-2 py-1 rounded-md">Active</span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                ))}
-                {results.length === 0 && (
-                    <p className="text-center text-sm text-gray-500 py-8">No boats match "{search}"</p>
-                )}
-            </div>
+                    ))}
+                    {results.length === 0 && (
+                        <p className="text-center text-sm text-gray-500 py-4">No boats match "{search}"</p>
+                    )}
+                    {results.length > 5 && (
+                        <p className="text-center text-[10px] text-gray-500 py-1">
+                            Showing 5 of {results.length} results — refine your search
+                        </p>
+                    )}
+                </div>
+            )}
 
             <p className="text-[10px] text-gray-500 mt-3 text-center">
                 {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
