@@ -10,6 +10,10 @@
 	<string>Thalassa needs continuous location access to automatically log your position every 15 minutes while on a voyage, even when the app is in the background.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Thalassa uses motion detection to optimize GPS battery usage by detecting when you are stationary at anchor versus underway.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Thalassa uses the microphone for voice-to-text dictation in the Captain's Journal, allowing you to record voice memos that are automatically transcribed to text.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

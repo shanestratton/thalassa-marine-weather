@@ -209,11 +209,26 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, {
-                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                    ? 'audio/webm;codecs=opus'
-                    : 'audio/webm',
-            });
+
+            // Determine best supported audio format
+            // iOS WKWebView only supports audio/mp4; desktop Chrome/Firefox support audio/webm
+            let mimeType = '';
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                mimeType = 'audio/webm;codecs=opus';
+            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                mimeType = 'audio/webm';
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                mimeType = 'audio/mp4';
+            } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+                mimeType = 'audio/aac';
+            }
+            // If none match, let the browser pick the default
+
+            const recorderOptions: MediaRecorderOptions = {};
+            if (mimeType) recorderOptions.mimeType = mimeType;
+
+            const mediaRecorder = new MediaRecorder(stream, recorderOptions);
+            const recordedMime = mediaRecorder.mimeType || mimeType || 'audio/mp4';
 
             audioChunksRef.current = [];
             mediaRecorderRef.current = mediaRecorder;
@@ -226,7 +241,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 // Stop all tracks
                 stream.getTracks().forEach(t => t.stop());
 
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const blob = new Blob(audioChunksRef.current, { type: recordedMime });
                 if (blob.size > 0) {
                     const url = await DiaryService.uploadAudio(blob);
                     setAudioUrl(url);
@@ -234,7 +249,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     // Auto-transcribe voice memo to text
                     if (url) {
                         setTranscribing(true);
-                        const text = await DiaryService.transcribeAudio(url);
+                        const text = await DiaryService.transcribeAudio(url, recordedMime);
                         if (text) {
                             setBody(prev => prev ? `${prev}\n\n${text}` : text);
                         }

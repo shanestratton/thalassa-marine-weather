@@ -1312,12 +1312,12 @@ const VoyageCard: React.FC<{
     useEffect(() => {
         const geocode = async (lat: number, lon: number): Promise<string | null> => {
             try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10`);
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=16&addressdetails=1`);
                 if (!res.ok) return null;
                 const data = await res.json();
-                // Try suburb → city → town → county → state
+                // Prefer most local name: neighbourhood → suburb → village → town → city
                 const addr = data.address || {};
-                return addr.suburb || addr.city || addr.town || addr.village || addr.county || addr.state || null;
+                return addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city_district || addr.city || addr.hamlet || addr.county || null;
             } catch { return null; }
         };
 

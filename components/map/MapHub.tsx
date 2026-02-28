@@ -476,6 +476,15 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
         mapRef.current = map;
 
+        // Listen for recenter requests (e.g., from embedded map FAB button)
+        const handleRecenter = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const lat = detail?.lat ?? center?.lat ?? location.lat;
+            const lon = detail?.lon ?? center?.lon ?? location.lon;
+            map.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
+        };
+        window.addEventListener('map-recenter', handleRecenter);
+
         // Resize map when container dimensions change (mode switch, layout transitions)
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
@@ -483,6 +492,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         resizeObserver.observe(containerRef.current);
 
         return () => {
+            window.removeEventListener('map-recenter', handleRecenter);
             resizeObserver.disconnect();
             cancelLongPress();
             map.remove();
@@ -1719,6 +1729,24 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
                     </svg>
                 </button>
+
+                {/* Recenter FAB — embedded mode only */}
+                {embedded && (
+                    <button
+                        onClick={() => {
+                            const lat = center?.lat ?? location.lat;
+                            const lon = center?.lon ?? location.lon;
+                            mapRef.current?.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
+                        }}
+                        className="w-8 h-8 rounded-xl backdrop-blur-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90"
+                        aria-label="Recenter map"
+                    >
+                        <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <circle cx="12" cy="12" r="3" />
+                            <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+                        </svg>
+                    </button>
+                )}
 
                 {showLayerMenu && (
                     <div className="bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">

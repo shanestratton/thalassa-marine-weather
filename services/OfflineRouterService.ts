@@ -244,11 +244,12 @@ export class OfflineRouterService {
         // Build pathfinder with A*
         const pathFinder = aStar(this.graph, {
             distance: (_fromNode, _toNode, link) => {
-                return link.data?.weight ?? 1;
+                const d = link.data as { weight?: number } | undefined;
+                return d?.weight ?? 1;
             },
             heuristic: (fromNode, toNode) => {
-                const f = fromNode.data;
-                const t = toNode.data;
+                const f = fromNode.data as { lat: number; lon: number } | undefined;
+                const t = toNode.data as { lat: number; lon: number } | undefined;
                 if (!f || !t) return 0;
                 return haversineNM(f.lat, f.lon, t.lat, t.lon);
             },

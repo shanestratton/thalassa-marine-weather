@@ -26,6 +26,8 @@ import {
     type SyncBroadcast,
     type PositionBroadcast,
 } from '../services/AnchorWatchSyncService';
+import { AlarmAudioService } from '../services/AlarmAudioService';
+import { triggerHaptic } from '../utils/system';
 
 // ------- TYPES -------
 
@@ -91,6 +93,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
     const [safetyMargin, setSafetyMargin] = useState(10);
     const [sessionCode, setSessionCode] = useState('');
     const [showShoreModal, setShowShoreModal] = useState(false);
+
+    // Sound check modal — shown once per session before first anchor set
+    const [showSoundCheck, setShowSoundCheck] = useState(false);
+    const soundCheckShownRef = useRef(false);
 
     // Track iOS keyboard height via visualViewport so the modal stays above the keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -192,6 +198,47 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         }, 60_000);
         return () => clearTimeout(timeout);
     }, [viewMode, shoreData]);
+
+    // Shore alarm — trigger full alarm on shore watcher's phone when vessel drags
+    const shoreAlarmActiveRef = useRef(false);
+    useEffect(() => {
+        if (viewMode !== 'shore') {
+            // Stop alarm if we leave shore mode
+            if (shoreAlarmActiveRef.current) {
+                AlarmAudioService.stopAlarm();
+                shoreAlarmActiveRef.current = false;
+            }
+            return;
+        }
+
+        if (shoreData?.isAlarm && !shoreAlarmActiveRef.current) {
+            // Vessel is dragging — sound the alarm on shore phone
+            shoreAlarmActiveRef.current = true;
+            AlarmAudioService.startAlarm();
+            triggerHaptic('heavy');
+
+            // Repeat haptic every 2s while alarming
+            const hapticInterval = setInterval(() => {
+                triggerHaptic('heavy');
+            }, 2000);
+
+            return () => clearInterval(hapticInterval);
+        } else if (!shoreData?.isAlarm && shoreAlarmActiveRef.current) {
+            // Vessel back inside swing circle — silence
+            AlarmAudioService.stopAlarm();
+            shoreAlarmActiveRef.current = false;
+        }
+    }, [viewMode, shoreData?.isAlarm]);
+
+    // Cleanup alarm on unmount
+    useEffect(() => {
+        return () => {
+            if (shoreAlarmActiveRef.current) {
+                AlarmAudioService.stopAlarm();
+                shoreAlarmActiveRef.current = false;
+            }
+        };
+    }, []);
 
     // Elapsed time ticker (once per minute)
     useEffect(() => {
@@ -637,10 +684,22 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         const maxTravel = rect.width - thumbWidth;
         const ratio = slideX / maxTravel;
         if (ratio >= slideThreshold) {
-            handleSetAnchor();
+            // Show sound check modal the first time, then go straight to anchor
+            if (!soundCheckShownRef.current) {
+                setShowSoundCheck(true);
+            } else {
+                handleSetAnchor();
+            }
         }
         setSlideX(0);
     }, [isDragging, slideX, handleSetAnchor]);
+
+    // Confirm and proceed from sound check modal
+    const handleSoundCheckConfirm = useCallback(() => {
+        soundCheckShownRef.current = true;
+        setShowSoundCheck(false);
+        handleSetAnchor();
+    }, [handleSetAnchor]);
 
     // Reset slide position when not dragging
     useEffect(() => {
@@ -942,6 +1001,82 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                     </div>
                 </div>
 
+                {/* ══ Sound Check Confirmation Modal ══ */}
+                {showSoundCheck && createPortal(
+                    <div
+                        className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+                        onClick={() => setShowSoundCheck(false)}
+                    >
+                        <div
+                            className="w-full max-w-sm bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Header */}
+                            <div className="px-5 pt-5 pb-3 text-center">
+                                <div className="text-4xl mb-3">🔊</div>
+                                <h2 className="text-lg font-black text-white tracking-tight">Sound Check</h2>
+                                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                    Before you anchor up, make sure your alarm will wake you.
+                                </p>
+                            </div>
+
+                            {/* Checklist */}
+                            <div className="px-5 pb-4 space-y-2.5">
+                                <div className="flex items-start gap-3 bg-emerald-500/[0.06] border border-emerald-500/10 rounded-xl px-3.5 py-2.5">
+                                    <span className="text-lg mt-0.5">✅</span>
+                                    <div>
+                                        <p className="text-sm font-bold text-emerald-400">Mute Switch Override</p>
+                                        <p className="text-[11px] text-emerald-400/60 leading-snug">
+                                            The drag alarm will bypass your silent switch and play at full volume through the speaker.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start gap-3 bg-amber-500/[0.06] border border-amber-500/10 rounded-xl px-3.5 py-2.5">
+                                    <span className="text-lg mt-0.5">🔔</span>
+                                    <div>
+                                        <p className="text-sm font-bold text-amber-400">Recommended</p>
+                                        <p className="text-[11px] text-amber-400/60 leading-snug">
+                                            Turn your volume up and disable Do Not Disturb for maximum safety — especially overnight.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start gap-3 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl px-3.5 py-2.5">
+                                    <span className="text-lg mt-0.5">📱</span>
+                                    <div>
+                                        <p className="text-sm font-bold text-sky-400">Keep App Open</p>
+                                        <p className="text-[11px] text-sky-400/60 leading-snug">
+                                            Leave Thalassa running. Background GPS continues but the speaker alarm requires the app in view.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="px-5 pb-5 flex gap-2.5">
+                                <button
+                                    onClick={() => setShowSoundCheck(false)}
+                                    className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.06] text-sm font-bold text-slate-400 hover:text-white transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSoundCheckConfirm}
+                                    className="flex-[2] py-3 rounded-xl text-white text-sm font-black transition-all active:scale-[0.98]"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                                        boxShadow: '0 4px 16px rgba(249,115,22,0.3)',
+                                    }}
+                                >
+                                    ⚓ Drop Anchor
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )}
+
                 {/* Shore Watch Modal — rendered via portal to bypass PullToRefresh transform */}
                 {showShoreModal && createPortal(
                     <div
@@ -1114,6 +1249,24 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                 <span className={`w-1.5 h-1.5 rounded-full ${shoreData.isAlarm ? 'bg-red-400' : 'bg-emerald-400'}`} />
                                 {shoreData.isAlarm ? 'Drag Alarm' : 'Holding'}
                             </div>
+
+                            {/* Shore silence button — only shown during alarm */}
+                            {shoreData.isAlarm && shoreAlarmActiveRef.current && (
+                                <button
+                                    onClick={() => {
+                                        AlarmAudioService.stopAlarm();
+                                        shoreAlarmActiveRef.current = false;
+                                        triggerHaptic('medium');
+                                    }}
+                                    className="px-8 py-3 rounded-2xl text-white text-base font-black mb-6 transition-all active:scale-95"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
+                                        boxShadow: '0 6px 24px rgba(220, 38, 38, 0.4)',
+                                    }}
+                                >
+                                    🔇 Silence Alarm
+                                </button>
+                            )}
 
                             {/* Data cards — glassmorphism */}
                             <div className="grid grid-cols-2 gap-3 w-full max-w-sm">

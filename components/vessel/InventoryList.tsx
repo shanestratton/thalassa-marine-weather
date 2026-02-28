@@ -14,6 +14,7 @@ import { InventoryService } from '../../services/InventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
+import { Capacitor } from '@capacitor/core';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -393,8 +394,38 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {/* Barcode */}
                             <div>
                                 <label className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
-                                <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
+                                <div className="flex gap-1.5 mt-0.5">
+                                    <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
+                                        className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (Capacitor.isNativePlatform()) {
+                                                try {
+                                                    const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+                                                    const { camera } = await BarcodeScanner.checkPermissions();
+                                                    if (camera !== 'granted') {
+                                                        const r = await BarcodeScanner.requestPermissions();
+                                                        if (r.camera !== 'granted') return;
+                                                    }
+                                                    const { barcodes } = await BarcodeScanner.scan({
+                                                        formats: [BarcodeFormat.Ean13, BarcodeFormat.Ean8, BarcodeFormat.UpcA, BarcodeFormat.UpcE, BarcodeFormat.Code128, BarcodeFormat.Code39, BarcodeFormat.QrCode],
+                                                    });
+                                                    if (barcodes.length > 0 && barcodes[0].rawValue) {
+                                                        setEditBarcode(barcodes[0].rawValue);
+                                                        triggerHaptic('medium');
+                                                    }
+                                                } catch { /* cancelled */ }
+                                            }
+                                        }}
+                                        className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Category */}

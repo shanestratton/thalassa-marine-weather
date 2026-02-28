@@ -7,6 +7,7 @@
 import React, { useState, useCallback } from 'react';
 import { useNmeaStore, NmeaValue, NmeaStatusDot } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
+import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 
 interface NmeaPageProps {
@@ -30,6 +31,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             localStorage.setItem('nmea_port', port);
             NmeaListenerService.configure(host, parseInt(port, 10));
             NmeaListenerService.start();
+            NmeaStore.start();
         } catch (e) {
             console.error('NMEA connect failed:', e);
         } finally {
@@ -39,6 +41,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
 
     const handleDisconnect = useCallback(() => {
         triggerHaptic('medium');
+        NmeaStore.stop();
         NmeaListenerService.stop();
     }, []);
 

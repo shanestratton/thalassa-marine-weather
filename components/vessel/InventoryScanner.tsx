@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { triggerHaptic } from '../../utils/system';
+import { Capacitor } from '@capacitor/core';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -61,6 +62,49 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
     }, []);
 
     const startCamera = async () => {
+        // On native: use ML Kit scanner instead of camera stream
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+
+                const { camera } = await BarcodeScanner.checkPermissions();
+                if (camera !== 'granted') {
+                    const result = await BarcodeScanner.requestPermissions();
+                    if (result.camera !== 'granted') {
+                        setCameraError('Camera permission denied. Please enable in Settings.');
+                        return;
+                    }
+                }
+
+                const { barcodes } = await BarcodeScanner.scan({
+                    formats: [
+                        BarcodeFormat.Ean13,
+                        BarcodeFormat.Ean8,
+                        BarcodeFormat.UpcA,
+                        BarcodeFormat.UpcE,
+                        BarcodeFormat.Code128,
+                        BarcodeFormat.Code39,
+                        BarcodeFormat.QrCode,
+                    ],
+                });
+
+                if (barcodes.length > 0 && barcodes[0].rawValue) {
+                    handleBarcodeScan(barcodes[0].rawValue);
+                } else {
+                    // User cancelled
+                    handleManualEntry();
+                }
+            } catch (err: any) {
+                if (err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
+                    handleManualEntry();
+                } else {
+                    setCameraError('Scanner unavailable. Use manual entry below.');
+                }
+            }
+            return;
+        }
+
+        // Web: use camera stream + BarcodeDetector API
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: {
@@ -90,6 +134,52 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
     // ── Inline scanner for manual mode ──
     const openInlineScanner = async () => {
+        // Native platform: use Capacitor ML Kit barcode scanner
+        if (Capacitor.isNativePlatform()) {
+            try {
+                const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+
+                // Check & request camera permission
+                const { camera } = await BarcodeScanner.checkPermissions();
+                if (camera !== 'granted') {
+                    const result = await BarcodeScanner.requestPermissions();
+                    if (result.camera !== 'granted') {
+                        setCameraError('Camera permission denied. Please enable in Settings.');
+                        return;
+                    }
+                }
+
+                // Launch native scanner
+                const { barcodes } = await BarcodeScanner.scan({
+                    formats: [
+                        BarcodeFormat.Ean13,
+                        BarcodeFormat.Ean8,
+                        BarcodeFormat.UpcA,
+                        BarcodeFormat.UpcE,
+                        BarcodeFormat.Code128,
+                        BarcodeFormat.Code39,
+                        BarcodeFormat.QrCode,
+                    ],
+                });
+
+                if (barcodes.length > 0 && barcodes[0].rawValue) {
+                    const code = barcodes[0].rawValue;
+                    setNewItem(prev => ({ ...prev, barcode: code }));
+                    triggerHaptic('medium');
+                }
+            } catch (err: any) {
+                // User cancelled or error
+                if (err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
+                    // User pressed back — that's fine
+                } else {
+                    console.warn('[InventoryScanner] Native scan error:', err);
+                    setCameraError('Scanner unavailable. Enter barcode manually.');
+                }
+            }
+            return;
+        }
+
+        // Web fallback: use BarcodeDetector API + camera stream
         setShowInlineScanner(true);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
