@@ -53,7 +53,6 @@ export function useNavMeshOverlay(
 
         loadingRef.current = true;
         const url = `${supabaseUrl}/storage/v1/object/public/nav-graphs/${region}.json`;
-        console.log(`[NavMesh] Fetching: ${url}`);
 
         fetch(url)
             .then(r => {
@@ -61,13 +60,7 @@ export function useNavMeshOverlay(
                 return r.json();
             })
             .then((data: NavGraphData) => {
-                graphDataRef.current = data;
-                console.log(
-                    `[NavMesh] ✓ Loaded: ${data.meta.nodes.toLocaleString()} nodes, ` +
-                    `${data.meta.edges.toLocaleString()} edges, ` +
-                    `${data.markers?.length.toLocaleString() ?? 0} markers`
-                );
-                loadingRef.current = false;
+                graphDataRef.current = data;                loadingRef.current = false;
             })
             .catch(err => {
                 console.error('[NavMesh] Failed to load:', err);
@@ -222,13 +215,7 @@ export function useNavMeshOverlay(
             }
 
             group.addTo(map);
-            layerGroupRef.current = group;
-
-            console.log(
-                `[NavMesh] Rendered: ${nodeCount.toLocaleString()} nodes, ` +
-                `${edgeCount.toLocaleString()} edges (${dangerCount} danger), zoom=${currentZoom}`
-            );
-        };
+            layerGroupRef.current = group;        };
 
         // Initial render
         renderViewport();

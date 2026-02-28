@@ -75,7 +75,6 @@ export function apiCacheGet<T>(
 
         const ageMin = Math.round(ageMs / 60000);
         const ttlMin = Math.round(ttl / 60000);
-        console.log(`[API-Cache] ${provider} HIT (${ageMin}m / ${ttlMin}m TTL) @ ${locationKey(lat, lon)}`);
         return entry.data;
     } catch {
         return null;

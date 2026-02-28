@@ -100,7 +100,6 @@ export const WindDataController = {
         // Global mode: always fetch the full Earth grid regardless of zoom
         if (isGlobalMode) {
             WindStore.setLoading(true);
-            console.log(`[WindController] Global mode (zoom ${currentZoom.toFixed(1)})`);
 
             try {
                 const grid = await fetchGlobalWindField();
@@ -114,7 +113,6 @@ export const WindDataController = {
                     north: 85, south: -85, west: -180, east: 180, zoom: currentZoom,
                 };
                 WindStore.setGrid(grid);
-                console.log(`[WindController] Global grid: ${grid.width}×${grid.height}, ${grid.totalHours}h`);
             } catch (e) {
                 console.error('[WindController] Global fetch failed:', e);
                 WindStore.setError(`Failed to fetch global wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -137,7 +135,6 @@ export const WindDataController = {
         }
 
         WindStore.setLoading(true);
-        console.log(`[WindController] Fetching online: ${currentBounds.south.toFixed(1)}°–${currentBounds.north.toFixed(1)}°, zoom ${currentBounds.zoom.toFixed(1)}`);
 
         try {
             const grid = await fetchWindGrid(
@@ -155,7 +152,6 @@ export const WindDataController = {
 
             lastFetchedBounds = currentBounds;
             WindStore.setGrid(grid);
-            console.log(`[WindController] Online grid: ${grid.width}×${grid.height}, ${grid.totalHours}h`);
         } catch (e) {
             console.error('[WindController] Online fetch failed:', e);
             WindStore.setError(`Failed to fetch wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -174,12 +170,10 @@ export const WindDataController = {
         }
 
         WindStore.setLoading(true);
-        console.log(`[WindController] Loading offline: ${localGribPath}`);
 
         try {
             const grid = await loadLocalWindFile(localGribPath);
             WindStore.setGrid(grid);
-            console.log(`[WindController] Offline grid: ${grid.width}×${grid.height}, bounds: ${grid.south}°–${grid.north}° / ${grid.west}°–${grid.east}°`);
         } catch (e) {
             console.error('[WindController] Offline load failed:', e);
             WindStore.setError(`Failed to load wind file: ${e instanceof Error ? e.message : 'Unknown error'}`);

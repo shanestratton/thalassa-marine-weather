@@ -113,7 +113,6 @@ export function startSyncEngine(): void {
         }
     }, 5 * 60 * 1000);
 
-    console.log('[SyncService] Engine started');
 }
 
 /**
@@ -126,17 +125,14 @@ export function stopSyncEngine(): void {
         clearInterval(syncInterval);
         syncInterval = null;
     }
-    console.log('[SyncService] Engine stopped');
 }
 
 function handleOnline() {
-    console.log('[SyncService] Network online — triggering sync');
     // Retry failed items when we come back online
     retryFailed().then(() => syncNow());
 }
 
 function handleOffline() {
-    console.log('[SyncService] Network offline');
     setStatus('offline');
 }
 
@@ -148,7 +144,6 @@ function handleOffline() {
  */
 export async function syncNow(): Promise<SyncResult> {
     if (isSyncing) {
-        console.log('[SyncService] Sync already in progress, skipping');
         return { pushed: 0, pulled: 0, errors: [] };
     }
 
@@ -195,7 +190,6 @@ export async function syncNow(): Promise<SyncResult> {
     listeners.forEach(fn => fn(result));
 
     if (result.pushed > 0 || result.pulled > 0) {
-        console.log(`[SyncService] Sync complete — pushed: ${result.pushed}, pulled: ${result.pulled}`);
     }
 
     return result;
@@ -207,7 +201,6 @@ async function pushMutations(): Promise<{ count: number; errors: string[] }> {
     const pending = getPendingQueue();
     if (pending.length === 0) return { count: 0, errors: [] };
 
-    console.log(`[SyncService] Pushing ${pending.length} mutations...`);
 
     // Lock items
     const ids = pending.map(q => q.id);
@@ -362,10 +355,8 @@ async function uploadFileIfNeeded(
 
         if (urlData?.signedUrl) {
             row[field] = urlData.signedUrl;
-            console.log(`[SyncService] Uploaded file → ${storagePath}`);
         }
     } catch (e) {
-        console.warn(`[SyncService] File upload skipped:`, e);
         // Non-fatal — row syncs with the local URI, file can be uploaded later
     }
 }
@@ -410,7 +401,6 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
         }
     } catch {
         // Keep original if parsing fails (should not happen with valid ISO strings)
-        console.warn(`[SyncService] Could not normalize timestamp: ${since}`);
     }
 
     // Fetch records updated since last pull
@@ -452,7 +442,6 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
 
     if (toUpsert.length > 0) {
         await bulkUpsert(table, toUpsert as { id: string }[]);
-        console.log(`[SyncService] Pulled ${toUpsert.length} records for ${table}`);
     }
 
     return toUpsert.length;

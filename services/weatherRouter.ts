@@ -81,7 +81,6 @@ export async function fetchWeatherRoute(
     const supabaseKey = getSupabaseKey();
 
     if (!supabaseUrl) {
-        console.warn('[WeatherRouter] No Supabase URL configured — skipping');
         return null;
     }
 
@@ -101,7 +100,6 @@ export async function fetchWeatherRoute(
     };
 
     try {
-        console.log(`[WeatherRouter] Requesting weather-optimized route for ${centerline.length} waypoints`);
 
         const resp = await fetch(url, {
             method: 'POST',
@@ -124,27 +122,14 @@ export async function fetchWeatherRoute(
         if (data.error) {
             console.error(`[WeatherRouter] Routing error:`, data.error);
             return null;
-        }
-
-        console.log(
-            `[WeatherRouter] ✓ ${data.track?.length} track points, ` +
-            `${data.summary?.total_distance_nm} NM, ` +
-            `ETA: ${data.summary?.total_duration_hours}h ` +
-            `(${data.summary?.computation_ms}ms)`
-        );
-        // Debug: log track coordinates to diagnose crossing-earth issue
+        }        // Debug: log track coordinates to diagnose crossing-earth issue
         if (data.track) {
-            console.log('[WeatherRouter] Track coordinates [lon, lat]:');
-            data.track.forEach((pt: any, i: number) => {
-                console.log(`  [${i}] ${pt.name || 'unnamed'}: [${pt.coordinates[0].toFixed(4)}, ${pt.coordinates[1].toFixed(4)}]`);
-            });
+            // Track data available for 4D rendering
         }
         return data;
 
     } catch (err) {
-        if (err instanceof Error && err.name === 'TimeoutError') {
-            console.warn('[WeatherRouter] Request timed out (120s) — skipping');
-        } else {
+        if (err instanceof Error && err.name === 'TimeoutError') { } else {
             console.error('[WeatherRouter] Error:', err);
         }
         return null;
@@ -212,7 +197,6 @@ export async function enhanceVoyagePlanWithWeather(
     departureTime: string,
 ): Promise<VoyagePlan> {
     if (!voyagePlan.waypoints || voyagePlan.waypoints.length < 1) {
-        console.warn('[WeatherRouter] No waypoints to route — skipping');
         return voyagePlan;
     }
 
@@ -224,7 +208,6 @@ export async function enhanceVoyagePlanWithWeather(
     if (routeGeoJSON?.geometry?.coordinates?.length >= 2) {
         // Use the detailed graph route coordinates (hundreds of points along waterways)
         const coords: [number, number][] = routeGeoJSON.geometry.coordinates;
-        console.log(`[WeatherRouter] Using routeGeoJSON centerline with ${coords.length} points`);
         for (const [lon, lat] of coords) {
             centerline.push({ lat, lon });
         }
@@ -237,7 +220,6 @@ export async function enhanceVoyagePlanWithWeather(
         }
     } else {
         // Fallback: use sparse AI waypoints
-        console.log('[WeatherRouter] No routeGeoJSON — using sparse AI waypoints as centerline');
         if (voyagePlan.originCoordinates) {
             centerline.push({
                 lat: voyagePlan.originCoordinates.lat,
@@ -267,7 +249,6 @@ export async function enhanceVoyagePlanWithWeather(
     }
 
     if (centerline.length < 2) {
-        console.warn('[WeatherRouter] Not enough coordinates to route');
         return voyagePlan;
     }
 
@@ -276,7 +257,6 @@ export async function enhanceVoyagePlanWithWeather(
     if (vessel.type === 'sail') {
         try {
             polarData = await fetchUserPolarData();
-            if (polarData) console.log('[WeatherRouter] Using user polar data');
         } catch { /* Non-critical */ }
     }
 
@@ -290,13 +270,11 @@ export async function enhanceVoyagePlanWithWeather(
         for (let i = 0; i < MAX_WEATHER_POINTS; i++) {
             weatherCenterline.push(centerline[Math.round(i * step)]);
         }
-        console.log(`[WeatherRouter] Decimated centerline: ${centerline.length} → ${weatherCenterline.length} points for weather API`);
     }
 
     const payload = await fetchWeatherRoute(weatherCenterline, departureTime, vessel, polarData);
 
     if (!payload) {
-        console.warn('[WeatherRouter] Weather routing unavailable — building fallback 4D payload from centerline');
         // Build a basic spatiotemporal payload from the centerline so the 4D canvas still works
         const fallbackTrack = centerline.map((pt, i) => {
             const prevPt = i > 0 ? centerline[i - 1] : pt;

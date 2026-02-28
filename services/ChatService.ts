@@ -212,7 +212,6 @@ class ChatServiceClass {
 
     async sendMessage(channelId: string, text: string, isQuestion = false): Promise<ChatMessage | null> {
         if (!supabase) {
-            console.warn('[Chat] No supabase — queuing offline:', text.substring(0, 40));
             await this.queueOffline({ type: 'channel', channel_id: channelId, message: text, is_question: isQuestion, timestamp: new Date().toISOString() });
             return null;
         }
@@ -256,7 +255,6 @@ class ChatServiceClass {
             return null;
         }
 
-        console.log('[Chat] Message saved successfully, id:', data?.id);
 
         // Fire-and-forget: async AI moderation check (~1-2s)
         // Message is already posted — if flagged, it gets soft-deleted
@@ -386,7 +384,6 @@ class ChatServiceClass {
 
     async sendDM(recipientId: string, text: string): Promise<DirectMessage | null | 'blocked'> {
         if (!supabase) {
-            console.warn('[Chat] No supabase — queuing DM offline');
             await this.queueOffline({ type: 'dm', recipient_id: recipientId, message: text, timestamp: new Date().toISOString() });
             return null;
         }
@@ -403,7 +400,6 @@ class ChatServiceClass {
         // Check if either party has blocked the other
         const blocked = await this.isBlocked(recipientId);
         if (blocked) {
-            console.warn('[Chat] DM blocked between', user.id, 'and', recipientId);
             return 'blocked';
         }
 
@@ -443,7 +439,6 @@ class ChatServiceClass {
             }).catch(() => { /* best effort */ });
         }
 
-        console.log('[Chat] DM saved successfully, id:', data?.id);
         return data as DirectMessage;
     }
 

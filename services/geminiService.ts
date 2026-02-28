@@ -326,10 +326,8 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             const dyKm = Math.abs(dLat - oLat) * 111;
             const distKm = Math.sqrt(dxKm * dxKm + dyKm * dyKm);
 
-            console.log(`[VoyagePlan] Geocode check: origin=[${oLat.toFixed(4)}, ${oLon.toFixed(4)}], dest=[${dLat.toFixed(4)}, ${dLon.toFixed(4)}], dist=${distKm.toFixed(1)}km`);
 
             if (distKm < 1 && origin.trim().toLowerCase() !== destination.trim().toLowerCase()) {
-                console.warn(`[VoyagePlan] ⚠️ Origin and destination are ${distKm.toFixed(1)}km apart — Gemini likely failed to geocode. Destination: "${data.destination || destination}". Attempting fallback...`);
                 // Common SE QLD fallbacks
                 const seqldFallbacks: Record<string, { lat: number; lon: number }> = {
                     'scarborough': { lat: -27.190, lon: 153.106 },
@@ -349,7 +347,6 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
                 const destKey = destination.trim().toLowerCase();
                 const fallback = seqldFallbacks[destKey];
                 if (fallback) {
-                    console.log(`[VoyagePlan] ✓ Using fallback coords for "${destination}": [${fallback.lat}, ${fallback.lon}]`);
                     data.destinationCoordinates = fallback;
                     data.destination = destination;
                 }
@@ -382,19 +379,15 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
                         const placeName = await reverseGeocode(lat, lon);
                         if (placeName && !placeName.toLowerCase().includes('queensland, queensland')) {
                             data.destination = `${placeName} ${coordStr}`;
-                            console.log(`[VoyagePlan] Reverse geocoded destination: "${data.destination}"`);
                         } else {
                             data.destination = `Destination ${coordStr}`;
-                            console.log(`[VoyagePlan] Using coord label: "${data.destination}"`);
                         }
                     } catch {
                         data.destination = `Destination ${coordStr}`;
-                        console.log(`[VoyagePlan] Reverse geocode failed — using coord label: "${data.destination}"`);
                     }
                 } else {
                     // User input is clean — use it with coordinates
                     data.destination = `${destination} ${coordStr}`;
-                    console.log(`[VoyagePlan] Using user input: "${data.destination}"`);
                 }
             }
         }

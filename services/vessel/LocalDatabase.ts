@@ -122,7 +122,6 @@ export async function initLocalDatabase(): Promise<void> {
     });
 
     initialized = true;
-    console.log(`[LocalDB] Initialized — ${Object.keys(cache).map(t => `${t}: ${Object.keys(cache[t]).length}`).join(', ')}`);
 }
 
 function ensureInit() {

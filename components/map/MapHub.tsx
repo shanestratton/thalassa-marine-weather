@@ -325,10 +325,9 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                             },
                         });
 
-                        console.log(`[MapHub] ✓ Loaded ${geojson.features?.length} seamark markers`);
                     }
                 })
-                .catch((err: any) => console.warn('[MapHub] Seamark markers unavailable:', err));
+                .catch(() => {});
 
             // ── Isochrone source ──
             map.addSource('isochrones', {
@@ -591,7 +590,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 embRainNowIdx.current = nowIdx;
                 setEmbRainIdx(nowIdx);
             } catch (err) {
-                console.warn('[EmbeddedMap] Rain frames failed:', err);
             }
         })();
         return () => {
@@ -1318,7 +1316,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     const startIdx = Math.max(0, past.length - 1);
                     setRainFrameIndex(startIdx);
 
-                    console.log(`[Rain] Loaded ${past.length} past + ${nowcast.length} nowcast = ${allFrames.length} frames`);
 
                     // Initial frame render
                     const startFrame = allFrames[startIdx];
@@ -1334,7 +1331,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         paint: { 'raster-opacity': 0.75 },
                     }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
                 })
-                .catch(e => console.warn('[Rain] RainViewer fetch failed:', e));
+                .catch(() => {});
             return;
         }
 
@@ -1356,7 +1353,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     // Read grid IMPERATIVELY from store (not React hook — avoids stale closure)
                     const { grid: currentGrid } = WindStore.getState();
                     if (!currentGrid) {
-                        console.warn('[Wind GL] Controller finished but no grid in store');
                         return;
                     }
 
@@ -1375,11 +1371,10 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         try { m.moveLayer('country-borders-overlay'); } catch (_) { /* ok */ }
                         windEngineRef.current = engine;
                         setWindMaxSpeed(engine.getMaxSpeed());
-                        console.log(`[Wind GL] Custom layer added — ${currentGrid.width}×${currentGrid.height} grid, max ${engine.getMaxSpeed().toFixed(0)}kt`);
                     } catch (err) {
                         console.error('[Wind GL] Engine init failed:', err);
                     }
-                }).catch(err => console.warn('[Wind GL] Controller error:', err));
+                }).catch(() => {});
             };
             map.on('moveend', onFlyEnd);
         }
@@ -1506,7 +1501,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     coordinates: coords,
                                 },
                             };
-                            console.log(`[MapHub] Extended route to destination: +1 point → ${coords.length} total`);
                         }
                     }
 
@@ -1516,7 +1510,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     } else if (routeGeoJSON) {
                         src.setData(routeGeoJSON);
                     }
-                    console.log(`[MapHub] ✓ Graph route: ${graphRoute.waypoints.length} WPs, ${graphRoute.totalNM} NM`);
 
                     // Only keep departure + arrival in route analysis (no WP cards)
                     setRouteAnalysis(prev => prev ? {
@@ -1549,7 +1542,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 }
             }
         } catch (err) {
-            console.warn('[MapHub] Graph route unavailable, keeping straight line:', err);
         }
     }, [departure, arrival, speed, departureTime]);
 
@@ -1876,7 +1868,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                         (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
                                     const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
-                                    console.log(`[GRIB] POST ${url}`, body);
                                     setGribProgress(10);
 
                                     const resp = await fetch(url, {
@@ -1889,7 +1880,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     });
 
                                     setGribProgress(50);
-                                    console.log(`[GRIB] Response: ${resp.status} ${resp.statusText}`);
 
                                     if (!resp.ok) {
                                         let errDetail = `Server ${resp.status}`;
@@ -1903,7 +1893,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     }
 
                                     const buffer = await resp.arrayBuffer();
-                                    console.log(`[GRIB] Received ${buffer.byteLength} bytes`);
                                     setGribProgress(80);
 
                                     // Guard: NOAA sometimes returns HTML error pages
@@ -1928,7 +1917,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                         try { map.moveLayer('coastline-stroke'); } catch (_) { /* ok */ }
                                         try { map.moveLayer('country-borders-overlay'); } catch (_) { /* ok */ }
                                         windEngineRef.current = engine;
-                                        console.log('[GRIB] Created wind-particles layer on-the-fly');
                                     }
 
                                     engine.setWindData(grib.u, grib.v, grib.width, grib.height, {
@@ -1939,7 +1927,6 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     });
                                     setWindMaxSpeed(engine.getMaxSpeed());
 
-                                    console.log(`[GRIB] Loaded ${grib.width}×${grib.height} grid (${buffer.byteLength} bytes)`);
                                     setGribProgress(100);
                                     triggerHaptic('light');
                                 } catch (err) {
@@ -1998,7 +1985,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                     LocationStore.setFromGPS(latitude, longitude);
                                     onLocationSelect?.(latitude, longitude);
                                 },
-                                (err) => console.warn('GPS error:', err.message),
+                                (err) => void err,
                                 { enableHighAccuracy: true, timeout: 10000 }
                             );
                         }}

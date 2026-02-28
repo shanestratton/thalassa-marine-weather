@@ -352,13 +352,11 @@ export const moderateMessage = async (
 
             // If escalate, also log as high-priority
             if (result.verdict === 'escalate') {
-                console.warn(`[MODERATION] ESCALATION: Message ${messageId} by ${userId} — ${result.reason} (${result.category})`);
             }
         }
 
         if (result.verdict === 'warning') {
             // Flag for mod review — could set a "flagged" column in future
-            console.info(`[MODERATION] WARNING: Message ${messageId} — ${result.reason} (confidence: ${result.confidence})`);
         }
 
     } catch (error) {

@@ -91,7 +91,6 @@ async function fetchPressureGridGfs(
         });
 
         if (!res.ok) {
-            console.warn(`[Isobars-GFS] Edge function returned ${res.status}`);
             return null;
         }
 
@@ -104,11 +103,9 @@ async function fetchPressureGridGfs(
         const cols = lons.length;
         const totalHours = frames.length;
 
-        console.log(`[Isobars-GFS] Grid: lats=${rows}(${lats[0]}→${lats[rows - 1]}), lons=${cols}(${lons[0]}→${lons[cols - 1]}), frames=${totalHours}, frame shape=${frames[0]?.length}×${frames[0]?.[0]?.length}`);
 
         // Sanity check: lat/lon values must be in valid geographic range
         if (lats.some(l => Math.abs(l) > 90.1) || lons.some(l => Math.abs(l) > 360.1)) {
-            console.warn(`[Isobars-GFS] Invalid lat/lon range — lat [${lats[0]}, ${lats[rows - 1]}], lon [${lons[0]}, ${lons[cols - 1]}]. Falling back to Open-Meteo.`);
             return null;
         }
 
@@ -121,11 +118,9 @@ async function fetchPressureGridGfs(
         let allHourlyPressure: number[][][];
         if (frameRows === rows && frameCols === cols) {
             // Frame is correctly oriented: frame[lat_row][lon_col]
-            console.log(`[Isobars-GFS] Frame orientation OK (${rows}×${cols})`);
             allHourlyPressure = frames;
         } else if (frameRows === cols && frameCols === rows) {
             // Frame is transposed: frame[lon_col][lat_row] — need to swap
-            console.warn(`[Isobars-GFS] Frame transposed (${frameRows}×${frameCols} vs expected ${rows}×${cols}) — fixing`);
             allHourlyPressure = frames.map(frame => {
                 const transposed: number[][] = [];
                 for (let r = 0; r < rows; r++) {
@@ -139,7 +134,6 @@ async function fetchPressureGridGfs(
             });
         } else {
             // Dimensions don't match either way — use as-is and hope for the best
-            console.warn(`[Isobars-GFS] Frame dimensions (${frameRows}×${frameCols}) don't match lat/lon (${rows}×${cols}) — using as-is`);
             allHourlyPressure = frames;
         }
 
@@ -174,7 +168,6 @@ async function fetchPressureGridGfs(
 
         const interpTotal = interpPressure.length;
         const emptyGridInterp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
-        console.log(`[Isobars-GFS] Interpolated: ${totalHours} → ${interpTotal} sub-frames`);
 
         return {
             allHourlyPressure: interpPressure,
@@ -187,7 +180,6 @@ async function fetchPressureGridGfs(
             totalHours: interpTotal,
         };
     } catch (e) {
-        console.warn('[Isobars-GFS] Failed:', e);
         return null;
     }
 }
@@ -235,7 +227,7 @@ export async function fetchPressureGrid(
 
         // Fetch all forecast hours of pressure + wind in one request
         const omKey = getOpenMeteoKey();
-        if (!omKey) { console.warn('[Isobars] No Open-Meteo API key'); return null; }
+        if (!omKey) return null;
         const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=pressure_msl,wind_speed_10m,wind_direction_10m&forecast_hours=${FORECAST_HOURS}&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
@@ -291,7 +283,6 @@ export async function fetchPressureGrid(
             totalHours,
         };
     } catch (e) {
-        console.warn('[Isobars] Failed to fetch pressure grid:', e);
         return null;
     }
 }

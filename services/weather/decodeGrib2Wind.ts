@@ -172,10 +172,8 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                     const dLon = (width > 1) ? 360.0 / width : 1.0;
                     lat2 = la2Valid ? la2Raw : (lat1 - (height - 1) * dLat);
                     lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
-                    console.warn(`[GRIB2] Inferred bounds: La2=${lat2}° Lo2=${lon2}° (raw La2=${la2Raw}° Lo2=${lo2Raw}°)`);
                 }
 
-                console.log(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
                 break;
             }
 
@@ -275,7 +273,6 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
             uData.set(msgU.data.subarray(srcOffset, srcOffset + w), dstOffset);
             vData.set(msgV.data.subarray(srcOffset, srcOffset + w), dstOffset);
         }
-        console.log(`[decodeGrib2Wind] Flipped ${h} rows from north-first to south-first`);
     }
 
     // For full-globe grids: GRIB data columns start at 0°E but grid bounds are -180°..180°.
@@ -297,7 +294,6 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
         }
         uData = uShifted;
         vData = vShifted;
-        console.log(`[decodeGrib2Wind] Shifted ${w} columns by ${halfW} to align 0°E → -180°`);
     }
 
     return {

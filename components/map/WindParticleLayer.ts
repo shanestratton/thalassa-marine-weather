@@ -349,7 +349,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.heatmapIndexBuffer = gl.createBuffer();
         this.speedTexture = gl.createTexture();
 
-        console.log(`[WindParticleLayer] Initialized: ${NUM_PARTICLES}×${TRAIL_LENGTH} = ${TOTAL_POINTS} points`);
 
         if (this.pendingGrid) {
             const { grid, hour } = this.pendingGrid;
@@ -401,7 +400,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         }
 
         this.totalHours = this.windTimeline.length;
-        console.log(`[WindParticleLayer] Timeline loaded: ${this.totalHours} timesteps, ${grid.width}×${grid.height}`);
 
         // Compute max speed across ALL timesteps for legend
         let gridMax = 0;
@@ -465,7 +463,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             -1.0, 1.0,   // top-left
             2.0, 1.0,   // top-right
         ]);
-        console.log('[Heatmap] Uploading multi-world quad: x=[-1..2], y=[0..1]');
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
@@ -510,7 +507,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             // Check if the upload actually worked (texImage2D doesn't throw on failure)
             const err = gl.getError();
             if (err !== gl.NO_ERROR) {
-                console.warn(`[WindParticleLayer] Float texture failed (GL error ${err}), using Uint8 fallback`);
                 this._uploadUint8Texture(gl, tex, u, v, w, h, size);
             }
         } else {
@@ -684,7 +680,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             west: b.west,
         };
         if (clamped.north !== b.north || clamped.south !== b.south) {
-            console.warn(`[WindParticleLayer] Sanitized bounds: south ${b.south}→${clamped.south}, north ${b.north}→${clamped.north}`);
         }
         return clamped;
     }

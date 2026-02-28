@@ -150,6 +150,5 @@ export async function saveLocalWindFile(grid: WindGrid, filename = 'passage_wind
         directory: Directory.Documents,
     });
 
-    console.log(`[GribWindParser] Saved wind file: ${result.uri} (${buffer.byteLength} bytes)`);
     return filename;
 }

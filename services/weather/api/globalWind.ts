@@ -102,12 +102,11 @@ async function _doFetch(
         const lonParam = lons.join(',');
 
         const omKey = getOpenMeteoKey();
-        if (!omKey) { console.warn('[GlobalWind] No Open-Meteo API key'); return null; }
+        if (!omKey) return null;
         const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${latParam}&longitude=${lonParam}&current=wind_speed_10m,wind_direction_10m,surface_pressure&wind_speed_unit=kn&timezone=auto&apikey=${omKey}`;
 
         const response = await fetch(url);
         if (!response.ok) {
-            console.warn('[GlobalWind] API returned', response.status);
             return null;
         }
 
@@ -146,7 +145,6 @@ async function _doFetch(
         cachedData = data;
         return data;
     } catch (err) {
-        console.warn('[GlobalWind] Fetch failed:', err);
         return null;
     }
 }

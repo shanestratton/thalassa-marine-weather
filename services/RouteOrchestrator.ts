@@ -67,7 +67,6 @@ async function loadZones(): Promise<{ features: WaterwayZone[] }> {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         zonesData = await resp.json();
         const marinas = zonesData!.features.filter(f => f.properties.zone_type === 'marina').length;
-        console.log(`[Orchestrator] Loaded SE QLD zones: ${marinas} marinas`);
         return zonesData!;
     } catch (err) {
         console.error('[Orchestrator] Failed to load zones:', err);
@@ -81,9 +80,7 @@ async function loadMarinaExits(): Promise<Record<string, MarinaExit>> {
         const resp = await fetch('/data/marina_exits.json');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         marinaExits = await resp.json();
-        const withChannel = Object.values(marinaExits!).filter(e => e.channel_waypoints && e.channel_waypoints.length > 0).length;
-        console.log(`[Orchestrator] Loaded ${Object.keys(marinaExits!).length} marina exits (${withChannel} with channels)`);
-        return marinaExits!;
+        const withChannel = Object.values(marinaExits!).filter(e => e.channel_waypoints && e.channel_waypoints.length > 0).length;        return marinaExits!;
     } catch (err) {
         console.error('[Orchestrator] Failed to load marina exits:', err);
         return {};
@@ -152,13 +149,9 @@ export async function orchestrateRoute(
     _region: string = 'se_queensland',
 ): Promise<OrchestratedRoute | null> {
     const t0 = performance.now();
-
-    console.log(`[Orchestrator] Route: [${originLat.toFixed(4)}, ${originLon.toFixed(4)}] → [${destLat.toFixed(4)}, ${destLon.toFixed(4)}]`);
-
     // Load data
     const [zones, exits] = await Promise.all([loadZones(), loadMarinaExits()]);
     if (zones.features.length === 0) {
-        console.warn('[Orchestrator] No zone data — returning null');
         return null;
     }
 
@@ -169,22 +162,16 @@ export async function orchestrateRoute(
     }
 
     if (!marina) {
-        console.log('[Orchestrator] ⚓ Not in/near a marina — AI handles route');
         return null;
     }
 
     const marinaName = marina.properties.name;
-    console.log(`[Orchestrator] 🏗 Marina: ${marinaName}`);
 
     // ── Look up exit waypoint ──────────────────────────────────────
     const exit = exits[marinaName];
     if (!exit) {
-        console.warn(`[Orchestrator] No exit waypoint for "${marinaName}" — returning null`);
         return null;
     }
-
-    console.log(`[Orchestrator] Exit WP: [${exit.exit_lat.toFixed(5)}, ${exit.exit_lon.toFixed(5)}]`);
-
     // ── BUILD ROUTE ────────────────────────────────────────────────
 
     const routeCoords: [number, number][] = [];
@@ -197,13 +184,9 @@ export async function orchestrateRoute(
         routeCoords.push([originLon, originLat]);
         for (let i = 1; i < graphResult.coords.length - 1; i++) {
             routeCoords.push(graphResult.coords[i]);
-        }
-        console.log(`[Orchestrator] Phase 1: A* through canals (${routeCoords.length} WPs, snap ${graphResult.snapDistM.toFixed(0)}m)`);
-    } else {
+        }    } else {
         // A* failed — straight line from origin
-        routeCoords.push([originLon, originLat]);
-        console.log(`[Orchestrator] Phase 1: straight line (no canal graph match)`);
-    }
+        routeCoords.push([originLon, originLat]);    }
 
     // Phase 2: Exit WP (canal mouth)
     routeCoords.push([exit.exit_lon, exit.exit_lat]);
@@ -214,7 +197,6 @@ export async function orchestrateRoute(
         for (const wp of channelWPs) {
             routeCoords.push(wp as [number, number]);
         }
-        console.log(`[Orchestrator] Phase 3: ${channelWPs.length} channel WPs via ${exit.channel_name || 'channel'}`);
     }
 
     // Phase 4: Destination
@@ -241,12 +223,6 @@ export async function orchestrateRoute(
             coordinates: routeCoords,
         },
     };
-
-    console.log(
-        `[Orchestrator] ✓ ${routeCoords.length} WPs, ${totalNM.toFixed(1)} NM, ` +
-        `${computeMs.toFixed(0)}ms [${engines.join(' → ')}]`
-    );
-
     return {
         coordinates: routeCoords,
         totalNM: Math.round(totalNM * 10) / 10,

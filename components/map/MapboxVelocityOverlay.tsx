@@ -87,7 +87,7 @@ function ktsToColor(kts: number): [number, number, number] {
 function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
     const uRecord = windData.find((d: any) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2);
     const vRecord = windData.find((d: any) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3);
-    if (!uRecord || !vRecord) { console.warn('[HeatMap] No U/V data'); return; }
+    if (!uRecord || !vRecord) { return; }
 
     const header = uRecord.header;
     const nx = header.nx;
@@ -178,7 +178,6 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
         });
 
-        console.log(`[HeatMap] ✓ Split: ${west.toFixed(1)}°→180° | -180°→${(east - 360).toFixed(1)}° (${nx}×${ny})`);
 
     } else if (lonSpan > 180) {
         // ── Global GFS data: lon 0°→359.5° ──
@@ -229,7 +228,6 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             });
         }
 
-        console.log(`[HeatMap] ✓ Global split: W(-180°→0°, cols ${westColStart}-${westColEnd}) | E(0°→180°, cols ${eastColStart}-${eastColEnd}) (${nx}×${ny})`);
 
     } else {
         // Standard single image — fits within 180° span
@@ -243,7 +241,6 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
         });
 
-        console.log(`[HeatMap] ✓ Rendered ${nx}×${ny} (${west.toFixed(1)}°–${east.toFixed(1)}° × ${south.toFixed(1)}°–${north.toFixed(1)}°)`);
     }
 }
 
@@ -324,21 +321,17 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
         // Cache with a key based on the bounds
         await cache.put(cacheKey, res.clone());
 
-        console.log(`[VelocityOverlay] ✓ Live wind data cached (${(Number(res.headers.get('content-length')) / 1024).toFixed(0)}KB)`);
         return { data: await res.json(), source: 'live' };
 
     } catch (err) {
-        console.warn('[VelocityOverlay] Live fetch failed, checking cache...', err);
 
         const cache = await caches.open(WIND_CACHE_NAME);
         const cached = await cache.match(cacheKey);
 
         if (cached) {
-            console.log('[VelocityOverlay] ✓ Using cached wind data (offline)');
             return { data: await cached.json(), source: 'cached' };
         }
 
-        console.warn('[VelocityOverlay] No cache hit. Falling back to /wind_test.json');
         const fallback = await fetch('/wind_test.json');
         if (fallback.ok) return { data: await fallback.json(), source: 'static' };
 
@@ -379,7 +372,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     lastFetchZoom.current = mapboxMap.getZoom();
                     const refTime = result.data?.[0]?.header?.refTime ?? null;
                     const h = result.data?.[0]?.header;
-                    console.log(`[VelocityOverlay] Source: ${result.source} | Grid: ${h?.nx}×${h?.ny} | Bounds: ${h?.lo1}°–${h?.lo2 ?? '?'}° × ${h?.la2 ?? '?'}°–${h?.la1}° | Ref: ${refTime}`);
                     setDataInfo({ refTime, source: result.source });
                 }
             } catch (err) {
@@ -408,16 +400,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // ── Heat map layer (synchronous, decoupled from async Leaflet setup) ──
     useEffect(() => {
         if (!mapboxMap || !visible || !windData) {
-            console.log(`[HeatMap] Skip: map=${!!mapboxMap}, visible=${visible}, data=${!!windData}`);
             return;
         }
-        console.log(`[HeatMap] Injecting at zoom=${mapboxMap.getZoom().toFixed(1)}, windData records=${windData.length}`);
         try {
             injectHeatMap(mapboxMap, windData);
             // Verify layers were created
             const hasMain = !!mapboxMap.getLayer(HEATMAP_LAYER);
             const hasRight = !!mapboxMap.getLayer(HEATMAP_LAYER + '_r');
-            console.log(`[HeatMap] Post-inject: main=${hasMain}, right=${hasRight}, layers=${mapboxMap.getStyle().layers.length}`);
         } catch (err) {
             console.error('[HeatMap] Injection failed:', err);
         }

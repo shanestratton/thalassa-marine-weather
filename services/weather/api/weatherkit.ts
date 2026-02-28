@@ -297,9 +297,7 @@ export const fetchWeatherKitFull = async (
 
     const supabaseUrl = getSupabaseUrl();
     const supabaseKey = getSupabaseKey();
-    console.log(`[WeatherKit] Config check: URL=${supabaseUrl ? 'YES' : 'MISSING'}, Key=${supabaseKey ? 'YES' : 'MISSING'}`);
     if (!supabaseUrl) {
-        console.warn('[WeatherKit] No Supabase URL configured — skipping');
         return null;
     }
 
@@ -314,7 +312,6 @@ export const fetchWeatherKitFull = async (
     try {
         let json: any;
         try {
-            console.log(`[WeatherKit] Calling edge function: ${url}`);
             const res = await CapacitorHttp.post({
                 url,
                 headers: {
@@ -329,9 +326,7 @@ export const fetchWeatherKitFull = async (
                 throw new Error(`HTTP ${res.status}: ${errBody?.substring(0, 100)}`);
             }
             json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        } catch (capacitorErr: any) {
-            console.warn(`[WeatherKit] CapacitorHttp failed, trying fetch(): ${capacitorErr?.message}`);
-            const res = await fetch(url, {
+        } catch (capacitorErr: any) {            const res = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -359,14 +354,7 @@ export const fetchWeatherKitFull = async (
 
         // Cache (memory + persistent)
         cachedFull = { data: result, fetchedAt: Date.now(), key: cacheKey };
-        apiCacheSet('weatherkit', lat, lon, result);
-
-        console.log(
-            `[WeatherKit] ${observation?.condition ?? 'N/A'} ${observation?.temperature?.toFixed(1) ?? '?'}°C` +
-            ` | ${hourly.length}h forecast | ${daily.length}d outlook` +
-            ` | ${minutelyRain.length} rain minutes${rainSummary ? ` | "${rainSummary}"` : ''}`
-        );
-        return result;
+        apiCacheSet('weatherkit', lat, lon, result);        return result;
 
     } catch (e: any) {
         console.error('[WeatherKit] ❌ FETCH FAILED:', e?.message || e);
