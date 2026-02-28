@@ -51,6 +51,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(({ entries, height =
             maxZoom: 19,
         }).addTo(map);
 
+        // EMODnet Bathymetry overlay
+        L.tileLayer('https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png', {
+            maxZoom: 12,
+            opacity: 0.35,
+        }).addTo(map);
+
         // OpenSeaMap overlay
         L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
             maxZoom: 18,
