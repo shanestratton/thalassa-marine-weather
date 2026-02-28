@@ -1,7 +1,8 @@
 import React from 'react';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertSpeed, convertDistance } from '../../utils';
-import { SunIcon, RainIcon, DropletIcon, EyeIcon } from '../Icons';
+import { DropletIcon, EyeIcon } from '../Icons';
+import { AnimatedSunIcon, AnimatedRainIcon } from '../ui/AnimatedIcons';
 
 interface CurrentConditionsCardProps {
     data: WeatherMetrics;
@@ -67,7 +68,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* UV */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <SunIcon className="w-3 h-3 text-emerald-400" />
+                        <AnimatedSunIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">UV</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{uvIndex}</span>
@@ -97,7 +98,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
                 {/* Rain */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <RainIcon className="w-3 h-3 text-emerald-400" />
+                        <AnimatedRainIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Rain</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{rainChance}</span>

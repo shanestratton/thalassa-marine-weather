@@ -21,6 +21,7 @@ import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 import { ToastPortal, toast } from './components/Toast';
+import { PageTransition } from './components/ui/PageTransition';
 
 
 
@@ -71,7 +72,7 @@ const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
-    const { currentView, setPage, isOffline } = useUI();
+    const { currentView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route';
 
     // 2. APP LOGIC / CONTROLLER
@@ -284,68 +285,72 @@ const App: React.FC = () => {
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
-                                    <div key={currentView} className="page-enter contents">
-                                        {currentView === 'dashboard' && (
-                                            <>
-                                                {error ? (
-                                                    <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
-                                                        <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
-                                                        <p className="text-white/80">{error}</p>
-                                                        <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
-                                                    </div>
-                                                ) : (!weatherData) ? (
-                                                    <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
-                                                        <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
-                                                    </div>
-                                                ) : (
-                                                    <Dashboard
-                                                        onOpenMap={() => setPage('map')}
-                                                        onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                        displayTitle={displayTitle}
-                                                        timeZone={weatherData?.timeZone}
-                                                        utcOffset={weatherData?.utcOffset}
-                                                        timeDisplaySetting={settings.timeDisplay}
-                                                        onToggleFavorite={toggleFavorite}
-                                                        favorites={settings.savedLocations}
-                                                        isRefreshing={loading}
-                                                        isNightMode={effectiveMode === 'night'}
-                                                        isMobileLandscape={isMobileLandscape}
-                                                        viewMode={'overview'}
-                                                        mapboxToken={settings.mapboxToken}
-                                                        onLocationSelect={handleMapTargetSelect}
+                                    <div className="relative flex-1 overflow-hidden">
+                                        <PageTransition pageKey={currentView} direction={transitionDirection}>
+                                            <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                {currentView === 'dashboard' && (
+                                                    <>
+                                                        {error ? (
+                                                            <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
+                                                                <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
+                                                                <p className="text-white/80">{error}</p>
+                                                                <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
+                                                            </div>
+                                                        ) : (!weatherData) ? (
+                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
+                                                                <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
+                                                            </div>
+                                                        ) : (
+                                                            <Dashboard
+                                                                onOpenMap={() => setPage('map')}
+                                                                onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                                                                displayTitle={displayTitle}
+                                                                timeZone={weatherData?.timeZone}
+                                                                utcOffset={weatherData?.utcOffset}
+                                                                timeDisplaySetting={settings.timeDisplay}
+                                                                onToggleFavorite={toggleFavorite}
+                                                                favorites={settings.savedLocations}
+                                                                isRefreshing={loading}
+                                                                isNightMode={effectiveMode === 'night'}
+                                                                isMobileLandscape={isMobileLandscape}
+                                                                viewMode={'overview'}
+                                                                mapboxToken={settings.mapboxToken}
+                                                                onLocationSelect={handleMapTargetSelect}
+                                                            />
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
+
+                                                {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
+
+                                                {currentView === 'settings' && (
+                                                    <SettingsView
+                                                        settings={settings}
+                                                        onSave={updateSettings}
+                                                        onLocationSelect={handleFavoriteSelect}
                                                     />
                                                 )}
-                                            </>
-                                        )}
 
-                                        {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
-                                        {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
+                                                {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
 
-                                        {currentView === 'settings' && (
-                                            <SettingsView
-                                                settings={settings}
-                                                onSave={updateSettings}
-                                                onLocationSelect={handleFavoriteSelect}
-                                            />
-                                        )}
+                                                {currentView === 'chat' && <ChatPage />}
 
-                                        {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
+                                                {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
 
-                                        {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
-
-                                        {currentView === 'chat' && <ChatPage />}
-
-                                        {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
-
-                                        {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
-                                        {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
-                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                                {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
+                                                {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
+                                                {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                            </div>
+                                        </PageTransition>
                                     </div>
                                 </Suspense>
                             </ErrorBoundary>
