@@ -16,6 +16,9 @@ import PassageCanvas from './passage/PassageCanvas';
 
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({ onTriggerUpgrade, onBack }) => {
+    // ── TEMPORARY: Routing disabled while awaiting Navionics/i-Boating SDK ──
+    const ROUTING_DISABLED = true;
+
     // Custom Hook
     const {
         origin, setOrigin,
@@ -96,6 +99,23 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     </div>
                 </div>
             </div>
+
+            {/* ═══ ROUTING DISABLED BANNER ═══ */}
+            {ROUTING_DISABLED && (
+                <div className="mx-4 mb-2">
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
+                        <div className="p-2 bg-amber-500/15 rounded-lg shrink-0">
+                            <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                            </svg>
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">Route Calculation Temporarily Disabled</p>
+                            <p className="text-[10px] text-amber-300/60 mt-0.5">Awaiting Navionics / i-Boating chart SDK approval. OpenSeaMap overlay is active on the 4D map.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
             {isMapOpen && createPortal(
@@ -214,8 +234,8 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
                     {/* ─── TOP: Form inputs anchored to top ─── */}
-                    <form ref={formRef} onSubmit={handleCalculate} className="shrink-0 px-4 pt-4">
-                        <div className="max-w-xl mx-auto w-full space-y-2.5">
+                    <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4">
+                        <div className={`max-w-xl mx-auto w-full space-y-2.5 ${ROUTING_DISABLED ? 'opacity-40 pointer-events-none' : ''}`}>
                             {/* Origin */}
                             <div className="relative group">
                                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-emerald-400">
@@ -443,7 +463,14 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </span>
                                 </div>
                             )}
-                            {!isPro ? (
+                            {ROUTING_DISABLED ? (
+                                <div className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-3 bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Coming Soon — Awaiting Chart SDK
+                                </div>
+                            ) : !isPro ? (
                                 <button
                                     type="button"
                                     onClick={onTriggerUpgrade}
