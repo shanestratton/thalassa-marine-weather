@@ -240,7 +240,7 @@ export interface InventoryItem {
 }
 
 /** Maintenance task categories */
-export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine';
+export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine' | 'Repair';
 
 /** Maintenance trigger types */
 export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'weekly' | 'monthly' | 'bi_annual' | 'annual';
