@@ -101,6 +101,30 @@ const App: React.FC = () => {
         return () => stopSyncEngine();
     }, []);
 
+    // Global keyboard dismiss — mimics native iOS behaviour.
+    // Tapping outside an input/textarea/select blurs the active element,
+    // which dismisses the on-screen keyboard. Scrolling also dismisses.
+    useEffect(() => {
+        const dismissKeyboard = (e: TouchEvent) => {
+            const active = document.activeElement as HTMLElement | null;
+            if (!active) return;
+            const tag = active.tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+
+            const target = e.target as HTMLElement;
+            // Don't blur if they tapped another input (keyboard stays for the new field)
+            const targetTag = target.tagName;
+            if (targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT') return;
+            // Don't blur if they tapped inside a label (could be toggling a checkbox/radio)
+            if (target.closest('label')) return;
+
+            active.blur();
+        };
+
+        document.addEventListener('touchstart', dismissKeyboard, { passive: true });
+        return () => document.removeEventListener('touchstart', dismissKeyboard);
+    }, []);
+
     // Loading State
     if (settingsLoading) {
         return (
