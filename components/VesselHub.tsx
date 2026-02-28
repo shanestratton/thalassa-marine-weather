@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
-import { DiaryService } from '../services/DiaryService';
+
 import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 
@@ -37,14 +37,12 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
-    const [pendingDiary, setPendingDiary] = useState(0);
 
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
             setAnchorRadius(snapshot.swingRadius || 0);
             setAnchorStatus(snapshot.state === 'alarm' ? 'alarm' : snapshot.state === 'watching' ? 'armed' : 'disarmed');
         });
-        setPendingDiary(DiaryService.getPendingCount());
         return unsub;
     }, []);
 
@@ -69,7 +67,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
         {
             id: 'diary',
             label: 'Diary',
-            sublabel: pendingDiary > 0 ? `${pendingDiary} pending sync` : "Captain's Log",
+            sublabel: "Captain's Notes",
             icon: <PenIcon />,
             page: 'diary',
             accentColor: 'text-sky-400',
