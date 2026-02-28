@@ -1225,6 +1225,12 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
                         {entry.windSpeed} kts {entry.windDirection}°
                     </div>
                 )}
+                {entry.airTemp !== null && entry.airTemp !== undefined && (
+                    <div className="flex items-center gap-1 text-slate-400">
+                        <span className="text-[10px]">🌡</span>
+                        {typeof entry.airTemp === 'number' ? entry.airTemp.toFixed(1) : entry.airTemp}°C
+                    </div>
+                )}
                 {entry.notes && (
                     <div className="col-span-2 text-slate-300 italic">
                         {entry.notes}

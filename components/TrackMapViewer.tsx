@@ -43,9 +43,15 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             fadeAnimation: true,
         });
 
-        // Dark nautical tile layer
+        // Dark nautical tile layer (base)
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             maxZoom: 19
+        }).addTo(map);
+
+        // OpenSeaMap seamark overlay (nautical buoys, lights, channels)
+        L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            opacity: 0.85,
         }).addTo(map);
 
         // Layer group for track data (updated separately)
