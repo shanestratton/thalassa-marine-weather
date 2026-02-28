@@ -518,7 +518,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             style={{ width: '100%', height: '100%' }}
             attributionControl={false}
         >
-            <NavigationControl position="top-right" showCompass showZoom />
+            <NavigationControl position="top-right" showCompass showZoom={false} />
 
             {/* ═══ CHANNEL POLYGON (pilotage corridor) ═══ */}
             {channelPolygonGeoJSON && (

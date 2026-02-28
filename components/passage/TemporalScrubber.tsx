@@ -1,15 +1,12 @@
 /**
  * TemporalScrubber — The 4th Dimension Controller
  *
- * A neon-glowing timeline slider that lets users scrub through
- * the future of their passage. Features play/pause auto-advance,
- * glowing fill bar, and formatted time readout.
- *
- * Design: Bioluminescent Dark Mode glassmorphism
+ * Butter-smooth custom timeline scrubber matching the SynopticScrubber style.
+ * No native <input type="range"> — custom div-based track/thumb with
+ * pointer events for cross-platform (mouse + touch) smoothness.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import '../../styles/bioluminescent.css';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 
 interface TemporalScrubberProps {
     maxTimeHours: number;
@@ -21,7 +18,7 @@ interface TemporalScrubberProps {
     computing?: boolean;
 }
 
-const TemporalScrubber: React.FC<TemporalScrubberProps> = ({
+const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(({
     maxTimeHours,
     currentHour,
     onChange,
@@ -30,6 +27,12 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = ({
 }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const intervalRef = useRef<ReturnType<typeof setInterval>>();
+    const trackRef = useRef<HTMLDivElement>(null);
+    const thumbRef = useRef<HTMLDivElement>(null);
+    const fillRef = useRef<HTMLDivElement>(null);
+    const labelRef = useRef<HTMLParagraphElement>(null);
+    const isDraggingRef = useRef(false);
+    const rafRef = useRef<number | null>(null);
 
     // ── Auto-playback ──
     useEffect(() => {
@@ -49,7 +52,6 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = ({
 
     const togglePlay = useCallback(() => {
         if (currentHour >= maxTimeHours) {
-            // Reset to beginning if at the end
             onChange(0);
         }
         setIsPlaying(p => !p);
@@ -73,125 +75,234 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = ({
         return `${h}h`;
     };
 
+    // ── Position helpers ──
+    const positionToHour = useCallback((clientX: number) => {
+        const track = trackRef.current;
+        if (!track || maxTimeHours <= 0) return 0;
+        const rect = track.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        // Snap to 0.5h increments
+        return Math.round((ratio * maxTimeHours) * 2) / 2;
+    }, [maxTimeHours]);
+
+    // ── Direct DOM updates (zero React renders during drag) ──
+    const updateVisuals = useCallback((hour: number) => {
+        const pct = maxTimeHours > 0 ? (hour / maxTimeHours) * 100 : 0;
+        if (thumbRef.current) {
+            thumbRef.current.style.left = `${pct}%`;
+        }
+        if (fillRef.current) {
+            fillRef.current.style.width = `${pct}%`;
+        }
+        if (labelRef.current) {
+            labelRef.current.textContent = computing ? '— : —' : formatTime(hour);
+        }
+    }, [maxTimeHours, computing]);
+
+    // ── Pointer event handlers (butter-smooth, no React renders during drag) ──
+    const handlePointerDown = useCallback((e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        isDraggingRef.current = true;
+        setIsPlaying(false);
+
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+        const hour = positionToHour(e.clientX);
+        updateVisuals(hour);
+        onChange(hour);
+
+        if (thumbRef.current) {
+            thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1.4)';
+        }
+    }, [positionToHour, updateVisuals, onChange]);
+
+    const handlePointerMove = useCallback((e: React.PointerEvent) => {
+        if (!isDraggingRef.current) return;
+        e.preventDefault();
+
+        const hour = positionToHour(e.clientX);
+        updateVisuals(hour);
+
+        // RAF-throttled onChange
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(() => {
+            onChange(hour);
+            rafRef.current = null;
+        });
+    }, [positionToHour, updateVisuals, onChange]);
+
+    const handlePointerUp = useCallback((e: React.PointerEvent) => {
+        if (!isDraggingRef.current) return;
+        isDraggingRef.current = false;
+
+        const hour = positionToHour(e.clientX);
+        updateVisuals(hour);
+        onChange(hour);
+
+        if (thumbRef.current) {
+            thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1)';
+        }
+    }, [positionToHour, updateVisuals, onChange]);
+
+    // ── Sync visuals when React state changes from outside (play, reset) ──
+    useEffect(() => {
+        if (!isDraggingRef.current) {
+            updateVisuals(currentHour);
+        }
+    }, [currentHour, updateVisuals]);
+
+    // ── Cleanup RAF on unmount ──
+    useEffect(() => {
+        return () => {
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        };
+    }, []);
+
     const fillPct = maxTimeHours > 0 ? (currentHour / maxTimeHours) * 100 : 0;
 
     return (
-        <div className="temporal-scrubber" style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 50,
-            padding: '16px 24px',
-            paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
-        }}>
-            {/* ── Top row: Controls + Readout ── */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-end',
-                marginBottom: 12,
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    {/* Play/Pause */}
-                    <button
-                        className="play-btn"
-                        onClick={togglePlay}
-                        aria-label={isPlaying ? 'Pause simulation' : 'Play simulation'}
-                        disabled={computing}
-                        style={{ opacity: computing ? 0.3 : 1 }}
-                    >
-                        {isPlaying ? (
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                <rect x="3" y="2" width="4" height="12" rx="1" />
-                                <rect x="9" y="2" width="4" height="12" rx="1" />
-                            </svg>
-                        ) : (
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M4 2.5v11l9-5.5z" />
-                            </svg>
-                        )}
-                    </button>
-
-                    {/* Time readout */}
-                    <div>
-                        <div className="bio-label" style={{ marginBottom: 2 }}>
-                            Forecast Timeline
-                        </div>
-                        <div className="bio-data" style={{ fontSize: 20, letterSpacing: '0.08em' }}>
-                            {computing ? '— : —' : formatTime(currentHour)}
-                        </div>
-                    </div>
-                </div>
-
-                {/* ETA */}
-                <div style={{ textAlign: 'right' }}>
-                    <div className="bio-label" style={{ marginBottom: 2 }}>
-                        Arrival (ETA)
-                    </div>
-                    <div style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 16,
-                        color: 'var(--text-primary)',
-                        letterSpacing: '0.05em',
-                    }}>
-                        {computing ? '—' : `+${formatETA(maxTimeHours)}`}
-                    </div>
-                </div>
-            </div>
-
-            {/* ── Slider Track ── */}
-            <div style={{ position: 'relative', width: '100%', height: 24, display: 'flex', alignItems: 'center' }}>
-                {/* Glowing fill bar */}
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: 0,
-                        height: 4,
-                        borderRadius: '2px 0 0 2px',
-                        width: `${fillPct}%`,
-                        background: 'linear-gradient(90deg, rgba(0,240,255,0.15) 0%, var(--neon-cyan) 100%)',
-                        boxShadow: '0 0 12px rgba(0, 240, 255, 0.45)',
-                        pointerEvents: 'none',
-                        transition: isPlaying ? 'none' : 'width 0.08s linear',
-                    }}
-                />
-
-                {/* Slider input */}
-                <input
-                    type="range"
-                    min={0}
-                    max={maxTimeHours || 100}
-                    step={0.5}
-                    value={currentHour}
-                    onChange={(e) => {
-                        setIsPlaying(false);
-                        onChange(parseFloat(e.target.value));
-                    }}
-                    aria-label="Forecast timeline position"
-                    aria-valuetext={computing ? 'Computing route' : formatTime(currentHour)}
-                    className="neon-slider"
-                    style={{ position: 'relative', zIndex: 10 }}
+        <div
+            style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 16,
+                right: 16,
+                zIndex: 50,
+                paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+            }}
+        >
+            <div
+                style={{
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: 16,
+                    padding: '10px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                }}
+            >
+                {/* Play / Pause */}
+                <button
+                    onClick={togglePlay}
                     disabled={computing || maxTimeHours === 0}
-                />
-            </div>
+                    style={{
+                        width: 32,
+                        height: 32,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 10,
+                        background: 'rgba(56, 189, 248, 0.2)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        color: '#38bdf8',
+                        cursor: computing ? 'not-allowed' : 'pointer',
+                        flexShrink: 0,
+                        opacity: computing ? 0.3 : 1,
+                        transition: 'transform 0.15s ease',
+                    }}
+                    aria-label={isPlaying ? 'Pause simulation' : 'Play simulation'}
+                >
+                    <span style={{ fontSize: 14 }}>{isPlaying ? '⏸' : '▶️'}</span>
+                </button>
 
-            {/* ── Bottom markers ── */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginTop: 4,
-                fontSize: 9,
-                fontFamily: "'JetBrains Mono', monospace",
-                color: 'var(--text-dim)',
-                letterSpacing: '0.05em',
-            }}>
-                <span>DEPARTURE</span>
-                {maxTimeHours > 48 && <span>{formatETA(maxTimeHours / 2)}</span>}
-                <span>ARRIVAL</span>
+                {/* Custom track */}
+                <div
+                    ref={trackRef}
+                    style={{
+                        flex: 1,
+                        position: 'relative',
+                        height: 40,
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        touchAction: 'none',
+                    }}
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerCancel={handlePointerUp}
+                >
+                    {/* Track background */}
+                    <div style={{
+                        width: '100%',
+                        height: 6,
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        borderRadius: 3,
+                        position: 'relative',
+                        overflow: 'hidden',
+                    }}>
+                        {/* Active fill */}
+                        <div
+                            ref={fillRef}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                bottom: 0,
+                                left: 0,
+                                width: `${fillPct}%`,
+                                background: 'rgba(56, 189, 248, 0.4)',
+                                borderRadius: 3,
+                                willChange: 'width',
+                            }}
+                        />
+                    </div>
+
+                    {/* Thumb */}
+                    <div
+                        ref={thumbRef}
+                        style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: `${fillPct}%`,
+                            width: 20,
+                            height: 20,
+                            background: '#38bdf8',
+                            borderRadius: '50%',
+                            border: '2px solid rgba(255, 255, 255, 0.4)',
+                            boxShadow: '0 2px 8px rgba(56, 189, 248, 0.3)',
+                            transform: 'translate(-50%, -50%) scale(1)',
+                            transition: isDraggingRef.current ? 'none' : 'transform 0.15s ease-out',
+                            willChange: 'left, transform',
+                            pointerEvents: 'none',
+                        }}
+                    />
+                </div>
+
+                {/* Time label */}
+                <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 64 }}>
+                    <p
+                        ref={labelRef}
+                        style={{
+                            margin: 0,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            color: '#fff',
+                            lineHeight: 1.2,
+                            fontFamily: 'system-ui, sans-serif',
+                        }}
+                    >
+                        {computing ? '— : —' : formatTime(currentHour)}
+                    </p>
+                    <p style={{
+                        margin: 0,
+                        fontSize: 8,
+                        color: '#64748b',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.1em',
+                    }}>
+                        {maxTimeHours > 0 ? `ETA +${formatETA(maxTimeHours)}` : 'Timeline'}
+                    </p>
+                </div>
             </div>
         </div>
     );
-};
+});
+
+TemporalScrubber.displayName = 'TemporalScrubber';
 
 export default TemporalScrubber;
