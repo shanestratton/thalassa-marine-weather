@@ -363,7 +363,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                     {entry.eventCategory && (
                         <div className="mt-2">
                             <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[11px] text-slate-300 uppercase tracking-wider">
-                                {entry.eventCategory}
+                                {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
                             </span>
                         </div>
                     )}

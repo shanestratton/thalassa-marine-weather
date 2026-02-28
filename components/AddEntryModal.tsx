@@ -7,6 +7,8 @@ import React, { useState } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
 import { useFocusTrap } from '../hooks/useAccessibility';
+import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
+import { toast } from './Toast';
 
 // Event category type for type safety
 type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
@@ -18,7 +20,7 @@ const EVENT_CATEGORIES: { value: EventCategory; label: string; icon: string }[] 
     { value: 'weather', label: 'Weather', icon: '🌤️' },
     { value: 'arrival', label: 'Arrival', icon: '⚓' },
     { value: 'departure', label: 'Departure', icon: '🚢' },
-    { value: 'equipment', label: 'Equipment', icon: '🔧' },
+    { value: 'equipment', label: 'Repair', icon: '🔧' },
     { value: 'crew', label: 'Crew', icon: '👥' },
     { value: 'safety', label: 'Safety', icon: '🛟' },
 ];
@@ -72,6 +74,26 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                 undefined, // engineStatus
                 selectedVoyageId || undefined // Add to selected voyage if available
             );
+
+            // Auto-create a Repair task in R&M when event type is Repair
+            if (eventCategory === 'equipment' && trimmedNotes) {
+                try {
+                    await LocalMaintenanceService.createTask({
+                        title: trimmedNotes.slice(0, 80), // Use notes as task title (truncated)
+                        description: trimmedNotes.length > 80 ? trimmedNotes : null,
+                        category: 'Repair',
+                        trigger_type: 'monthly' as any, // Ad-hoc — no schedule enforced
+                        interval_value: null,
+                        next_due_date: null,
+                        next_due_hours: null,
+                        last_completed: null,
+                        is_active: true,
+                    });
+                    toast.success('Repair task added to R&M');
+                } catch (err) {
+                    console.error('[AddEntry] Failed to create repair task:', err);
+                }
+            }
 
             setNotes('');
             setWaypointName('');
