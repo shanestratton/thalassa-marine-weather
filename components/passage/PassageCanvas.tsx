@@ -197,6 +197,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
     const [currentTimeHours, setCurrentTimeHours] = useState(0);
     const [deckCollapsed, setDeckCollapsed] = useState(true);
     const [hudCollapsed, setHudCollapsed] = useState(false);
+    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
     const handleTimeChange = useCallback((hour: number) => {
         setCurrentTimeHours(hour);
@@ -204,6 +205,48 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
     const ghostShip = useGhostShip(payload.track, currentTimeHours);
     const maxTime = payload.summary.total_duration_hours;
+
+    // Save route to logbook as planned_route
+    const handleSaveToLogbook = useCallback(async () => {
+        if (saveState === 'saving' || saveState === 'saved') return;
+        setSaveState('saving');
+
+        try {
+            const { ShipLogService } = await import('../../services/ShipLogService');
+            const track = payload.track;
+
+            // Build a VoyagePlan-compatible object from the spatiotemporal payload
+            const fakePlan = {
+                origin: track[0]?.name || 'Origin',
+                destination: track[track.length - 1]?.name || 'Destination',
+                originCoordinates: track[0] ? { lat: track[0].coordinates[1], lon: track[0].coordinates[0] } : undefined,
+                destinationCoordinates: track[track.length - 1] ? { lat: track[track.length - 1].coordinates[1], lon: track[track.length - 1].coordinates[0] } : undefined,
+                waypoints: track.slice(1, -1).map(tp => ({
+                    name: tp.name,
+                    coordinates: { lat: tp.coordinates[1], lon: tp.coordinates[0] },
+                    windSpeed: tp.conditions.wind_spd_kts,
+                    waveHeight: tp.conditions.wave_ht_m ? tp.conditions.wave_ht_m * 3.28084 : undefined, // m → ft
+                    depth_m: tp.conditions.depth_m ?? undefined,
+                })),
+                distanceApprox: `${payload.summary.total_distance_nm} NM`,
+                durationApprox: `${payload.summary.total_duration_hours} hours`,
+                departureDate: payload.summary.departure_time || new Date().toISOString(),
+            };
+
+            const voyageId = await ShipLogService.savePassagePlanToLogbook(fakePlan as any);
+            if (voyageId) {
+                setSaveState('saved');
+                setTimeout(() => setSaveState('idle'), 3000);
+            } else {
+                setSaveState('error');
+                setTimeout(() => setSaveState('idle'), 2000);
+            }
+        } catch (err) {
+            console.error('[4DMap] Save to logbook error:', err);
+            setSaveState('error');
+            setTimeout(() => setSaveState('idle'), 2000);
+        }
+    }, [payload, saveState]);
 
     // ── Auto-load wind data for particles ──
     useEffect(() => {
@@ -299,27 +342,68 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         collapsed={deckCollapsed}
                         onToggle={() => setDeckCollapsed(c => !c)}
                     />
-                    {onClose && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
+                        {/* Save to Logbook */}
                         <button
-                            onClick={onClose}
+                            onClick={handleSaveToLogbook}
+                            disabled={saveState === 'saving'}
                             style={{
                                 pointerEvents: 'auto',
                                 width: 34, height: 34,
                                 borderRadius: 8,
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                background: 'rgba(10, 20, 35, 0.8)',
+                                border: `1px solid ${saveState === 'saved' ? 'rgba(52,211,153,0.4)' : saveState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(167,139,250,0.3)'}`,
+                                background: saveState === 'saved' ? 'rgba(6,78,59,0.6)' : saveState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(10, 20, 35, 0.8)',
                                 backdropFilter: 'blur(12px)',
                                 WebkitBackdropFilter: 'blur(12px)',
-                                color: '#94a3b8',
+                                color: saveState === 'saved' ? '#34d399' : saveState === 'error' ? '#ef4444' : '#a78bfa',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: 'pointer',
+                                cursor: saveState === 'saving' ? 'wait' : 'pointer',
                                 flexShrink: 0,
+                                transition: 'all 0.3s ease',
                             }}
-                            aria-label="Close passage canvas"
+                            aria-label="Save route to logbook"
+                            title="Save route to logbook"
                         >
-                            <CloseIcon />
+                            {saveState === 'saving' ? (
+                                <div style={{ width: 14, height: 14, border: '2px solid #a78bfa', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                            ) : saveState === 'saved' ? (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                    <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                            ) : saveState === 'error' ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                            ) : (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                    <path d="M12 2v10m0 0l-3-3m3 3l3-3" />
+                                    <path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4" />
+                                </svg>
+                            )}
                         </button>
-                    )}
+                        {/* Close */}
+                        {onClose && (
+                            <button
+                                onClick={onClose}
+                                style={{
+                                    pointerEvents: 'auto',
+                                    width: 34, height: 34,
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    background: 'rgba(10, 20, 35, 0.8)',
+                                    backdropFilter: 'blur(12px)',
+                                    WebkitBackdropFilter: 'blur(12px)',
+                                    color: '#94a3b8',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                }}
+                                aria-label="Close passage canvas"
+                            >
+                                <CloseIcon />
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Spacer */}
