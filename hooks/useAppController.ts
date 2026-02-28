@@ -5,6 +5,7 @@ import { useUI } from '../context/UIContext';
 import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
+import { toast } from '../components/Toast';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: "https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop",
@@ -36,7 +37,6 @@ export const useAppController = () => {
     const [query, setQuery] = useState('');
     const [bgImage, setBgImage] = useState(DEFAULT_BACKGROUNDS.default);
     const [showOnboarding, setShowOnboarding] = useState(false);
-    const [toastMessage, setToastMessage] = useState<string | null>(null);
 
     // UI Local State
     const [sheetData, setSheetData] = useState<any>(null);
@@ -109,10 +109,13 @@ export const useAppController = () => {
         return () => window.removeEventListener('resize', checkOrientation);
     }, []);
 
-    // Handlers
     const showToast = useCallback((msg: string) => {
-        setToastMessage(msg);
-        setTimeout(() => setToastMessage(null), 3000);
+        // Route through global toast system
+        if (msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed')) {
+            toast.error(msg);
+        } else {
+            toast.success(msg);
+        }
     }, []);
 
     const handleSearchSubmit = (e: React.FormEvent) => {
@@ -272,7 +275,7 @@ export const useAppController = () => {
     }
 
     return {
-        query, setQuery, bgImage, showOnboarding, setShowOnboarding, toastMessage, showToast,
+        query, setQuery, bgImage, showOnboarding, setShowOnboarding, showToast,
         handleSearchSubmit, handleLocate, effectiveMode,
 
         // Extracted Handlers & State
