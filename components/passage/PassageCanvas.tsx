@@ -22,6 +22,7 @@ import { fetchWW3Grid } from '../../services/ww3CacheClient';
 import { fetchGlobalWindField } from '../../services/weather/windField';
 import { downloadRouteGPX } from '../../utils/gpxRouteExport';
 import { toast } from '../Toast';
+import { FONT, SIZE, HEADER_STYLE, MICRO_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import '../../styles/bioluminescent.css';
 
@@ -107,17 +108,10 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                     {summary.vessel_type === 'sail' ? <SailIcon /> : <PowerIcon />}
                 </div>
                 <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{
-                        fontFamily: "'Inter', sans-serif", fontWeight: 700,
-                        fontSize: 10, letterSpacing: '0.08em',
-                        textTransform: 'uppercase' as const, color: '#ffffff',
-                    }}>
+                    <div style={HEADER_STYLE}>
                         NAV COMPUTER
                     </div>
-                    <div style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 8, color: '#64748b',
-                    }}>
+                    <div style={{ ...FOOTNOTE_STYLE }}>
                         {summary.total_distance_nm}NM · {(summary.total_duration_hours / 24).toFixed(1)}d · {track.length} waypoints
                     </div>
                 </div>
@@ -140,7 +134,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                                 width: 5, height: 5, borderRadius: '50%',
                                 background: '#38bdf8', boxShadow: '0 0 4px rgba(56,189,248,0.5)',
                             }} />
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#e2e8f0' }}>
+                            <span style={MICRO_STYLE}>
                                 {departure.name}
                             </span>
                         </div>
@@ -150,7 +144,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                                 width: 5, height: 5, borderRadius: '50%',
                                 background: '#38bdf8', boxShadow: '0 0 4px rgba(56,189,248,0.5)',
                             }} />
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#e2e8f0' }}>
+                            <span style={MICRO_STYLE}>
                                 {arrival.name}
                             </span>
                         </div>
@@ -188,8 +182,7 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                     <div style={{
                         marginTop: 4, paddingTop: 4,
                         borderTop: '1px solid rgba(56,189,248,0.06)',
-                        fontSize: 8, fontFamily: "'JetBrains Mono', monospace",
-                        color: '#64748b', lineHeight: 1.4,
+                        ...FOOTNOTE_STYLE,
                     }}>
                         Forecast: {mesh_stats.forecast_hours}h horizon • Updated just now
                     </div>
@@ -388,8 +381,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     animation: 'spin 1s linear infinite',
                 }} />
                 <div style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 12,
+                    fontFamily: FONT.ui,
+                    fontSize: SIZE.body,
                     fontWeight: 600,
                     letterSpacing: '0.15em',
                     textTransform: 'uppercase' as const,
@@ -567,8 +560,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             WebkitBackdropFilter: 'blur(20px)',
                             color: '#64748b',
                             cursor: 'pointer',
-                            fontFamily: "'Inter', sans-serif",
-                            fontSize: 9, letterSpacing: '0.08em',
+                            fontFamily: FONT.ui,
+                            fontSize: SIZE.micro, letterSpacing: '0.08em',
                             fontWeight: 600,
                             textTransform: 'uppercase' as const,
                         }}
