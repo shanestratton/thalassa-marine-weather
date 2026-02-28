@@ -525,18 +525,18 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500/30" />
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 mb-4">
+                <div className="grid grid-cols-2 gap-3 mb-4">
                     <div>
                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Install Date</label>
-                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                     <div>
                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Warranty Expiry</label>
-                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                 </div>
 
-                <div className="mb-6">
+                <div className="mb-4">
                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
                     <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details, service contacts..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
                 </div>
