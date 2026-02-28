@@ -19,6 +19,7 @@ export type TrackCategory = 'anchorage' | 'port_entry' | 'walking' | 'reef_passa
 export interface SharedTrack {
     id: string;
     user_id: string;
+    voyage_id?: string;   // Links back to the local voyage for cascade-delete
     title: string;
     description: string;
     tags: string[];
@@ -116,6 +117,7 @@ class TrackSharingServiceClass {
 
         const trackData: Record<string, any> = {
             user_id: user.id,
+            voyage_id: entries[0]?.voyageId || null,  // Link back to local voyage
             title: metadata.title,
             description: metadata.description,
             tags: metadata.tags,
@@ -322,6 +324,48 @@ class TrackSharingServiceClass {
         });
 
         return Array.from(regions).sort((a, b) => a.localeCompare(b));
+    }
+
+    /**
+     * Check if a voyage has been shared to the community.
+     * Returns matching shared track(s), or empty array if not shared.
+     */
+    async getSharedTracksByVoyageId(voyageId: string): Promise<SharedTrack[]> {
+        if (!supabase || !voyageId) return [];
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .select('id, title, created_at, download_count, voyage_id')
+            .eq('user_id', user.id)
+            .eq('voyage_id', voyageId);
+
+        if (error || !data) return [];
+        return data as SharedTrack[];
+    }
+
+    /**
+     * Delete all shared tracks for a given voyage (owner only).
+     * Used when a user deletes a voyage from their logbook.
+     */
+    async deleteSharedTracksByVoyageId(voyageId: string): Promise<boolean> {
+        if (!supabase || !voyageId) return false;
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return false;
+
+        const { error } = await supabase
+            .from(SHARED_TRACKS_TABLE)
+            .delete()
+            .eq('user_id', user.id)
+            .eq('voyage_id', voyageId);
+
+        if (error) {
+            return false;
+        }
+        return true;
     }
 }
 
