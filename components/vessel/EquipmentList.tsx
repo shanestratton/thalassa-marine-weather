@@ -189,18 +189,18 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                         <h3 className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-4">Specifications</h3>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div>
-                                <p className="text-[11px] text-gray-600 uppercase tracking-widest font-bold mb-0.5">Make</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Make</p>
                                 <p className="text-sm font-bold text-white">{item.make || '—'}</p>
                             </div>
                             <div>
-                                <p className="text-[11px] text-gray-600 uppercase tracking-widest font-bold mb-0.5">Model</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Model</p>
                                 <p className="text-sm font-bold text-white">{item.model || '—'}</p>
                             </div>
                         </div>
 
                         {/* Serial */}
                         <div className="mt-4">
-                            <p className="text-[11px] text-gray-600 uppercase tracking-widest font-bold mb-1">Serial Number</p>
+                            <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-1">Serial Number</p>
                             <div className="flex items-center gap-2">
                                 <p className="text-sm font-mono font-bold text-sky-400">{item.serial_number || '—'}</p>
                                 {item.serial_number && (
@@ -220,7 +220,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                         {/* Install date */}
                         {item.installation_date && (
                             <div className="mt-4">
-                                <p className="text-[11px] text-gray-600 uppercase tracking-widest font-bold mb-0.5">Installed</p>
+                                <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Installed</p>
                                 <p className="text-sm font-bold text-white">{new Date(item.installation_date).toLocaleDateString()}</p>
                             </div>
                         )}
@@ -645,7 +645,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <p className="text-base font-bold text-white mb-1">
                                 {searchQuery ? 'No Equipment Matches' : 'No Equipment Registered'}
                             </p>
-                            <p className="text-sm text-white/50 max-w-[240px] text-center">
+                            <p className="text-sm text-white/60 max-w-[240px] text-center">
                                 {searchQuery ? 'Try a different search term.' : 'Slide below to register your first item.'}
                             </p>
                         </div>

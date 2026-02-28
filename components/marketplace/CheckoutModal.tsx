@@ -151,7 +151,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     )}
                     <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-semibold text-white truncate">{listing.title}</h3>
-                        <p className="text-[11px] text-white/40 mt-0.5">{listing.condition} · {listing.category}</p>
+                        <p className="text-[11px] text-white/60 mt-0.5">{listing.condition} · {listing.category}</p>
                         <p className="text-sm font-bold text-emerald-400 mt-1">{formatPrice(listing.price, listing.currency)}</p>
                     </div>
                 </div>
@@ -159,7 +159,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 {/* ═══════ CHOOSE MODE ═══════ */}
                 {mode === 'choose' && (
                     <div className="px-5 pb-8 space-y-3">
-                        <h2 className="text-xs font-bold text-white/50 uppercase tracking-wider mb-3">How would you like to buy?</h2>
+                        <h2 className="text-xs font-bold text-white/60 uppercase tracking-wider mb-3">How would you like to buy?</h2>
 
                         {/* Option A: Cash on Dock */}
                         <button
@@ -174,9 +174,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                                         <p className="text-[11px] text-emerald-400 font-semibold">FREE — No fees</p>
                                     </div>
                                 </div>
-                                <span className="text-white/40 text-lg group-hover:text-emerald-400 transition-colors">›</span>
+                                <span className="text-white/60 text-lg group-hover:text-emerald-400 transition-colors">›</span>
                             </div>
-                            <p className="text-[11px] text-white/40 leading-relaxed pl-[52px]">
+                            <p className="text-[11px] text-white/60 leading-relaxed pl-[52px]">
                                 Opens a direct message with the seller to arrange cash payment and pickup in person.
                             </p>
                         </button>
@@ -197,7 +197,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                                     <p className="text-[11px] text-sky-400 font-semibold">6% Platform Fee</p>
                                 </div>
                             </div>
-                            <p className="text-[11px] text-white/40 leading-relaxed pl-[52px] mb-3">
+                            <p className="text-[11px] text-white/60 leading-relaxed pl-[52px] mb-3">
                                 A hold is placed on your card. You receive a 4-digit PIN. Give the PIN to the seller
                                 <strong className="text-white/60"> only after you've inspected the gear</strong>. The hold auto-expires in 48 hours.
                             </p>
@@ -205,11 +205,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             {/* Fee breakdown */}
                             <div className="ml-[52px] p-2.5 rounded-xl bg-black/20 border border-white/[0.06] space-y-1">
                                 <div className="flex justify-between text-[11px]">
-                                    <span className="text-white/40">Item price</span>
+                                    <span className="text-white/60">Item price</span>
                                     <span className="text-white/70 font-medium">{formatPrice(listing.price, listing.currency)}</span>
                                 </div>
                                 <div className="flex justify-between text-[11px]">
-                                    <span className="text-white/40">Escrow fee (6%)</span>
+                                    <span className="text-white/60">Escrow fee (6%)</span>
                                     <span className="text-sky-400/70 font-medium">+{formatPrice(platformFee, listing.currency)}</span>
                                 </div>
                                 <div className="h-px bg-white/[0.08] my-1" />
@@ -229,8 +229,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             <div className="w-10 h-10 border-2 border-sky-500/30 rounded-full" />
                             <div className="absolute inset-0 w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-                        <p className="text-xs text-white/50">Placing hold on your card…</p>
-                        <p className="text-[11px] text-white/50">This is an authorization only. No charge yet.</p>
+                        <p className="text-xs text-white/60">Placing hold on your card…</p>
+                        <p className="text-[11px] text-white/60">This is an authorization only. No charge yet.</p>
                     </div>
                 )}
 
@@ -241,7 +241,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         <div className="p-4 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 text-center">
                             <div className="text-3xl mb-1">🔒</div>
                             <h3 className="text-sm font-bold text-emerald-400">Hold Placed Successfully</h3>
-                            <p className="text-[11px] text-white/40 mt-1">
+                            <p className="text-[11px] text-white/60 mt-1">
                                 {formatCents(holdData.amountCents, holdData.currency)} authorized on your card
                             </p>
                         </div>
@@ -271,7 +271,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                                 <strong>Give this PIN to the seller only when you have inspected the gear
                                     and are ready to finalize the purchase.</strong>
                             </p>
-                            <p className="text-[11px] text-white/40 mt-2 leading-relaxed">
+                            <p className="text-[11px] text-white/60 mt-2 leading-relaxed">
                                 If the deal falls through, simply walk away. The hold will automatically
                                 expire in 48 hours and no charge will be made.
                             </p>
@@ -280,15 +280,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         {/* Fee summary */}
                         <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.06] space-y-1.5">
                             <div className="flex justify-between text-[11px]">
-                                <span className="text-white/40">Hold amount</span>
+                                <span className="text-white/60">Hold amount</span>
                                 <span className="text-white font-bold">{formatCents(holdData.amountCents, holdData.currency)}</span>
                             </div>
                             <div className="flex justify-between text-[11px]">
-                                <span className="text-white/40">Seller receives on capture</span>
+                                <span className="text-white/60">Seller receives on capture</span>
                                 <span className="text-emerald-400 font-medium">{formatCents(holdData.sellerPayoutCents, holdData.currency)}</span>
                             </div>
                             <div className="flex justify-between text-[11px]">
-                                <span className="text-white/40">Platform fee (6%)</span>
+                                <span className="text-white/60">Platform fee (6%)</span>
                                 <span className="text-sky-400/70 font-medium">{formatCents(holdData.platformFeeCents, holdData.currency)}</span>
                             </div>
                         </div>
@@ -308,7 +308,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         <div className="p-4 rounded-2xl bg-red-500/[0.06] border border-red-500/20 text-center">
                             <div className="text-3xl mb-2">⚠️</div>
                             <h3 className="text-sm font-bold text-red-400 mb-1">Payment Hold Failed</h3>
-                            <p className="text-xs text-white/50">{errorMsg || 'Unknown error'}</p>
+                            <p className="text-xs text-white/60">{errorMsg || 'Unknown error'}</p>
                         </div>
                         <div className="flex gap-3">
                             <button

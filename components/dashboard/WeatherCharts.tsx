@@ -192,7 +192,7 @@ export const DailyWidget = ({ forecast, isPro, onTriggerUpgrade, units, vessel }
                                         <div className="flex items-center gap-2 text-sm">
                                             <span className="text-white font-medium">{convertTemp(day.highTemp, units.temp)}°</span>
                                             <span className="text-gray-500">/ {convertTemp(day.lowTemp, units.temp)}°</span>
-                                            <span className="mx-1 text-gray-600">•</span>
+                                            <span className="mx-1 text-gray-500">•</span>
                                             <span className="text-gray-300 capitalize">{day.condition}</span>
                                         </div>
                                     </div>

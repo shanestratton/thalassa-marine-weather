@@ -114,7 +114,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                     </div>
                     <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-black text-white uppercase tracking-wider mb-1">{current.title}</h4>
-                        <p className="text-sm text-white/50 leading-relaxed">{current.description}</p>
+                        <p className="text-sm text-white/60 leading-relaxed">{current.description}</p>
                     </div>
                 </div>
 
@@ -122,7 +122,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
                     <button
                         onClick={handleSkip}
-                        className="text-sm text-white/50 hover:text-white/50 transition-colors font-medium"
+                        className="text-sm text-white/60 hover:text-white/60 transition-colors font-medium"
                     >
                         Skip
                     </button>
@@ -135,7 +135,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                 </div>
 
                 {/* Step counter */}
-                <p className="text-center text-[11px] text-white/40 font-bold mt-3">
+                <p className="text-center text-[11px] text-white/60 font-bold mt-3">
                     {step + 1} of {STEPS.length}
                 </p>
             </div>

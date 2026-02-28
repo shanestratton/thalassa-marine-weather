@@ -739,7 +739,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice to Text</span>
-                            <span className="text-[11px] text-gray-600">Dictate or type below</span>
+                            <span className="text-[11px] text-gray-500">Dictate or type below</span>
                         </div>
 
                         {isRecording ? (
@@ -795,7 +795,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     <p className="text-sm font-bold text-white">Record Voice to Text</p>
                                     <p className="text-[11px] text-gray-500">Speak — your words fill the entry below</p>
                                 </div>
-                                <svg className="w-4 h-4 text-gray-600 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 text-gray-500 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                 </svg>
                             </button>
@@ -849,7 +849,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Photos</span>
                             {photos.length > 0 && (
-                                <span className="text-[11px] text-gray-600 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
+                                <span className="text-[11px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
                             )}
                         </div>
                         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
@@ -865,7 +865,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     key={`add-${i}`}
                                     onClick={() => fileRef.current?.click()}
                                     disabled={uploading || photos.length >= 6}
-                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-600 hover:text-sky-400 transition-colors disabled:opacity-30"
+                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-500 hover:text-sky-400 transition-colors disabled:opacity-30"
                                 >
                                     {uploading && i === 0 ? (
                                         <span className="text-xs animate-pulse">📷</span>
@@ -976,7 +976,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 </svg>
                             </div>
                             <p className="text-base font-bold text-white mb-1">Your Story Starts Here</p>
-                            <p className="text-sm text-white/50 max-w-[240px] text-center">Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates.</p>
+                            <p className="text-sm text-white/60 max-w-[240px] text-center">Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates.</p>
                         </div>
                     ) : (
                         <div className="space-y-6">
@@ -1045,7 +1045,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                                     {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
                                                                 </p>
                                                             </div>
-                                                            <span className="text-[11px] text-gray-600 font-mono shrink-0 mt-0.5">
+                                                            <span className="text-[11px] text-gray-500 font-mono shrink-0 mt-0.5">
                                                                 {formatTime(entry.created_at)}
                                                             </span>
                                                         </div>
@@ -1058,7 +1058,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                                 </svg>
                                                                 <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
                                                                 {entry.location_name && !entry.location_name.includes('°') && (
-                                                                    <span className="text-gray-600 truncate">— {entry.location_name}</span>
+                                                                    <span className="text-gray-500 truncate">— {entry.location_name}</span>
                                                                 )}
                                                             </div>
                                                         )}

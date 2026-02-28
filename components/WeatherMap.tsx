@@ -596,7 +596,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 disabled={!pendingSelection}
                                 className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10 cursor-not-allowed'}`}
                             >
-                                <MapPinIcon className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-600'}`} />
+                                <MapPinIcon className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-500'}`} />
                                 {pendingSelection ? (confirmLabel || "Confirm Location") : "Tap Map to Select Point"}
                             </button>
                         </div>

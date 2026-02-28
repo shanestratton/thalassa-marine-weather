@@ -344,7 +344,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             <BoatIcon className="w-12 h-12 text-white fill-white" />
                         </div>
 
-                        <h1 className="text-5xl font-black text-white mb-6 tracking-tight drop-shadow-xl">
+                        <h1 className="text-3xl font-black text-white mb-6 tracking-tight drop-shadow-xl">
                             Thalassa
                             <span className="block text-2xl font-light text-sky-400 mt-2 tracking-widest uppercase">Marine Weather</span>
                         </h1>
@@ -460,7 +460,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         {vesselType === 'observer' ? (
                             <div className="text-center py-10">
-                                <SearchIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                                <SearchIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
                                 <h2 className="text-xl font-bold text-white mb-2">Just Watching?</h2>
                                 <p className="text-gray-400 mb-8">Observers skip vessel setup. We'll optimize the display for general sea state conditions.</p>
                                 <button onClick={handleNext} className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Continue to Preferences</button>

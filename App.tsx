@@ -286,7 +286,12 @@ const App: React.FC = () => {
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
                                     <div className="relative flex-1 overflow-hidden">
-                                        <PageTransition pageKey={currentView} direction={transitionDirection}>
+                                        <PageTransition
+                                            pageKey={currentView}
+                                            direction={transitionDirection}
+                                            canSwipeBack={['details', 'compass', 'inventory', 'maintenance', 'polars', 'nmea', 'equipment', 'documents', 'diary', 'route'].includes(currentView)}
+                                            onSwipeBack={() => setPage('vessel')}
+                                        >
                                             <div className="h-full overflow-y-auto overflow-x-hidden">
                                                 {currentView === 'dashboard' && (
                                                     <>
@@ -321,8 +326,6 @@ const App: React.FC = () => {
                                                     </>
                                                 )}
 
-                                                {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
-
                                                 {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
 
                                                 {currentView === 'settings' && (
@@ -335,20 +338,32 @@ const App: React.FC = () => {
 
                                                 {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
 
-                                                {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
-
                                                 {currentView === 'chat' && <ChatPage />}
 
                                                 {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
 
-                                                {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
-                                                {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
-                                                {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                                {/* Master-detail: On md+ show VesselHub sidebar + child pane side by side */}
+                                                {isVesselView && currentView !== 'vessel' && (
+                                                    <div className="h-full flex">
+                                                        {/* Sidebar — hidden on mobile (full-screen push is used instead) */}
+                                                        <div className="hidden md:block w-80 shrink-0 border-r border-white/[0.06] overflow-y-auto">
+                                                            <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />
+                                                        </div>
+                                                        {/* Detail pane */}
+                                                        <div className="flex-1 min-w-0 overflow-y-auto">
+                                                            {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
+                                                            {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </PageTransition>
                                     </div>

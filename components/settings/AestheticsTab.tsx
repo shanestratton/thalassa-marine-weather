@@ -58,7 +58,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                 >
                                     <span className="text-2xl">{cfg.icon}</span>
                                     <span className={`text-xs font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}>{cfg.name}</span>
-                                    <span className={`text-[11px] ${isActive ? 'text-white/70' : 'text-gray-600'}`}>{cfg.desc}</span>
+                                    <span className={`text-[11px] ${isActive ? 'text-white/70' : 'text-gray-500'}`}>{cfg.desc}</span>
                                 </button>
                             );
                         })}

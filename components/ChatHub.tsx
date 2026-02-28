@@ -181,12 +181,12 @@ export const ChatHub: React.FC = () => {
                         ) : conversations.length === 0 ? (
                             <div className="text-center py-16 px-6">
                                 <div className="p-4 bg-white/[0.04] rounded-2xl inline-block mb-4">
-                                    <svg className="w-10 h-10 text-gray-600 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                                    <svg className="w-10 h-10 text-gray-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242" />
                                     </svg>
                                 </div>
                                 <p className="text-gray-500 text-sm font-bold">No active negotiations</p>
-                                <p className="text-gray-600 text-xs mt-1">
+                                <p className="text-gray-500 text-xs mt-1">
                                     Message a seller from the Gear Exchange to start
                                 </p>
                             </div>
@@ -236,7 +236,7 @@ export const ChatHub: React.FC = () => {
                                         {/* Time + unread */}
                                         <div className="shrink-0 text-right">
                                             {convo.lastMessageAt && (
-                                                <p className="text-[11px] text-gray-600 font-bold">
+                                                <p className="text-[11px] text-gray-500 font-bold">
                                                     {timeAgo(convo.lastMessageAt)}
                                                 </p>
                                             )}

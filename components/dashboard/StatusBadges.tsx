@@ -216,10 +216,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         <span className="text-[11px] font-mono tracking-wider text-slate-500 uppercase truncate">
                             <span className="text-emerald-400/70 font-bold mr-1">AI BLEND:</span>
                             {beaconName && (
-                                <><span className="text-slate-400">{shortenSourceName(beaconName)}</span><span className="text-slate-600 mx-0.5">•</span></>
+                                <><span className="text-slate-400">{shortenSourceName(beaconName)}</span><span className="text-slate-500 mx-0.5">•</span></>
                             )}
                             {buoyName && (
-                                <><span className="text-slate-400">{shortenSourceName(buoyName)}</span><span className="text-slate-600 mx-0.5">•</span></>
+                                <><span className="text-slate-400">{shortenSourceName(buoyName)}</span><span className="text-slate-500 mx-0.5">•</span></>
                             )}
                             {activeSources
                                 .filter(s => s.source !== 'buoy' && s.source !== 'beacon')
@@ -229,7 +229,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                     return (
                                         <span key={s.source}>
                                             <span className="text-slate-400">{cfg.abbr}</span>
-                                            {i < arr.length - 1 && <span className="text-slate-600 mx-0.5">•</span>}
+                                            {i < arr.length - 1 && <span className="text-slate-500 mx-0.5">•</span>}
                                         </span>
                                     );
                                 })}
@@ -298,7 +298,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                                             <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
                                             <span className={`${cfg.color} font-bold text-sm`}>{displayName}</span>
                                             {metricCount > 0 && (
-                                                <span className="text-slate-600 text-[11px] font-medium ml-1">
+                                                <span className="text-slate-500 text-[11px] font-medium ml-1">
                                                     {metricCount} metric{metricCount > 1 ? 's' : ''}
                                                 </span>
                                             )}

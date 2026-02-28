@@ -233,7 +233,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <p className="text-base font-bold text-white mb-1">
                                 {searchQuery ? 'No Items Match' : 'No Inventory Yet'}
                             </p>
-                            <p className="text-sm text-white/50 max-w-[240px] text-center">
+                            <p className="text-sm text-white/60 max-w-[240px] text-center">
                                 {searchQuery ? 'Try a different search term.' : 'Slide below to add your first item, or scan a barcode.'}
                             </p>
                         </div>
@@ -277,7 +277,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                 {item.quantity}
                                             </p>
                                         </div>
-                                        <svg className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                         </svg>
                                     </button>
@@ -465,12 +465,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 <div>
                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
                                     <input type="text" value={editZone} onChange={e => setEditZone(e.target.value)} placeholder="Engine Room"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Specific</label>
                                     <input type="text" value={editSpecific} onChange={e => setEditSpecific(e.target.value)} placeholder="Port locker"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
                                 </div>
                             </div>
 
@@ -479,7 +479,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 <div>
                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
                                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Part no, batch"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-600" />
+                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>

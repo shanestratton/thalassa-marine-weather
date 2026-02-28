@@ -109,7 +109,7 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
             <div
                 {...attributes}
                 {...listeners}
-                className="absolute top-1.5 right-1.5 p-1.5 text-white/40 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
+                className="absolute top-1.5 right-1.5 p-1.5 text-white/60 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
                 title="Drag to reorder"
             >
                 <GripIcon className="w-3 h-3" />

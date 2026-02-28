@@ -2169,6 +2169,6 @@ const PointInput: React.FC<{
 const ResultCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-center">
         <p className="text-xs font-black text-white truncate">{value}</p>
-        <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
     </div>
 );

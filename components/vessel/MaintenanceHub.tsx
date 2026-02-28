@@ -162,7 +162,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 3: Last serviced */}
                 {task.last_completed && (
-                    <p className="text-[11px] text-slate-600 mt-1">
+                    <p className="text-[11px] text-slate-500 mt-1">
                         Last serviced: {new Date(task.last_completed).toLocaleDateString()}
                     </p>
                 )}
@@ -830,7 +830,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         onChange={e => setNewDueDate(e.target.value)}
                                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                     />
-                                    <p className="text-[11px] text-gray-600 mt-1">
+                                    <p className="text-[11px] text-gray-500 mt-1">
                                         Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
                                     </p>
                                 </div>

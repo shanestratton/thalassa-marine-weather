@@ -34,7 +34,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         </div>
 
         <h3 className="text-base font-bold text-white mb-1.5">{title}</h3>
-        <p className="text-sm text-white/40 max-w-[260px] leading-relaxed">{subtitle}</p>
+        <p className="text-sm text-white/60 max-w-[260px] leading-relaxed">{subtitle}</p>
 
         {action && (
             <button

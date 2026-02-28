@@ -186,7 +186,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Tap hint */}
                     {data && data.length > 0 && (
                         <div className="flex items-center justify-center mt-0.5">
-                            <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Tap for detail</span>
+                            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">Tap for detail</span>
                         </div>
                     )}
                 </div>
@@ -324,7 +324,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                             <div className="text-2xl font-black text-white tabular-nums">
                                 {analysis.hasRain ? analysis.maxIntensity.toFixed(1) : '0.0'}
                             </div>
-                            <div className="text-[11px] text-white/40 uppercase tracking-wider">mm/hr peak</div>
+                            <div className="text-[11px] text-white/60 uppercase tracking-wider">mm/hr peak</div>
                         </div>
                     </div>
 
@@ -376,7 +376,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {/* Time Axis */}
                         <div className="flex justify-between mt-2 px-0">
                             {timeLabels.map(({ min, label }) => (
-                                <span key={min} className="text-[11px] text-white/40 font-bold uppercase tracking-wider">
+                                <span key={min} className="text-[11px] text-white/60 font-bold uppercase tracking-wider">
                                     {label}
                                 </span>
                             ))}
@@ -387,15 +387,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     {analysis.hasRain && (
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
-                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Total</div>
+                                <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Total</div>
                                 <div className="text-sm font-bold text-white tabular-nums">{analysis.totalPrecip.toFixed(1)} mm</div>
                             </div>
                             <div className="text-center">
-                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Peak</div>
+                                <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Peak</div>
                                 <div className="text-sm font-bold text-sky-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
                             </div>
                             <div className="text-center">
-                                <div className="text-[11px] text-white/40 uppercase tracking-wider mb-0.5">Type</div>
+                                <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Type</div>
                                 <div className="text-sm font-bold text-white">{analysis.category.label}</div>
                             </div>
                         </div>

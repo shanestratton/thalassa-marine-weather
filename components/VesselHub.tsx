@@ -206,7 +206,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                                     <div className={`${card.accentColor}`}>{card.icon}</div>
                                 </div>
                                 <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">{card.label}</h4>
-                                <p className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${disabled ? 'text-gray-600' : card.accentColor}`}>
+                                <p className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${disabled ? 'text-gray-500' : card.accentColor}`}>
                                     {disabled ? 'Vessel Required' : card.sublabel}
                                 </p>
                             </button>
@@ -260,7 +260,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     </button>
                 </div>
 
-                <p className="text-center text-[11px] text-gray-600 mt-4 font-bold uppercase tracking-widest">
+                <p className="text-center text-[11px] text-gray-500 mt-4 font-bold uppercase tracking-widest">
                     Thalassa Marine Weather v2.0
                 </p>
             </div>
@@ -295,7 +295,7 @@ const SignalIcon: React.FC = () => (
 );
 
 const ChevronRight: React.FC = () => (
-    <svg className="w-3.5 h-3.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
     </svg>
 );

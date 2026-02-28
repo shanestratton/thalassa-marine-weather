@@ -40,11 +40,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                 {breadcrumbs.map((crumb, i) => (
                     <React.Fragment key={i}>
                         {i > 0 && (
-                            <svg className="w-3 h-3 text-gray-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg className="w-3 h-3 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                             </svg>
                         )}
-                        <span className={`text-[11px] font-bold uppercase tracking-widest ${i === breadcrumbs.length - 1 ? 'text-sky-400' : 'text-gray-600'
+                        <span className={`text-[11px] font-bold uppercase tracking-widest ${i === breadcrumbs.length - 1 ? 'text-sky-400' : 'text-gray-500'
                             }`}>
                             {crumb}
                         </span>

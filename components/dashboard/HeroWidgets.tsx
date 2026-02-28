@@ -45,7 +45,7 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
 
     // Green = improving, red = worsening, dim white = stable
     const color = isStable
-        ? 'text-white/50'
+        ? 'text-white/60'
         : improving
             ? 'text-emerald-400'
             : 'text-red-400';
@@ -303,7 +303,7 @@ const BarometerCell: React.FC<{
     const isStable = trend === 'stable';
 
     // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
-    const arrowColor = isStable ? 'text-white/50' : isRising ? 'text-emerald-400' : 'text-red-400';
+    const arrowColor = isStable ? 'text-white/60' : isRising ? 'text-emerald-400' : 'text-red-400';
 
     return (
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">

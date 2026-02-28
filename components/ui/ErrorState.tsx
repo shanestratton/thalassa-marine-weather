@@ -58,7 +58,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
             </p>
 
             {/* Helpful hint */}
-            <p className="text-white/50 text-sm mb-6 max-w-xs">
+            <p className="text-white/60 text-sm mb-6 max-w-xs">
                 {isGpsError
                     ? "Check your location settings or select a location manually."
                     : "Check your connection and try again."}

@@ -239,7 +239,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                                         ) : (
                                             <button onClick={() => setEditingName(wp.id)} className="flex-1 text-left min-w-0">
                                                 <p className="text-xs font-black text-white truncate">{wp.name}</p>
-                                                <p className="text-[11px] text-gray-600 font-mono">{wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
+                                                <p className="text-[11px] text-gray-500 font-mono">{wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
                                             </button>
                                         )}
 
@@ -309,7 +309,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         {/* ── Route Config (toggle) ── */}
                         <button
                             onClick={() => setShowConfig(!showConfig)}
-                            className="mt-3 w-full text-left text-[11px] text-gray-600 font-bold uppercase tracking-widest hover:text-gray-400 transition-colors"
+                            className="mt-3 w-full text-left text-[11px] text-gray-500 font-bold uppercase tracking-widest hover:text-gray-400 transition-colors"
                         >
                             {showConfig ? '▼' : '▶'} Route Settings
                         </button>
@@ -317,7 +317,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                         {showConfig && (
                             <div className="mt-2 flex gap-3">
                                 <div className="flex-1">
-                                    <label className="text-[11px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Speed (kts)</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Speed (kts)</label>
                                     <input
                                         type="number"
                                         value={speed}
@@ -326,7 +326,7 @@ export const WeatherRoutingPanel: React.FC<WeatherRoutingPanelProps> = ({
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] text-gray-600 font-bold uppercase tracking-widest block mb-1">Fuel Rate (L/hr)</label>
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Fuel Rate (L/hr)</label>
                                     <input
                                         type="text"
                                         inputMode="decimal"
@@ -351,6 +351,6 @@ const SummaryCard: React.FC<{ label: string; value: string; icon: string }> = ({
     <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-center">
         <span className="text-base">{icon}</span>
         <p className="text-xs font-black text-white mt-0.5 truncate">{value}</p>
-        <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
     </div>
 );

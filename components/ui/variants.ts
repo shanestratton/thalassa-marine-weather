@@ -114,7 +114,7 @@ export type ButtonProps = VariantProps<typeof button>;
 // ═══════════════════════════════════════════════
 
 export const input = cva(
-    'w-full bg-white/[0.06] border border-white/10 text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors',
+    'w-full bg-white/[0.06] border border-white/10 text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors',
     {
         variants: {
             size: {
