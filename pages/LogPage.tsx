@@ -401,7 +401,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         ) : (
                             voyageGroups
                                 .filter(v => !(isTracking && v.voyageId === currentVoyageId))
-                                .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} />)
+                                .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onArchive={() => handleArchiveVoyage(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} />)
                         )}
 
                         {/* ── Archived Voyages ── */}
@@ -1271,15 +1271,16 @@ const VoyageCard: React.FC<{
     onToggle: () => void;
     onSelect: () => void;
     onDelete: () => void;
+    onArchive: () => void;
     onShowMap: () => void;
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
-}> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onShowMap, filteredEntries, onDeleteEntry, onEditEntry }) => {
-    // --- Swipe-to-delete ---
+}> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onArchive, onShowMap, filteredEntries, onDeleteEntry, onEditEntry }) => {
+    // --- Swipe-to-reveal actions ---
     const [swipeOffset, setSwipeOffset] = useState(0);
     const touchStartX = useRef(0);
-    const deleteThreshold = 80;
+    const deleteThreshold = 140; // wider to fit both Archive + Delete
     const handleSwipeStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
     const handleSwipeMove = (e: React.TouchEvent) => {
         const diff = touchStartX.current - e.touches[0].clientX;
@@ -1359,18 +1360,33 @@ const VoyageCard: React.FC<{
 
     return (
         <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">
-            {/* Delete button revealed on swipe-left */}
-            <button
-                onClick={() => { setSwipeOffset(0); onDelete(); }}
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-            >
-                <div className="flex flex-col items-center gap-1">
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    <span className="text-[10px] font-bold text-white uppercase">Delete</span>
-                </div>
-            </button>
+            {/* Action buttons revealed on swipe-left: Archive + Delete */}
+            <div className={`absolute right-0 top-0 bottom-0 flex transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                {/* Archive */}
+                <button
+                    onClick={() => { setSwipeOffset(0); onArchive(); }}
+                    className="w-[70px] bg-amber-600 flex items-center justify-center"
+                >
+                    <div className="flex flex-col items-center gap-1">
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
+                        </svg>
+                        <span className="text-[9px] font-bold text-white uppercase">Archive</span>
+                    </div>
+                </button>
+                {/* Delete */}
+                <button
+                    onClick={() => { setSwipeOffset(0); onDelete(); }}
+                    className="w-[70px] bg-red-600 flex items-center justify-center rounded-r-2xl"
+                >
+                    <div className="flex flex-col items-center gap-1">
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span className="text-[9px] font-bold text-white uppercase">Delete</span>
+                    </div>
+                </button>
+            </div>
             <div
                 className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${isSelected
                     ? 'bg-sky-900/30 border-2 border-sky-400/50 shadow-[0_0_12px_rgba(56,189,248,0.15)]'
