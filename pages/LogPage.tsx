@@ -1467,17 +1467,40 @@ const VoyageCard: React.FC<{
                     )}
                 </button>
 
-                {/* RIGHT — map button */}
-                <button
-                    onClick={() => { if (swipeOffset === 0) onShowMap(); else setSwipeOffset(0); }}
-                    className="shrink-0 w-14 flex flex-col items-center justify-center border-l border-white/5 hover:bg-white/5 transition-colors text-slate-400 hover:text-sky-400"
-                    title="View on map"
-                >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                    </svg>
-                    <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">Map</span>
-                </button>
+                {/* RIGHT — action buttons */}
+                <div className="shrink-0 flex flex-col border-l border-white/5">
+                    <button
+                        onClick={() => { if (swipeOffset === 0) onShowMap(); else setSwipeOffset(0); }}
+                        className="flex-1 w-14 flex flex-col items-center justify-center hover:bg-white/5 transition-colors text-slate-400 hover:text-sky-400"
+                        title="View on map"
+                    >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">Map</span>
+                    </button>
+                    {isPlannedRoute && (
+                        <button
+                            onClick={async () => {
+                                if (swipeOffset !== 0) { setSwipeOffset(0); return; }
+                                try {
+                                    const { exportVoyageAsGPX, shareGPXFile } = await import('../services/gpxService');
+                                    const gpxXml = exportVoyageAsGPX(voyage.entries, `Planned_${startLabel || 'Route'}_to_${endLabel || 'Destination'}`);
+                                    await shareGPXFile(gpxXml, `planned_route_${voyage.voyageId}.gpx`);
+                                } catch (err) {
+                                    console.error('[GPX Export]', err);
+                                }
+                            }}
+                            className="w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 hover:bg-white/5 transition-colors text-violet-400 hover:text-violet-300"
+                            title="Export as GPX"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">GPX</span>
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Expanded: show full timeline */}

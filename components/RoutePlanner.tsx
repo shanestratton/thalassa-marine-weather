@@ -17,7 +17,7 @@ import PassageCanvas from './passage/PassageCanvas';
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({ onTriggerUpgrade, onBack }) => {
     // ── TEMPORARY: Routing disabled while awaiting Navionics/i-Boating SDK ──
-    const ROUTING_DISABLED = true;
+    const ROUTING_DISABLED = false;
 
     // Custom Hook
     const {
