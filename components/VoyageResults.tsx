@@ -701,21 +701,50 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </div>
                 </button>
 
-                {/* EXPORT BUTTONS */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* EXPORT & SAVE BUTTONS */}
+                <div className="grid grid-cols-3 gap-3">
                     <button
                         onClick={() => printPassageBrief({ voyagePlan, vessel })}
                         className="bg-gradient-to-r from-sky-500/10 to-blue-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-blue-600/20 transition-all"
                     >
                         <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-xs font-bold text-sky-300 uppercase tracking-widest">Export Passage Brief (PDF)</span>
+                        <span className="text-[9px] font-bold text-sky-300 uppercase tracking-widest text-center">Export PDF</span>
                     </button>
                     <button
                         onClick={() => downloadRouteGPX(voyagePlan)}
                         className="bg-gradient-to-r from-emerald-500/10 to-teal-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-teal-600/20 transition-all"
                     >
                         <RouteIcon className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-xs font-bold text-emerald-300 uppercase tracking-widest">Export GPX Route</span>
+                        <span className="text-[9px] font-bold text-emerald-300 uppercase tracking-widest text-center">Export GPX</span>
+                    </button>
+                    <button
+                        onClick={async () => {
+                            try {
+                                const { ShipLogService } = await import('../services/ShipLogService');
+                                const voyageId = await ShipLogService.savePassagePlanToLogbook(voyagePlan);
+                                if (voyageId) {
+                                    // Show success via a brief visual cue (the button will flash)
+                                    const btn = document.getElementById('save-route-btn');
+                                    if (btn) {
+                                        btn.textContent = '✓ Saved!';
+                                        btn.classList.add('text-emerald-300');
+                                        setTimeout(() => {
+                                            btn.textContent = 'Save to Log';
+                                            btn.classList.remove('text-emerald-300');
+                                        }, 2000);
+                                    }
+                                } else {
+                                    alert('Failed to save route. Please ensure you are logged in.');
+                                }
+                            } catch (err) {
+                                console.error('[SaveRoute]', err);
+                                alert('Error saving route to logbook.');
+                            }
+                        }}
+                        className="bg-gradient-to-r from-violet-500/10 to-purple-600/10 border border-violet-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-violet-500/20 hover:to-purple-600/20 transition-all"
+                    >
+                        <MapPinIcon className="w-5 h-5 text-violet-400 group-hover:scale-110 transition-transform" />
+                        <span id="save-route-btn" className="text-[9px] font-bold text-violet-300 uppercase tracking-widest text-center">Save to Log</span>
                     </button>
                 </div>
             </div >
