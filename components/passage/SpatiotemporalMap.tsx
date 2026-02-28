@@ -19,6 +19,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
 import { WindParticleLayer } from '../map/WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
+import { FONT, SIZE } from '../../styles/typeScale';
 import '../../styles/bioluminescent.css';
 
 // ── Dark Ocean Style ────────────────────────────────────────────
@@ -322,17 +323,17 @@ const WaypointBadge: React.FC<{
                 whiteSpace: 'nowrap',
             }}>
                 <div style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 9,
+                    fontFamily: FONT.data,
+                    fontSize: SIZE.micro,
                     color: isEndpoint ? 'var(--neon-cyan)' : 'var(--text-secondary)',
                     letterSpacing: '0.05em',
-                    textShadow: isEndpoint ? '0 0 6px rgba(0,240,255,0.4)' : 'none',
+                    textShadow: isEndpoint ? '0 0 6px rgba(56,189,248,0.4)' : 'none',
                 }}>
                     {point.name}
                 </div>
                 {!isEndpoint && (
                     <div style={{
-                        fontFamily: "'JetBrains Mono', monospace",
+                        fontFamily: FONT.data,
                         fontSize: 8,
                         color: 'var(--text-dim)',
                     }}>

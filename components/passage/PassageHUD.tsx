@@ -9,27 +9,29 @@
  *   Warning:    amber    (#f59e0b) — moderate thresholds
  *   Danger:     rose-500 (#f43f5e) — dangerous thresholds
  *   Structural: slate-400/500 — labels, dividers, muted text
+ *
+ * TYPOGRAPHY: Uses shared typeScale.ts (FONT, SIZE, LABEL_STYLE, DATA_STYLE)
  */
 
 import React, { useMemo } from 'react';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
+import { FONT, SIZE, LABEL_STYLE, DATA_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
 import '../../styles/bioluminescent.css';
 
-// ── Colour Tokens (single source of truth) ──────────────────────────
+// ── Colour Tokens ───────────────────────────────────────────────────
 const C = {
-    primary: '#38bdf8',  // sky-400 — all neutral data
+    primary: '#38bdf8',
     primaryDim: 'rgba(56, 189, 248, 0.15)',
     primaryGlow: 'rgba(56, 189, 248, 0.5)',
-    warning: '#f59e0b',  // amber-500 — moderate threshold
-    danger: '#f43f5e',  // rose-500 — danger threshold
-    label: '#64748b',  // slate-500 — all labels
-    text: '#e2e8f0',  // slate-200 — body text
-    textMuted: '#94a3b8',  // slate-400 — secondary text
-    divider: 'rgba(56, 189, 248, 0.1)', // subtle divider
+    warning: '#f59e0b',
+    danger: '#f43f5e',
+    label: '#64748b',
+    text: '#e2e8f0',
+    textMuted: '#94a3b8',
+    divider: 'rgba(56, 189, 248, 0.1)',
     dividerSubtle: 'rgba(255, 255, 255, 0.04)',
 } as const;
 
-/** Semantic colour for a value relative to its thresholds */
 function semanticColor(value: number, warnAt: number, dangerAt: number): string {
     if (value > dangerAt) return C.danger;
     if (value > warnAt) return C.warning;
@@ -37,7 +39,7 @@ function semanticColor(value: number, warnAt: number, dangerAt: number): string 
 }
 
 // ══════════════════════════════════════════════════════════════════
-// SPARKLINE ENGINE — viewBox SVG with threshold lines
+// SPARKLINE ENGINE
 // ══════════════════════════════════════════════════════════════════
 
 interface SparklinePathProps {
@@ -88,52 +90,25 @@ const SparklinePath: React.FC<SparklinePathProps> = ({
         <svg
             viewBox={`0 0 100 ${height}`}
             preserveAspectRatio="none"
-            style={{
-                width: '100%',
-                height: 48,
-                overflow: 'visible',
-                display: 'block',
-            }}
+            style={{ width: '100%', height: 48, overflow: 'visible', display: 'block' }}
         >
-            {/* Area fill */}
+            <path d={areaD} fill={color} opacity={0.08} />
             <path
-                d={areaD}
-                fill={color}
-                opacity={0.08}
-            />
-
-            {/* Main line */}
-            <path
-                d={pathD}
-                fill="none"
-                stroke={color}
-                strokeWidth="1.5"
+                d={pathD} fill="none" stroke={color} strokeWidth="1.5"
                 vectorEffect="non-scaling-stroke"
                 style={{ filter: `drop-shadow(0px 0px 3px ${color})` }}
             />
-
-            {/* Threshold line */}
             {thresholdY !== null && (
-                <line
-                    x1="0" y1={thresholdY}
-                    x2="100" y2={thresholdY}
-                    stroke={C.warning}
-                    strokeDasharray="2 2"
-                    vectorEffect="non-scaling-stroke"
-                    opacity={0.5}
+                <line x1="0" y1={thresholdY} x2="100" y2={thresholdY}
+                    stroke={C.warning} strokeDasharray="2 2"
+                    vectorEffect="non-scaling-stroke" opacity={0.5}
                 />
             )}
-
-            {/* Cursor line */}
             {cursorX !== null && (
                 <>
-                    <line
-                        x1={cursorX} y1={0}
-                        x2={cursorX} y2={height}
-                        stroke="rgba(255, 255, 255, 0.35)"
-                        strokeWidth="1"
-                        vectorEffect="non-scaling-stroke"
-                        strokeDasharray="3 3"
+                    <line x1={cursorX} y1={0} x2={cursorX} y2={height}
+                        stroke="rgba(255, 255, 255, 0.35)" strokeWidth="1"
+                        vectorEffect="non-scaling-stroke" strokeDasharray="3 3"
                     />
                     {track.length > 1 && (() => {
                         const idx = Math.min(
@@ -143,13 +118,8 @@ const SparklinePath: React.FC<SparklinePathProps> = ({
                         const val = track[idx].conditions[dataKey] ?? 0;
                         const dotY = height - (val / maxVal) * height;
                         return (
-                            <circle
-                                cx={cursorX}
-                                cy={dotY}
-                                r="2.5"
-                                fill={color}
-                                stroke="white"
-                                strokeWidth="0.8"
+                            <circle cx={cursorX} cy={dotY} r="2.5"
+                                fill={color} stroke="white" strokeWidth="0.8"
                                 vectorEffect="non-scaling-stroke"
                                 style={{ filter: `drop-shadow(0px 0px 4px ${color})` }}
                             />
@@ -175,12 +145,8 @@ interface PassageHUDProps {
 }
 
 const PassageHUD: React.FC<PassageHUDProps> = ({
-    track,
-    ghostShip,
-    currentTimeHours,
-    totalDistanceNM,
-    totalDurationHours,
-    costScore,
+    track, ghostShip, currentTimeHours,
+    totalDistanceNM, totalDurationHours, costScore,
 }) => {
     const peaks = useMemo(() => {
         if (!track || track.length < 2) return { wind: 0, wave: 0, depth: 0 };
@@ -200,8 +166,6 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
     if (!track || track.length < 2) return null;
 
     const c = ghostShip?.conditions;
-
-    // Semantic colours for live values — only amber/red when thresholds hit
     const windColor = semanticColor(c?.wind_spd_kts ?? 0, 15, 25);
     const waveColor = semanticColor(c?.wave_ht_m ?? 0, 2, 3);
 
@@ -221,9 +185,9 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
         }}>
             {/* ── HEADER ── */}
             <h2 style={{
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: FONT.ui,
                 fontWeight: 600,
-                fontSize: 11,
+                fontSize: SIZE.body,
                 letterSpacing: '0.1em',
                 textTransform: 'uppercase',
                 color: C.textMuted,
@@ -237,7 +201,8 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                 <span>Passage Telemetry</span>
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '2px 8px', fontSize: 8,
+                    padding: '2px 8px',
+                    fontSize: SIZE.micro,
                     fontWeight: 700, letterSpacing: '0.12em',
                     color: C.primary,
                 }}>
@@ -253,33 +218,19 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
             {/* ── SUMMARY ROW ── */}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <div>
-                    <div style={{
-                        fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                        fontSize: 10, letterSpacing: '0.12em',
-                        textTransform: 'uppercase', color: C.label,
-                    }}>DISTANCE</div>
-                    <div style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 18, color: C.text,
-                    }}>
+                    <div style={LABEL_STYLE}>DISTANCE</div>
+                    <div style={{ ...DATA_STYLE, fontSize: SIZE.display, color: C.text }}>
                         {totalDistanceNM?.toFixed(1) ?? '—'}
-                        <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 2 }}>NM</span>
+                        <span style={{ fontSize: SIZE.caption, opacity: 0.4, marginLeft: 2 }}>NM</span>
                     </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                    <div style={{
-                        fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                        fontSize: 10, letterSpacing: '0.12em',
-                        textTransform: 'uppercase', color: C.label,
-                    }}>DURATION</div>
-                    <div style={{
-                        fontFamily: "'JetBrains Mono', monospace",
-                        fontSize: 18, color: C.text,
-                    }}>
+                    <div style={LABEL_STYLE}>DURATION</div>
+                    <div style={{ ...DATA_STYLE, fontSize: SIZE.display, color: C.text }}>
                         {totalDurationHours
                             ? `${(totalDurationHours / 24).toFixed(1)}`
                             : '—'}
-                        <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 2 }}>DAYS</span>
+                        <span style={{ fontSize: SIZE.caption, opacity: 0.4, marginLeft: 2 }}>DAYS</span>
                     </div>
                 </div>
             </div>
@@ -287,67 +238,41 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
             {/* ── LIVE TELEMETRY ROW ── */}
             {ghostShip && c && (
                 <div style={{
-                    display: 'flex',
-                    gap: 14,
-                    marginBottom: 10,
-                    paddingBottom: 8,
+                    display: 'flex', gap: 14,
+                    marginBottom: 10, paddingBottom: 8,
                     borderBottom: `1px solid ${C.dividerSubtle}`,
                 }}>
                     <div>
-                        <div style={{
-                            fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                            fontSize: 10, letterSpacing: '0.12em',
-                            textTransform: 'uppercase', color: C.label,
-                        }}>BRG</div>
-                        <div style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: 15, color: C.primary,
-                        }}>
+                        <div style={LABEL_STYLE}>BRG</div>
+                        <div style={{ ...DATA_STYLE, fontSize: SIZE.title, color: C.primary }}>
                             {Math.round(ghostShip.bearing)}°
                         </div>
                     </div>
                     <div>
-                        <div style={{
-                            fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                            fontSize: 10, letterSpacing: '0.12em',
-                            textTransform: 'uppercase', color: C.label,
-                        }}>DIST</div>
-                        <div style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: 15, color: C.primary,
-                        }}>
+                        <div style={LABEL_STYLE}>DIST</div>
+                        <div style={{ ...DATA_STYLE, fontSize: SIZE.title, color: C.primary }}>
                             {Math.round(ghostShip.distanceNM)}
-                            <span style={{ fontSize: 9, opacity: 0.4 }}>NM</span>
+                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>NM</span>
                         </div>
                     </div>
                     <div>
+                        <div style={LABEL_STYLE}>WIND</div>
                         <div style={{
-                            fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                            fontSize: 10, letterSpacing: '0.12em',
-                            textTransform: 'uppercase', color: C.label,
-                        }}>WIND</div>
-                        <div style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: 15, color: windColor,
+                            ...DATA_STYLE, fontSize: SIZE.title, color: windColor,
                             textShadow: windColor !== C.primary ? `0 0 8px ${windColor}55` : 'none',
                         }}>
                             {c.wind_spd_kts.toFixed(1)}
-                            <span style={{ fontSize: 9, opacity: 0.4 }}>kts</span>
+                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>kts</span>
                         </div>
                     </div>
                     <div>
+                        <div style={LABEL_STYLE}>WAVE</div>
                         <div style={{
-                            fontFamily: "'Inter', sans-serif", fontWeight: 500,
-                            fontSize: 10, letterSpacing: '0.12em',
-                            textTransform: 'uppercase', color: C.label,
-                        }}>WAVE</div>
-                        <div style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: 15, color: waveColor,
+                            ...DATA_STYLE, fontSize: SIZE.title, color: waveColor,
                             textShadow: waveColor !== C.primary ? `0 0 8px ${waveColor}55` : 'none',
                         }}>
                             {c.wave_ht_m.toFixed(1)}
-                            <span style={{ fontSize: 9, opacity: 0.4 }}>m</span>
+                            <span style={{ fontSize: SIZE.micro, opacity: 0.4 }}>m</span>
                         </div>
                     </div>
                 </div>
@@ -356,74 +281,47 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
             {/* ═══ WIND SPARKLINE ═══ */}
             <div style={{ marginBottom: 4 }}>
                 <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10,
-                    color: C.label,
+                    display: 'flex', justifyContent: 'space-between',
+                    ...DATA_STYLE, fontSize: SIZE.caption, color: C.label,
                     marginBottom: 2,
                 }}>
                     <span>WIND (KTS)</span>
-                    <span style={{ color: C.textMuted }}>
-                        PEAK: {peaks.wind.toFixed(1)}
-                    </span>
+                    <span style={{ color: C.textMuted }}>PEAK: {peaks.wind.toFixed(1)}</span>
                 </div>
                 <SparklinePath
-                    track={track}
-                    dataKey="wind_spd_kts"
-                    maxVal={Math.max(peaks.wind, 35)}
-                    color={C.primary}
-                    threshold={25}
-                    cursorFraction={cursorFraction}
+                    track={track} dataKey="wind_spd_kts"
+                    maxVal={Math.max(peaks.wind, 35)} color={C.primary}
+                    threshold={25} cursorFraction={cursorFraction}
                 />
             </div>
 
             {/* ═══ WAVE SPARKLINE ═══ */}
             <div style={{ marginBottom: 8 }}>
                 <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 10,
-                    color: C.label,
+                    display: 'flex', justifyContent: 'space-between',
+                    ...DATA_STYLE, fontSize: SIZE.caption, color: C.label,
                     marginBottom: 2,
                 }}>
                     <span>WAVES (M)</span>
-                    <span style={{ color: C.textMuted }}>
-                        PEAK: {peaks.wave.toFixed(1)}
-                    </span>
+                    <span style={{ color: C.textMuted }}>PEAK: {peaks.wave.toFixed(1)}</span>
                 </div>
                 <SparklinePath
-                    track={track}
-                    dataKey="wave_ht_m"
-                    maxVal={Math.max(peaks.wave, 4)}
-                    color={C.primary}
-                    threshold={2.5}
-                    cursorFraction={cursorFraction}
+                    track={track} dataKey="wave_ht_m"
+                    maxVal={Math.max(peaks.wave, 4)} color={C.primary}
+                    threshold={2.5} cursorFraction={cursorFraction}
                 />
             </div>
 
             {/* ═══ COST SCORE ═══ */}
             <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-end',
-                paddingTop: 8,
+                display: 'flex', justifyContent: 'space-between',
+                alignItems: 'flex-end', paddingTop: 8,
                 borderTop: `1px solid ${C.divider}`,
             }}>
+                <span style={LABEL_STYLE}>ROUTE COST</span>
                 <span style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 10,
-                    fontWeight: 500,
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    color: C.label,
-                }}>
-                    ROUTE COST
-                </span>
-                <span style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 22,
+                    ...DATA_STYLE,
+                    fontSize: SIZE.hero,
                     fontWeight: 700,
                     color: C.primary,
                     filter: `drop-shadow(0 0 8px ${C.primaryGlow})`,

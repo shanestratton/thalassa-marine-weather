@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { FONT, SIZE } from '../../styles/typeScale';
 
 interface TemporalScrubberProps {
     maxTimeHours: number;
@@ -278,11 +279,11 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(({
                         ref={labelRef}
                         style={{
                             margin: 0,
-                            fontSize: 12,
+                            fontSize: SIZE.body,
                             fontWeight: 900,
                             color: '#fff',
                             lineHeight: 1.2,
-                            fontFamily: 'system-ui, sans-serif',
+                            fontFamily: FONT.data,
                         }}
                     >
                         {computing ? '— : —' : formatTime(currentHour)}
@@ -291,6 +292,7 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(({
                         margin: 0,
                         fontSize: 8,
                         color: '#64748b',
+                        fontFamily: FONT.ui,
                         fontWeight: 700,
                         textTransform: 'uppercase',
                         letterSpacing: '0.1em',

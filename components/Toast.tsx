@@ -13,7 +13,8 @@
  * Mount <ToastPortal /> once in App.tsx.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { FONT, SIZE } from '../styles/typeScale';
 
 // ── Types ──────────────────────────────────────────────────────────
 export type ToastType = 'success' | 'error' | 'loading' | 'info';
@@ -132,8 +133,8 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
             <span style={{
                 flex: 1,
                 color: '#ffffff',
-                fontFamily: "'Inter', system-ui, sans-serif",
-                fontSize: 13,
+                fontFamily: FONT.ui,
+                fontSize: SIZE.subhead,
                 fontWeight: 600,
                 lineHeight: 1.3,
                 letterSpacing: '0.01em',
@@ -153,8 +154,8 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
                         borderRadius: 8,
                         padding: '4px 10px',
                         color: '#ffffff',
-                        fontFamily: "'Inter', sans-serif",
-                        fontSize: 11,
+                        fontFamily: FONT.ui,
+                        fontSize: SIZE.body,
                         fontWeight: 700,
                         letterSpacing: '0.05em',
                         textTransform: 'uppercase',
