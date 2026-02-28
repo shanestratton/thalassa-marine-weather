@@ -1,8 +1,60 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { useEnvironment } from '../../context/ThemeContext';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
+
+/**
+ * AutoFitCondition — auto-sizing text that shrinks/grows to fit one line.
+ * Uses a binary search to find the largest font that fits without overflow.
+ */
+const AutoFitCondition: React.FC<{ text: string; maxFontPx: number; minFontPx: number }> = ({ text, maxFontPx, minFontPx }) => {
+    const spanRef = useRef<HTMLSpanElement>(null);
+    const [fontSize, setFontSize] = useState(maxFontPx);
+
+    useEffect(() => {
+        const el = spanRef.current;
+        if (!el) return;
+
+        const fit = () => {
+            const parent = el.parentElement;
+            if (!parent) return;
+
+            // Available width (subtract siblings like icon, dot, gap)
+            const parentWidth = parent.clientWidth;
+            // Use a test span approach: start at max and shrink
+            let lo = minFontPx, hi = maxFontPx, best = minFontPx;
+            while (lo <= hi) {
+                const mid = Math.floor((lo + hi) / 2);
+                el.style.fontSize = `${mid}px`;
+                if (el.scrollWidth <= parentWidth * 0.85) { // 85% to leave room for icon/dot
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            setFontSize(best);
+            el.style.fontSize = `${best}px`;
+        };
+
+        // Fit on mount and resize
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(el.parentElement!);
+        return () => ro.disconnect();
+    }, [text, maxFontPx, minFontPx]);
+
+    return (
+        <span
+            ref={spanRef}
+            className="text-ivory font-mono font-bold tracking-tight leading-none whitespace-nowrap"
+            style={{ fontSize: `${fontSize}px` }}
+        >
+            {text}
+        </span>
+    );
+};
 
 /** Chevron-down SVG icon */
 const ChevronIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -125,9 +177,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                                 />
                                 <span className="text-2xl leading-none shrink-0">{conditionIcon}</span>
-                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-xl' : 'text-2xl'} font-mono font-bold tracking-tight leading-none truncate`}>
-                                    {displayCondition}
-                                </span>
+                                <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={12} />
                             </div>
                         </>
                     ) : (
@@ -137,9 +187,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             </span>
                             <div className="flex items-center gap-2 max-w-full">
                                 <span className="text-xl leading-none shrink-0">{conditionIcon}</span>
-                                <span className={`text-ivory ${displayCondition.length > 12 ? 'text-lg' : 'text-xl'} font-mono font-bold tracking-tight leading-none truncate`}>
-                                    {displayCondition}
-                                </span>
+                                <AutoFitCondition text={displayCondition} maxFontPx={20} minFontPx={11} />
                             </div>
                             {timeLabel && (
                                 <span className="text-blue-400/70 text-[10px] font-bold font-mono leading-none mt-1">

@@ -1,9 +1,62 @@
-import React from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { t } from '../../../theme';
 import { ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, DropletIcon, EyeIcon, SunriseIcon, SunsetIcon, SunIcon, GaugeIcon } from '../../Icons';
 import { convertTemp } from '../../../utils';
 import { UnitPreferences, WeatherMetrics } from '../../../types';
 import { CardDisplayValues } from './types';
+
+/**
+ * AutoFitConditionLabel — auto-sizing condition text for the full-screen hero card.
+ * Shrinks/grows between 10–14px to fit on one line.
+ */
+const AutoFitConditionLabel: React.FC<{ text: string; condition?: string }> = ({ text, condition }) => {
+    const spanRef = useRef<HTMLSpanElement>(null);
+    const [fontSize, setFontSize] = useState(14);
+
+    const colorClass = condition?.includes('STORM') ? 'text-red-500 animate-pulse'
+        : condition?.includes('POURING') ? 'text-orange-400'
+            : condition?.includes('SHOWERS') ? 'text-cyan-400'
+                : 'text-sky-300';
+
+    useEffect(() => {
+        const el = spanRef.current;
+        if (!el) return;
+
+        const fit = () => {
+            const parent = el.parentElement;
+            if (!parent) return;
+            const parentWidth = parent.clientWidth;
+            let lo = 10, hi = 14, best = 10;
+            while (lo <= hi) {
+                const mid = Math.floor((lo + hi) / 2);
+                el.style.fontSize = `${mid}px`;
+                if (el.scrollWidth <= parentWidth * 0.95) {
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            setFontSize(best);
+            el.style.fontSize = `${best}px`;
+        };
+
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(el.parentElement!);
+        return () => ro.disconnect();
+    }, [text]);
+
+    return (
+        <span
+            ref={spanRef}
+            className={`font-bold uppercase tracking-widest opacity-90 pl-1 whitespace-nowrap ${colorClass}`}
+            style={{ fontSize: `${fontSize}px` }}
+        >
+            {text}
+        </span>
+    );
+};
 
 /** Selects the appropriate weather background image based on conditions */
 function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number, moonIllumination?: number): string {
@@ -101,13 +154,10 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                 })()}
                                 <span className="text-sm font-bold text-white/50 mt-1 ml-0.5">{units.temp}</span>
                             </div>
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest opacity-90 pl-1 ${cardData.condition?.includes('STORM') ? 'text-red-500 animate-pulse' :
-                                cardData.condition?.includes('POURING') ? 'text-orange-400' :
-                                    cardData.condition?.includes('SHOWERS') ? 'text-cyan-400' :
-                                        'text-sky-300'
-                                } `}>
-                                {cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers')}
-                            </span>
+                            <AutoFitConditionLabel
+                                text={cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers') || ''}
+                                condition={cardData.condition}
+                            />
                         </div>
 
                         {/* Detail Stack (Right Aligned) */}
