@@ -617,6 +617,7 @@ export interface ShipLogEntry {
     createdAt?: string;
     isOnWater?: boolean; // True if GPS coordinates were on water at voyage start (ocean, river, lake)
     archived?: boolean;  // True if voyage has been auto-archived (>30 days old)
+    linkedPlanId?: string; // voyageId of a planned_route voyage this actual voyage is linked to
 }
 
 export interface DeepAnalysisReport {

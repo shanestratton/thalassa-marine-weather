@@ -156,7 +156,8 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         watchPeriod: 'watch_period',
         createdAt: 'created_at',
         isOnWater: 'is_on_water',
-        archived: 'archived'
+        archived: 'archived',
+        linkedPlanId: 'linked_plan_id'
     };
 
     const dbEntry: Record<string, any> = {};
@@ -205,7 +206,8 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         watchPeriod: row.watch_period,
         createdAt: row.created_at,
         isOnWater: row.is_on_water,
-        archived: row.archived ?? false
+        archived: row.archived ?? false,
+        linkedPlanId: row.linked_plan_id
     };
 }
 

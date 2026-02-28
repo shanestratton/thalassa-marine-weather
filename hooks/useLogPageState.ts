@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
+import { supabase } from '../services/supabase';
 import { BgGeoManager } from '../services/BgGeoManager';
 import { ShipLogEntry } from '../types';
 import { useToast } from '../components/Toast';
@@ -685,6 +686,82 @@ export function useLogPageState() {
         }
     }, [loadData, reloadCareerData, toast]);
 
+    // ── Voyage Linking (Planned → Actual) ────────────────────────────────────
+
+    // Available planned routes (for linking picker)
+    const plannedVoyages = useMemo(() => {
+        return voyageGroups.filter(v => v.entries.some(e => e.source === 'planned_route'));
+    }, [voyageGroups]);
+
+    // Get planned entries for a linked voyage
+    const getPlannedEntriesForVoyage = useCallback((voyageId: string): ShipLogEntry[] => {
+        const voyageEntries = state.entries.filter(e => e.voyageId === voyageId);
+        const linkedPlanId = voyageEntries.find(e => e.linkedPlanId)?.linkedPlanId;
+        if (!linkedPlanId) return [];
+        return state.entries.filter(e => e.voyageId === linkedPlanId);
+    }, [state.entries]);
+
+    // Link an actual voyage to a planned route
+    const linkVoyageToPlan = useCallback(async (actualVoyageId: string, planVoyageId: string) => {
+        try {
+            if (!supabase) { toast.error('Not connected'); return false; }
+
+            // Update all entries in the actual voyage with the linkedPlanId
+            const { error } = await supabase
+                .from('ship_logs')
+                .update({ linked_plan_id: planVoyageId })
+                .eq('voyage_id', actualVoyageId);
+
+            if (error) {
+                console.error('[LinkPlan] DB error:', error);
+                toast.error('Failed to link voyage — the linked_plan_id column may not exist yet');
+                return false;
+            }
+
+            // Update local state immediately
+            dispatch({
+                type: 'UPDATE_ENTRIES',
+                updater: prev => prev.map(e =>
+                    e.voyageId === actualVoyageId ? { ...e, linkedPlanId: planVoyageId } : e
+                )
+            });
+
+            toast.success('Linked to planned route ✓');
+            return true;
+        } catch (err) {
+            console.error('[LinkPlan]', err);
+            toast.error('Failed to link voyage');
+            return false;
+        }
+    }, [toast]);
+
+    // Unlink a voyage from its planned route
+    const unlinkVoyageFromPlan = useCallback(async (actualVoyageId: string) => {
+        try {
+            if (!supabase) return false;
+
+            const { error } = await supabase
+                .from('ship_logs')
+                .update({ linked_plan_id: null })
+                .eq('voyage_id', actualVoyageId);
+
+            if (error) { console.error('[UnlinkPlan]', error); return false; }
+
+            dispatch({
+                type: 'UPDATE_ENTRIES',
+                updater: prev => prev.map(e =>
+                    e.voyageId === actualVoyageId ? { ...e, linkedPlanId: undefined } : e
+                )
+            });
+
+            toast.success('Unlinked from planned route');
+            return true;
+        } catch (err) {
+            console.error('[UnlinkPlan]', err);
+            return false;
+        }
+    }, [toast]);
+
     // ── Public API ──────────────────────────────────────────────────────────
 
     return {
@@ -737,5 +814,11 @@ export function useLogPageState() {
         archivedVoyages,
         handleArchiveVoyage,
         handleUnarchiveVoyage,
+
+        // Planned → Actual linking
+        plannedVoyages,
+        getPlannedEntriesForVoyage,
+        linkVoyageToPlan,
+        unlinkVoyageFromPlan,
     };
 }
