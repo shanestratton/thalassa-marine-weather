@@ -134,10 +134,10 @@ const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeig
         ctx.closePath();
 
         const fillGrad = ctx.createLinearGradient(0, marginTop, 0, h);
-        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.25)');   // Cyan at peaks — 25%
-        fillGrad.addColorStop(0.3, 'rgba(20, 184, 166, 0.18)');   // Teal blend
-        fillGrad.addColorStop(0.6, 'rgba(20, 184, 166, 0.08)');   // Gentle fade
-        fillGrad.addColorStop(1, 'rgba(20, 184, 166, 0.0)');    // Transparent at bottom
+        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.35)');   // Cyan at peaks — 35%
+        fillGrad.addColorStop(0.3, 'rgba(20, 184, 166, 0.25)');   // Teal blend
+        fillGrad.addColorStop(0.6, 'rgba(20, 184, 166, 0.14)');   // Richer mid
+        fillGrad.addColorStop(1, 'rgba(20, 184, 166, 0.03)');    // Subtle base tint
         ctx.fillStyle = fillGrad;
         ctx.fill();
         ctx.restore();

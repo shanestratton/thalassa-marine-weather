@@ -167,7 +167,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
-                <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2">
+                <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2 px-1">
                     {isLive ? (
                         <>
                             <div className="flex items-center gap-2 max-w-full">
