@@ -4,17 +4,16 @@ import { UserSettings, LengthUnit } from '../types';
 import {
     CompassIcon, BellIcon, ArrowRightIcon,
     BoatIcon, StarIcon, GearIcon, MapIcon, ServerIcon,
-    TrashIcon, MapPinIcon, BugIcon, LockIcon, XIcon,
-    CloudIcon, QuoteIcon
+    TrashIcon, MapPinIcon, LockIcon,
+    CloudIcon
 } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
-import { checkStormglassStatus, debugStormglassConnection, isStormglassKeyPresent } from '../services/weather/keys';
+import { checkStormglassStatus, isStormglassKeyPresent } from '../services/weather/keys';
 import { AuthModal } from './AuthModal';
 import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';
 import { isGeminiConfigured } from '../services/geminiService';
 
-import { getErrorMessage } from '../utils/logger';
 import { Section, Row, Toggle } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
@@ -166,8 +165,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     const [detectingLoc, setDetectingLoc] = useState(false);
     const [authOpen, setAuthOpen] = useState(false);
     const [sgStatus, setSgStatus] = useState<{ status: string, message: string } | null>(null);
-    const [debugLog, setDebugLog] = useState<string | null>(null);
-    const [isRunningDebug, setIsRunningDebug] = useState(false);
 
     // Environment theme state
 
@@ -177,23 +174,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         if (activeTab === 'account') {
             setSgStatus({ status: 'LOADING', message: 'Checking...' });
             checkStormglassStatus().then(res => setSgStatus({ status: res.status, message: res.message }));
-
-            setSgStatus({ status: 'LOADING', message: 'Checking...' });
-            checkStormglassStatus().then(res => setSgStatus({ status: res.status, message: res.message }));
         }
     }, [activeTab]);
-
-    const runDiagnostics = async () => {
-        setIsRunningDebug(true);
-        try {
-            const result = await debugStormglassConnection();
-            setDebugLog(result);
-        } catch (e: unknown) {
-            setDebugLog(`FATAL ERROR: ${getErrorMessage(e)}`);
-        } finally {
-            setIsRunningDebug(false);
-        }
-    };
 
     // Safe update helper - only sends 'units' delta
     const updateUnit = (type: keyof typeof settings.units, value: string) => {
@@ -255,17 +237,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
 
             <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
 
-            {debugLog && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Stormglass diagnostic log">
-                    <div className="bg-[#0f172a] border border-white/20 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-                        <div className="p-4 border-b border-white/10 flex justify-between items-center">
-                            <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2"><BugIcon className="w-4 h-4 text-emerald-400" /> Stormglass Diagnostic</h3>
-                            <button onClick={() => setDebugLog(null)} aria-label="Close diagnostic log" className="p-1 hover:bg-white/10 rounded"><XIcon className="w-5 h-5 text-gray-400" /></button>
-                        </div>
-                        <div className="flex-1 overflow-auto p-4 bg-black/50 font-mono text-[10px] text-green-300 whitespace-pre-wrap">{debugLog}</div>
-                    </div>
-                </div>
-            )}
+
 
             {/* --- DESKTOP SIDEBAR (unchanged) --- */}
             <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
@@ -332,17 +304,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             <div className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}>
                 {/* Mobile: Section header with X close button */}
                 {activeTab !== null && (
-                    <div className="md:hidden flex items-center justify-between px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 backdrop-blur-xl border-b border-white/5">
+                    <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 backdrop-blur-xl border-b border-white/5">
+                        <button
+                            onClick={() => setActiveTab(null)}
+                            className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            aria-label="Back to settings menu"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
                         <h3 className="text-lg font-black text-white uppercase tracking-wider">
                             {MENU_ITEMS.find(m => m.id === activeTab)?.label || 'Settings'}
                         </h3>
-                        <button
-                            onClick={() => setActiveTab(null)}
-                            className="p-2 -mr-1 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
-                            aria-label="Back to settings menu"
-                        >
-                            <XIcon className="w-5 h-5" />
-                        </button>
                     </div>
                 )}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-32">
@@ -469,7 +443,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </Section>
                             )}
 
-                            {/* API Keys Status */}
                             <Section title="API Services">
                                 <div className="p-3 space-y-2">
                                     <StatusRow
@@ -478,28 +451,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                         status={sgStatus?.status}
                                         details={sgStatus ? `${sgStatus.status}: ${sgStatus.message}` : undefined}
                                         loading={sgStatus?.status === 'LOADING'}
-                                        onTest={() => {
-                                            setSgStatus({ status: 'LOADING', message: 'Testing...' });
-                                            checkStormglassStatus().then(res => setSgStatus({ status: res.status, message: res.message }));
-                                        }}
                                     />
-                                    <StatusRow label="Gemini AI" isConnected={isGeminiConfigured()} details={getKeyPreview('GEMINI')} />
+                                    <StatusRow label="Gemini AI" isConnected={isGeminiConfigured()} details={isGeminiConfigured() ? 'Via Edge Function' : 'Not configured'} />
                                     <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getKeyPreview('MAPBOX')} />
                                     <StatusRow label="Supabase" isConnected={isSupabaseConfigured()} details={isSupabaseConfigured() ? 'Connected' : 'Not configured'} />
                                     <StatusRow label="Open-Meteo" isConnected={!!isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Configured' : 'FREE MODE'} />
                                 </div>
-                                {isStormglassKeyPresent() && (
-                                    <Row>
-                                        <button
-                                            onClick={runDiagnostics}
-                                            disabled={isRunningDebug}
-                                            className="w-full py-2.5 bg-white/5 border border-white/10 text-white rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-50"
-                                        >
-                                            <BugIcon className="w-4 h-4 text-emerald-400" />
-                                            {isRunningDebug ? 'Running...' : 'Run StormGlass Diagnostic'}
-                                        </button>
-                                    </Row>
-                                )}
                             </Section>
 
                             {/* Account Actions */}
@@ -531,28 +488,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </Row>
 
 
-                            </Section>
-
-                            <Section title="Captain's Personality">
-                                <div className="p-6">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <span className="text-sm text-white font-bold flex items-center gap-2"><QuoteIcon className="w-4 h-4 text-sky-400" /> AI Attitude</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        value={settings.aiPersona ?? 50}
-                                        onChange={(e) => onSave({ aiPersona: parseInt(e.target.value) })}
-                                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                                    />
-                                    <div className="flex justify-between mt-2 text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                                        <span>Teddy Bear</span>
-                                        <span>Pro</span>
-                                        <span>Salty</span>
-                                        <span>Pirate</span>
-                                    </div>
-                                </div>
                             </Section>
 
                             <Section title="Units">

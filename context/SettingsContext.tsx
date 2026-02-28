@@ -220,10 +220,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
     }, [user, addDebugLog, loading]);
 
-    const resetSettings = useCallback(() => {
+    const resetSettings = useCallback(async () => {
         if (window.confirm("Factory Reset: Restore all settings to default? This cannot be undone.")) {
             setSettings(DEFAULT_SETTINGS);
-            localStorage.setItem('thalassa_settings', JSON.stringify(DEFAULT_SETTINGS));
+            await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(DEFAULT_SETTINGS) });
             window.location.reload();
         }
     }, []);
