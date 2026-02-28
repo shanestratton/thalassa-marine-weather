@@ -1590,13 +1590,6 @@ class ShipLogServiceClass {
      */
     async savePassagePlanToLogbook(plan: import('../types').VoyagePlan): Promise<string | null> {
         try {
-            if (!supabase) { log.error('Supabase not initialized'); return null; }
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
-                log.error('No logged in user — cannot save planned route');
-                return null;
-            }
-
             const voyageId = `planned_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             const now = new Date().toISOString();
 
@@ -1662,7 +1655,6 @@ class ShipLogServiceClass {
 
                 entries.push({
                     id: `${voyageId}_${i}`,
-                    userId: user.id,
                     voyageId,
                     timestamp: entryTime.toISOString(),
                     latitude: pt.lat,
@@ -1680,16 +1672,35 @@ class ShipLogServiceClass {
                 });
             }
 
-            // Save all entries
-            const dbEntries = entries.map(e => toDbFormat(e));
-            const { error } = await supabase!.from(SHIP_LOGS_TABLE).insert(dbEntries);
-
-            if (error) {
-                log.error('Failed to save planned route:', error.message);
-                return null;
+            // Try Supabase first, fall back to offline queue
+            let savedOnline = false;
+            if (supabase) {
+                try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (user) {
+                        const dbEntries = entries.map(e => toDbFormat({ ...e, userId: user.id }));
+                        const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(dbEntries);
+                        if (error) {
+                            log.warn('savePassagePlan: Supabase insert failed, queuing offline:', error.message);
+                        } else {
+                            savedOnline = true;
+                        }
+                    } else {
+                        log.warn('savePassagePlan: No authenticated user, queuing offline');
+                    }
+                } catch (networkError) {
+                    log.warn('savePassagePlan: Network error, queuing offline');
+                }
             }
 
-            log.info(`✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM)`);
+            // Fallback: queue all entries to offline queue
+            if (!savedOnline) {
+                for (const entry of entries) {
+                    await this.queueOfflineEntry(entry);
+                }
+            }
+
+            log.info(`✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`);
             return voyageId;
         } catch (err) {
             log.error('savePassagePlanToLogbook error:', err);
