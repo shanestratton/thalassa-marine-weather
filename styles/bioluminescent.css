@@ -7,23 +7,28 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── Core Theme Variables ────────────────────────────────────────── */
+/* 3-ACCENT SYSTEM:
+     Primary:  sky-400  — all neutral data, sparklines, accents
+     Warning:  amber    — moderate thresholds only
+     Danger:   rose-500 — dangerous thresholds only
+     Structural: slate greys for labels and dividers                  */
 :root {
   --ocean-abyss: #040d1a;
   --ocean-deep: #061525;
   --ocean-mid: #0a1e33;
-  --neon-cyan: #00f0ff;
-  --neon-cyan-muted: #00b8c7;
-  --neon-cyan-dim: rgba(0, 240, 255, 0.15);
-  --neon-purple: #b026ff;
-  --neon-purple-dim: rgba(176, 38, 255, 0.15);
-  --neon-amber: #ffb800;
-  --neon-red: #ff3b5c;
-  --neon-green: #00ff88;
+  --neon-cyan: #38bdf8;
+  --neon-cyan-muted: #0ea5e9;
+  --neon-cyan-dim: rgba(56, 189, 248, 0.15);
+  --neon-purple: #a78bfa;
+  --neon-purple-dim: rgba(167, 139, 250, 0.15);
+  --neon-amber: #f59e0b;
+  --neon-red: #f43f5e;
+  --neon-green: #34d399;
   --glass-bg: rgba(10, 20, 35, 0.55);
   --glass-bg-dense: rgba(8, 16, 28, 0.75);
-  --glass-border: rgba(0, 240, 255, 0.12);
-  --glass-border-bright: rgba(0, 240, 255, 0.25);
-  --glass-glow: rgba(0, 240, 255, 0.06);
+  --glass-border: rgba(56, 189, 248, 0.10);
+  --glass-border-bright: rgba(56, 189, 248, 0.22);
+  --glass-glow: rgba(56, 189, 248, 0.06);
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
   --text-dim: #64748b;
@@ -52,17 +57,17 @@
 .bio-data {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   color: var(--neon-cyan);
-  text-shadow: 0 0 8px rgba(0, 240, 255, 0.35);
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
 }
 
 .bio-data--warning {
   color: var(--neon-amber);
-  text-shadow: 0 0 8px rgba(255, 184, 0, 0.35);
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
 }
 
 .bio-data--danger {
   color: var(--neon-red);
-  text-shadow: 0 0 8px rgba(255, 59, 92, 0.35);
+  text-shadow: 0 0 8px rgba(244, 63, 94, 0.3);
 }
 
 /* ── Glassmorphism Panels ────────────────────────────────────────── */
@@ -192,7 +197,7 @@
 .ghost-ship {
   width: 32px;
   height: 32px;
-  filter: drop-shadow(0 0 12px var(--neon-cyan)) drop-shadow(0 0 24px rgba(0, 240, 255, 0.4));
+  filter: drop-shadow(0 0 12px var(--neon-cyan)) drop-shadow(0 0 24px rgba(56, 189, 248, 0.4));
   transition: transform 0.05s linear;
 }
 
@@ -206,8 +211,17 @@
 }
 
 @keyframes ghost-pulse {
-  0%, 100% { transform: scale(0.8); opacity: 0.6; }
-  50% { transform: scale(1.4); opacity: 0.2; }
+
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+
+  50% {
+    transform: scale(1.4);
+    opacity: 0.2;
+  }
 }
 
 /* ── Route Line Neon Glow Layers ─────────────────────────────────── */
@@ -251,8 +265,17 @@
 }
 
 @keyframes handoff-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.2); border-color: rgba(0, 240, 255, 0.3); }
-  50% { box-shadow: 0 0 16px rgba(0, 240, 255, 0.5); border-color: rgba(0, 240, 255, 0.6); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+    border-color: rgba(0, 240, 255, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 16px rgba(0, 240, 255, 0.5);
+    border-color: rgba(0, 240, 255, 0.6);
+  }
 }
 
 /* ── Status Pill ─────────────────────────────────────────────────── */
@@ -282,13 +305,27 @@
 
 /* ── Utility Animations ──────────────────────────────────────────── */
 @keyframes bio-fadein {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes bio-pulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 .bio-animate-in {

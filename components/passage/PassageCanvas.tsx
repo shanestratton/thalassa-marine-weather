@@ -99,10 +99,10 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
             }}>
                 <div style={{
                     width: 26, height: 26, borderRadius: 6,
-                    background: 'rgba(0, 240, 255, 0.08)',
-                    border: '1px solid rgba(0, 240, 255, 0.2)',
+                    background: 'rgba(56, 189, 248, 0.08)',
+                    border: '1px solid rgba(56, 189, 248, 0.2)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#00f0ff', flexShrink: 0,
+                    color: '#38bdf8', flexShrink: 0,
                 }}>
                     {summary.vessel_type === 'sail' ? <SailIcon /> : <PowerIcon />}
                 </div>
@@ -138,17 +138,17 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
                             <div style={{
                                 width: 5, height: 5, borderRadius: '50%',
-                                background: '#00ff88', boxShadow: '0 0 4px #00ff88',
+                                background: '#38bdf8', boxShadow: '0 0 4px rgba(56,189,248,0.5)',
                             }} />
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#e2e8f0' }}>
                                 {departure.name}
                             </span>
                         </div>
-                        <div style={{ borderLeft: '1px dashed rgba(255,255,255,0.1)', height: 6, marginLeft: 2 }} />
+                        <div style={{ borderLeft: '1px dashed rgba(56,189,248,0.15)', height: 6, marginLeft: 2 }} />
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <div style={{
                                 width: 5, height: 5, borderRadius: '50%',
-                                background: '#00f0ff', boxShadow: '0 0 4px #00f0ff',
+                                background: '#38bdf8', boxShadow: '0 0 4px rgba(56,189,248,0.5)',
                             }} />
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#e2e8f0' }}>
                                 {arrival.name}
@@ -184,14 +184,14 @@ const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle 
                         </div>
                     </div>
 
-                    {/* Mesh Info */}
+                    {/* Forecast Info */}
                     <div style={{
                         marginTop: 4, paddingTop: 4,
-                        borderTop: '1px solid rgba(255,255,255,0.04)',
+                        borderTop: '1px solid rgba(56,189,248,0.06)',
                         fontSize: 8, fontFamily: "'JetBrains Mono', monospace",
                         color: '#64748b', lineHeight: 1.4,
                     }}>
-                        {mesh_stats.total_nodes} nodes • {mesh_stats.weather_grid_points} wx pts • {mesh_stats.forecast_hours}h horizon
+                        Forecast: {mesh_stats.forecast_hours}h horizon • Updated just now
                     </div>
                 </div>
             )}
