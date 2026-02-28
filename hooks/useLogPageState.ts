@@ -8,7 +8,7 @@
  * All state, effects, and handlers live here.
  */
 
-import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
+import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 import { BgGeoManager } from '../services/BgGeoManager';
 import { ShipLogEntry } from '../types';
@@ -244,21 +244,34 @@ export function useLogPageState() {
             currentVoyageId: voyageId,
         });
 
-        // Auto-archive voyages > 30 days old (fire-and-forget, non-blocking)
-        const now = Date.now();
-        const voyages = groupEntriesByVoyage(merged);
-        for (const v of voyages) {
-            const lastEntry = [...v.entries].sort((a, b) =>
-                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-            )[0];
-            if (lastEntry && (now - new Date(lastEntry.timestamp).getTime()) > ARCHIVE_AGE_MS) {
-                ShipLogService.archiveVoyage(v.voyageId).catch(() => { });
-            }
-        }
-
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
     }, []);
+
+    // ── One-time auto-archive of old voyages (>30 days) ──
+    // Runs ONCE after initial load, never during polling.
+    const hasAutoArchived = useRef(false);
+
+    useEffect(() => {
+        if (hasAutoArchived.current) return;
+        if (state.loading || state.entries.length === 0) return;
+
+        hasAutoArchived.current = true;
+        const now = Date.now();
+        const voyages = groupEntriesByVoyage(state.entries);
+
+        for (const v of voyages) {
+            // Find the MOST RECENT entry in the voyage
+            const newestTimestamp = Math.max(
+                ...v.entries.map(e => new Date(e.timestamp).getTime())
+            );
+            if (newestTimestamp > 0 && (now - newestTimestamp) > ARCHIVE_AGE_MS) {
+                ShipLogService.archiveVoyage(v.voyageId)
+                    .then(() => loadData())
+                    .catch(() => { });
+            }
+        }
+    }, [state.loading, state.entries.length]);
 
     // Reusable career + archive data refresh
     const reloadCareerData = useCallback(() => {
