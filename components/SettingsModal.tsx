@@ -58,7 +58,7 @@ interface SettingsViewProps {
 const NavButton = React.memo(({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
     <button
         onClick={onClick}
-        className={`group relative flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 text-left overflow-hidden ${active ? 'bg-gradient-to-r from-sky-500/20 to-blue-600/20 text-white shadow-[0_0_20px_rgba(14,165,233,0.15)] border border-sky-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
+        className={`group relative flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 text-left overflow-hidden ${active ? 'bg-gradient-to-r from-sky-500/20 to-sky-600/20 text-white shadow-[0_0_20px_rgba(14,165,233,0.15)] border border-sky-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
     >
         {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-sky-400 shadow-[0_0_10px_2px_rgba(56,189,248,0.5)]"></div>}
         <div className={`p-2 rounded-lg transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/40 scale-110' : 'bg-white/5 text-gray-400 group-hover:bg-white/10 group-hover:text-white group-hover:scale-105'}`}>
@@ -148,8 +148,8 @@ const MENU_ITEMS: { id: SettingsTab; label: string; description: string; icon: (
     { id: 'account', label: 'System & Cloud', description: 'Cloud sync, API keys & account', icon: (c) => <ServerIcon className={c} />, iconBg: 'bg-violet-500/15 text-violet-400 shadow-violet-500/10', iconHoverBg: 'group-hover:bg-violet-500/25' },
     { id: 'vessel', label: 'Vessel Profile', description: 'Boat specs, rig & safety gear', icon: (c) => <BoatIcon className={c} />, iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10', iconHoverBg: 'group-hover:bg-amber-500/25' },
 
-    { id: 'alerts', label: 'Notifications', description: 'Anchor alarm, weather alerts', icon: (c) => <BellIcon className={c} />, iconBg: 'bg-rose-500/15 text-rose-400 shadow-rose-500/10', iconHoverBg: 'group-hover:bg-rose-500/25' },
-    { id: 'scenery', label: 'Aesthetics', description: 'Theme, colors & environment', icon: (c) => <StarIcon className={c} />, iconBg: 'bg-indigo-500/15 text-indigo-400 shadow-indigo-500/10', iconHoverBg: 'group-hover:bg-indigo-500/25' },
+    { id: 'alerts', label: 'Notifications', description: 'Anchor alarm, weather alerts', icon: (c) => <BellIcon className={c} />, iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10', iconHoverBg: 'group-hover:bg-red-500/25' },
+    { id: 'scenery', label: 'Aesthetics', description: 'Theme, colors & environment', icon: (c) => <StarIcon className={c} />, iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10', iconHoverBg: 'group-hover:bg-sky-500/25' },
 ];
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, onLocationSelect }) => {
@@ -231,7 +231,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         <div className="w-full max-w-6xl mx-auto h-full flex flex-col md:flex-row pb-24 relative">
             {/* Ambient Background Glows */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-                <div className="absolute top-10 left-10 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] animate-pulse"></div>
+                <div className="absolute top-10 left-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px] animate-pulse"></div>
                 <div className="absolute bottom-10 right-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px] animate-pulse delay-1000"></div>
             </div>
 
@@ -260,12 +260,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                 </div>
 
                 <div className="mt-auto pt-6 border-t border-white/5">
-                    <div className="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-xl p-4 border border-indigo-500/30">
+                    <div className="bg-gradient-to-br from-sky-500/20 to-purple-500/20 rounded-xl p-4 border border-sky-500/30">
                         <div className="flex items-center gap-2 mb-2">
-                            <StarIcon className="w-4 h-4 text-indigo-300" filled />
-                            <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider">Thalassa Pro</span>
+                            <StarIcon className="w-4 h-4 text-sky-300" filled />
+                            <span className="text-xs font-bold text-sky-200 uppercase tracking-wider">Thalassa Pro</span>
                         </div>
-                        <p className="text-[11px] text-indigo-200/70 mb-3">Your subscription is active. Access to all premium features.</p>
+                        <p className="text-[11px] text-sky-200/70 mb-3">Your subscription is active. Access to all premium features.</p>
                     </div>
                 </div>
             </div>
@@ -357,7 +357,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                         </p>
                                     </div>
                                     {!user ? (
-                                        <button onClick={() => setAuthOpen(true)} className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95">
+                                        <button onClick={() => setAuthOpen(true)} className="bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95">
                                             Sign In with Email or Phone
                                         </button>
                                     ) : (

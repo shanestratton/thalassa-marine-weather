@@ -11,19 +11,19 @@ import { CSS } from '@dnd-kit/utilities';
 
 const getBeaufortConfig = (force: number) => {
     const configs = [
-        { range: "< 1", desc: "Calm", sea: "Mirror-like", color: "from-blue-400 to-cyan-300", bg: "bg-gradient-to-r from-blue-900/40 to-slate-900/40", border: "border-blue-500/30", text: "text-blue-200" },
+        { range: "< 1", desc: "Calm", sea: "Mirror-like", color: "from-sky-400 to-cyan-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
         { range: "1-3", desc: "Light Air", sea: "Ripples", color: "from-cyan-400 to-sky-300", bg: "bg-gradient-to-r from-cyan-900/40 to-slate-900/40", border: "border-cyan-500/30", text: "text-cyan-200" },
         { range: "4-6", desc: "Light Breeze", sea: "Small wavelets", color: "from-sky-400 to-teal-300", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-sky-500/30", text: "text-sky-200" },
         { range: "7-10", desc: "Gentle Breeze", sea: "Large wavelets", color: "from-teal-400 to-emerald-300", bg: "bg-gradient-to-r from-teal-900/40 to-slate-900/40", border: "border-teal-500/30", text: "text-teal-200" },
-        { range: "11-16", desc: "Moderate Breeze", sea: "Small waves", color: "from-emerald-400 to-green-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-emerald-500/30", text: "text-emerald-200" },
-        { range: "17-21", desc: "Fresh Breeze", sea: "Moderate waves", color: "from-green-400 to-yellow-300", bg: "bg-gradient-to-r from-green-900/40 to-slate-900/40", border: "border-yellow-500/30", text: "text-green-200" },
+        { range: "11-16", desc: "Moderate Breeze", sea: "Small waves", color: "from-emerald-400 to-emerald-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-emerald-500/30", text: "text-emerald-200" },
+        { range: "17-21", desc: "Fresh Breeze", sea: "Moderate waves", color: "from-emerald-400 to-yellow-300", bg: "bg-gradient-to-r from-emerald-900/40 to-slate-900/40", border: "border-yellow-500/30", text: "text-emerald-200" },
         { range: "22-27", desc: "Strong Breeze", sea: "Large waves", color: "from-yellow-400 to-orange-400", bg: "bg-gradient-to-r from-yellow-900/40 to-slate-900/40", border: "border-orange-500/30", text: "text-yellow-200" },
         { range: "28-33", desc: "Near Gale", sea: "Sea heaps up", color: "from-orange-400 to-red-400", bg: "bg-gradient-to-r from-orange-900/40 to-slate-900/40", border: "border-red-500/30", text: "text-orange-200" },
-        { range: "34-40", desc: "Gale", sea: "High waves", color: "from-red-400 to-rose-400", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
-        { range: "41-47", desc: "Strong Gale", sea: "High waves", color: "from-rose-400 to-pink-500", bg: "bg-gradient-to-r from-rose-900/40 to-slate-900/40", border: "border-rose-500/40", text: "text-rose-200" },
-        { range: "48-55", desc: "Storm", sea: "Very high", color: "from-pink-500 to-purple-500", bg: "bg-gradient-to-r from-pink-900/40 to-slate-900/40", border: "border-pink-500/40", text: "text-pink-200" },
-        { range: "56-63", desc: "Violent Storm", sea: "Exceptionally high", color: "from-purple-500 to-indigo-500", bg: "bg-gradient-to-r from-purple-900/40 to-slate-900/40", border: "border-purple-500/50", text: "text-purple-200" },
-        { range: "64+", desc: "Hurricane", sea: "Total foam", color: "from-indigo-500 to-slate-400", bg: "bg-gradient-to-r from-indigo-900/40 to-slate-900/40", border: "border-slate-400/50", text: "text-indigo-200" }
+        { range: "34-40", desc: "Gale", sea: "High waves", color: "from-red-400 to-red-400", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
+        { range: "41-47", desc: "Strong Gale", sea: "High waves", color: "from-red-400 to-red-500", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
+        { range: "48-55", desc: "Storm", sea: "Very high", color: "from-red-500 to-purple-500", bg: "bg-gradient-to-r from-red-900/40 to-slate-900/40", border: "border-red-500/40", text: "text-red-200" },
+        { range: "56-63", desc: "Violent Storm", sea: "Exceptionally high", color: "from-purple-500 to-sky-500", bg: "bg-gradient-to-r from-purple-900/40 to-slate-900/40", border: "border-purple-500/50", text: "text-purple-200" },
+        { range: "64+", desc: "Hurricane", sea: "Total foam", color: "from-sky-500 to-slate-400", bg: "bg-gradient-to-r from-sky-900/40 to-slate-900/40", border: "border-slate-400/50", text: "text-sky-200" }
     ];
     return configs[Math.min(force, 12)];
 };
@@ -109,7 +109,7 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
             <div
                 {...attributes}
                 {...listeners}
-                className="absolute top-1.5 right-1.5 p-1.5 text-white/20 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
+                className="absolute top-1.5 right-1.5 p-1.5 text-white/40 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
                 title="Drag to reorder"
             >
                 <GripIcon className="w-3 h-3" />
@@ -191,7 +191,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
     const scoreLabel = settings.vessel?.type === 'sail' ? 'Sailing Score' : 'Cruising Score';
     const scoreText = getSailingConditionText(score);
     let scoreColor = "text-emerald-400";
-    if (score < 80) scoreColor = "text-blue-400";
+    if (score < 80) scoreColor = "text-sky-400";
     if (score < 60) scoreColor = "text-yellow-400";
     if (score < 40) scoreColor = "text-red-400";
 
@@ -262,9 +262,9 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Humidity"
                 value={`${current.humidity !== null && current.humidity !== undefined ? Math.round(current.humidity) : '--'}`}
                 unit="%"
-                colorClass="text-blue-400"
+                colorClass="text-sky-400"
                 icon={<DropletIcon className="w-4 h-4" />}
-                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${current.humidity || 0}%` }}></div></div>}
+                subContent={<div className="h-1 w-full bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${current.humidity || 0}%` }}></div></div>}
             />
         ),
         precip: (() => {
@@ -288,7 +288,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Dew Point"
                 value={`${convertTemp(current.dewPoint, units.temp)}°`}
                 unit=""
-                colorClass="text-rose-300"
+                colorClass="text-red-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Saturation Temp</span>}
             />
@@ -328,7 +328,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Swell Period"
                 value={`${current.swellPeriod || '--'}`}
                 unit="s"
-                colorClass="text-indigo-300"
+                colorClass="text-sky-300"
                 icon={<WaveIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400 truncate max-w-full">{current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}</span>}
             />
@@ -338,7 +338,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label={locationType === 'offshore' ? 'Swell' : 'Wave'}
                 value={current.waveHeight !== null && current.waveHeight !== undefined ? String(current.waveHeight) : '--'}
                 unit={units.waveHeight || 'ft'}
-                colorClass="text-blue-300"
+                colorClass="text-sky-300"
                 icon={<WaveIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">{current.swellDirection ? `From ${current.swellDirection}` : 'Combined Sea'}</span>}
             />
@@ -348,7 +348,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label={locationType === 'offshore' ? 'Swell Per.' : 'Wave Per.'}
                 value={`${current.swellPeriod || '--'}`}
                 unit="s"
-                colorClass="text-blue-300"
+                colorClass="text-sky-300"
                 icon={<CloudIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Peak Energy</span>}
             />
@@ -368,7 +368,7 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 label="Water Temp"
                 value={`${convertTemp(current.waterTemperature, units.temp)}°`}
                 unit=""
-                colorClass="text-blue-300"
+                colorClass="text-sky-300"
                 icon={<ThermometerIcon className="w-4 h-4" />}
                 subContent={<span className="text-[11px] text-gray-400">Surface</span>}
             />

@@ -109,15 +109,15 @@ export const renderHeroWidget = (
                 <div className={`flex flex-col h-full justify-end ${alignClass}`}>
                     {/* Header with trend arrow */}
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>{label}</span>
+                        <WaveIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>{label}</span>
                         {renderTrend(trend, true)}
                     </div>
                     {/* Main value + period badge on same line */}
                     <div className="flex flex-wrap items-end gap-1">
                         <span className={`${valSize} md:text-5xl font-mono font-medium tracking-tight ${getSourceTextColor('waveHeight')}`}>{values.waveHeight}</span>
                         <span className={`${subSize} md:text-sm font-medium text-gray-400 pb-1`}>{units.length}</span>
-                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-blue-300 border border-white/5 ml-1`}>
+                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-sky-300 border border-white/5 ml-1`}>
                             <ClockIcon className="w-2.5 h-2.5" />
                             <span>PER. {period}</span>
                         </div>
@@ -216,13 +216,13 @@ export const renderHeroWidget = (
                 return (
                     <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                         <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Precip</span>
                         </div>
                         <div className="flex flex-col justify-center items-end flex-1">
                             <span className="text-sm md:text-lg font-bold text-gray-400 uppercase tracking-wider">{pDesc}</span>
                         </div>
-                        <div className="mt-auto pt-1 text-sm md:text-sm text-blue-300 font-bold opacity-70">
+                        <div className="mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70">
                             --
                         </div>
                     </div>
@@ -232,8 +232,8 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                        <RainIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Precip</span>
                     </div>
                     {/* Middle: Value + Unit (Baseline) */}
                     <div className="flex items-baseline gap-0.5">
@@ -241,7 +241,7 @@ export const renderHeroWidget = (
                         <span className="text-sm md:text-sm font-medium text-gray-400">{units.length === 'm' ? 'mm' : 'in'}</span>
                     </div>
                     {/* Bottom: Description */}
-                    <div className="mt-auto pt-1 text-sm md:text-sm text-blue-300 font-bold opacity-70 uppercase tracking-wider">
+                    <div className="mt-auto pt-1 text-sm md:text-sm text-sky-300 font-bold opacity-70 uppercase tracking-wider">
                         {pDesc}
                     </div>
                 </div>
@@ -250,8 +250,8 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
+                        <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Dew Pt</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.dewPoint}</span>
@@ -358,8 +358,8 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <MoonIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Moon</span>
+                        <MoonIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                        <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Moon</span>
                     </div>
                     <div className="flex items-baseline gap-0.5">
                         <span className="text-sm md:text-lg font-bold text-white whitespace-nowrap">{values.moon || '--'}</span>

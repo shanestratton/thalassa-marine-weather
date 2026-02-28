@@ -17,18 +17,18 @@ interface HeroWidgetProps {
 
 export const getWidgetTheme = (wid: string) => {
     switch (wid) {
-        case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-blue-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
+        case 'wind': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'gust': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-red-900/10 border-orange-400/20 shadow-orange-900/5';
-        case 'wave': return 'bg-gradient-to-br from-blue-900/40 via-indigo-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+        case 'wave': return 'bg-gradient-to-br from-sky-900/40 via-sky-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'uv': return 'bg-gradient-to-br from-orange-900/40 via-amber-900/20 to-slate-900/10 border-orange-400/20 shadow-orange-900/5';
-        case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-green-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
+        case 'visibility': return 'bg-gradient-to-br from-emerald-900/40 via-emerald-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'humidity': return 'bg-gradient-to-br from-cyan-900/40 via-sky-900/20 to-slate-900/10 border-cyan-400/20 shadow-cyan-900/5';
         case 'pressure': return 'bg-gradient-to-br from-teal-900/40 via-emerald-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
-        case 'waterTemp': return 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-slate-900/10 border-blue-400/20 shadow-blue-900/5';
+        case 'waterTemp': return 'bg-gradient-to-br from-sky-900/40 via-cyan-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'currentSpeed': return 'bg-gradient-to-br from-emerald-900/40 via-teal-900/20 to-slate-900/10 border-emerald-400/20 shadow-emerald-900/5';
         case 'currentDirection': return 'bg-gradient-to-br from-teal-900/40 via-cyan-900/20 to-slate-900/10 border-teal-400/20 shadow-teal-900/5';
         case 'sunrise': return 'bg-gradient-to-br from-amber-900/40 via-orange-900/20 to-slate-900/10 border-amber-400/20 shadow-amber-900/5';
-        case 'sunset': return 'bg-gradient-to-br from-indigo-900/40 via-purple-900/20 to-slate-900/10 border-indigo-400/20 shadow-indigo-900/5';
+        case 'sunset': return 'bg-gradient-to-br from-sky-900/40 via-purple-900/20 to-slate-900/10 border-sky-400/20 shadow-sky-900/5';
         case 'clouds': return 'bg-gradient-to-br from-slate-800/60 via-gray-900/40 to-black/30 border-slate-500/20 shadow-slate-900/5';
         default: return 'bg-black/10 border-white/5';
     }
@@ -118,8 +118,8 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between w-full">
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WaveIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Seas</span>
+                            <WaveIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Seas</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">
@@ -129,7 +129,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                             {renderTrend(trend, true)}
                         </div>
                         <div className={`flex items-center gap-1 mt-auto pt-1 w-full ${justifyClass}`}>
-                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-sm md:text-sm font-mono text-blue-300 border border-white/5">
+                            <div className="flex items-center gap-1 bg-white/5 px-1 py-0.5 rounded text-sm md:text-sm font-mono text-sky-300 border border-white/5">
                                 <ClockIcon className="w-2.5 h-2.5" />
                                 {(data?.swellPeriod) ? `${Math.round(data.swellPeriod)} s` : '--'}
                             </div>
@@ -219,8 +219,8 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between">
                         <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-blue-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-blue-200' : 'text-slate-300'} `}>Precip</span>
+                            <RainIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Precip</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.precip}</span>
@@ -233,8 +233,8 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between">
                         <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Dew Pt</span>
+                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Dew Pt</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-2xl md:text-5xl font-mono font-medium tracking-tight text-ivory">{values.dewPoint}</span>
@@ -277,8 +277,8 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-indigo-400' : 'text-slate-400'} `} />
-                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-indigo-200' : 'text-slate-300'} `}>Sunset</span>
+                            <SunsetIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <span className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}>Sunset</span>
                         </div>
                         <div className={`flex items-baseline gap-0.5 ${justifyClass} w-full`}>
                             <span className="text-xl md:text-4xl font-mono font-medium tracking-tight text-ivory">{values.sunset}</span>

@@ -65,16 +65,16 @@ type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' |
 
 // --- AVATAR COLOR SYSTEM ---
 const AVATAR_GRADIENTS = [
-    'from-sky-400 to-blue-600',
+    'from-sky-400 to-sky-600',
     'from-emerald-400 to-teal-600',
     'from-violet-400 to-purple-600',
-    'from-rose-400 to-pink-600',
+    'from-red-400 to-red-600',
     'from-amber-400 to-orange-600',
     'from-cyan-400 to-sky-600',
     'from-fuchsia-400 to-violet-600',
     'from-lime-400 to-emerald-600',
     'from-orange-400 to-red-600',
-    'from-indigo-400 to-blue-700',
+    'from-sky-400 to-sky-700',
 ];
 
 const getAvatarGradient = (userId: string): string => {
@@ -998,7 +998,7 @@ export const ChatPage: React.FC = () => {
                             </h1>
                         )}
                         {view === 'messages' && activeChannel && (
-                            <p className="text-[13px] text-white/50 ml-1">{activeChannel.description}</p>
+                            <p className="text-xs text-white/50 ml-1">{activeChannel.description}</p>
                         )}
                     </div>
                     <div className="flex items-center gap-2">
@@ -1023,7 +1023,7 @@ export const ChatPage: React.FC = () => {
                                 >
                                     <span className="text-xl">✉️</span>
                                     {unreadDMs > 0 && (
-                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-gradient-to-r from-red-500 to-rose-500 rounded-full text-[11px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
+                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-gradient-to-r from-red-500 to-red-500 rounded-full text-[11px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
                                             {unreadDMs > 9 ? '9+' : unreadDMs}
                                         </span>
                                     )}
@@ -1031,7 +1031,7 @@ export const ChatPage: React.FC = () => {
                             </>
                         )}
                         {view === 'messages' && (
-                            <span className="text-[13px] text-white/20 tabular-nums">{messages.length} msgs</span>
+                            <span className="text-xs text-white/40 tabular-nums">{messages.length} msgs</span>
                         )}
                         {view === 'dm_thread' && dmPartner && (
                             <button
@@ -1064,7 +1064,7 @@ export const ChatPage: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
-                            <button onClick={dismissWelcome} className="text-white/20 hover:text-white/50 ml-2 text-sm transition-colors">✕</button>
+                            <button onClick={dismissWelcome} className="text-white/40 hover:text-white/50 ml-2 text-sm transition-colors">✕</button>
                         </div>
                     </div>
                 </div>
@@ -1101,7 +1101,7 @@ export const ChatPage: React.FC = () => {
                             <div className="w-8 h-8 border-2 border-sky-500/30 rounded-full" />
                             <div className="absolute inset-0 w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-                        <span className="text-[13px] text-white/40">{loadingStatus}</span>
+                        <span className="text-xs text-white/40">{loadingStatus}</span>
                     </div>
                 )}
                 {/* ══════ FIRST MATES ══════ */}
@@ -1161,7 +1161,7 @@ export const ChatPage: React.FC = () => {
                                     </button>
                                 )}
                             </div>
-                            <p className="text-xs text-white/20">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
+                            <p className="text-xs text-white/40">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
                         </div>
 
                         {/* Upload progress */}
@@ -1191,7 +1191,7 @@ export const ChatPage: React.FC = () => {
                                 className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 transition-colors"
                                 maxLength={30}
                             />
-                            <p className="text-xs text-white/20 mt-1.5 px-1">This is how you appear in chat</p>
+                            <p className="text-xs text-white/40 mt-1.5 px-1">This is how you appear in chat</p>
                         </div>
 
                         {/* Vessel Name */}
@@ -1260,7 +1260,7 @@ export const ChatPage: React.FC = () => {
 
                     return (
                         <div className="px-4 py-3 pb-24 space-y-1.5">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/20 px-1 mb-2">Channels</p>
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/40 px-1 mb-2">Channels</p>
                             {channels
                                 .filter(ch => ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts')
                                 .sort((a, b) => {
@@ -1278,8 +1278,8 @@ export const ChatPage: React.FC = () => {
                                             {getChannelIcon(ch)}
                                         </div>
                                         <div className="text-left flex-1 min-w-0">
-                                            <p className="text-[17px] font-semibold text-white/85 group-hover:text-white transition-colors">{getChannelName(ch)}</p>
-                                            <p className="text-[14px] text-white/50 truncate mt-0.5">{ch.description}</p>
+                                            <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">{getChannelName(ch)}</p>
+                                            <p className="text-sm text-white/50 truncate mt-0.5">{ch.description}</p>
                                         </div>
                                         <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
                                             <span className="text-white/15 group-hover:text-white/40 text-xs transition-colors">›</span>
@@ -1303,9 +1303,9 @@ export const ChatPage: React.FC = () => {
                                             <p className="text-[11px] text-white/25">Submitted to admins for approval</p>
                                             <div className="flex gap-2">
                                                 <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏝️" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-center text-lg" maxLength={2} />
-                                                <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                                                <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
                                             </div>
-                                            <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                                            <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
                                             <div className="flex gap-2">
                                                 <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
                                                 <button onClick={handleProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
@@ -1330,8 +1330,8 @@ export const ChatPage: React.FC = () => {
                                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/40 mb-1.5">📌 Pinned</p>
                                 {pinnedMessages.map(pm => (
                                     <div key={pm.id} className="flex items-center gap-2 py-0.5">
-                                        <span className="text-[16px] font-medium text-amber-300/70">{pm.display_name}:</span>
-                                        <span className="text-[16px] text-white/50 truncate">{pm.message}</span>
+                                        <span className="text-base font-medium text-amber-300/70">{pm.display_name}:</span>
+                                        <span className="text-base text-white/50 truncate">{pm.message}</span>
                                     </div>
                                 ))}
                             </div>
@@ -1362,9 +1362,9 @@ export const ChatPage: React.FC = () => {
                                         {/* Question header */}
                                         {msg.is_question && !isDeleted && (
                                             <div className="flex items-center gap-1.5 mb-2">
-                                                <span className="text-[14px] font-bold text-amber-400/80 uppercase tracking-[0.15em]">📢 Question</span>
+                                                <span className="text-sm font-bold text-amber-400/80 uppercase tracking-[0.15em]">📢 Question</span>
                                                 {msg.helpful_count > 0 && (
-                                                    <span className="text-[14px] text-emerald-400/50 ml-auto">{msg.helpful_count} found this helpful</span>
+                                                    <span className="text-sm text-emerald-400/50 ml-auto">{msg.helpful_count} found this helpful</span>
                                                 )}
                                             </div>
                                         )}
@@ -1388,7 +1388,7 @@ export const ChatPage: React.FC = () => {
                                             <div className="flex-1 min-w-0">
                                                 {/* Name row */}
                                                 <div className="flex items-center gap-1.5 mb-0.5">
-                                                    <span className={`text-[16px] font-bold ${isSelf ? 'text-sky-400' : 'text-white/80'}`}>{msg.display_name}</span>
+                                                    <span className={`text-base font-bold ${isSelf ? 'text-sky-400' : 'text-white/80'}`}>{msg.display_name}</span>
                                                     {/* Rank badge */}
                                                     <button
                                                         className="relative"
@@ -1407,12 +1407,12 @@ export const ChatPage: React.FC = () => {
                                                     {isMod && msg.user_id !== 'self' && (
                                                         <span className="text-[11px] opacity-30">🛡️</span>
                                                     )}
-                                                    <span className="text-[14px] text-white/20 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
+                                                    <span className="text-sm text-white/40 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
                                                 </div>
 
                                                 {/* Message body — rich cards for pins/tracks */}
                                                 {isDeleted ? (
-                                                    <p className="text-[15px] text-white/15 italic py-0.5">[removed by moderator]</p>
+                                                    <p className="text-sm text-white/15 italic py-0.5">[removed by moderator]</p>
                                                 ) : (() => {
                                                     const pin = parsePinMessage(msg.message);
                                                     const track = parseTrackMessage(msg.message);
@@ -1426,8 +1426,8 @@ export const ChatPage: React.FC = () => {
                                                                     loading="lazy"
                                                                 />
                                                                 <div className="px-3 py-2">
-                                                                    <p className="text-[17px] text-white/70 font-medium leading-snug">{pin.caption}</p>
-                                                                    <p className="text-[14px] text-white/25 mt-0.5 tabular-nums">
+                                                                    <p className="text-lg text-white/70 font-medium leading-snug">{pin.caption}</p>
+                                                                    <p className="text-sm text-white/25 mt-0.5 tabular-nums">
                                                                         📍 {Math.abs(pin.lat).toFixed(4)}°{pin.lat < 0 ? 'S' : 'N'}, {Math.abs(pin.lng).toFixed(4)}°{pin.lng < 0 ? 'W' : 'E'}
                                                                     </p>
                                                                 </div>
@@ -1440,21 +1440,21 @@ export const ChatPage: React.FC = () => {
                                                             <button
                                                                 onClick={() => setShowTrackDisclaimer(track)}
                                                                 disabled={isImporting}
-                                                                className="mt-1.5 rounded-2xl overflow-hidden border border-sky-500/[0.15] bg-gradient-to-r from-sky-500/[0.06] to-blue-500/[0.04] max-w-[280px] px-3 py-2.5 text-left w-full hover:from-sky-500/[0.12] hover:to-blue-500/[0.08] transition-all active:scale-[0.98] disabled:opacity-50"
+                                                                className="mt-1.5 rounded-2xl overflow-hidden border border-sky-500/[0.15] bg-gradient-to-r from-sky-500/[0.06] to-sky-500/[0.04] max-w-[280px] px-3 py-2.5 text-left w-full hover:from-sky-500/[0.12] hover:to-sky-500/[0.08] transition-all active:scale-[0.98] disabled:opacity-50"
                                                             >
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-lg">{isImporting ? '' : '🗺️'}</span>
                                                                     {isImporting && <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin shrink-0" />}
                                                                     <div className="min-w-0 flex-1">
-                                                                        <p className="text-[17px] text-sky-300/80 font-semibold truncate">{track.title}</p>
-                                                                        <p className="text-[13px] text-white/25 mt-0.5">{isImporting ? 'Importing…' : 'Tap to import voyage track'}</p>
+                                                                        <p className="text-lg text-sky-300/80 font-semibold truncate">{track.title}</p>
+                                                                        <p className="text-xs text-white/25 mt-0.5">{isImporting ? 'Importing…' : 'Tap to import voyage track'}</p>
                                                                     </div>
                                                                     <span className="text-sky-400/30 text-sm">⬇</span>
                                                                 </div>
                                                             </button>
                                                         );
                                                     }
-                                                    return <p className="text-[18px] text-white/70 leading-relaxed break-words">{msg.message}</p>;
+                                                    return <p className="text-lg text-white/70 leading-relaxed break-words">{msg.message}</p>;
                                                 })()}
 
                                                 {/* Action row */}
@@ -1463,13 +1463,13 @@ export const ChatPage: React.FC = () => {
                                                         <button
                                                             onClick={() => handleMarkHelpful(msg.id)}
                                                             disabled={likedMessages.has(msg.id)}
-                                                            className={`text-[15px] transition-colors flex items-center gap-1 active:scale-95 ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
+                                                            className={`text-sm transition-colors flex items-center gap-1 active:scale-95 ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
                                                         >
                                                             {likedMessages.has(msg.id) ? '✅' : '👍'} Helpful{msg.helpful_count > 0 && ` (${msg.helpful_count})`}
                                                         </button>
                                                         <button
                                                             onClick={() => { setReportingMsg(msg); setReportSent(false); }}
-                                                            className="text-[15px] text-white/10 hover:text-orange-400/60 transition-colors"
+                                                            className="text-sm text-white/10 hover:text-orange-400/60 transition-colors"
                                                         >
                                                             🚩 Report
                                                         </button>
@@ -1494,7 +1494,7 @@ export const ChatPage: React.FC = () => {
                                                             {msg.is_pinned ? '📌 Unpin' : '📌 Pin message'}
                                                         </button>
                                                         <div className="h-px bg-white/[0.04] my-1" />
-                                                        <p className="text-[11px] text-white/20 px-2.5 uppercase tracking-wider">Mute {msg.display_name}</p>
+                                                        <p className="text-[11px] text-white/40 px-2.5 uppercase tracking-wider">Mute {msg.display_name}</p>
                                                         <div className="flex gap-1 px-2">
                                                             {[{ hrs: 1, label: '1h' }, { hrs: 24, label: '24h' }, { hrs: 168, label: '7d' }].map(({ hrs, label }) => (
                                                                 <button
@@ -1542,13 +1542,13 @@ export const ChatPage: React.FC = () => {
                                 </div>
                                 <div className="text-left flex-1 min-w-0">
                                     <div className="flex items-center justify-between mb-0.5">
-                                        <p className="text-[13px] font-semibold text-white/85">{conv.display_name}</p>
+                                        <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
                                         <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
                                     </div>
                                     <p className="text-[11px] text-white/50 truncate">{conv.last_message}</p>
                                 </div>
                                 {conv.unread_count > 0 && (
-                                    <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-blue-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
+                                    <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
                                         {conv.unread_count}
                                     </span>
                                 )}
@@ -1576,10 +1576,10 @@ export const ChatPage: React.FC = () => {
                                         style={{ animationDelay: `${Math.min(i * 25, 200)}ms` }}
                                     >
                                         <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${isSelf
-                                            ? 'bg-gradient-to-br from-sky-500/15 to-blue-500/15 border border-sky-500/15 rounded-br-lg'
+                                            ? 'bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/15 rounded-br-lg'
                                             : 'bg-white/[0.04] border border-white/[0.04] rounded-bl-lg'
                                             }`}>
-                                            <p className="text-[13px] text-white/70 leading-relaxed">{dm.message}</p>
+                                            <p className="text-xs text-white/70 leading-relaxed">{dm.message}</p>
                                             <p className="text-[11px] text-white/15 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
                                         </div>
                                     </div>
@@ -1610,7 +1610,7 @@ export const ChatPage: React.FC = () => {
                                         <button
                                             key={r}
                                             onClick={() => setReportReason(r)}
-                                            className={`w-full text-left px-3 py-2 rounded-xl text-[12px] transition-all ${reportReason === r
+                                            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${reportReason === r
                                                 ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
                                                 : 'bg-white/[0.02] border border-white/[0.04] text-white/40 hover:bg-white/[0.04]'
                                                 }`}
@@ -1624,8 +1624,8 @@ export const ChatPage: React.FC = () => {
                                     ))}
                                 </div>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-[12px] text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                                    <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-orange-500/15 text-[12px] text-orange-400 font-medium hover:bg-orange-500/25 transition-colors">Submit Report</button>
+                                    <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/50 hover:bg-white/[0.06] transition-colors">Cancel</button>
+                                    <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-orange-500/15 text-xs text-orange-400 font-medium hover:bg-orange-500/25 transition-colors">Submit Report</button>
                                 </div>
                             </>
                         )}
@@ -1637,7 +1637,7 @@ export const ChatPage: React.FC = () => {
             {showPinSheet && view === 'messages' && (
                 <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3">
                     <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-[15px] font-bold text-white/80">📍 Drop a Pin</h3>
+                        <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
                         <button
                             onClick={() => setShowPinSheet(false)}
                             className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
@@ -1647,7 +1647,7 @@ export const ChatPage: React.FC = () => {
                     {pinLoading ? (
                         <div className="flex items-center justify-center py-6">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-[14px] text-white/50">Getting GPS...</span>
+                            <span className="ml-3 text-sm text-white/50">Getting GPS...</span>
                         </div>
                     ) : (
                         <>
@@ -1668,8 +1668,8 @@ export const ChatPage: React.FC = () => {
                                             >
                                                 <span className="text-sm">📍</span>
                                                 <div className="text-left">
-                                                    <p className="text-[12px] text-white/60 font-medium truncate max-w-[140px]">{sp.caption}</p>
-                                                    <p className="text-[11px] text-white/20 tabular-nums">{PinService.formatCoords(sp.latitude, sp.longitude)}</p>
+                                                    <p className="text-xs text-white/60 font-medium truncate max-w-[140px]">{sp.caption}</p>
+                                                    <p className="text-[11px] text-white/40 tabular-nums">{PinService.formatCoords(sp.latitude, sp.longitude)}</p>
                                                 </div>
                                             </button>
                                         ))}
@@ -1698,12 +1698,12 @@ export const ChatPage: React.FC = () => {
                                     onChange={e => setPinCaption(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && sendPin()}
                                     placeholder="What's here? (e.g. Great anchorage)"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-[15px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
                                     maxLength={120}
                                 />
                                 <button
                                     onClick={sendPin}
-                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500/20 to-blue-500/20 hover:from-sky-500/30 hover:to-blue-500/30 text-[14px] text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500/20 to-sky-500/20 hover:from-sky-500/30 hover:to-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                                 >
                                     📍 Drop
                                 </button>
@@ -1717,7 +1717,7 @@ export const ChatPage: React.FC = () => {
             {showPoiSheet && view === 'messages' && (
                 <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3">
                     <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-[15px] font-bold text-white/80">🗺️ Share Point of Interest</h3>
+                        <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
                         <button
                             onClick={() => setShowPoiSheet(false)}
                             className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
@@ -1727,7 +1727,7 @@ export const ChatPage: React.FC = () => {
                     {pinLoading ? (
                         <div className="flex items-center justify-center py-6">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-[14px] text-white/50">Getting GPS...</span>
+                            <span className="ml-3 text-sm text-white/50">Getting GPS...</span>
                         </div>
                     ) : (
                         <>
@@ -1749,12 +1749,12 @@ export const ChatPage: React.FC = () => {
                                     onChange={e => setPinCaption(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && sendPoi()}
                                     placeholder="Describe this spot..."
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-[15px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
                                     maxLength={120}
                                 />
                                 <button
                                     onClick={sendPoi}
-                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-[14px] text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                                 >
                                     🗺️ Share
                                 </button>
@@ -1768,7 +1768,7 @@ export const ChatPage: React.FC = () => {
             {showTrackPicker && view === 'messages' && (
                 <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3 max-h-[320px] overflow-hidden">
                     <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-[15px] font-bold text-white/80">⛵ Share a Voyage</h3>
+                        <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
                         <button
                             onClick={() => setShowTrackPicker(false)}
                             className="text-white/50 hover:text-white/60 text-lg transition-colors px-2"
@@ -1778,13 +1778,13 @@ export const ChatPage: React.FC = () => {
                     {trackLoadingVoyages ? (
                         <div className="flex items-center justify-center py-8">
                             <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-[14px] text-white/50">Loading voyages...</span>
+                            <span className="ml-3 text-sm text-white/50">Loading voyages...</span>
                         </div>
                     ) : voyageList.length === 0 ? (
                         <div className="text-center py-8">
                             <p className="text-xl mb-2">🚫</p>
-                            <p className="text-[14px] text-white/40 font-medium">No voyages to share</p>
-                            <p className="text-[12px] text-white/20 mt-1">Record a voyage first using the Ship's Log</p>
+                            <p className="text-sm text-white/40 font-medium">No voyages to share</p>
+                            <p className="text-xs text-white/40 mt-1">Record a voyage first using the Ship's Log</p>
                         </div>
                     ) : (
                         <div className="space-y-2 overflow-y-auto max-h-[240px] pb-1" style={{ scrollbarWidth: 'thin' }}>
@@ -1798,11 +1798,11 @@ export const ChatPage: React.FC = () => {
                                         key={v.voyageId}
                                         className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
                                     >
-                                        <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/15 to-blue-500/15 flex items-center justify-center">
+                                        <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/15 to-sky-500/15 flex items-center justify-center">
                                             <span className="text-lg">⛵</span>
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-[14px] text-white/70 font-medium truncate">{dateStr}</p>
+                                            <p className="text-sm text-white/70 font-medium truncate">{dateStr}</p>
                                             <p className="text-[11px] text-white/50 tabular-nums">
                                                 {v.distance}nm · {v.entryCount} pts · {durationHrs}h
                                             </p>
@@ -1810,7 +1810,7 @@ export const ChatPage: React.FC = () => {
                                         <button
                                             onClick={() => sendTrack(v)}
                                             disabled={trackSharing}
-                                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-teal-500/15 to-emerald-500/15 hover:from-teal-500/25 hover:to-emerald-500/25 text-[12px] text-teal-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
+                                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-teal-500/15 to-emerald-500/15 hover:from-teal-500/25 hover:to-emerald-500/25 text-xs text-teal-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
                                         >
                                             {trackSharing ? (
                                                 <div className="w-4 h-4 border-2 border-teal-500/30 rounded-full border-t-teal-500 animate-spin" />
@@ -1882,7 +1882,7 @@ export const ChatPage: React.FC = () => {
                                                 >
                                                     <span className="text-lg">📍</span>
                                                     <div>
-                                                        <p className="text-[14px] text-white/80 font-medium">Drop a Pin</p>
+                                                        <p className="text-sm text-white/80 font-medium">Drop a Pin</p>
                                                         <p className="text-[11px] text-white/50">Share your location</p>
                                                     </div>
                                                 </button>
@@ -1893,7 +1893,7 @@ export const ChatPage: React.FC = () => {
                                                 >
                                                     <span className="text-lg">🗺️</span>
                                                     <div>
-                                                        <p className="text-[14px] text-white/80 font-medium">Share POI</p>
+                                                        <p className="text-sm text-white/80 font-medium">Share POI</p>
                                                         <p className="text-[11px] text-white/50">Browse & pick any spot</p>
                                                     </div>
                                                 </button>
@@ -1904,7 +1904,7 @@ export const ChatPage: React.FC = () => {
                                                 >
                                                     <span className="text-lg">⛵</span>
                                                     <div>
-                                                        <p className="text-[14px] text-white/80 font-medium">Share Track</p>
+                                                        <p className="text-sm text-white/80 font-medium">Share Track</p>
                                                         <p className="text-[11px] text-white/50">Share a voyage</p>
                                                     </div>
                                                 </button>
@@ -1930,13 +1930,13 @@ export const ChatPage: React.FC = () => {
                                         onChange={(e) => { setMessageText(e.target.value); setFilterWarning(null); }}
                                         onKeyDown={(e) => e.key === 'Enter' && sendChannelMessage()}
                                         placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-[17px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200"
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200"
                                     />
                                 </div>
                                 <button
                                     onClick={() => sendChannelMessage()}
                                     disabled={!messageText.trim()}
-                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
+                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
                                 >
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={messageText.trim() ? 'text-white' : 'text-white/15'}>
                                         <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4z" />
@@ -1966,7 +1966,7 @@ export const ChatPage: React.FC = () => {
                                     <button
                                         onClick={isUserBlocked ? handleUnblockUser : handleBlockUser}
                                         className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${isUserBlocked
-                                            ? 'bg-green-500/15 text-green-300 border border-green-400/20'
+                                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
                                             : 'bg-red-500/15 text-red-300 border border-red-400/20'
                                             }`}
                                     >
@@ -1988,7 +1988,7 @@ export const ChatPage: React.FC = () => {
                                 <p className="text-xs text-red-300/50">🚫 This user is blocked</p>
                                 <button
                                     onClick={() => setShowBlockConfirm(true)}
-                                    className="text-xs text-white/25 hover:text-green-300/60 transition-colors"
+                                    className="text-xs text-white/25 hover:text-emerald-300/60 transition-colors"
                                 >
                                     Unblock
                                 </button>
@@ -2001,7 +2001,7 @@ export const ChatPage: React.FC = () => {
                                     onChange={(e) => setDmText(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && sendDMMessage()}
                                     placeholder={`Message ${dmPartner?.name || ''}...`}
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 focus:bg-white/[0.06] transition-all duration-200"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-violet-500/30 focus:bg-white/[0.06] transition-all duration-200"
                                 />
                                 <button
                                     onClick={sendDMMessage}
@@ -2028,11 +2028,11 @@ export const ChatPage: React.FC = () => {
                                 <h2 className="text-base font-black text-white">Navigation Disclaimer</h2>
                             </div>
                             <div className="bg-amber-900/20 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3">
-                                <p className="text-[13px] text-amber-400/80 leading-relaxed">
+                                <p className="text-xs text-amber-400/80 leading-relaxed">
                                     This track was shared by another sailor and is <span className="font-bold text-amber-300">not verified</span>. Depths vary with tide, weather, and vessel draft. <span className="font-bold text-amber-300">Not suitable for navigation.</span>
                                 </p>
                             </div>
-                            <p className="text-[13px] text-white/40 leading-relaxed">
+                            <p className="text-xs text-white/40 leading-relaxed">
                                 It will be imported to your ship's log as a community track with an <span className="text-amber-400 font-bold">Imported</span> badge.
                             </p>
                         </div>
@@ -2043,7 +2043,7 @@ export const ChatPage: React.FC = () => {
                             >Cancel</button>
                             <button
                                 onClick={() => handleImportTrack(showTrackDisclaimer!.trackId, showTrackDisclaimer!.title)}
-                                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
+                                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
                             >⬇ Import Track</button>
                         </div>
                     </div>

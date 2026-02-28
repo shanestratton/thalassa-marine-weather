@@ -174,11 +174,11 @@ export const RouteIntelligence: React.FC<RouteIntelligenceProps> = ({
                             <div className={`
                                 flex items-center gap-2 px-2 py-1 rounded-lg
                                 ${fc.isNightArrival
-                                    ? 'bg-indigo-500/20 border border-indigo-500/30'
+                                    ? 'bg-sky-500/20 border border-sky-500/30'
                                     : 'bg-emerald-500/10 border border-emerald-500/20'}
                             `}>
                                 {fc.isNightArrival
-                                    ? <MoonIcon className="w-3 h-3 text-indigo-300" />
+                                    ? <MoonIcon className="w-3 h-3 text-sky-300" />
                                     : <SunIcon className="w-3 h-3 text-emerald-300" />
                                 }
                                 <span className="text-sm font-bold text-white">
@@ -212,11 +212,11 @@ export const RouteIntelligence: React.FC<RouteIntelligenceProps> = ({
                             </div>
 
                             {/* Waves */}
-                            <div className={`rounded-lg p-2 ${fc.conditions.waves > 2 ? 'bg-blue-500/20' : 'bg-black/20'}`}>
+                            <div className={`rounded-lg p-2 ${fc.conditions.waves > 2 ? 'bg-sky-500/20' : 'bg-black/20'}`}>
                                 <div className="text-sm text-slate-500 uppercase mb-0.5 flex items-center justify-center gap-1">
                                     <WaveIcon className="w-2.5 h-2.5" /> Seas
                                 </div>
-                                <div className={`text-sm font-bold ${fc.conditions.waves > 2 ? 'text-blue-300' : 'text-white'}`}>
+                                <div className={`text-sm font-bold ${fc.conditions.waves > 2 ? 'text-sky-300' : 'text-white'}`}>
                                     {fc.conditions.waves} ft
                                 </div>
                             </div>
@@ -251,7 +251,7 @@ export const RouteIntelligence: React.FC<RouteIntelligenceProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                     {forecasts.some(f => f.isNightArrival) && (
-                        <span className="text-sm font-bold text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                        <span className="text-sm font-bold text-sky-300 bg-sky-500/20 px-1.5 py-0.5 rounded border border-sky-500/30">
                             NIGHT CROSSING
                         </span>
                     )}

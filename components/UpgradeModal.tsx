@@ -34,7 +34,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
             <div className={`modal-panel-enter relative bg-[#0f172a] w-full max-w-lg rounded-3xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}>
 
                 {/* Header Image/Gradient */}
-                <div className="relative h-40 bg-gradient-to-br from-sky-900 via-blue-900 to-slate-900 flex items-center justify-center overflow-hidden">
+                <div className="relative h-40 bg-gradient-to-br from-sky-900 via-sky-900 to-slate-900 flex items-center justify-center overflow-hidden">
                     <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=2070&fm=jpg&fit=crop')] bg-cover bg-center opacity-30"></div>
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
 
@@ -88,7 +88,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                             onUpgrade();
                             onClose();
                         }}
-                        className="w-full py-4 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/40 transition-all active:scale-95 flex items-center justify-center gap-2"
+                        className="w-full py-4 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/40 transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
                         <LockIcon className="w-5 h-5" />
                         Start 7-Day Free Trial

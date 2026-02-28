@@ -48,7 +48,7 @@ const SOURCE_CONFIG: Record<string, { abbr: string; color: string; label: string
     buoy: { abbr: '', color: 'text-emerald-400', label: 'BUOY' },       // Name used instead of abbr
     beacon: { abbr: '', color: 'text-emerald-400', label: 'BEACON' },   // Name used instead of abbr
     stormglass: { abbr: 'SG', color: 'text-amber-400', label: 'StormGlass API' },
-    openmeteo: { abbr: 'OM', color: 'text-blue-400', label: 'Open-Meteo' },
+    openmeteo: { abbr: 'OM', color: 'text-sky-400', label: 'Open-Meteo' },
     weatherkit: { abbr: 'WK', color: 'text-emerald-400', label: 'Apple Weather' },
 };
 
@@ -56,7 +56,7 @@ const SOURCE_DOT_COLORS: Record<string, string> = {
     buoy: 'bg-emerald-400',
     beacon: 'bg-emerald-400',
     stormglass: 'bg-amber-400',
-    openmeteo: 'bg-blue-400',
+    openmeteo: 'bg-sky-400',
     weatherkit: 'bg-emerald-400',
 };
 
@@ -178,7 +178,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
         statusBadgeColor = "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
     }
 
-    const timerBadgeColor = "bg-blue-500/20 text-blue-300 border-blue-500/30";
+    const timerBadgeColor = "bg-sky-500/20 text-sky-300 border-sky-500/30";
 
     // Format helpers for the info modal
     const fmt = (v: number | null | undefined, unit: string, decimals = 1) => {

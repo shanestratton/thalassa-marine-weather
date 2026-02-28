@@ -27,11 +27,11 @@ interface AccordionSectionProps {
 const ACCENT_MAP: Record<string, { icon: string; border: string; glow: string; badge: string }> = {
     sky: { icon: 'text-sky-400', border: 'border-sky-500/20', glow: 'bg-sky-500/5', badge: 'bg-sky-500/10 text-sky-300 border-sky-500/20' },
     emerald: { icon: 'text-emerald-400', border: 'border-emerald-500/20', glow: 'bg-emerald-500/5', badge: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' },
-    indigo: { icon: 'text-indigo-400', border: 'border-indigo-500/20', glow: 'bg-indigo-500/5', badge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20' },
+    indigo: { icon: 'text-sky-400', border: 'border-sky-500/20', glow: 'bg-sky-500/5', badge: 'bg-sky-500/10 text-sky-300 border-sky-500/20' },
     red: { icon: 'text-red-400', border: 'border-red-500/20', glow: 'bg-red-500/5', badge: 'bg-red-500/10 text-red-300 border-red-500/20' },
     orange: { icon: 'text-orange-400', border: 'border-orange-500/20', glow: 'bg-orange-500/5', badge: 'bg-orange-500/10 text-orange-300 border-orange-500/20' },
     amber: { icon: 'text-amber-400', border: 'border-amber-500/20', glow: 'bg-amber-500/5', badge: 'bg-amber-500/10 text-amber-300 border-amber-500/20' },
-    blue: { icon: 'text-blue-400', border: 'border-blue-500/20', glow: 'bg-blue-500/5', badge: 'bg-blue-500/10 text-blue-300 border-blue-500/20' },
+    blue: { icon: 'text-sky-400', border: 'border-sky-500/20', glow: 'bg-sky-500/5', badge: 'bg-sky-500/10 text-sky-300 border-sky-500/20' },
     purple: { icon: 'text-purple-400', border: 'border-purple-500/20', glow: 'bg-purple-500/5', badge: 'bg-purple-500/10 text-purple-300 border-purple-500/20' },
 };
 

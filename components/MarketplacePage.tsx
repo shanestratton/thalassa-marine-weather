@@ -59,8 +59,8 @@ const getConditionColor = (condition: string): string => {
 };
 
 const AVATAR_GRADIENTS = [
-    'from-sky-400 to-blue-600', 'from-emerald-400 to-teal-600', 'from-violet-400 to-purple-600',
-    'from-rose-400 to-pink-600', 'from-amber-400 to-orange-600', 'from-cyan-400 to-sky-600',
+    'from-sky-400 to-sky-600', 'from-emerald-400 to-teal-600', 'from-violet-400 to-purple-600',
+    'from-red-400 to-red-600', 'from-amber-400 to-orange-600', 'from-cyan-400 to-sky-600',
 ];
 
 const getAvatarGradient = (id: string): string => {
@@ -164,7 +164,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
 
                         {/* Title + Price row */}
                         <div className="flex items-start justify-between gap-3">
-                            <h3 className="text-[15px] font-semibold text-white leading-snug flex-1">{listing.title}</h3>
+                            <h3 className="text-sm font-semibold text-white leading-snug flex-1">{listing.title}</h3>
                             <span className="text-lg font-bold text-emerald-400 whitespace-nowrap tracking-tight">
                                 {formatPrice(listing.price, listing.currency)}
                             </span>
@@ -176,7 +176,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 onClick={() => setExpanded(!expanded)}
                                 className="text-left mt-1.5"
                             >
-                                <p className={`text-[12px] text-white/50 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
+                                <p className={`text-xs text-white/50 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
                                     {listing.description}
                                 </p>
                                 {listing.description.length > 100 && (
@@ -189,7 +189,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                         <div className="flex items-center gap-2 mt-2.5 text-[11px] text-white/40">
                             {listing.location_name && (
                                 <span className="flex items-center gap-1">
-                                    <span className="text-white/30">📍</span>
+                                    <span className="text-white/50">📍</span>
                                     {listing.location_name}
                                 </span>
                             )}
@@ -216,9 +216,9 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                     </div>
                                 )}
                                 <div className="flex flex-col">
-                                    <span className="text-[12px] font-semibold text-white/80">{listing.seller_name || 'Sailor'}</span>
+                                    <span className="text-xs font-semibold text-white/80">{listing.seller_name || 'Sailor'}</span>
                                     {listing.seller_vessel && (
-                                        <span className="text-[11px] text-white/30 flex items-center gap-0.5">
+                                        <span className="text-[11px] text-white/50 flex items-center gap-0.5">
                                             ⛵ {listing.seller_vessel}
                                         </span>
                                     )}
@@ -246,7 +246,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                             ) : (
                                 <button
                                     onClick={() => onMessageSeller(listing)}
-                                    className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[12px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
+                                    className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
                                 >
                                     🛒 Buy
                                 </button>
@@ -388,12 +388,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             >
                 {/* Header */}
                 <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 backdrop-blur-xl border-b border-white/[0.06]">
-                    <button onClick={() => { reset(); onClose(); }} className="text-[13px] text-white/50 font-medium">Cancel</button>
-                    <h2 className="text-[15px] font-bold text-white">List Gear for Sale</h2>
+                    <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/50 font-medium">Cancel</button>
+                    <h2 className="text-sm font-bold text-white">List Gear for Sale</h2>
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
-                        className={`text-[13px] font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/20' : 'text-sky-400'}`}
+                        className={`text-xs font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/20' : 'text-sky-400'}`}
                     >
                         {submitting ? '⏳' : 'Post'}
                     </button>
@@ -402,7 +402,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 <div className="px-5 py-4 space-y-5">
                     {/* Error */}
                     {error && (
-                        <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-[12px] text-red-400">
+                        <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
                             {error}
                         </div>
                     )}
@@ -423,7 +423,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             {images.length < 4 && (
                                 <button
                                     onClick={() => fileRef.current?.click()}
-                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/30 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
+                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/50 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
                                 >
                                     <span className="text-xl">+</span>
                                     <span className="text-[11px] mt-0.5">Add</span>
@@ -441,7 +441,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             onChange={e => setTitle(e.target.value)}
                             placeholder="e.g. Raymarine Axiom 12 MFD"
                             maxLength={100}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[14px] text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
                         />
                     </div>
 
@@ -454,7 +454,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                                 placeholder="0.00"
                                 inputMode="decimal"
-                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[14px] text-emerald-400 font-mono placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
                             />
                         </div>
                         <div className="w-24">
@@ -462,7 +462,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <select
                                 value={currency}
                                 onChange={e => setCurrency(e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[14px] text-white outline-none"
+                                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white outline-none"
                             >
                                 {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
@@ -477,7 +477,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <button
                                     key={cat}
                                     onClick={() => setCategory(cat)}
-                                    className={`px-3 py-1.5 rounded-xl border text-[12px] font-medium transition-all ${category === cat
+                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${category === cat
                                         ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
                                         : 'bg-white/[0.04] border-white/10 text-white/50 hover:border-white/20'}`}
                                 >
@@ -495,7 +495,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <button
                                     key={cond}
                                     onClick={() => setCondition(cond)}
-                                    className={`px-3 py-1.5 rounded-xl border text-[12px] font-medium transition-all ${condition === cond
+                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${condition === cond
                                         ? `${getConditionColor(cond)}`
                                         : 'bg-white/[0.04] border-white/10 text-white/50 hover:border-white/20'}`}
                                 >
@@ -514,7 +514,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             placeholder="Describe the item, any defects, model year, etc."
                             rows={3}
                             maxLength={1000}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[13px] text-white/80 placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors resize-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors resize-none"
                         />
                     </div>
 
@@ -527,10 +527,10 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             value={locationName}
                             onChange={e => setLocationName(e.target.value)}
                             placeholder="e.g. Scarborough Marina, QLD"
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-[14px] text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/20 outline-none focus:border-sky-500/40 transition-colors"
                         />
                         {gpsLat && (
-                            <p className="text-[11px] text-white/20 mt-1">
+                            <p className="text-[11px] text-white/40 mt-1">
                                 📍 {gpsLat.toFixed(4)}, {gpsLon?.toFixed(4)}
                             </p>
                         )}
@@ -540,8 +540,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
-                        className={`w-full py-3.5 rounded-2xl font-bold text-[14px] uppercase tracking-wider transition-all active:scale-[0.98] ${submitting || !title.trim() || !price || !category || !condition
-                            ? 'bg-white/[0.04] text-white/20 border border-white/[0.06]'
+                        className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${submitting || !title.trim() || !price || !category || !condition
+                            ? 'bg-white/[0.04] text-white/40 border border-white/[0.06]'
                             : 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/20'}`}
                     >
                         {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
@@ -665,13 +665,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
             <div className="sticky top-0 z-20 bg-slate-950/95 backdrop-blur-xl border-b border-white/[0.06]">
                 {/* Nav bar */}
                 <div className="flex items-center justify-between px-4 py-3">
-                    <button onClick={onBack} className="flex items-center gap-1.5 text-[13px] text-sky-400 font-medium">
+                    <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-sky-400 font-medium">
                         <svg width="8" height="14" viewBox="0 0 8 14" fill="none"><path d="M7 1L1 7L7 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
                         Channels
                     </button>
                     <div className="flex items-center gap-2">
                         <span className="text-lg">🏪</span>
-                        <span className="text-[15px] font-bold text-white">Marketplace</span>
+                        <span className="text-sm font-bold text-white">Marketplace</span>
                     </div>
                     <button
                         onClick={() => setShowCreate(true)}
@@ -726,12 +726,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                     <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
                         <div className="text-5xl mb-4">⚓</div>
                         <h3 className="text-lg font-bold text-white/80 mb-2">No Gear Listed Yet</h3>
-                        <p className="text-[13px] text-white/40 mb-6 max-w-xs leading-relaxed">
+                        <p className="text-xs text-white/40 mb-6 max-w-xs leading-relaxed">
                             Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here.
                         </p>
                         <button
                             onClick={() => setShowCreate(true)}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-500 text-[13px] font-bold text-white uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
+                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-cyan-500 text-xs font-bold text-white uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
                         >
                             🏪 List Something for Sale
                         </button>

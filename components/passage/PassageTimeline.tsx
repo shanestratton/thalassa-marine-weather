@@ -50,7 +50,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
 
     return (
         <div className="w-full bg-slate-900 ${t.border.default} rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+            <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
             <div className="relative z-10">
                 <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
@@ -73,7 +73,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         {timelineData.map((data, i) => (
                             <div
                                 key={i}
-                                className={`flex-1 transition-colors ${data.isDay ? 'bg-amber-500/5' : 'bg-indigo-900/20'
+                                className={`flex-1 transition-colors ${data.isDay ? 'bg-amber-500/5' : 'bg-sky-900/20'
                                     }`}
                                 style={{ borderRight: '1px solid rgba(255,255,255,0.02)' }}
                             />
@@ -98,7 +98,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                                             <div className="bg-slate-800 ${t.border.strong} rounded-lg px-3 py-2 text-sm whitespace-nowrap shadow-xl">
                                                 <div className="font-bold text-white mb-1">{data.time}</div>
                                                 <div className="text-sky-300">Wind: {data.windSpeed.toFixed(1)} kts</div>
-                                                <div className="text-blue-300">Wave: {data.waveHeight.toFixed(1)} m</div>
+                                                <div className="text-sky-300">Wave: {data.waveHeight.toFixed(1)} m</div>
                                             </div>
                                         </div>
                                     </div>
@@ -146,7 +146,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         <span className="text-gray-400">Wind Speed (kts)</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-6 h-0.5 bg-blue-400"></div>
+                        <div className="w-6 h-0.5 bg-sky-400"></div>
                         <span className="text-gray-400">Wave Height (m)</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -155,8 +155,8 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         <span className="text-gray-400">Day</span>
                     </div>
                     <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 bg-indigo-900/30 rounded"></div>
-                        <MoonIcon className="w-3 h-3 text-indigo-400" />
+                        <div className="w-4 h-4 bg-sky-900/30 rounded"></div>
+                        <MoonIcon className="w-3 h-3 text-sky-400" />
                         <span className="text-gray-400">Night</span>
                     </div>
                     <div className="flex items-center gap-2">

@@ -133,7 +133,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                 {isActive && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
                         <div className="absolute -top-8 left-1/3 w-24 h-24 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
-                        <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-blue-500/10 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
+                        <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-sky-500/10 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
                     </div>
                 )}
 
@@ -141,7 +141,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Header Row */}
                     <div className="flex items-center justify-center">
                         <div className="flex items-center gap-1.5">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-cyan-400" : "text-blue-400/60"}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-cyan-400" : "text-sky-400/60"}>
                                 <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
                                     fill="currentColor" fillOpacity={isActive ? "0.5" : "0.3"} stroke="currentColor" strokeWidth="1.5" />
                             </svg>
@@ -258,7 +258,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                 {/* Glow effects */}
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
                     <div className="absolute -top-20 left-1/4 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl" />
-                    <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl" />
+                    <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl" />
                 </div>
 
                 <div className="relative z-10 p-5">
@@ -318,7 +318,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
-                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-blue-400/50'}`}>
+                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-cyan-400' : 'text-sky-400/50'}`}>
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
                             <div className="text-2xl font-black text-white tabular-nums">
@@ -429,7 +429,7 @@ function getIntensityCategory(mmPerHr: number): { label: string; badgeClass: str
     };
     if (mmPerHr >= 0.5) return {
         label: 'Light',
-        badgeClass: 'bg-blue-500/25 text-blue-300 border border-blue-400/25',
+        badgeClass: 'bg-sky-500/25 text-sky-300 border border-sky-400/25',
         color: 'rgba(59, 130, 246, 0.7)',
     };
     return {

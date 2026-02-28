@@ -182,7 +182,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         </>
                     ) : (
                         <>
-                            <span className="text-blue-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
+                            <span className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
                                 {dateLabel}
                             </span>
                             <div className="flex items-center gap-2 max-w-full">
@@ -190,7 +190,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 <AutoFitCondition text={displayCondition} maxFontPx={20} minFontPx={11} />
                             </div>
                             {timeLabel && (
-                                <span className="text-blue-400/70 text-[11px] font-bold font-mono leading-none mt-1">
+                                <span className="text-sky-400/70 text-[11px] font-bold font-mono leading-none mt-1">
                                     {timeLabel}
                                 </span>
                             )}

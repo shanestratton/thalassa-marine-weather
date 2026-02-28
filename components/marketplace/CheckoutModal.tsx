@@ -150,16 +150,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         <img src={listing.images[0]} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
-                        <h3 className="text-[14px] font-semibold text-white truncate">{listing.title}</h3>
+                        <h3 className="text-sm font-semibold text-white truncate">{listing.title}</h3>
                         <p className="text-[11px] text-white/40 mt-0.5">{listing.condition} · {listing.category}</p>
-                        <p className="text-[15px] font-bold text-emerald-400 mt-1">{formatPrice(listing.price, listing.currency)}</p>
+                        <p className="text-sm font-bold text-emerald-400 mt-1">{formatPrice(listing.price, listing.currency)}</p>
                     </div>
                 </div>
 
                 {/* ═══════ CHOOSE MODE ═══════ */}
                 {mode === 'choose' && (
                     <div className="px-5 pb-8 space-y-3">
-                        <h2 className="text-[13px] font-bold text-white/50 uppercase tracking-wider mb-3">How would you like to buy?</h2>
+                        <h2 className="text-xs font-bold text-white/50 uppercase tracking-wider mb-3">How would you like to buy?</h2>
 
                         {/* Option A: Cash on Dock */}
                         <button
@@ -170,11 +170,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                                 <div className="flex items-center gap-2.5">
                                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-xl">💵</div>
                                     <div>
-                                        <h3 className="text-[14px] font-bold text-white">Cash on the Dock</h3>
+                                        <h3 className="text-sm font-bold text-white">Cash on the Dock</h3>
                                         <p className="text-[11px] text-emerald-400 font-semibold">FREE — No fees</p>
                                     </div>
                                 </div>
-                                <span className="text-white/20 text-lg group-hover:text-emerald-400 transition-colors">›</span>
+                                <span className="text-white/40 text-lg group-hover:text-emerald-400 transition-colors">›</span>
                             </div>
                             <p className="text-[11px] text-white/40 leading-relaxed pl-[52px]">
                                 Opens a direct message with the seller to arrange cash payment and pickup in person.
@@ -193,7 +193,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             <div className="flex items-center gap-2.5 mb-2">
                                 <div className="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-xl">🔒</div>
                                 <div>
-                                    <h3 className="text-[14px] font-bold text-white">Thalassa Secure Escrow</h3>
+                                    <h3 className="text-sm font-bold text-white">Thalassa Secure Escrow</h3>
                                     <p className="text-[11px] text-sky-400 font-semibold">6% Platform Fee</p>
                                 </div>
                             </div>
@@ -213,7 +213,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                                     <span className="text-sky-400/70 font-medium">+{formatPrice(platformFee, listing.currency)}</span>
                                 </div>
                                 <div className="h-px bg-white/[0.08] my-1" />
-                                <div className="flex justify-between text-[12px]">
+                                <div className="flex justify-between text-xs">
                                     <span className="text-white/60 font-semibold">Total hold</span>
                                     <span className="text-white font-bold">{formatPrice(totalWithFee, listing.currency)}</span>
                                 </div>
@@ -229,8 +229,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             <div className="w-10 h-10 border-2 border-sky-500/30 rounded-full" />
                             <div className="absolute inset-0 w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-                        <p className="text-[13px] text-white/50">Placing hold on your card…</p>
-                        <p className="text-[11px] text-white/30">This is an authorization only. No charge yet.</p>
+                        <p className="text-xs text-white/50">Placing hold on your card…</p>
+                        <p className="text-[11px] text-white/50">This is an authorization only. No charge yet.</p>
                     </div>
                 )}
 
@@ -240,7 +240,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         {/* Success header */}
                         <div className="p-4 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 text-center">
                             <div className="text-3xl mb-1">🔒</div>
-                            <h3 className="text-[15px] font-bold text-emerald-400">Hold Placed Successfully</h3>
+                            <h3 className="text-sm font-bold text-emerald-400">Hold Placed Successfully</h3>
                             <p className="text-[11px] text-white/40 mt-1">
                                 {formatCents(holdData.amountCents, holdData.currency)} authorized on your card
                             </p>
@@ -267,7 +267,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                         {/* Instructions */}
                         <div className="p-3.5 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
-                            <p className="text-[12px] text-amber-200/80 leading-relaxed">
+                            <p className="text-xs text-amber-200/80 leading-relaxed">
                                 <strong>Give this PIN to the seller only when you have inspected the gear
                                     and are ready to finalize the purchase.</strong>
                             </p>
@@ -295,7 +295,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                         <button
                             onClick={handleClose}
-                            className="w-full py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-[13px] font-bold text-white/60 active:scale-[0.98] transition-transform"
+                            className="w-full py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-bold text-white/60 active:scale-[0.98] transition-transform"
                         >
                             Done — I'll give the PIN when ready
                         </button>
@@ -307,19 +307,19 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     <div className="px-5 pb-8 space-y-4">
                         <div className="p-4 rounded-2xl bg-red-500/[0.06] border border-red-500/20 text-center">
                             <div className="text-3xl mb-2">⚠️</div>
-                            <h3 className="text-[14px] font-bold text-red-400 mb-1">Payment Hold Failed</h3>
-                            <p className="text-[12px] text-white/50">{errorMsg || 'Unknown error'}</p>
+                            <h3 className="text-sm font-bold text-red-400 mb-1">Payment Hold Failed</h3>
+                            <p className="text-xs text-white/50">{errorMsg || 'Unknown error'}</p>
                         </div>
                         <div className="flex gap-3">
                             <button
                                 onClick={() => setMode('choose')}
-                                className="flex-1 py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-[13px] font-bold text-white/60"
+                                className="flex-1 py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-bold text-white/60"
                             >
                                 Back
                             </button>
                             <button
                                 onClick={handleEscrow}
-                                className="flex-1 py-3 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-[13px] font-bold text-sky-300"
+                                className="flex-1 py-3 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300"
                             >
                                 Retry
                             </button>

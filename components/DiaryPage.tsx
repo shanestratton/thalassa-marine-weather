@@ -603,7 +603,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* Body */}
                         {e.body && (
-                            <div className="text-[15px] text-gray-200 leading-relaxed whitespace-pre-wrap">
+                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
                                 {e.body}
                             </div>
                         )}
@@ -806,7 +806,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                         value={body}
                         onChange={e => setBody(e.target.value)}
-                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-[15px] text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                     />
 
                     {/* AI Polish + Weather Snapshot */}

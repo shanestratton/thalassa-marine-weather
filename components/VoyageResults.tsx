@@ -100,7 +100,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 ═══════════════════════════════════════════════════════════════════ */}
             <div className="w-full bg-[#0f172a] border border-white/10 rounded-3xl p-0 relative overflow-hidden shadow-2xl flex flex-col mb-4">
                 {/* Background Decorations */}
-                <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
                 {/* Header: Route — Departing (left) → Arriving (right) */}
                 <div className="p-6 md:p-8 pb-0 flex items-center gap-4 relative z-10">
@@ -174,7 +174,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <span className="text-lg font-bold text-white">{voyagePlan.suitability?.maxWindEncountered ?? '--'}</span>
                                 <span className="text-[11px] text-gray-500 ml-0.5">kts</span>
                             </div>
-                            <div className="text-[11px] text-blue-300 font-medium border-l border-white/10 pl-3">
+                            <div className="text-[11px] text-sky-300 font-medium border-l border-white/10 pl-3">
                                 {voyagePlan.suitability?.maxWaveEncountered ?? '--'} ft seas
                             </div>
                         </div>
@@ -206,7 +206,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             </div>
                             <div>
                                 <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
-                                <p className="text-[12px] text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
+                                <p className="text-xs text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
                             </div>
                         </div>
                     </div>
@@ -335,7 +335,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 </div>
                                             </td>
                                             <td className="py-3.5">
-                                                <div className="flex items-center gap-1.5 text-blue-300">
+                                                <div className="flex items-center gap-1.5 text-sky-300">
                                                     <WaveIcon className="w-3.5 h-3.5" /> {wp.waveHeight ?? '--'}ft
                                                 </div>
                                             </td>
@@ -345,7 +345,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                         <span className="text-[11px] font-bold text-orange-400 px-1.5 py-0.5 bg-orange-500/10 rounded w-fit border border-orange-500/20">HIGH WIND</span>
                                                     )}
                                                     {(wp.waveHeight || 0) > 4 && (
-                                                        <span className="text-[11px] font-bold text-blue-400 px-1.5 py-0.5 bg-blue-500/10 rounded w-fit border border-blue-500/20">ROUGH SEAS</span>
+                                                        <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded w-fit border border-sky-500/20">ROUGH SEAS</span>
                                                     )}
                                                 </div>
                                             </td>
@@ -416,7 +416,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             )}
                                             {wp.waveHeight !== undefined && (
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                    <WaveIcon className="w-3 h-3 text-blue-400" />
+                                                    <WaveIcon className="w-3 h-3 text-sky-400" />
                                                     <span className="text-[11px] text-gray-300 font-medium">{wp.waveHeight}ft</span>
                                                 </div>
                                             )}
@@ -453,13 +453,13 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <div className="space-y-5">
                                     <div>
-                                        <h4 className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                                        <h4 className="text-xs text-sky-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
                                             <RouteIcon className="w-3 h-3" /> Strategic Overview
                                         </h4>
                                         <p className="text-sm text-gray-200 leading-relaxed font-light">{deepReport.strategy}</p>
                                     </div>
                                     <div>
-                                        <h4 className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                                        <h4 className="text-xs text-sky-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
                                             <WindIcon className="w-3 h-3" /> Weather Expectations
                                         </h4>
                                         <p className="text-sm text-gray-300 leading-relaxed font-light">{deepReport.weatherSummary}</p>
@@ -469,7 +469,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <div className="space-y-5">
                                     {/* Hazards */}
                                     <div className="bg-black/20 rounded-xl p-4 border border-white/5">
-                                        <h4 className="text-xs text-indigo-400 font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                                        <h4 className="text-xs text-sky-400 font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                                             <AlertTriangleIcon className="w-3 h-3" /> Confirmed Hazards
                                         </h4>
                                         {deepReport.hazards && deepReport.hazards.length > 0 ? (
@@ -489,11 +489,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     {/* Tactical Grid */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <h4 className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Fuel & Engine</h4>
+                                            <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-wider mb-1">Fuel & Engine</h4>
                                             <p className="text-xs text-gray-400 leading-relaxed">{deepReport.fuelTactics}</p>
                                         </div>
                                         <div>
-                                            <h4 className="text-[11px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Watch System</h4>
+                                            <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-wider mb-1">Watch System</h4>
                                             <p className="text-xs text-gray-400 leading-relaxed">{deepReport.watchSchedule}</p>
                                         </div>
                                     </div>
@@ -502,9 +502,9 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </div>
                     ) : (
                         <div className="bg-black/20 rounded-xl p-8 border border-white/5 text-center flex flex-col items-center justify-center min-h-[160px]">
-                            <DiamondIcon className="w-8 h-8 text-indigo-500/40 mb-3" />
+                            <DiamondIcon className="w-8 h-8 text-sky-500/40 mb-3" />
                             <p className="text-sm text-gray-400 mb-4 max-w-md">{voyagePlan.overview}</p>
-                            <button onClick={handleDeepAnalysis} disabled={analyzingDeep} className="text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2">
+                            <button onClick={handleDeepAnalysis} disabled={analyzingDeep} className="text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2">
                                 {analyzingDeep ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "Run Deep Analysis"}
                             </button>
                         </div>
@@ -584,12 +584,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             <div className="space-y-5">
                                 {/* Departure Section */}
                                 {voyagePlan.customs.departureProcedures && (
-                                    <div className="border-b border-indigo-500/20 pb-4">
+                                    <div className="border-b border-sky-500/20 pb-4">
                                         <div className="flex items-center gap-3 mb-2">
-                                            <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
+                                            <div className="p-2 bg-sky-500/20 rounded-full text-sky-300">
                                                 <FlagIcon className="w-4 h-4" />
                                             </div>
-                                            <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
+                                            <h4 className="text-sm font-bold text-sky-200 uppercase tracking-widest">
                                                 Clearance Outbound: {voyagePlan.customs.departingCountry || "Origin"}
                                             </h4>
                                         </div>
@@ -602,10 +602,10 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <div className="flex flex-col md:flex-row gap-6">
                                     <div className="flex-1">
                                         <div className="flex items-center gap-3 mb-2">
-                                            <div className="p-2 bg-indigo-500/20 rounded-full text-indigo-300">
+                                            <div className="p-2 bg-sky-500/20 rounded-full text-sky-300">
                                                 <FlagIcon className="w-4 h-4" />
                                             </div>
-                                            <h4 className="text-sm font-bold text-indigo-200 uppercase tracking-widest">
+                                            <h4 className="text-sm font-bold text-sky-200 uppercase tracking-widest">
                                                 International Arrival: {voyagePlan.customs.destinationCountry || "Border Crossing"}
                                             </h4>
                                         </div>
@@ -614,7 +614,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                         </p>
                                     </div>
                                     {voyagePlan.customs.contactPhone && (
-                                        <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-indigo-500/20 pt-4 md:pt-0 md:pl-6">
+                                        <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-sky-500/20 pt-4 md:pt-0 md:pl-6">
                                             <span className="text-[11px] text-gray-500 uppercase font-bold tracking-widest mb-1">Port Authority / Customs</span>
                                             <div className="flex items-center gap-2 text-white font-mono text-lg">
                                                 <PhoneIcon className="w-4 h-4 text-emerald-400" />
@@ -705,7 +705,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 <div className="grid grid-cols-3 gap-3">
                     <button
                         onClick={() => printPassageBrief({ voyagePlan, vessel })}
-                        className="bg-gradient-to-r from-sky-500/10 to-blue-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-blue-600/20 transition-all"
+                        className="bg-gradient-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
                     >
                         <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
                         <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">Export PDF</span>

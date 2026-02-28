@@ -58,11 +58,11 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
         return (
             <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 backdrop-blur-md border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
-                    <RainIcon className="w-4 h-4 text-blue-400" /> Precipitation
+                    <RainIcon className="w-4 h-4 text-sky-400" /> Precipitation
                 </div>
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full bg-[rgb(59,130,246)] shadow-[0_0_10px_rgba(59,130,246,0.9)] border border-blue-300/50"></span>
+                        <span className="w-4 h-4 rounded-full bg-[rgb(59,130,246)] shadow-[0_0_10px_rgba(59,130,246,0.9)] border border-sky-300/50"></span>
                         <span className="font-bold">Heavy</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
@@ -108,7 +108,7 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
                         <span className="text-gray-300">High</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full border-2 border-blue-500 flex items-center justify-center text-[11px] font-bold text-blue-500">L</span>
+                        <span className="w-4 h-4 rounded-full border-2 border-sky-500 flex items-center justify-center text-[11px] font-bold text-sky-500">L</span>
                         <span className="text-gray-300">Low</span>
                     </div>
                 </div>

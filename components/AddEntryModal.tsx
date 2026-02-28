@@ -139,7 +139,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             id="waypoint-toggle"
                             checked={isWaypoint}
                             onChange={(e) => setIsWaypoint(e.target.checked)}
-                            className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                            className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-2 focus:ring-sky-500"
                         />
                         <label htmlFor="waypoint-toggle" className="text-white font-medium cursor-pointer">
                             Mark as Waypoint
@@ -155,7 +155,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             onChange={(e) => setWaypointName(e.target.value)}
                             placeholder="e.g., Cape Moreton, Fuel Stop"
                             disabled={!isWaypoint}
-                            className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
+                            className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
                         />
                     </div>
 
@@ -168,7 +168,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             placeholder="e.g., Course change, Crew rotation, Equipment issue"
-                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 min-h-[80px] resize-none"
+                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[80px] resize-none"
                         />
                     </div>
 
@@ -184,7 +184,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled={saving}
                         >
                             {saving ? 'Adding...' : 'Add Entry'}

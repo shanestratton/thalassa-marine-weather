@@ -367,7 +367,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                 <div className="bg-black/20 p-4 border-t border-white/5 flex items-center justify-center gap-6">
                     <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                        <DiamondIcon className="w-3 h-3 text-indigo-400" /> Pro Sync
+                        <DiamondIcon className="w-3 h-3 text-sky-400" /> Pro Sync
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
                         <BoatIcon className="w-3 h-3 text-sky-400" /> Fleet Data

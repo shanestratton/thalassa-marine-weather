@@ -116,10 +116,10 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
             {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
             <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
                 ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
-                : 'bg-gradient-to-br from-indigo-900/20 via-slate-900/40 to-black/40 border-indigo-400/20 shadow-indigo-900/5'
+                : 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
                 } `}>
                 {/* Gradient Orb (Shared) */}
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-indigo-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-sky-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
 
                 {/* TOP SECTION (Split 58/42) */}
                 <div className="flex flex-row w-full flex-1 border-b border-white/5 min-h-[70%] relative overflow-hidden">
@@ -203,16 +203,16 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="flex flex-col justify-between gap-0.5 p-4 pt-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
                         {/* TOP: Today - matches temp position */}
                         <div className="flex items-start">
-                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none`}>
+                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none`}>
                                 {cardIsLive ? "TODAY" : "FORECAST"}
                             </span>
                         </div>
                         {/* MIDDLE: Now - large text like temp */}
-                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-blue-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-mono font-bold tracking-tighter leading-none whitespace-nowrap`}>
+                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-mono font-bold tracking-tighter leading-none whitespace-nowrap`}>
                             {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
                         </span>
                         {/* BOTTOM: Hours - matches condition position */}
-                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${cardIsLive ? 'text-emerald-400' : 'text-blue-400'}`}>
+                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${cardIsLive ? 'text-emerald-400' : 'text-sky-400'}`}>
                             {(cardIsLive || (isHourly && hTime)) ? (
                                 cardIsLive ? (() => {
                                     const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
@@ -261,7 +261,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Sunset */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <SunsetIcon className="w-3.5 h-3.5 text-indigo-300 mb-0.5" />
+                        <SunsetIcon className="w-3.5 h-3.5 text-sky-300 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.sunset}</span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Set</span>
                     </div>

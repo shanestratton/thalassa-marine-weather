@@ -19,6 +19,7 @@ import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 import { SlideToAction } from '../ui/SlideToAction';
 import { EmptyState } from '../ui/EmptyState';
+import { toast } from '../Toast';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -217,6 +218,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setTasks(data);
         } catch (e) {
             console.error('Failed to load tasks:', e);
+            toast.error('Failed to load maintenance tasks');
         } finally {
             setLoading(false);
         }
@@ -283,6 +285,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             await loadTasks(); // Refresh list
         } catch (e) {
             console.error('Failed to log service:', e);
+            toast.error('Failed to log service');
         } finally {
             setSheetSaving(false);
         }
@@ -323,6 +326,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             await loadTasks();
         } catch (e) {
             console.error('Failed to create task:', e);
+            toast.error('Failed to create task');
         }
     }, [newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
 
@@ -351,6 +355,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setShowExportModal(false);
         } catch (e) {
             console.error('Failed to export PDF:', e);
+            toast.error('PDF export failed');
         } finally {
             setExporting(false);
         }
@@ -365,6 +370,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             await loadTasks();
         } catch (e) {
             console.error('Failed to delete task:', e);
+            toast.error('Failed to delete task');
         }
     }, [loadTasks]);
 

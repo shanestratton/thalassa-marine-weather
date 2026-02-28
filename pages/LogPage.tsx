@@ -291,20 +291,20 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="shrink-0 px-4 pb-3">
                         <div className="rounded-2xl bg-slate-900/40 backdrop-blur-md border border-white/10 p-3">
                             <div className="flex items-center justify-center mb-2">
-                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/20 text-[10px] font-bold text-sky-400 uppercase tracking-widest">Career Totals</span>
+                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/20 text-[11px] font-bold text-sky-400 uppercase tracking-widest">Career Totals</span>
                             </div>
                             <div className="grid grid-cols-3 divide-x divide-white/10">
                                 <div className="text-center px-2">
                                     <div className="text-lg font-extrabold text-white">{(careerTotals.totalDistance ?? 0).toFixed(1)}</div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">NM Sailed</div>
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">NM Sailed</div>
                                 </div>
                                 <div className="text-center px-2">
                                     <div className="text-lg font-extrabold text-white">{careerTotals.totalTimeAtSeaHrs < 24 ? `${careerTotals.totalTimeAtSeaHrs}h` : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}</div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">At Sea</div>
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">At Sea</div>
                                 </div>
                                 <div className="text-center px-2">
                                     <div className="text-lg font-extrabold text-white">{careerTotals.totalVoyages}</div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">Voyages</div>
+                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">Voyages</div>
                                 </div>
                             </div>
                         </div>
@@ -319,16 +319,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             <div className="shrink-0 px-4 pb-2">
                                 <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
                                     <div className="flex items-center gap-1.5 mb-1">
-                                        <span className="text-[9px] font-bold text-amber-400 uppercase tracking-widest">🔍 Water Detection Debug</span>
+                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">🔍 Water Detection Debug</span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono">
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-mono">
                                         <div className="text-slate-400">API Feature:</div>
-                                        <div className={wc?.feature === 'LAND' ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
+                                        <div className={wc?.feature === 'LAND' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
                                             {wc ? wc.feature : '—'}
                                             {wc?.failedOpen && <span className="text-amber-400 ml-1">(FAIL-OPEN)</span>}
                                         </div>
                                         <div className="text-slate-400">isWater:</div>
-                                        <div className={wc?.isWater ? 'text-red-400' : 'text-green-400'}>
+                                        <div className={wc?.isWater ? 'text-red-400' : 'text-emerald-400'}>
                                             {wc ? String(wc.isWater) : '—'}
                                         </div>
                                         <div className="text-slate-400">Checked Coords:</div>
@@ -375,15 +375,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     <div className="grid grid-cols-3 gap-3">
                                         <div>
                                             <div className="text-2xl font-extrabold text-emerald-400">{(dist ?? 0).toFixed(1)}</div>
-                                            <div className="text-[10px] text-slate-500 uppercase">NM</div>
+                                            <div className="text-[11px] text-slate-500 uppercase">NM</div>
                                         </div>
                                         <div>
                                             <div className="text-2xl font-extrabold text-emerald-400">{durationHrs}h {durationMins}m</div>
-                                            <div className="text-[10px] text-slate-500 uppercase">Duration</div>
+                                            <div className="text-[11px] text-slate-500 uppercase">Duration</div>
                                         </div>
                                         <div>
                                             <div className="text-2xl font-extrabold text-emerald-400">{(liveAvgSpeed ?? 0).toFixed(1)}</div>
-                                            <div className="text-[10px] text-slate-500 uppercase">Avg kts</div>
+                                            <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
                                         </div>
                                     </div>
                                     {/* Live Mini Map */}
@@ -428,7 +428,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
                                         </svg>
                                         <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Archived Voyages</span>
-                                        <span className="text-[10px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">{archivedVoyages.length}</span>
+                                        <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">{archivedVoyages.length}</span>
                                     </div>
                                     <svg className={`w-4 h-4 text-amber-400 transition-transform ${showArchived ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -444,7 +444,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         <span className="text-xs font-bold text-white/80">
                                                             {new Date(voyage.entries[voyage.entries.length - 1]?.timestamp || '').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()}
                                                         </span>
-                                                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">Archived</span>
+                                                        <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">Archived</span>
                                                     </div>
                                                     <div className="text-[11px] text-white/50">
                                                         {voyage.entries.length} entries · {Math.max(0, ...voyage.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
@@ -452,7 +452,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 </div>
                                                 <button
                                                     onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
-                                                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
+                                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
                                                 >
                                                     Unarchive
                                                 </button>
@@ -477,7 +477,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </button>
                                 <button
                                     onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                                    className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+                                    className="flex-1 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
                                 >
                                     <PlusIcon className="w-5 h-5" />
                                     New Log Entry
@@ -1199,9 +1199,9 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     const typeColors = {
-        auto: 'bg-green-500/20 text-green-400 border-green-500/30',
+        auto: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
         manual: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-        waypoint: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+        waypoint: 'bg-sky-500/20 text-sky-400 border-sky-500/30'
     };
 
     // Land/water coloring: blue = water, green = land, white = unknown
@@ -1240,7 +1240,7 @@ const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) =
                 )}
                 {entry.airTemp !== null && entry.airTemp !== undefined && (
                     <div className="flex items-center gap-1 text-slate-400">
-                        <span className="text-[10px]">🌡</span>
+                        <span className="text-[11px]">🌡</span>
                         {typeof entry.airTemp === 'number' ? entry.airTemp.toFixed(1) : entry.airTemp}°C
                     </div>
                 )}
@@ -1410,7 +1410,7 @@ const VoyageCard: React.FC<{
                             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
                             </svg>
-                            <span className="text-[9px] font-bold text-white uppercase">Archive</span>
+                            <span className="text-[11px] font-bold text-white uppercase">Archive</span>
                         </div>
                     </button>
                 )}
@@ -1423,7 +1423,7 @@ const VoyageCard: React.FC<{
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
-                        <span className="text-[9px] font-bold text-white uppercase">Delete</span>
+                        <span className="text-[11px] font-bold text-white uppercase">Delete</span>
                     </div>
                 </button>
             </div>
@@ -1465,10 +1465,10 @@ const VoyageCard: React.FC<{
                         <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">{dateLabel}</div>
                         <div className="flex items-center gap-1.5">
                             {isSelected && (
-                                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[9px] font-bold text-sky-300 uppercase mr-1">● Selected</span>
+                                <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[11px] font-bold text-sky-300 uppercase mr-1">● Selected</span>
                             )}
-                            <span className="text-base font-extrabold text-white">{(dist ?? 0).toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">NM</span></span>
-                            <span className="text-[10px] text-slate-600">|</span>
+                            <span className="text-base font-extrabold text-white">{(dist ?? 0).toFixed(1)} <span className="text-[11px] text-slate-400 font-normal">NM</span></span>
+                            <span className="text-[11px] text-slate-600">|</span>
                             <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
                         </div>
                     </div>
@@ -1478,27 +1478,27 @@ const VoyageCard: React.FC<{
                         </div>
                     )}
                     <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500">{voyage.entries.length} entries</span>
-                        {avgSpeed > 0 && <span className="text-[10px] text-slate-500">· {(avgSpeed ?? 0).toFixed(1)} kts avg</span>}
+                        <span className="text-[11px] text-slate-500">{voyage.entries.length} entries</span>
+                        {avgSpeed > 0 && <span className="text-[11px] text-slate-500">· {(avgSpeed ?? 0).toFixed(1)} kts avg</span>}
                         {hasManual && (
-                            <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[9px] font-bold text-purple-400 uppercase">Manual</span>
+                            <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[11px] font-bold text-purple-400 uppercase">Manual</span>
                         )}
                         {isPlannedRoute && (
-                            <span className="px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/20 text-[9px] font-bold text-violet-400 uppercase">Suggested</span>
+                            <span className="px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/20 text-[11px] font-bold text-violet-400 uppercase">Suggested</span>
                         )}
                         {isImported && !isPlannedRoute && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[9px] font-bold text-amber-400 uppercase">Imported</span>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[11px] font-bold text-amber-400 uppercase">Imported</span>
                         )}
                     </div>
                     {isPlannedRoute && (
-                        <div className="text-[9px] text-violet-400/60 mt-1">📐 Suggested route — not from onboard GPS</div>
+                        <div className="text-[11px] text-violet-400/60 mt-1">📐 Suggested route — not from onboard GPS</div>
                     )}
                     {isImported && !isPlannedRoute && (
-                        <div className="text-[9px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
+                        <div className="text-[11px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
                     )}
                     {/* Linked plan comparison */}
                     {hasLinkedPlan && !isPlannedRoute && (
-                        <div className="mt-1.5 flex items-center gap-2 text-[9px]">
+                        <div className="mt-1.5 flex items-center gap-2 text-[11px]">
                             <span className="text-violet-400">📐 vs planned:</span>
                             <span className={distDelta > 0 ? 'text-orange-400' : 'text-emerald-400'}>
                                 {distDelta > 0 ? '+' : ''}{distDelta.toFixed(1)} NM
@@ -1521,7 +1521,7 @@ const VoyageCard: React.FC<{
                         <div className="mt-1.5 relative">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowLinkPicker(!showLinkPicker); }}
-                                className="text-[9px] text-violet-400/70 hover:text-violet-300 transition-colors flex items-center gap-1"
+                                className="text-[11px] text-violet-400/70 hover:text-violet-300 transition-colors flex items-center gap-1"
                             >
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -1547,7 +1547,7 @@ const VoyageCard: React.FC<{
                                                 <div className="text-xs text-white font-medium truncate">
                                                     {pFirst?.waypointName || 'Start'} → {pLast?.waypointName || 'End'}
                                                 </div>
-                                                <div className="text-[9px] text-slate-500">
+                                                <div className="text-[11px] text-slate-500">
                                                     {plan.entries.length} pts · {Math.max(0, ...plan.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
                                                 </div>
                                             </button>

@@ -81,7 +81,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                                 value={waypointName}
                                 onChange={(e) => setWaypointName(e.target.value)}
                                 placeholder="e.g., Cape Moreton"
-                                className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
                             />
                         </div>
                     )}
@@ -93,7 +93,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             placeholder="Add or edit notes..."
-                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 min-h-[100px] resize-none"
+                            className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[100px] resize-none"
                         />
                     </div>
 
@@ -125,7 +125,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
+                            className="flex-1 px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
                             disabled={saving}
                         >
                             {saving ? 'Saving...' : 'Save Changes'}

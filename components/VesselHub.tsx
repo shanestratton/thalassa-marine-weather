@@ -52,7 +52,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     const anchorAccent = anchorStatus === 'alarm'
         ? { color: 'text-red-400', bg: 'from-red-500/25 to-red-600/25 border-red-500/30' }
         : anchorStatus === 'armed'
-            ? { color: 'text-emerald-400', bg: 'from-emerald-500/20 to-green-500/20 border-emerald-500/20' }
+            ? { color: 'text-emerald-400', bg: 'from-emerald-500/20 to-emerald-500/20 border-emerald-500/20' }
             : { color: 'text-red-400', bg: 'from-red-500/15 to-orange-500/15 border-red-500/20' };
 
     // Zone 2 cards — now 8 cards in compact 4x2 grid
@@ -72,8 +72,8 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             sublabel: pendingDiary > 0 ? `${pendingDiary} pending sync` : "Captain's Log",
             icon: <PenIcon />,
             page: 'diary',
-            accentColor: 'text-indigo-400',
-            accentBg: 'from-indigo-500/20 to-violet-500/20 border-indigo-500/20',
+            accentColor: 'text-sky-400',
+            accentBg: 'from-sky-500/20 to-violet-500/20 border-sky-500/20',
         },
         {
             id: 'inventory',
@@ -117,8 +117,8 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             sublabel: 'Register',
             icon: <ClipboardIcon />,
             page: 'equipment',
-            accentColor: 'text-rose-400',
-            accentBg: 'from-rose-500/20 to-pink-500/20 border-rose-500/20',
+            accentColor: 'text-red-400',
+            accentBg: 'from-red-500/20 to-red-500/20 border-red-500/20',
         },
         {
             id: 'documents',
@@ -127,7 +127,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             icon: <ShieldIcon />,
             page: 'documents',
             accentColor: 'text-cyan-400',
-            accentBg: 'from-cyan-500/20 to-blue-500/20 border-cyan-500/20',
+            accentBg: 'from-cyan-500/20 to-sky-500/20 border-cyan-500/20',
         },
     ];
 
