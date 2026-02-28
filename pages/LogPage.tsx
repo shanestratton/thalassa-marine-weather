@@ -1280,7 +1280,7 @@ const VoyageCard: React.FC<{
     // --- Swipe-to-reveal actions ---
     const [swipeOffset, setSwipeOffset] = useState(0);
     const touchStartX = useRef(0);
-    const deleteThreshold = 140; // wider to fit both Archive + Delete
+    const deleteThreshold = 160; // wide enough for both Archive + Delete buttons
     const handleSwipeStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
     const handleSwipeMove = (e: React.TouchEvent) => {
         const diff = touchStartX.current - e.touches[0].clientX;
@@ -1365,7 +1365,7 @@ const VoyageCard: React.FC<{
                 {/* Archive */}
                 <button
                     onClick={() => { setSwipeOffset(0); onArchive(); }}
-                    className="w-[70px] bg-amber-600 flex items-center justify-center"
+                    className="w-20 bg-amber-600 flex items-center justify-center"
                 >
                     <div className="flex flex-col items-center gap-1">
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1377,7 +1377,7 @@ const VoyageCard: React.FC<{
                 {/* Delete */}
                 <button
                     onClick={() => { setSwipeOffset(0); onDelete(); }}
-                    className="w-[70px] bg-red-600 flex items-center justify-center rounded-r-2xl"
+                    className="w-20 bg-red-600 flex items-center justify-center rounded-r-2xl"
                 >
                     <div className="flex flex-col items-center gap-1">
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">

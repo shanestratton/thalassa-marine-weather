@@ -49,11 +49,18 @@ const HYSTERESIS_LEAVE = 5;
 // ── Service ─────────────────────────────────────────────────────
 
 class GpsPrecisionTrackerClass {
-    private samples: number[] = [];
+    private samples: { accuracy: number; timestamp: number }[] = [];
     private currentQuality: GpsQuality = 'standard';
     private pendingQuality: GpsQuality | null = null;
     private confirmationCount = 0;
+    private lastFeedTime = 0;
     private listeners = new Set<(quality: GpsQuality, avgAccuracy: number) => void>();
+
+    /** Max age for a sample before it's purged from the window (30s) */
+    private static readonly SAMPLE_MAX_AGE_MS = 30_000;
+
+    /** If no samples received within this time, reset to standard (30s) */
+    private static readonly STALENESS_TIMEOUT_MS = 30_000;
 
     /**
      * Feed a new accuracy sample (horizontalAccuracy in meters).
@@ -62,8 +69,16 @@ class GpsPrecisionTrackerClass {
     feed(accuracyMeters: number): void {
         if (accuracyMeters <= 0 || !isFinite(accuracyMeters)) return;
 
+        const now = Date.now();
+        this.lastFeedTime = now;
+
+        // Purge stale samples (older than 30s)
+        this.samples = this.samples.filter(
+            s => (now - s.timestamp) < GpsPrecisionTrackerClass.SAMPLE_MAX_AGE_MS
+        );
+
         // Push to rolling window
-        this.samples.push(accuracyMeters);
+        this.samples.push({ accuracy: accuracyMeters, timestamp: now });
         if (this.samples.length > ROLLING_WINDOW) {
             this.samples.shift();
         }
@@ -101,6 +116,20 @@ class GpsPrecisionTrackerClass {
         }
     }
 
+    /**
+     * Check for staleness — call periodically (e.g. every 1s from UI poll).
+     * If no fresh samples have been received in 30 seconds, the external GPS
+     * is assumed disconnected and quality resets to 'standard'.
+     */
+    checkStaleness(): void {
+        if (this.currentQuality !== 'standard' && this.lastFeedTime > 0) {
+            const elapsed = Date.now() - this.lastFeedTime;
+            if (elapsed > GpsPrecisionTrackerClass.STALENESS_TIMEOUT_MS) {
+                this.reset();
+            }
+        }
+    }
+
     /** Current GPS quality classification */
     getQuality(): GpsQuality {
         return this.currentQuality;
@@ -114,7 +143,7 @@ class GpsPrecisionTrackerClass {
     /** Current rolling average accuracy in meters */
     getAverageAccuracy(): number {
         if (this.samples.length === 0) return 999;
-        return this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+        return this.samples.reduce((a, b) => a + b.accuracy, 0) / this.samples.length;
     }
 
     /**
@@ -150,12 +179,13 @@ class GpsPrecisionTrackerClass {
         return () => this.listeners.delete(cb);
     }
 
-    /** Reset (e.g. when tracking stops) */
+    /** Reset (e.g. when tracking stops or staleness detected) */
     reset(): void {
         this.samples = [];
         this.currentQuality = 'standard';
         this.pendingQuality = null;
         this.confirmationCount = 0;
+        this.lastFeedTime = 0;
     }
 
     // ── Private ─────────────────────────────────────────────────
