@@ -210,6 +210,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
     const [deckCollapsed, setDeckCollapsed] = useState(true);
     const [hudCollapsed, setHudCollapsed] = useState(false);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const [logbookState, setLogbookState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
     const handleTimeChange = useCallback((hour: number) => {
         setCurrentTimeHours(hour);
@@ -253,6 +254,47 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             setTimeout(() => setSaveState('idle'), 2000);
         }
     }, [payload, saveState]);
+
+    // Save route to logbook as planned_route
+    const handleSaveToLogbook = useCallback(async () => {
+        if (logbookState === 'saving' || logbookState === 'saved') return;
+        setLogbookState('saving');
+
+        try {
+            const { ShipLogService } = await import('../../services/ShipLogService');
+            const track = payload.track;
+
+            const plan = {
+                origin: track[0]?.name || 'Origin',
+                destination: track[track.length - 1]?.name || 'Destination',
+                originCoordinates: track[0] ? { lat: track[0].coordinates[1], lon: track[0].coordinates[0] } : undefined,
+                destinationCoordinates: track[track.length - 1] ? { lat: track[track.length - 1].coordinates[1], lon: track[track.length - 1].coordinates[0] } : undefined,
+                waypoints: track.slice(1, -1).map(tp => ({
+                    name: tp.name,
+                    coordinates: { lat: tp.coordinates[1], lon: tp.coordinates[0] },
+                    windSpeed: tp.conditions.wind_spd_kts,
+                    waveHeight: tp.conditions.wave_ht_m ? tp.conditions.wave_ht_m * 3.28084 : undefined,
+                    depth_m: tp.conditions.depth_m ?? undefined,
+                })),
+                distanceApprox: `${payload.summary.total_distance_nm} NM`,
+                durationApprox: `${payload.summary.total_duration_hours} hours`,
+                departureDate: payload.summary.departure_time || new Date().toISOString(),
+            };
+
+            const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
+            if (voyageId) {
+                setLogbookState('saved');
+                setTimeout(() => setLogbookState('idle'), 3000);
+            } else {
+                setLogbookState('error');
+                setTimeout(() => setLogbookState('idle'), 2000);
+            }
+        } catch (err) {
+            console.error('[4DMap] Save to logbook error:', err);
+            setLogbookState('error');
+            setTimeout(() => setLogbookState('idle'), 2000);
+        }
+    }, [payload, logbookState]);
 
     // ── Auto-load wind data for particles ──
     useEffect(() => {
@@ -377,8 +419,48 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         onToggle={() => setDeckCollapsed(c => !c)}
                     />
 
-                    {/* Download Track as GPX (right) */}
+                    {/* Action Buttons (right) */}
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
+                        {/* Save to Logbook (bookmark icon) */}
+                        <button
+                            onClick={handleSaveToLogbook}
+                            disabled={logbookState === 'saving'}
+                            style={{
+                                pointerEvents: 'auto',
+                                width: 42, height: 42,
+                                borderRadius: '50%',
+                                border: `1px solid ${logbookState === 'saved' ? 'rgba(52,211,153,0.4)' : logbookState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)'}`,
+                                background: logbookState === 'saved' ? 'rgba(6,78,59,0.6)' : logbookState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(15, 23, 42, 0.85)',
+                                backdropFilter: 'blur(20px)',
+                                WebkitBackdropFilter: 'blur(20px)',
+                                color: logbookState === 'saved' ? '#34d399' : logbookState === 'error' ? '#ef4444' : '#a78bfa',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: logbookState === 'saving' ? 'wait' : 'pointer',
+                                flexShrink: 0,
+                                transition: 'all 0.3s ease',
+                            }}
+                            aria-label="Save planned route to logbook"
+                            title="Save planned route to logbook"
+                        >
+                            {logbookState === 'saving' ? (
+                                <div style={{ width: 16, height: 16, border: '2px solid #a78bfa', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                            ) : logbookState === 'saved' ? (
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                    <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                            ) : logbookState === 'error' ? (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                    <path d="M18 6L6 18M6 6l12 12" />
+                                </svg>
+                            ) : (
+                                /* Bookmark / save icon */
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+                                </svg>
+                            )}
+                        </button>
+
+                        {/* Download Track as GPX (download icon) */}
                         <button
                             onClick={handleDownloadTrack}
                             disabled={saveState === 'saving'}
