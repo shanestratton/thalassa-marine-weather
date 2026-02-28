@@ -11,6 +11,9 @@ const VESSEL_CHILDREN = new Set([
     'nmea', 'equipment', 'documents', 'diary', 'route',
 ]);
 
+// Overlay pages (push from any tab, pop back)
+const OVERLAY_PAGES = new Set(['settings', 'warnings', 'voyage']);
+
 interface UIContextType {
     currentView: string;
     previousView: string;
@@ -50,21 +53,25 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         prevRef.current = page;
 
         // Determine transition type:
-        // 1. Tab switch (both are tab pages, or going to a tab page from another tab)
-        // 2. Push (going deeper: tab → child, or child → deeper child)
-        // 3. Pop (going back: child → tab parent)
+        // 1. Tab switch (both are main tab pages) → instant swap
+        // 2. Push (going deeper: tab → child, tab → overlay, child → child)
+        // 3. Pop (going back: child → tab, overlay → tab)
         if (TAB_PAGES.has(page) && TAB_PAGES.has(prev)) {
             setTransitionDirection('tab');
-        } else if (TAB_PAGES.has(page) && VESSEL_CHILDREN.has(prev)) {
-            // Going back to a tab from a child page = pop
+        } else if (OVERLAY_PAGES.has(page)) {
+            // Opening settings/warnings/voyage = push
+            setTransitionDirection('push');
+        } else if (TAB_PAGES.has(page) && (VESSEL_CHILDREN.has(prev) || OVERLAY_PAGES.has(prev))) {
+            // Going back to a tab from a child or overlay = pop
             setTransitionDirection('pop');
         } else if (VESSEL_CHILDREN.has(page) && TAB_PAGES.has(prev)) {
             // Going from a tab to a child page = push
             setTransitionDirection('push');
         } else if (VESSEL_CHILDREN.has(page) && VESSEL_CHILDREN.has(prev)) {
-            // Sibling navigation within vessel (treat as push for consistency)
+            // Sibling navigation within vessel
             setTransitionDirection('push');
         } else {
+            // Fallback — instant swap (safe default)
             setTransitionDirection('tab');
         }
 

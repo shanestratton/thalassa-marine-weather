@@ -43,19 +43,20 @@ const SWIPE_VELOCITY_THRESHOLD = 500; // px/s — quick flick dismisses
 
 const animationVariants = {
     push: {
-        initial: { x: '100%', opacity: 0.7 },
+        initial: { x: '100%', opacity: 1 },
         animate: { x: 0, opacity: 1 },
         exit: { x: '-30%', opacity: 0.5 },
     },
     pop: {
-        initial: { x: '-30%', opacity: 0.5 },
+        initial: { x: '-30%', opacity: 1 },
         animate: { x: 0, opacity: 1 },
         exit: { x: '100%', opacity: 0.7 },
     },
     tab: {
-        initial: { opacity: 0, scale: 0.98 },
-        animate: { opacity: 1, scale: 1 },
-        exit: { opacity: 0, scale: 0.98 },
+        // Instant swap — no crossfade to prevent bleed-through
+        initial: { opacity: 1 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
     },
 };
 
@@ -104,7 +105,7 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
     } : {};
 
     return (
-        <AnimatePresence mode="popLayout" initial={false}>
+        <AnimatePresence mode="wait" initial={false}>
             <motion.div
                 key={pageKey}
                 initial={variant.initial}
