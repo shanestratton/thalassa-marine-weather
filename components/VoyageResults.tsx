@@ -741,10 +741,10 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 alert('Error saving route to logbook.');
                             }
                         }}
-                        className="bg-gradient-to-r from-violet-500/10 to-purple-600/10 border border-violet-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-violet-500/20 hover:to-purple-600/20 transition-all"
+                        className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"
                     >
-                        <MapPinIcon className="w-5 h-5 text-violet-400 group-hover:scale-110 transition-transform" />
-                        <span id="save-route-btn" className="text-[11px] font-bold text-violet-300 uppercase tracking-widest text-center">Save to Log</span>
+                        <MapPinIcon className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
+                        <span id="save-route-btn" className="text-[11px] font-bold text-purple-300 uppercase tracking-widest text-center">Save to Log</span>
                     </button>
                 </div>
             </div >

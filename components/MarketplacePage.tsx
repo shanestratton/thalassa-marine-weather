@@ -59,7 +59,7 @@ const getConditionColor = (condition: string): string => {
 };
 
 const AVATAR_GRADIENTS = [
-    'from-sky-400 to-sky-600', 'from-emerald-400 to-emerald-600', 'from-violet-400 to-purple-600',
+    'from-sky-400 to-sky-600', 'from-emerald-400 to-emerald-600', 'from-purple-400 to-purple-600',
     'from-red-400 to-red-600', 'from-amber-400 to-amber-600', 'from-sky-400 to-sky-600',
 ];
 

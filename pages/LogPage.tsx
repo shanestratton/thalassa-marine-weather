@@ -739,10 +739,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* Browse Community Card */}
                             <button
                                 onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40"
+                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
                             >
-                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                                     </svg>
                                 </div>
@@ -776,8 +776,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                     </svg>
                                 </div>
@@ -805,11 +805,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 onClick={() => { if (!hasNonDeviceEntries) dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' }); }}
                                 className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
                                     ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-violet-500/15 to-violet-600/5 border-violet-500/20 hover:border-violet-400/40'
+                                    : 'bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
                                     }`}
                             >
-                                <div className="w-14 h-14 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                     </svg>
                                 </div>
@@ -862,8 +862,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                                     </svg>
                                 </button>
-                                <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                                     </svg>
                                 </div>
@@ -892,7 +892,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             )}
 
                             {/* Share Track Form */}
-                            <div className="rounded-2xl bg-gradient-to-b from-violet-500/10 to-slate-900/80 border border-violet-500/20 p-4 space-y-3">
+                            <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
 
                                 {/* Title */}
                                 <div>
@@ -901,7 +901,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         id="share-title"
                                         type="text"
                                         placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                     />
                                 </div>
 
@@ -912,7 +912,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         id="share-description"
                                         rows={2}
                                         placeholder="Brief description of the route, conditions, or points of interest..."
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
                                     />
                                 </div>
 
@@ -923,7 +923,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         <select
                                             id="share-category"
                                             defaultValue="coastal"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
+                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
                                             style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
                                         >
                                             <option value="anchorage">⚓ Anchorage</option>
@@ -942,7 +942,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             id="share-region"
                                             defaultValue={shareAutoRegion}
                                             placeholder='e.g. "QLD, Australia"'
-                                            inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                            inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
                                         />
                                     </div>
                                 </div>
@@ -1432,8 +1432,8 @@ const VoyageCard: React.FC<{
                     ? 'bg-sky-900/30 border-2 border-sky-400/50 shadow-[0_0_12px_rgba(56,189,248,0.15)]'
                     : isPlannedRoute
                         ? (isExpanded
-                            ? 'bg-violet-900/30 border border-violet-500/30'
-                            : 'bg-violet-950/30 border border-violet-500/15 hover:border-violet-500/25')
+                            ? 'bg-purple-900/30 border border-purple-500/30'
+                            : 'bg-purple-950/30 border border-purple-500/15 hover:border-purple-500/25')
                         : isImported
                             ? (isExpanded
                                 ? 'bg-amber-900/30 border border-amber-500/30'
@@ -1484,14 +1484,14 @@ const VoyageCard: React.FC<{
                             <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[11px] font-bold text-purple-400 uppercase">Manual</span>
                         )}
                         {isPlannedRoute && (
-                            <span className="px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-500/20 text-[11px] font-bold text-violet-400 uppercase">Suggested</span>
+                            <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[11px] font-bold text-purple-400 uppercase">Suggested</span>
                         )}
                         {isImported && !isPlannedRoute && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[11px] font-bold text-amber-400 uppercase">Imported</span>
                         )}
                     </div>
                     {isPlannedRoute && (
-                        <div className="text-[11px] text-violet-400/60 mt-1">📐 Suggested route — not from onboard GPS</div>
+                        <div className="text-[11px] text-purple-400/60 mt-1">📐 Suggested route — not from onboard GPS</div>
                     )}
                     {isImported && !isPlannedRoute && (
                         <div className="text-[11px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
@@ -1499,7 +1499,7 @@ const VoyageCard: React.FC<{
                     {/* Linked plan comparison */}
                     {hasLinkedPlan && !isPlannedRoute && (
                         <div className="mt-1.5 flex items-center gap-2 text-[11px]">
-                            <span className="text-violet-400">📐 vs planned:</span>
+                            <span className="text-purple-400">📐 vs planned:</span>
                             <span className={distDelta > 0 ? 'text-amber-400' : 'text-emerald-400'}>
                                 {distDelta > 0 ? '+' : ''}{distDelta.toFixed(1)} NM
                             </span>
@@ -1521,7 +1521,7 @@ const VoyageCard: React.FC<{
                         <div className="mt-1.5 relative">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setShowLinkPicker(!showLinkPicker); }}
-                                className="text-[11px] text-violet-400/70 hover:text-violet-300 transition-colors flex items-center gap-1"
+                                className="text-[11px] text-purple-400/70 hover:text-purple-300 transition-colors flex items-center gap-1"
                             >
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -1529,7 +1529,7 @@ const VoyageCard: React.FC<{
                                 Link to planned route
                             </button>
                             {showLinkPicker && (
-                                <div className="absolute left-0 top-full mt-1 z-50 bg-slate-800 border border-violet-500/20 rounded-lg shadow-xl overflow-hidden min-w-[200px]">
+                                <div className="absolute left-0 top-full mt-1 z-50 bg-slate-800 border border-purple-500/20 rounded-lg shadow-xl overflow-hidden min-w-[200px]">
                                     {availablePlans.map(plan => {
                                         const pSorted = [...plan.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
                                         const pFirst = pSorted[0];
@@ -1542,7 +1542,7 @@ const VoyageCard: React.FC<{
                                                     if (onLink) await onLink(voyage.voyageId, plan.voyageId);
                                                     setShowLinkPicker(false);
                                                 }}
-                                                className="w-full px-3 py-2 text-left hover:bg-violet-500/10 transition-colors border-b border-white/5 last:border-b-0"
+                                                className="w-full px-3 py-2 text-left hover:bg-purple-500/10 transition-colors border-b border-white/5 last:border-b-0"
                                             >
                                                 <div className="text-xs text-white font-medium truncate">
                                                     {pFirst?.waypointName || 'Start'} → {pLast?.waypointName || 'End'}
@@ -1583,7 +1583,7 @@ const VoyageCard: React.FC<{
                                     console.error('[GPX Export]', err);
                                 }
                             }}
-                            className="w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 hover:bg-white/5 transition-colors text-violet-400 hover:text-violet-300"
+                            className="w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 hover:bg-white/5 transition-colors text-purple-400 hover:text-purple-300"
                             title="Export as GPX"
                         >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1604,7 +1604,7 @@ const VoyageCard: React.FC<{
                             <LiveMiniMap entries={voyage.entries} height={140} />
                         </div>
                     )}
-                    <div className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-violet-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}>
+                    <div className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-purple-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}>
                         <DateGroupedTimeline
                             groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
                             onDeleteEntry={onDeleteEntry}

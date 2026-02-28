@@ -534,8 +534,8 @@ const HeroSlideComponent = ({
                     {/* Set (Current Speed) */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <GaugeIcon className="w-3 h-3 text-violet-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Drift</span>
+                            <GaugeIcon className="w-3 h-3 text-purple-400" />
+                            <span className="text-sm font-bold uppercase tracking-widest text-purple-200">Drift</span>
                         </div>
                         <div className="flex items-baseline gap-0.5">
                             <span className="text-3xl font-mono font-medium text-ivory tracking-tight">{displayValues.currentSpeed}</span>
@@ -546,15 +546,15 @@ const HeroSlideComponent = ({
                     {/* Drift (Current Direction) */}
                     <div className={STATIC_WIDGET_CLASS}>
                         <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                            <CompassIcon rotation={0} className="w-3 h-3 text-violet-400" />
-                            <span className="text-sm font-bold uppercase tracking-widest text-violet-200">Set</span>
+                            <CompassIcon rotation={0} className="w-3 h-3 text-purple-400" />
+                            <span className="text-sm font-bold uppercase tracking-widest text-purple-200">Set</span>
                         </div>
                         <div className="flex flex-col justify-center">
                             <span className="text-3xl font-mono font-medium text-ivory tracking-tight">
                                 {displayValues.currentDirection}
                             </span>
                         </div>
-                        <div className="mt-auto pt-1 text-sm md:text-sm text-violet-300 font-bold opacity-80 text-center">
+                        <div className="mt-auto pt-1 text-sm md:text-sm text-purple-300 font-bold opacity-80 text-center">
                             {(() => {
                                 const val = displayValues.currentDirection;
                                 // Extract degrees from cardinal direction if present
@@ -1041,8 +1041,8 @@ const HeroSlideComponent = ({
                                             {(() => {
                                                 const OFFSHORE_WIDGETS = [
                                                     { id: 'waterTemperature', label: 'WATER', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
-                                                    { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
-                                                    { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-violet-400', labelColor: 'text-violet-300' },
+                                                    { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
+                                                    { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
                                                     { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
                                                     { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                     { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },

@@ -412,13 +412,13 @@ export const renderHeroWidget = (
             return (
                 <div className={`flex flex-col h-full justify-between ${alignClass}`}>
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <CompassIcon className={`w-3 h-3 ${isLive ? 'text-violet-400' : 'text-slate-400'}`} rotation={cogNum ?? 0} />
-                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-violet-200' : 'text-slate-300'}`}>COG</span>
+                        <CompassIcon className={`w-3 h-3 ${isLive ? 'text-purple-400' : 'text-slate-400'}`} rotation={cogNum ?? 0} />
+                        <span className={`text-sm font-bold uppercase tracking-widest ${isLive ? 'text-purple-200' : 'text-slate-300'}`}>COG</span>
                     </div>
                     <div className="flex items-end gap-1">
                         <span className={`${valSize} font-mono font-medium tracking-tight text-white`}>{cogDisplay}</span>
                         <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>°</span>
-                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-violet-300 border border-white/5 ml-1`}>
+                        <div className={`flex items-center gap-0.5 bg-white/5 px-1 py-0.5 rounded ${subSize} font-bold text-purple-300 border border-white/5 ml-1`}>
                             <span>{cogCardinal}</span>
                         </div>
                     </div>

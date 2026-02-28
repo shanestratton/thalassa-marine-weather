@@ -604,8 +604,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 {plannedEntries && plannedEntries.length >= 2 && (
                     <>
                         <div className="flex items-center gap-2">
-                            <div className="w-4 h-0.5 bg-violet-400" style={{ borderTop: '2px dashed #a78bfa' }}></div>
-                            <span className="text-violet-300">Planned</span>
+                            <div className="w-4 h-0.5 bg-purple-400" style={{ borderTop: '2px dashed #a78bfa' }}></div>
+                            <span className="text-purple-300">Planned</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-amber-500"></div>
