@@ -373,6 +373,11 @@ const HeroSlideComponent = ({
             horizontalScrollRef.current.scrollTo({ left: 0 });
             lastScrollIdxRef.current = 0;
             setActiveHIdx(0);
+            // Force Mapbox WebGL canvas to resize after scroll settles
+            // Fixes "half and half" rendering when switching from full-screen carousel
+            const t1 = setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+            const t2 = setTimeout(() => window.dispatchEvent(new Event('resize')), 400);
+            return () => { clearTimeout(t1); clearTimeout(t2); };
         }
     }, [isEssentialMode]);
 
