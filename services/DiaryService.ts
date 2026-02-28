@@ -152,8 +152,29 @@ class DiaryServiceClass {
         // Save to pending queue immediately (survives app crash)
         this._addPending(localEntry);
 
-        // Try to sync immediately if online
-        this.syncPending();
+        // Try to sync immediately if online — await so we can return the synced entry
+        if (navigator.onLine && supabase) {
+            await this.syncPending();
+
+            // If sync succeeded, the entry is no longer in the pending queue
+            const stillPending = this._getPendingEntries().some(e => e.id === localEntry.id);
+            if (!stillPending) {
+                // Entry was synced — return server version from cache (without _offline flag)
+                const cached = this._getCachedEntries();
+                // Match by created_at + title since the server assigns a new UUID
+                const serverEntry = cached.find(e =>
+                    e.created_at === localEntry.created_at && e.title === localEntry.title
+                );
+                if (serverEntry) {
+                    return { ...serverEntry, _offline: false };
+                }
+                // Fallback: return local entry with _offline cleared
+                return { ...localEntry, _offline: false };
+            }
+        } else {
+            // Fire and forget — will sync later
+            this.syncPending();
+        }
 
         return localEntry;
     }
@@ -581,7 +602,7 @@ class DiaryServiceClass {
         } catch { return null; }
     }
 
-    async transcribeAudio(audioUrl: string): Promise<string | null> {
+    async transcribeAudio(audioUrl: string, mimeType?: string): Promise<string | null> {
         if (!navigator.onLine) return null;
 
         try {
@@ -592,6 +613,8 @@ class DiaryServiceClass {
             // Fetch audio as base64
             const audioRes = await fetch(audioUrl);
             const audioBlob = await audioRes.blob();
+            // Detect MIME type: explicit param > blob type > fallback
+            const detectedMime = mimeType || audioBlob.type || 'audio/mp4';
             const base64 = await new Promise<string>((resolve) => {
                 const reader = new FileReader();
                 reader.onload = () => {
@@ -610,7 +633,7 @@ class DiaryServiceClass {
                 body: JSON.stringify({
                     action: 'transcribe',
                     audio_base64: base64,
-                    mime_type: 'audio/webm',
+                    mime_type: detectedMime,
                 }),
             });
 

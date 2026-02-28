@@ -16,6 +16,7 @@ import type { PolarData } from '../../types';
 import { PolarChart } from './PolarChart';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
 import { NmeaListenerService, type NmeaConnectionStatus } from '../../services/NmeaListenerService';
+import { NmeaStore } from '../../services/NmeaStore';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 
@@ -107,9 +108,11 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
         if (enabled) {
             NmeaListenerService.configure(settings?.nmeaHost || '192.168.1.1', settings?.nmeaPort || 10110);
             NmeaListenerService.start();
+            NmeaStore.start();
             SmartPolarService.start();
         } else {
             SmartPolarService.stop();
+            NmeaStore.stop();
             NmeaListenerService.stop();
         }
         onSave?.({ smartPolarsEnabled: enabled });
