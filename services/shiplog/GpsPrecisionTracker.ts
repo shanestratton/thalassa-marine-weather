@@ -23,20 +23,28 @@ export type GpsQuality = 'precision' | 'standard' | 'degraded';
 
 // ── Constants ───────────────────────────────────────────────────
 
-/** Rolling window size — 20 samples at ~1Hz = ~20 seconds of data */
-const ROLLING_WINDOW = 20;
+/** Rolling window size — 10 samples for faster detection */
+const ROLLING_WINDOW = 10;
 
-/** Threshold: if rolling average accuracy < this, precision GPS detected */
-const PRECISION_THRESHOLD_M = 3.0;
+/**
+ * Threshold: if rolling average accuracy < this, precision GPS detected.
+ * Bad Elf GPS Pro+ typically reports 1-3m, but can hit 4-5m in
+ * urban canyons or under tree cover. Phone GPS is usually 5-15m.
+ * 5m cleanly separates external GPS from phone GPS.
+ */
+const PRECISION_THRESHOLD_M = 5.0;
 
 /** Threshold: if rolling average accuracy > this, GPS is degraded */
 const DEGRADED_THRESHOLD_M = 20.0;
 
 /**
- * Hysteresis: require N consecutive readings in a zone before switching.
- * Prevents flickering when GPS accuracy is borderline.
+ * Asymmetric hysteresis — easy to enter precision, sticky to leave.
+ * This prevents the badge from flickering when GPS is borderline.
+ *   Enter precision: 3 consecutive readings (fast detection ~15s)
+ *   Leave precision: 5 consecutive readings (doesn't drop on one bad sample)
  */
-const HYSTERESIS_COUNT = 5;
+const HYSTERESIS_ENTER = 3;
+const HYSTERESIS_LEAVE = 5;
 
 // ── Service ─────────────────────────────────────────────────────
 
@@ -61,16 +69,22 @@ class GpsPrecisionTrackerClass {
         }
 
         // Need minimum samples before evaluating
-        if (this.samples.length < 5) return;
+        if (this.samples.length < 3) return;
 
         const avg = this.getAverageAccuracy();
         const detected = this.classifyQuality(avg);
 
-        // Hysteresis: only switch after HYSTERESIS_COUNT consecutive same detections
+        // Asymmetric hysteresis: faster to enter precision, slower to leave
         if (detected !== this.currentQuality) {
             if (detected === this.pendingQuality) {
                 this.confirmationCount++;
-                if (this.confirmationCount >= HYSTERESIS_COUNT) {
+                // Use lower threshold to ENTER precision, higher to LEAVE
+                const threshold = (detected === 'precision')
+                    ? HYSTERESIS_ENTER   // Easy to detect
+                    : (this.currentQuality === 'precision')
+                        ? HYSTERESIS_LEAVE  // Sticky — don't drop easily
+                        : HYSTERESIS_ENTER; // Other transitions are fast
+                if (this.confirmationCount >= threshold) {
                     this.currentQuality = detected;
                     this.pendingQuality = null;
                     this.confirmationCount = 0;
