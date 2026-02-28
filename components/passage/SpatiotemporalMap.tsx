@@ -35,6 +35,14 @@ const OCEAN_STYLE: StyleSpecification = {
             tileSize: 256,
             attribution: '&copy; <a href="https://carto.com">CARTO</a>',
         },
+        'gebco-bathymetry': {
+            type: 'raster',
+            tiles: [
+                'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
+            ],
+            tileSize: 256,
+            attribution: '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry">EMODnet Bathymetry</a>',
+        },
         'openseamap': {
             type: 'raster',
             tiles: [
@@ -55,6 +63,18 @@ const OCEAN_STYLE: StyleSpecification = {
                 'raster-brightness-max': 1.0,
                 'raster-contrast': 0.1,
                 'raster-saturation': -0.05,
+            },
+        },
+        {
+            id: 'gebco-bathymetry-tiles',
+            type: 'raster',
+            source: 'gebco-bathymetry',
+            minzoom: 0,
+            maxzoom: 12,
+            paint: {
+                'raster-opacity': 0.35,
+                'raster-saturation': -0.3,
+                'raster-brightness-max': 0.7,
             },
         },
         {
