@@ -4,17 +4,20 @@
  * Wraps child pages in AnimatePresence + motion.div to produce:
  *   PUSH  → new page slides in from right, old slides left
  *   POP   → old page slides right, new appears from left
- *   TAB   → instant fade (for bottom nav tab switches)
+ *   TAB   → instant swap (for bottom nav tab switches)
  *
  * Swipe-back:
- *   On "pushed" pages, dragging from the left 40px edge triggers a pop.
- *   The gesture only activates horizontally (dy ≤ dx) to avoid conflict
- *   with vertical scroll. Uses a velocity threshold to feel natural.
+ *   On "pushed" pages, a thin invisible strip on the left edge
+ *   captures horizontal drag gestures and triggers a pop when the
+ *   drag crosses the dismiss threshold.
+ *
+ *   The gesture is isolated to the edge strip so it doesn't conflict
+ *   with CTA slide buttons, carousels, or other horizontal scrollers.
  *
  * Uses framer-motion spring physics for natural deceleration.
  */
-import React, { useCallback, useRef } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from 'framer-motion';
+import React, { useCallback } from 'react';
+import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 
 export type TransitionDirection = 'push' | 'pop' | 'tab';
 
@@ -37,9 +40,9 @@ const SPRING = {
 };
 
 // Swipe-back thresholds
-const SWIPE_EDGE_WIDTH = 40;       // px — left edge zone to start swipe
-const SWIPE_DISMISS_THRESHOLD = 0.35; // fraction of screen width
-const SWIPE_VELOCITY_THRESHOLD = 500; // px/s — quick flick dismisses
+const SWIPE_EDGE_WIDTH = 24;       // px — edge zone strip width
+const SWIPE_DISMISS_THRESHOLD = 0.30; // fraction of screen width
+const SWIPE_VELOCITY_THRESHOLD = 400; // px/s — quick flick dismisses
 
 const animationVariants = {
     push: {
@@ -68,19 +71,9 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
     onSwipeBack,
 }) => {
     const variant = animationVariants[direction];
-    const dragX = useMotionValue(0);
-    const dragOpacity = useTransform(dragX, [0, 300], [1, 0.6]);
-    const dragStartedInEdge = useRef(false);
 
-    const handleDragStart = useCallback((_: unknown, info: PanInfo) => {
-        // Only start if touch began in left edge zone
-        // info.point gives the cursor position
-        const startX = info.point.x - info.offset.x;
-        dragStartedInEdge.current = startX <= SWIPE_EDGE_WIDTH;
-    }, []);
-
-    const handleDragEnd = useCallback((_: unknown, info: PanInfo) => {
-        if (!dragStartedInEdge.current || !onSwipeBack) return;
+    const handleEdgeDragEnd = useCallback((_: unknown, info: PanInfo) => {
+        if (!onSwipeBack) return;
 
         const screenWidth = window.innerWidth;
         const draggedFraction = info.offset.x / screenWidth;
@@ -90,19 +83,7 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
         if (draggedFraction > SWIPE_DISMISS_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) {
             onSwipeBack();
         }
-
-        dragStartedInEdge.current = false;
     }, [onSwipeBack]);
-
-    const dragProps = canSwipeBack && onSwipeBack ? {
-        drag: 'x' as const,
-        dragConstraints: { left: 0, right: 0 },
-        dragElastic: { left: 0, right: 0.8 },
-        dragDirectionLock: true,
-        onDragStart: handleDragStart,
-        onDragEnd: handleDragEnd,
-        style: { x: dragX, opacity: dragOpacity },
-    } : {};
 
     return (
         <AnimatePresence mode="wait" initial={false}>
@@ -112,13 +93,27 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
                 animate={variant.animate}
                 exit={variant.exit}
                 transition={direction === 'tab'
-                    ? { duration: 0.2, ease: 'easeInOut' }
+                    ? { duration: 0.15, ease: 'easeInOut' }
                     : SPRING
                 }
                 className="absolute inset-0 will-change-transform bg-slate-950"
-                {...dragProps}
             >
                 {children}
+
+                {/* Invisible edge-zone strip for swipe-back gesture.
+                    Only captures drags that start in this 24px-wide strip.
+                    Does NOT interfere with CTA buttons, carousels, etc. */}
+                {canSwipeBack && onSwipeBack && (
+                    <motion.div
+                        className="absolute left-0 top-0 h-full z-[60]"
+                        style={{ width: SWIPE_EDGE_WIDTH }}
+                        drag="x"
+                        dragConstraints={{ left: 0, right: 0 }}
+                        dragElastic={{ left: 0, right: 0.9 }}
+                        dragDirectionLock
+                        onDragEnd={handleEdgeDragEnd}
+                    />
+                )}
             </motion.div>
         </AnimatePresence>
     );
