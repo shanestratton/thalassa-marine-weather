@@ -163,6 +163,34 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             setMapReady(true);
 
+            // ── EMODnet Bathymetry overlay ──
+            if (!map.getSource('gebco-bathymetry')) {
+                map.addSource('gebco-bathymetry', {
+                    type: 'raster',
+                    tiles: ['https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    maxzoom: 12,
+                });
+                // Find first symbol/label layer so bathymetry sits under labels
+                const layers = map.getStyle()?.layers || [];
+                let beforeId: string | undefined;
+                for (const l of layers) {
+                    if (l.type === 'symbol') { beforeId = l.id; break; }
+                }
+                map.addLayer({
+                    id: 'gebco-bathymetry-tiles',
+                    type: 'raster',
+                    source: 'gebco-bathymetry',
+                    minzoom: 0,
+                    maxzoom: 12,
+                    paint: {
+                        'raster-opacity': 0.35,
+                        'raster-saturation': -0.3,
+                        'raster-brightness-max': 0.7,
+                    },
+                }, beforeId);
+            }
+
             // ── Add route line source (empty initially) ──
             map.addSource('route-line', {
                 type: 'geojson',
