@@ -6,14 +6,14 @@
  *   - CARTO dark base + OpenSeaMap seamark overlay
  *   - Color-coded track segments (water=blue, land=green)
  *   - Start/End/Waypoint markers with popup info
- *   - Butter-smooth playback scrubber (matches SynopticScrubber style)
+ *   - Butter-smooth playback scrubber with play/pause
  *   - Animated vessel marker that moves along the track
- *   - Speed & weather info in scrubber label
+ *   - Floating weather HUD showing conditions at current position
  *
  * Map is created ONCE on open, layers updated separately.
  */
 
-import React, { useEffect, useRef, useCallback, useState, memo } from 'react';
+import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -42,6 +42,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     // Playback state
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackIndex, setPlaybackIndex] = useState(0);
+    const [showHUD, setShowHUD] = useState(false);
     const vesselMarkerRef = useRef<L.Marker | null>(null);
     const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const trailLayerRef = useRef<L.LayerGroup | null>(null);
@@ -53,13 +54,15 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const isDraggingRef = useRef(false);
 
     // Sorted entries for playback
-    const sortedEntries = useRef<ShipLogEntry[]>([]);
+    const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
 
-    useEffect(() => {
+    const sortedEntries = useMemo(() => {
         const valid = entries.filter(e => e.latitude && e.longitude);
-        sortedEntries.current = [...valid].sort((a, b) =>
+        const sorted = [...valid].sort((a, b) =>
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
+        sortedEntriesRef.current = sorted;
+        return sorted;
     }, [entries]);
 
     // Create map ONCE when opened
@@ -124,6 +127,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         if (isOpen) {
             setPlaybackIndex(0);
             setIsPlaying(false);
+            setShowHUD(false);
         }
     }, [isOpen]);
 
@@ -153,7 +157,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         const addSegment = (coords: [number, number][], isWater: boolean) => {
             if (coords.length < 2) return;
-            // Planned routes use violet, regular tracks use blue/green
             const color = isPlannedRoute ? '#a78bfa' : (isWater ? '#38bdf8' : '#34d399');
 
             L.polyline(coords, {
@@ -243,7 +246,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 zIndexOffset: 1000,
             });
             vesselMarkerRef.current = marker;
-            // Don't add to map yet — added on first scrub/play
         }
     }, [entries]);
 
@@ -256,7 +258,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
     // ── Playback engine ──
     const moveVesselTo = useCallback((index: number) => {
-        const sorted = sortedEntries.current;
+        const sorted = sortedEntriesRef.current;
         if (!sorted.length || index < 0 || index >= sorted.length) return;
 
         const entry = sorted[index];
@@ -281,8 +283,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const togglePlayback = useCallback(() => {
         setIsPlaying(prev => {
             if (!prev) {
-                // Start playing
-                const sorted = sortedEntries.current;
+                // Start playing — show the HUD
+                setShowHUD(true);
+                const sorted = sortedEntriesRef.current;
                 if (!sorted.length) return false;
 
                 // If at end, restart
@@ -333,7 +336,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         if (!track) return 0;
         const rect = track.getBoundingClientRect();
         const ratio = (clientX - rect.left) / rect.width;
-        const maxIdx = sortedEntries.current.length - 1;
+        const maxIdx = sortedEntriesRef.current.length - 1;
         return Math.max(0, Math.min(maxIdx, Math.round(ratio * maxIdx)));
     }, []);
 
@@ -342,6 +345,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         e.stopPropagation();
         isDraggingRef.current = true;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+        // Show HUD when scrubbing
+        setShowHUD(true);
 
         // Pause if playing
         if (playIntervalRef.current) {
@@ -384,70 +390,216 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     if (!isOpen) return null;
 
     // Stats
-    const validEntries = entries.filter(e => e.latitude && e.longitude);
-    const sorted = [...validEntries].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-    const totalDistance = sorted.length > 0
-        ? (sorted[sorted.length - 1].cumulativeDistanceNM || 0).toFixed(1)
+    const totalDistance = sortedEntries.length > 0
+        ? (sortedEntries[sortedEntries.length - 1].cumulativeDistanceNM || 0).toFixed(1)
         : '0.0';
     const waypointCount = entries.filter(e => e.entryType === 'waypoint').length;
 
-    // Current entry for scrubber label
-    const currentEntry = sorted[playbackIndex] || null;
+    // Current entry for scrubber label + HUD
+    const currentEntry = sortedEntries[playbackIndex] || null;
     const timeLabel = currentEntry
         ? new Date(currentEntry.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
         : '--:--';
-    const speedLabel = currentEntry?.speedKts != null
-        ? `${currentEntry.speedKts.toFixed(1)} kts`
-        : '';
-    const tempLabel = currentEntry?.airTemp != null
-        ? `${(typeof currentEntry.airTemp === 'number' ? currentEntry.airTemp.toFixed(0) : currentEntry.airTemp)}°C`
+    const dateLabel = currentEntry
+        ? new Date(currentEntry.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
         : '';
 
-    const maxIdx = sorted.length - 1;
+    const maxIdx = sortedEntries.length - 1;
     const pct = maxIdx > 0 ? (playbackIndex / maxIdx) * 100 : 0;
+
+    // ── Compute elapsed duration from first entry to current ──
+    const elapsedLabel = (() => {
+        if (!currentEntry || !sortedEntries[0]) return '';
+        const ms = new Date(currentEntry.timestamp).getTime() - new Date(sortedEntries[0].timestamp).getTime();
+        const hrs = Math.floor(ms / 3600000);
+        const mins = Math.floor((ms % 3600000) / 60000);
+        return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    })();
 
     return (
         <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col">
             {/* Header */}
-            <div className="bg-slate-800 border-b border-white/10 p-4 flex items-center justify-between">
+            <div className="bg-slate-800/95 backdrop-blur-md border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingLeft: '16px', paddingRight: '16px', paddingBottom: '12px' }}>
                 <div>
-                    <h2 className="text-xl font-bold text-white">Voyage Track</h2>
-                    <div className="text-xs text-slate-400 flex gap-4 mt-1">
+                    <h2 className="text-lg font-bold text-white">Voyage Track</h2>
+                    <div className="text-[11px] text-slate-400 flex gap-3 mt-0.5">
                         <span>{totalDistance} NM</span>
-                        <span>{sorted.length} positions</span>
-                        <span>{waypointCount} waypoints</span>
+                        <span>{sortedEntries.length} pts</span>
+                        <span>{waypointCount} wpts</span>
                     </div>
                 </div>
                 <button
                     onClick={onClose}
-                    className="w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center transition-colors"
+                    className="w-9 h-9 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center transition-colors"
                 >
-                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
 
             {/* Map Container */}
-            <div ref={mapRef} className="flex-1" />
+            <div className="relative flex-1 min-h-0">
+                <div ref={mapRef} className="absolute inset-0" />
 
-            {/* ═══ PLAYBACK SCRUBBER (matches SynopticScrubber style) ═══ */}
-            <div className="bg-slate-900/95 backdrop-blur-xl border-t border-white/[0.08] px-4 py-3">
+                {/* ═══ FLOATING WEATHER HUD ═══ */}
+                {showHUD && currentEntry && (
+                    <div className="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
+                        <div className="bg-slate-900/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
+                            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+                        >
+                            {/* Top row: Time, Date, Elapsed */}
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-black text-white font-mono">{timeLabel}</span>
+                                    <span className="text-[11px] text-slate-500">{dateLabel}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {elapsedLabel && (
+                                        <span className="text-[11px] text-sky-400 font-bold">⏱ {elapsedLabel}</span>
+                                    )}
+                                    <button
+                                        onClick={() => setShowHUD(false)}
+                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:text-white transition-colors pointer-events-auto"
+                                    >
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Metrics grid */}
+                            <div className="grid grid-cols-5 gap-1">
+                                {/* Speed */}
+                                <HUDCell
+                                    label="SOG"
+                                    value={currentEntry.speedKts != null ? currentEntry.speedKts.toFixed(1) : '--'}
+                                    unit="kts"
+                                    color="text-sky-400"
+                                />
+                                {/* Distance */}
+                                <HUDCell
+                                    label="DIST"
+                                    value={currentEntry.cumulativeDistanceNM != null ? currentEntry.cumulativeDistanceNM.toFixed(1) : '--'}
+                                    unit="NM"
+                                    color="text-sky-400"
+                                />
+                                {/* Course */}
+                                <HUDCell
+                                    label="COG"
+                                    value={currentEntry.courseDeg != null ? `${Math.round(currentEntry.courseDeg)}°` : '--'}
+                                    color="text-sky-400"
+                                />
+                                {/* Air Temp */}
+                                <HUDCell
+                                    label="TEMP"
+                                    value={currentEntry.airTemp != null ? `${Math.round(currentEntry.airTemp)}°` : '--'}
+                                    color="text-emerald-400"
+                                />
+                                {/* Wind */}
+                                <HUDCell
+                                    label="WIND"
+                                    value={currentEntry.windSpeed != null ? Math.round(currentEntry.windSpeed).toString() : '--'}
+                                    unit={currentEntry.windDirection || ''}
+                                    color="text-emerald-400"
+                                />
+                            </div>
+
+                            {/* Second row — only if data exists */}
+                            {(currentEntry.waveHeight != null || currentEntry.pressure != null || currentEntry.waterTemp != null || currentEntry.visibility != null || currentEntry.seaState != null) && (
+                                <div className="grid grid-cols-5 gap-1 mt-1 pt-1 border-t border-white/5">
+                                    {/* Wave */}
+                                    <HUDCell
+                                        label="WAVE"
+                                        value={currentEntry.waveHeight != null ? currentEntry.waveHeight.toFixed(1) : '--'}
+                                        unit="m"
+                                        color="text-purple-400"
+                                    />
+                                    {/* Pressure */}
+                                    <HUDCell
+                                        label="HPA"
+                                        value={currentEntry.pressure != null ? Math.round(currentEntry.pressure).toString() : '--'}
+                                        color="text-purple-400"
+                                    />
+                                    {/* Water Temp */}
+                                    <HUDCell
+                                        label="WATER"
+                                        value={currentEntry.waterTemp != null ? `${Math.round(currentEntry.waterTemp)}°` : '--'}
+                                        color="text-purple-400"
+                                    />
+                                    {/* Visibility */}
+                                    <HUDCell
+                                        label="VIS"
+                                        value={currentEntry.visibility != null ? currentEntry.visibility.toFixed(0) : '--'}
+                                        unit="NM"
+                                        color="text-purple-400"
+                                    />
+                                    {/* Sea State */}
+                                    <HUDCell
+                                        label="SEA"
+                                        value={currentEntry.seaState != null ? currentEntry.seaState.toString() : '--'}
+                                        unit={currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : ''}
+                                        color="text-purple-400"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            {currentEntry.notes && (
+                                <div className="mt-1.5 pt-1.5 border-t border-white/5">
+                                    <p className="text-[10px] text-slate-400 leading-relaxed truncate">📝 {currentEntry.notes}</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Legend dots — bottom of map */}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 backdrop-blur-md rounded-lg px-3 py-1.5">
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                        <span className="text-[9px] text-slate-400">Start</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span className="text-[9px] text-slate-400">End</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                        <span className="text-[9px] text-slate-400">Wpt</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full" style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}></div>
+                        <span className="text-[9px] text-slate-400">Vessel</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ═══ PLAYBACK SCRUBBER ═══ */}
+            <div className="bg-slate-900/95 backdrop-blur-xl border-t border-white/[0.08] px-4 py-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
                 <div className="flex items-center gap-3">
                     {/* Play / Pause */}
                     <button
                         onClick={togglePlayback}
-                        className="w-10 h-10 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
+                        className="w-11 h-11 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
                     >
-                        <span className="text-base">{isPlaying ? '⏸' : '▶️'}</span>
+                        {isPlaying ? (
+                            <svg className="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24">
+                                <rect x="6" y="4" width="4" height="16" rx="1" />
+                                <rect x="14" y="4" width="4" height="16" rx="1" />
+                            </svg>
+                        ) : (
+                            <svg className="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z" />
+                            </svg>
+                        )}
                     </button>
 
                     {/* Custom track */}
                     <div
                         ref={trackRef}
-                        className="flex-1 relative h-10 flex items-center cursor-pointer"
+                        className="flex-1 relative h-11 flex items-center cursor-pointer"
                         style={{ touchAction: 'none' }}
                         onPointerDown={handlePointerDown}
                         onPointerMove={handlePointerMove}
@@ -481,35 +633,36 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     </div>
 
                     {/* Time + info label */}
-                    <div className="shrink-0 text-right min-w-[64px]">
-                        <p className="text-xs font-black text-white">{timeLabel}</p>
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                            {speedLabel}{speedLabel && tempLabel ? ' · ' : ''}{tempLabel}
+                    <div className="shrink-0 text-right min-w-[56px]">
+                        <p className="text-xs font-black text-white font-mono">{timeLabel}</p>
+                        <p className="text-[10px] text-slate-500 font-bold">
+                            {currentEntry?.speedKts != null ? `${currentEntry.speedKts.toFixed(1)}kts` : ''}
                         </p>
                     </div>
                 </div>
-            </div>
 
-            {/* Legend */}
-            <div className="bg-slate-800 border-t border-white/10 p-3 flex justify-center gap-4 flex-wrap text-xs">
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                    <span className="text-slate-300">Start</span>
+                {/* Progress bar label — track position */}
+                <div className="flex justify-between mt-1.5 px-1">
+                    <span className="text-[10px] text-slate-600 font-mono">{playbackIndex + 1} / {sortedEntries.length}</span>
+                    <span className="text-[10px] text-slate-600 font-mono">{currentEntry?.cumulativeDistanceNM?.toFixed(1) || '0.0'} NM</span>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                    <span className="text-slate-300">End</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                    <span className="text-slate-300">Waypoint</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ background: '#00f0ff', boxShadow: '0 0 6px rgba(0,240,255,0.5)' }}></div>
-                    <span className="text-slate-300">Vessel</span>
-                </div>
-
             </div>
         </div>
     );
 };
+
+// ── HUD Metric Cell ──
+const HUDCell: React.FC<{
+    label: string;
+    value: string;
+    unit?: string;
+    color?: string;
+}> = ({ label, value, unit, color = 'text-white' }) => (
+    <div className="flex flex-col items-center">
+        <span className={`text-[9px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
+        <div className="flex items-baseline gap-0.5">
+            <span className="text-xs font-mono font-bold text-white">{value}</span>
+            {unit && <span className="text-[8px] text-slate-500">{unit}</span>}
+        </div>
+    </div>
+);
