@@ -284,22 +284,22 @@ const InstrumentCell: React.FC<{
 }> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick }) => {
     return (
         <div className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`} onClick={onClick}>
-            {/* Label with icon */}
+            {/* Label with icon — no trend arrow here for clean alignment */}
             <div className="flex items-center gap-1.5 opacity-90">
                 <span className={`w-3 h-3 ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}>{icon}</span>
                 <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}>
                     {label}
                 </span>
-                <TrendArrow trend={trend} improving={improving} />
             </div>
 
-            {/* Value - Mono, Ivory, Precise */}
+            {/* Value + trend arrow inline */}
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
                 {dirDeg !== undefined && dirDeg !== null && <DirectionArrow degrees={dirDeg} size={12} />}
                 <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
                     {value}
                 </span>
                 {unit && <span className="text-[11px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{unit}</span>}
+                <TrendArrow trend={trend} improving={improving} />
             </div>
         </div>
     );
