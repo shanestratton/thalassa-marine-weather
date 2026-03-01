@@ -479,10 +479,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Part no, batch"
                                         className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
                                 </div>
-                                <div>
+                                <div className="min-w-0 overflow-hidden">
                                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
                                     <input type="date" value={editExpiry} onChange={e => setEditExpiry(e.target.value)}
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                                        className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-2 py-1.5 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]" />
                                 </div>
                             </div>
                         </div>
