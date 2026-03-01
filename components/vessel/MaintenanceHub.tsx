@@ -185,7 +185,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // Log Service sheet
     const [sheetTask, setSheetTask] = useState<TaskWithStatus | null>(null);
     const [sheetNotes, setSheetNotes] = useState('');
-    const [sheetCost, setSheetCost] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
     // Add task form
@@ -296,11 +295,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 sheetTask.id,
                 engineHours || null,
                 sheetNotes.trim() || null,
-                sheetCost ? parseFloat(sheetCost) : null,
+                null,
             );
             setSheetTask(null);
             setSheetNotes('');
-            setSheetCost('');
             await loadTasks(); // Refresh list
         } catch (e) {
             console.error('Failed to log service:', e);
@@ -308,7 +306,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         } finally {
             setSheetSaving(false);
         }
-    }, [sheetTask, engineHours, sheetNotes, sheetCost, loadTasks]);
+    }, [sheetTask, engineHours, sheetNotes, loadTasks]);
 
     // ── Add Task ──
     const handleAddTask = useCallback(async () => {
@@ -660,23 +658,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 />
                             </div>
 
-                            {/* Cost */}
-                            <div className="mb-6">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                    Cost (Optional)
-                                </label>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-500 font-bold">$</span>
-                                    <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={sheetCost}
-                                        onChange={e => setSheetCost(e.target.value)}
-                                        placeholder="0.00"
-                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                    />
-                                </div>
-                            </div>
+
 
                             {/* Action buttons */}
                             <div className="flex gap-3">
