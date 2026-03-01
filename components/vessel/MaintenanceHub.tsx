@@ -10,7 +10,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
     MaintenanceService,
     calculateStatus,
-    sortByUrgency,
     type TaskWithStatus,
     type TrafficLight,
 } from '../../services/MaintenanceService';
@@ -181,7 +180,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [engineHoursInput, setEngineHoursInput] = useState<string>('0');
     const [isEditingHours, setIsEditingHours] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [selectedCategory, setSelectedCategory] = useState<MaintenanceCategory>('Engine');
+
 
     // Log Service sheet
     const [sheetTask, setSheetTask] = useState<TaskWithStatus | null>(null);
@@ -252,12 +251,29 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setIsEditingHours(false);
     }, [engineHoursInput, engineHours]);
 
-    // ── Computed: Tasks with status, sorted ──
+    // Category display order: Repair first, then rest
+    const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hull', 'Rigging', 'Routine'];
+
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map(t => calculateStatus(t, engineHours));
-        const filtered = withStatus.filter(t => t.category === selectedCategory);
-        return sortByUrgency(filtered);
-    }, [tasks, engineHours, selectedCategory]);
+        // Sort: category order first, then alphabetical within each category
+        return withStatus.sort((a, b) => {
+            const catA = CATEGORY_ORDER.indexOf(a.category);
+            const catB = CATEGORY_ORDER.indexOf(b.category);
+            if (catA !== catB) return catA - catB;
+            return a.title.localeCompare(b.title);
+        });
+    }, [tasks, engineHours]);
+
+    // Group tasks by category for rendering
+    const groupedTasks = useMemo(() => {
+        const groups: { category: MaintenanceCategory; tasks: TaskWithStatus[] }[] = [];
+        for (const cat of CATEGORY_ORDER) {
+            const catTasks = tasksWithStatus.filter(t => t.category === cat);
+            if (catTasks.length > 0) groups.push({ category: cat, tasks: catTasks });
+        }
+        return groups;
+    }, [tasksWithStatus]);
 
     // Status counts for the header
     const counts = useMemo(() => {
@@ -524,36 +540,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     </button>
                 </div>
 
-                {/* ═══ CATEGORY FILTER CHIPS ═══ */}
-                <div className="shrink-0 px-4 pb-3">
-                    <div className="grid grid-cols-3 gap-2">
-                        {/* Repair filter chip — replaces 'All' */}
-                        <button
-                            onClick={() => setSelectedCategory('Repair')}
-                            className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === 'Repair'
-                                ? 'bg-white/15 text-white border border-white/20'
-                                : 'bg-white/5 text-gray-500 border border-white/5'
-                                }`}
-                        >
-                            🔧 Repair ({tasks.filter(t => t.category === 'Repair').length})
-                        </button>
-                        {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => {
-                            const count = tasks.filter(t => t.category === cat.id).length;
-                            return (
-                                <button
-                                    key={cat.id}
-                                    onClick={() => setSelectedCategory(cat.id)}
-                                    className={`px-3 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all text-center ${selectedCategory === cat.id
-                                        ? 'bg-white/15 text-white border border-white/20'
-                                        : 'bg-white/5 text-gray-500 border border-white/5'
-                                        }`}
-                                >
-                                    {cat.icon} {cat.label} ({count})
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
+
 
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -561,27 +548,41 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                         </div>
-                    ) : tasksWithStatus.length === 0 ? (
+                    ) : groupedTasks.length === 0 ? (
                         <EmptyState
                             icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.3 5.3a1.5 1.5 0 01-2.12 0l-.36-.36a1.5 1.5 0 010-2.12l5.3-5.3m2.1-2.1l4.24-4.24a3 3 0 014.24 0l.36.36a3 3 0 010 4.24l-4.24 4.24m-6.36-6.36l6.36 6.36" /></svg>}
                             title="No Maintenance Tasks"
                             subtitle="Set up service intervals for your engine, rigging, and safety gear. Slide below to create your first task."
                         />
                     ) : (
-                        tasksWithStatus.map(task => (
-                            <SwipeableTaskCard
-                                key={task.id}
-                                task={task}
-                                categories={CATEGORIES}
-                                lightColors={LIGHT_COLORS}
-                                triggerLabels={TRIGGER_LABELS}
-                                onTap={() => {
-                                    triggerHaptic('light');
-                                    setSheetTask(task);
-                                }}
-                                onDelete={() => handleDeleteTask(task.id)}
-                            />
-                        ))
+                        groupedTasks.map(group => {
+                            const catConfig = CATEGORIES.find(c => c.id === group.category);
+                            return (
+                                <div key={group.category}>
+                                    <div className="flex items-center gap-2 mb-2 mt-1">
+                                        <span className="text-sm">{catConfig?.icon}</span>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
+                                        <span className="text-[10px] text-gray-600 font-bold">({group.tasks.length})</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {group.tasks.map(task => (
+                                            <SwipeableTaskCard
+                                                key={task.id}
+                                                task={task}
+                                                categories={CATEGORIES}
+                                                lightColors={LIGHT_COLORS}
+                                                triggerLabels={TRIGGER_LABELS}
+                                                onTap={() => {
+                                                    triggerHaptic('light');
+                                                    setSheetTask(task);
+                                                }}
+                                                onDelete={() => handleDeleteTask(task.id)}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })
                     )}
                 </div>
 
