@@ -21,6 +21,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { UndoToast } from '../ui/UndoToast';
 import { FormField } from '../ui/FormField';
+import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 
@@ -428,111 +429,99 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EDIT ITEM MODAL ═══ */}
             {editItem && (
-                <div className="fixed inset-0 z-[999] flex items-end justify-center px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }} onClick={() => setEditItem(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto no-scrollbar"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <button onClick={() => setEditItem(null)} aria-label="Close form" className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <h3 className="text-base font-black text-white mb-3">Edit Item</h3>
+                <ModalSheet isOpen={true} onClose={() => setEditItem(null)} title="Edit Item">
 
-                        <div className="space-y-2">
-                            {/* Category — first */}
-                            <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                                <div className="grid grid-cols-4 gap-1 mt-0.5">
-                                    {CATEGORIES.map(cat => (
-                                        <button key={cat} type="button" onClick={() => setEditCategory(cat)}
-                                            className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                                        >
-                                            {CATEGORY_ICONS[cat]} {cat}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Name */}
-                            <div>
-                                <FormField
-                                    label="Item Name"
-                                    value={editName}
-                                    onChange={setEditName}
-                                    required
-                                    error={!editName.trim() && editName !== '' ? 'Item name is required' : undefined}
-                                />
-                            </div>
-
-                            {/* Barcode */}
-                            <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
-                                <div className="flex gap-1.5 mt-0.5">
-                                    <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
-                                        className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (Capacitor.isNativePlatform()) {
-                                                try {
-                                                    const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
-                                                    const { camera } = await BarcodeScanner.checkPermissions();
-                                                    if (camera !== 'granted') {
-                                                        const r = await BarcodeScanner.requestPermissions();
-                                                        if (r.camera !== 'granted') return;
-                                                    }
-                                                    const { barcodes } = await BarcodeScanner.scan({
-                                                        formats: [BarcodeFormat.Ean13, BarcodeFormat.Ean8, BarcodeFormat.UpcA, BarcodeFormat.UpcE, BarcodeFormat.Code128, BarcodeFormat.Code39, BarcodeFormat.QrCode],
-                                                    });
-                                                    if (barcodes.length > 0 && barcodes[0].rawValue) {
-                                                        setEditBarcode(barcodes[0].rawValue);
-                                                        triggerHaptic('medium');
-                                                    }
-                                                } catch (e) { console.warn('[InventoryList] cancelled:', e); }
-                                            }
-                                        }}
-                                        className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
+                    <div className="space-y-2">
+                        {/* Category — first */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <div className="grid grid-cols-4 gap-1 mt-0.5">
+                                {CATEGORIES.map(cat => (
+                                    <button key={cat} type="button" onClick={() => setEditCategory(cat)}
+                                        className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
                                     >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-                                        </svg>
+                                        {CATEGORY_ICONS[cat]} {cat}
                                     </button>
-                                </div>
-                            </div>
-
-                            {/* Quantity + Min */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <FormField label="Quantity" type="number" value={editQty} onChange={v => setEditQty(Math.max(0, parseInt(v) || 0))} min={0} />
-                                <FormField label="Min Qty" type="number" value={editMinQty} onChange={v => setEditMinQty(Math.max(0, parseInt(v) || 0))} min={0} />
-                            </div>
-
-                            {/* Location */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine Room" />
-                                <FormField label="Specific" value={editSpecific} onChange={setEditSpecific} placeholder="Port locker" />
-                            </div>
-
-                            {/* Notes + Expiry side by side */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <FormField label="Notes" value={editDescription} onChange={setEditDescription} placeholder="Part no, batch" />
-                                <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
+                                ))}
                             </div>
                         </div>
 
-                        {!editName.trim() && (
-                            <p className="text-[10px] text-amber-400/80 text-center mt-2">Item name is required</p>
-                        )}
-                        <button onClick={handleSaveEdit} disabled={!editName.trim()}
-                            className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
-                        >
-                            Save Changes
-                        </button>
+                        {/* Name */}
+                        <div>
+                            <FormField
+                                label="Item Name"
+                                value={editName}
+                                onChange={setEditName}
+                                required
+                                error={!editName.trim() && editName !== '' ? 'Item name is required' : undefined}
+                            />
+                        </div>
+
+                        {/* Barcode */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                            <div className="flex gap-1.5 mt-0.5">
+                                <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
+                                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (Capacitor.isNativePlatform()) {
+                                            try {
+                                                const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+                                                const { camera } = await BarcodeScanner.checkPermissions();
+                                                if (camera !== 'granted') {
+                                                    const r = await BarcodeScanner.requestPermissions();
+                                                    if (r.camera !== 'granted') return;
+                                                }
+                                                const { barcodes } = await BarcodeScanner.scan({
+                                                    formats: [BarcodeFormat.Ean13, BarcodeFormat.Ean8, BarcodeFormat.UpcA, BarcodeFormat.UpcE, BarcodeFormat.Code128, BarcodeFormat.Code39, BarcodeFormat.QrCode],
+                                                });
+                                                if (barcodes.length > 0 && barcodes[0].rawValue) {
+                                                    setEditBarcode(barcodes[0].rawValue);
+                                                    triggerHaptic('medium');
+                                                }
+                                            } catch (e) { console.warn('[InventoryList] cancelled:', e); }
+                                        }
+                                    }}
+                                    className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Quantity + Min */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <FormField label="Quantity" type="number" value={editQty} onChange={v => setEditQty(Math.max(0, parseInt(v) || 0))} min={0} />
+                            <FormField label="Min Qty" type="number" value={editMinQty} onChange={v => setEditMinQty(Math.max(0, parseInt(v) || 0))} min={0} />
+                        </div>
+
+                        {/* Location */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine Room" />
+                            <FormField label="Specific" value={editSpecific} onChange={setEditSpecific} placeholder="Port locker" />
+                        </div>
+
+                        {/* Notes + Expiry side by side */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <FormField label="Notes" value={editDescription} onChange={setEditDescription} placeholder="Part no, batch" />
+                            <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
+                        </div>
                     </div>
-                </div>
+
+                    {!editName.trim() && (
+                        <p className="text-[10px] text-amber-400/80 text-center mt-2">Item name is required</p>
+                    )}
+                    <button onClick={handleSaveEdit} disabled={!editName.trim()}
+                        className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                    >
+                        Save Changes
+                    </button>
+                </ModalSheet>
             )}
 
             <UndoToast

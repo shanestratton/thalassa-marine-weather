@@ -22,6 +22,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { FormField } from '../ui/FormField';
 
@@ -855,164 +856,129 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* EDIT TASK MODAL */}
                 {/* ═══════════════════════════════════════════ */}
                 {showEditForm && editTask && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => { setShowEditForm(false); setEditTask(null); }}>
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                        <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            <button onClick={() => { setShowEditForm(false); setEditTask(null); }} aria-label="Close form" className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
+                    <ModalSheet isOpen={true} onClose={() => { setShowEditForm(false); setEditTask(null); }} title="Edit Task">
 
-                            <h3 className="text-lg font-black text-white mb-5">Edit Task</h3>
 
-                            {/* Task Name */}
-                            <div className="mb-3">
-                                <FormField
-                                    label="Task Name"
-                                    value={form.title}
-                                    onChange={v => setField('title', v)}
-                                    placeholder="Main Engine Oil Change"
-                                    required
-                                />
-                            </div>
-
-                            {/* Notes */}
-                            <div className="mb-4">
-                                <FormField
-                                    label="Notes (Optional)"
-                                    type="textarea"
-                                    value={form.description}
-                                    onChange={v => setField('description', v)}
-                                    placeholder="Don't forget to check for rust..."
-                                    rows={2}
-                                />
-                            </div>
-
-                            {/* Category */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {CATEGORIES.map(cat => (
-                                        <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                            {cat.icon} {cat.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Trigger type */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                        <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                            {TRIGGER_LABELS[t]}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Engine hours interval */}
-                            {form.trigger === 'engine_hours' && (
-                                <>
-                                    <div className="mb-4">
-                                        <FormField label="Interval (Hours)" value={form.interval} onChange={v => setField('interval', v)} placeholder="200" inputMode="numeric" />
-                                    </div>
-                                    <div className="mb-6">
-                                        <FormField label="Next Due at (Hours)" value={form.dueHours} onChange={v => setField('dueHours', v)} placeholder={String(engineHours + 200)} inputMode="numeric" />
-                                    </div>
-                                </>
-                            )}
-
-                            {/* Due date — for non-engine triggers */}
-                            {form.trigger !== 'engine_hours' && (
-                                <div className="mb-6">
-                                    <FormField label="Next Due Date" type="date" value={form.dueDate} onChange={v => setField('dueDate', v)} />
-                                </div>
-                            )}
-
-                            <button
-                                onClick={handleEditTask}
-                                disabled={!form.title.trim()}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
-                            >
-                                Save Changes
-                            </button>
+                        {/* Task Name */}
+                        <div className="mb-3">
+                            <FormField
+                                label="Task Name"
+                                value={form.title}
+                                onChange={v => setField('title', v)}
+                                placeholder="Main Engine Oil Change"
+                                required
+                            />
                         </div>
-                    </div>
+
+                        {/* Notes */}
+                        <div className="mb-4">
+                            <FormField
+                                label="Notes (Optional)"
+                                type="textarea"
+                                value={form.description}
+                                onChange={v => setField('description', v)}
+                                placeholder="Don't forget to check for rust..."
+                                rows={2}
+                            />
+                        </div>
+
+                        {/* Category */}
+                        <div className="mb-4">
+                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {CATEGORIES.map(cat => (
+                                    <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        {cat.icon} {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Trigger type */}
+                        <div className="mb-4">
+                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                    <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        {TRIGGER_LABELS[t]}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Engine hours interval */}
+                        {form.trigger === 'engine_hours' && (
+                            <>
+                                <div className="mb-4">
+                                    <FormField label="Interval (Hours)" value={form.interval} onChange={v => setField('interval', v)} placeholder="200" inputMode="numeric" />
+                                </div>
+                                <div className="mb-6">
+                                    <FormField label="Next Due at (Hours)" value={form.dueHours} onChange={v => setField('dueHours', v)} placeholder={String(engineHours + 200)} inputMode="numeric" />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Due date — for non-engine triggers */}
+                        {form.trigger !== 'engine_hours' && (
+                            <div className="mb-6">
+                                <FormField label="Next Due Date" type="date" value={form.dueDate} onChange={v => setField('dueDate', v)} />
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleEditTask}
+                            disabled={!form.title.trim()}
+                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                        >
+                            Save Changes
+                        </button>
+                    </ModalSheet>
                 )}
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* HISTORY OVERLAY */}
                 {/* ═══════════════════════════════════════════ */}
                 {showHistory && (
-                    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                        <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            {/* Close X */}
-                            <button
-                                onClick={() => setShowHistory(false)}
-                                aria-label="Close history"
-                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                            >
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                            <h3 className="text-lg font-black text-white mb-4">Service History</h3>
+                    <ModalSheet isOpen={true} onClose={() => setShowHistory(false)} title="Service History" zIndex="z-[1000]">
 
-                            {historyItems.length === 0 ? (
-                                <EmptyState
-                                    icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                                    title="No Service History"
-                                    subtitle="Service records will appear here after you log your first maintenance task."
-                                    className="py-8"
-                                />
-                            ) : (
-                                <div className="space-y-3">
-                                    {historyItems.map(h => (
-                                        <div key={h.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <p className="text-sm font-bold text-white">
-                                                    {new Date(h.completed_at).toLocaleDateString()}
-                                                </p>
-                                                {h.engine_hours_at_service !== null && (
-                                                    <span className="text-[11px] text-sky-400 font-bold">
-                                                        @ {h.engine_hours_at_service?.toLocaleString()} hrs
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {h.notes && <p className="text-xs text-gray-400 mt-1">{h.notes}</p>}
-                                            {h.cost !== null && h.cost > 0 && (
-                                                <p className="text-xs text-amber-400 font-bold mt-1">${h.cost.toFixed(2)}</p>
+                        {historyItems.length === 0 ? (
+                            <EmptyState
+                                icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                                title="No Service History"
+                                subtitle="Service records will appear here after you log your first maintenance task."
+                                className="py-8"
+                            />
+                        ) : (
+                            <div className="space-y-3">
+                                {historyItems.map(h => (
+                                    <div key={h.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <p className="text-sm font-bold text-white">
+                                                {new Date(h.completed_at).toLocaleDateString()}
+                                            </p>
+                                            {h.engine_hours_at_service !== null && (
+                                                <span className="text-[11px] text-sky-400 font-bold">
+                                                    @ {h.engine_hours_at_service?.toLocaleString()} hrs
+                                                </span>
                                             )}
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                                        {h.notes && <p className="text-xs text-gray-400 mt-1">{h.notes}</p>}
+                                        {h.cost !== null && h.cost > 0 && (
+                                            <p className="text-xs text-amber-400 font-bold mt-1">${h.cost.toFixed(2)}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </ModalSheet>
                 )}
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* EXPORT PDF MODAL */}
                 {/* ═══════════════════════════════════════════ */}
-                {showExportModal && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center" onClick={() => setShowExportModal(false)}>
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                        <div
-                            className="relative w-full max-w-sm mx-4 bg-slate-900 border border-white/10 rounded-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            <h3 className="text-lg font-black text-white mb-1">Export PDF</h3>
+                {
+                    showExportModal && (
+                        <ModalSheet isOpen={true} onClose={() => setShowExportModal(false)} title="Export PDF" maxWidth="max-w-sm">
                             <p className="text-xs text-gray-500 mb-5">Choose a report format:</p>
 
                             {/* Option A: Blank Checklist */}
@@ -1059,9 +1025,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <span className="text-xs text-sky-400 font-bold">Generating PDF...</span>
                                 </div>
                             )}
-                        </div>
-                    </div>
-                )}
+                        </ModalSheet>
+                    )
+                }
             </div>
 
             <ConfirmDialog
@@ -1076,3 +1042,4 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         </div >
     );
 };
+
