@@ -311,147 +311,153 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
 
 
-                    {/* ── Scrollable Voyage List ── */}
-                    <div className={`flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2 ${isTracking ? 'flex flex-col py-2' : ''}`} style={{ paddingBottom: isTracking ? '8px' : 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}>
-                        {/* Live Recording Card — fills available space when tracking */}
-                        {isTracking && currentVoyageId && (() => {
-                            const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
-                            const dist = activeEntries.length > 0 ? Math.max(0, ...activeEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
-                            const sorted = [...activeEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                            const first = sorted[0];
-                            const last = sorted[sorted.length - 1];
-                            const durationMs = first && last ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime() : 0;
-                            const durationHrs = Math.floor(durationMs / 3600000);
-                            const durationMins = Math.floor((durationMs % 3600000) / 60000);
-                            const speeds = activeEntries.filter(e => e.speedKts && e.speedKts > 0);
-                            const liveAvgSpeed = speeds.length > 0 ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length : 0;
-                            return (
-                                <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 my-2 snap-start">
-                                    <div className="flex items-center gap-2 mb-3 shrink-0">
-                                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                                        <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
-                                    </div>
-                                    {first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' && (
-                                        <div className="text-xs text-slate-400 mb-3 shrink-0">Departed: {first.waypointName}</div>
-                                    )}
-                                    <div className="grid grid-cols-3 gap-3 shrink-0">
-                                        <div>
-                                            <div className="text-2xl font-extrabold text-emerald-400">{(dist ?? 0).toFixed(1)}</div>
-                                            <div className="text-[11px] text-slate-500 uppercase">NM</div>
+                    {isTracking ? (
+                        <>
+                            {/* ── TRACKING MODE: Live card fills entire space ── */}
+                            {currentVoyageId && (() => {
+                                const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
+                                const dist = activeEntries.length > 0 ? Math.max(0, ...activeEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
+                                const sorted = [...activeEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                                const first = sorted[0];
+                                const last = sorted[sorted.length - 1];
+                                const durationMs = first && last ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime() : 0;
+                                const durationHrs = Math.floor(durationMs / 3600000);
+                                const durationMins = Math.floor((durationMs % 3600000) / 60000);
+                                const speeds = activeEntries.filter(e => e.speedKts && e.speedKts > 0);
+                                const liveAvgSpeed = speeds.length > 0 ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length : 0;
+                                return (
+                                    <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
+                                        <div className="flex items-center gap-2 mb-3 shrink-0">
+                                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                            <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
                                         </div>
-                                        <div>
-                                            <div className="text-2xl font-extrabold text-emerald-400">{durationHrs}h {durationMins}m</div>
-                                            <div className="text-[11px] text-slate-500 uppercase">Duration</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-2xl font-extrabold text-emerald-400">{(liveAvgSpeed ?? 0).toFixed(1)}</div>
-                                            <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
-                                        </div>
-                                    </div>
-                                    {/* Live Mini Map — always visible, grows to fill remaining space */}
-                                    <div className="mt-3 flex-1 min-h-[120px]">
-                                        <LiveMiniMap entries={activeEntries} height="100%" isLive={true} />
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Past Voyage Cards */}
-                        {voyageGroups.length === 0 && !isTracking ? (
-                            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                                <div className="relative w-20 h-20 mb-5">
-                                    <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                        <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
-                                        <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                        <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                        <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                    </svg>
-                                </div>
-                                <p className="text-base font-bold text-white mb-1">Your Voyage Awaits</p>
-                                <p className="text-sm text-white/60 max-w-[240px] text-center">Start tracking to record GPS positions, waypoints, and voyage data.</p>
-                            </div>
-                        ) : (
-                            voyageGroups
-                                .filter(v => !(isTracking && v.voyageId === currentVoyageId))
-                                .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onArchive={() => handleArchiveVoyage(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} availablePlans={plannedVoyages} getLinkedEntries={getPlannedEntriesForVoyage} onLink={linkVoyageToPlan} onUnlink={unlinkVoyageFromPlan} />)
-                        )}
-
-                        {/* ── Archived Voyages ── */}
-                        {archivedVoyages.length > 0 && (
-                            <div className="mt-4">
-                                <button
-                                    onClick={() => setShowArchived(!showArchived)}
-                                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
-                                        </svg>
-                                        <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Archived Voyages</span>
-                                        <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">{archivedVoyages.length}</span>
-                                    </div>
-                                    <svg className={`w-4 h-4 text-amber-400 transition-transform ${showArchived ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </button>
-
-                                {showArchived && (
-                                    <div className="mt-2 space-y-2">
-                                        {archivedVoyages.map(voyage => (
-                                            <div key={voyage.voyageId} className="rounded-2xl bg-slate-900/30 backdrop-blur-md border border-amber-500/10 p-4 flex items-center justify-between">
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-2 mb-0.5">
-                                                        <span className="text-xs font-bold text-white/80">
-                                                            {new Date(voyage.entries[voyage.entries.length - 1]?.timestamp || '').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()}
-                                                        </span>
-                                                        <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">Archived</span>
-                                                    </div>
-                                                    <div className="text-[11px] text-white/60">
-                                                        {voyage.entries.length} entries · {Math.max(0, ...voyage.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
-                                                    </div>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
-                                                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
-                                                >
-                                                    Unarchive
-                                                </button>
+                                        {first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' && (
+                                            <div className="text-xs text-slate-400 mb-3 shrink-0">Departed: {first.waypointName}</div>
+                                        )}
+                                        <div className="grid grid-cols-3 gap-3 shrink-0">
+                                            <div>
+                                                <div className="text-2xl font-extrabold text-emerald-400">{(dist ?? 0).toFixed(1)}</div>
+                                                <div className="text-[11px] text-slate-500 uppercase">NM</div>
                                             </div>
-                                        ))}
+                                            <div>
+                                                <div className="text-2xl font-extrabold text-emerald-400">{durationHrs}h {durationMins}m</div>
+                                                <div className="text-[11px] text-slate-500 uppercase">Duration</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-2xl font-extrabold text-emerald-400">{(liveAvgSpeed ?? 0).toFixed(1)}</div>
+                                                <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
+                                            </div>
+                                        </div>
+                                        {/* Live Mini Map — grows to fill all remaining space */}
+                                        <div className="mt-3 flex-1 min-h-[100px]">
+                                            <LiveMiniMap entries={activeEntries} height="100%" isLive={true} />
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* ── Stop / New Entry — pinned at bottom ── */}
+                            <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleStopTracking}
+                                        className="w-[160px] shrink-0 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
+                                    >
+                                        <StopIcon className="w-4 h-4" />
+                                        Stop
+                                    </button>
+                                    <button
+                                        onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
+                                        className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
+                                    >
+                                        <PlusIcon className="w-5 h-5" />
+                                        New Log Entry
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            {/* ── NOT TRACKING: Scrollable voyage list ── */}
+                            <div className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}>
+                                {/* Past Voyage Cards */}
+                                {voyageGroups.length === 0 ? (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
+                                        <div className="relative w-20 h-20 mb-5">
+                                            <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
+                                                <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                                <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
+                                                <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                                <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
+                                            </svg>
+                                        </div>
+                                        <p className="text-base font-bold text-white mb-1">Your Voyage Awaits</p>
+                                        <p className="text-sm text-white/60 max-w-[240px] text-center">Start tracking to record GPS positions, waypoints, and voyage data.</p>
+                                    </div>
+                                ) : (
+                                    voyageGroups
+                                        .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onArchive={() => handleArchiveVoyage(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} availablePlans={plannedVoyages} getLinkedEntries={getPlannedEntriesForVoyage} onLink={linkVoyageToPlan} onUnlink={unlinkVoyageFromPlan} />)
+                                )}
+
+                                {/* ── Archived Voyages ── */}
+                                {archivedVoyages.length > 0 && (
+                                    <div className="mt-4">
+                                        <button
+                                            onClick={() => setShowArchived(!showArchived)}
+                                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
+                                                </svg>
+                                                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Archived Voyages</span>
+                                                <span className="text-[11px] font-bold text-amber-300/60 bg-amber-500/15 px-1.5 py-0.5 rounded-full">{archivedVoyages.length}</span>
+                                            </div>
+                                            <svg className={`w-4 h-4 text-amber-400 transition-transform ${showArchived ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </button>
+
+                                        {showArchived && (
+                                            <div className="mt-2 space-y-2">
+                                                {archivedVoyages.map(voyage => (
+                                                    <div key={voyage.voyageId} className="rounded-2xl bg-slate-900/30 backdrop-blur-md border border-amber-500/10 p-4 flex items-center justify-between">
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2 mb-0.5">
+                                                                <span className="text-xs font-bold text-white/80">
+                                                                    {new Date(voyage.entries[voyage.entries.length - 1]?.timestamp || '').toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit' }).toUpperCase()}
+                                                                </span>
+                                                                <span className="text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full uppercase">Archived</span>
+                                                            </div>
+                                                            <div className="text-[11px] text-white/60">
+                                                                {voyage.entries.length} entries · {Math.max(0, ...voyage.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
+                                                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
+                                                        >
+                                                            Unarchive
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
-                        )}
-                    </div>
 
-                    {/* ── Start/Stop Tracking + New Entry ── pinned at bottom of flex layout */}
-                    <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
-                        {isTracking ? (
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleStopTracking}
-                                    className="w-[110px] shrink-0 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
-                                >
-                                    <StopIcon className="w-4 h-4" />
-                                    Stop
-                                </button>
-                                <button
-                                    onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
-                                    className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
-                                >
-                                    <PlusIcon className="w-5 h-5" />
-                                    New Log Entry
-                                </button>
+                            {/* ── Slide to Start CTA — pinned at bottom ── */}
+                            <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
+                                <SlideToAction
+                                    label="Slide to Start Tracking"
+                                    thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
+                                    onConfirm={handleStartTracking}
+                                    theme="emerald"
+                                />
                             </div>
-                        ) : (
-                            <SlideToAction
-                                label="Slide to Start Tracking"
-                                thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
-                                onConfirm={handleStartTracking}
-                                theme="emerald"
-                            />
-                        )}
-                    </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -514,633 +520,649 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* ========== ACTION SHEET MODALS ========== */}
 
             {/* EXPORT ACTION SHEET — full screen panel */}
-            {actionSheet === 'export' && (
-                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Export Voyage</h2>
-                            </div>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">
-                            {selectedVoyageId ? 'Export the selected voyage' : 'Export all voyage data'}
-                        </p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* PDF Card — disabled for imported/community tracks (provenance) */}
-                            <button
-                                onClick={async () => {
-                                    if (!hasNonDeviceEntries && !isExportingPDF) {
-                                        setIsExportingPDF(true);
-                                        try {
-                                            await handleShare();
-                                        } finally {
-                                            setIsExportingPDF(false);
-                                        }
-                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                    }
-                                }}
-                                disabled={hasNonDeviceEntries}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${hasNonDeviceEntries || isExportingPDF
-                                    ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                    : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
-                                    }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
-                                    </svg>
-                                </div>
-                                {isExportingPDF && (
-                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span className="text-sky-300 text-sm font-medium">Generating PDF…</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Official Deck Log</div>
-                                    {hasNonDeviceEntries ? (
-                                        <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
-                                    ) : (
-                                        <div className="text-slate-400 text-sm mt-1">PDF with charts, positions &amp; weather data</div>
-                                    )}
-                                </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-
-                            {/* GPX Card */}
-                            <button
-                                onClick={async () => {
-                                    if (!isExportingGPX) {
-                                        setIsExportingGPX(true);
-                                        try {
-                                            await handleExportGPX();
-                                        } finally {
-                                            setIsExportingGPX(false);
-                                        }
-                                    }
-                                }}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isExportingGPX
-                                    ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                    : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
-                                    }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                                    </svg>
-                                </div>
-                                {isExportingGPX && (
-                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span className="text-emerald-300 text-sm font-medium">Exporting GPX…</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">GPS Track (GPX)</div>
-                                    <div className="text-slate-400 text-sm mt-1">Export to OpenCPN, Navionics, or any chartplotter</div>
-                                </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* IMPORT ACTION SHEET — always accessible, even with zero entries */}
-            {actionSheet === 'import' && (
-                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Import Tracks</h2>
-                            </div>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">
-                            Browse and download community-shared tracks
-                        </p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* Import GPX File Card — hidden for now, unhide when users request it */}
-                            {false && (
-                                <button
-                                    onClick={() => { if (!isImportingGPX) gpxFileInputRef.current?.click(); }}
-                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isImportingGPX
-                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                        : 'bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
-                                        }`}
-                                >
-                                    <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                                        <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            {
+                actionSheet === 'export' && (
+                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                        {/* Header bar */}
+                        <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center">
+                                        <svg className="w-4.5 h-4.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
                                     </div>
-                                    {isImportingGPX && (
+                                    <h2 className="text-lg font-bold text-white">Export Voyage</h2>
+                                </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                    className="p-2 text-slate-400 hover:text-white transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p className="text-sm text-slate-400 mt-2">
+                                {selectedVoyageId ? 'Export the selected voyage' : 'Export all voyage data'}
+                            </p>
+                        </div>
+
+                        {/* Content — vertically centered */}
+                        <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                            <div className="space-y-4 max-w-2xl mx-auto w-full">
+                                {/* PDF Card — disabled for imported/community tracks (provenance) */}
+                                <button
+                                    onClick={async () => {
+                                        if (!hasNonDeviceEntries && !isExportingPDF) {
+                                            setIsExportingPDF(true);
+                                            try {
+                                                await handleShare();
+                                            } finally {
+                                                setIsExportingPDF(false);
+                                            }
+                                            dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                                        }
+                                    }}
+                                    disabled={hasNonDeviceEntries}
+                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${hasNonDeviceEntries || isExportingPDF
+                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                        : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
+                                        }`}
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
+                                        </svg>
+                                    </div>
+                                    {isExportingPDF && (
                                         <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-                                                <span className="text-amber-300 text-sm font-medium">Importing…</span>
+                                                <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+                                                <span className="text-sky-300 text-sm font-medium">Generating PDF…</span>
                                             </div>
                                         </div>
                                     )}
                                     <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-lg">Import GPX File</div>
-                                        <div className="text-slate-400 text-sm mt-1">Import from OpenCPN, Navionics, or any chartplotter export</div>
+                                        <div className="text-white font-bold text-lg">Official Deck Log</div>
+                                        {hasNonDeviceEntries ? (
+                                            <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
+                                        ) : (
+                                            <div className="text-slate-400 text-sm mt-1">PDF with charts, positions &amp; weather data</div>
+                                        )}
                                     </div>
                                     <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                     </svg>
                                 </button>
-                            )}
 
-                            {/* Browse Community Card */}
-                            <button
-                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Browse Community</div>
-                                    <div className="text-slate-400 text-sm mt-1">Download tracks shared by other sailors</div>
-                                </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-
-                            {/* Imported track provenance notice */}
-                            <div className="bg-slate-800/40 border border-white/5 rounded-xl px-4 py-3">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-amber-400 text-sm mt-0.5">ℹ️</span>
-                                    <p className="text-sm text-slate-400 leading-relaxed">
-                                        Imported tracks are marked with an <span className="text-amber-400 font-bold">Imported</span> badge and cannot be used for official deck logs or re-shared to the community.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* SHARE ACTION SHEET — card menu matching Export layout */}
-            {actionSheet === 'share' && (
-                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Share</h2>
-                            </div>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">
-                            {selectedVoyageId ? 'Share the selected voyage' : 'Share your voyage data with the community'}
-                        </p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* Community Share Card — disabled for imported/community tracks */}
-                            <button
-                                onClick={() => { if (!hasNonDeviceEntries) dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' }); }}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
-                                    ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
-                                    : 'bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
-                                    }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Community Share</div>
-                                    {hasNonDeviceEntries
-                                        ? <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
-                                        : <div className="text-slate-400 text-sm mt-1">Share your track, route, or anchorage with others</div>
-                                    }
-                                </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-
-                            {/* Browse Community Card */}
-                            <button
-                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Browse Community</div>
-                                    <div className="text-slate-400 text-sm mt-1">Discover and import anchorages, passages & routes</div>
-                                </div>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* SHARE FORM ACTION SHEET — full screen panel */}
-            {actionSheet === 'share_form' && (
-                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
+                                {/* GPX Card */}
                                 <button
-                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
-                                    className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
+                                    onClick={async () => {
+                                        if (!isExportingGPX) {
+                                            setIsExportingGPX(true);
+                                            try {
+                                                await handleExportGPX();
+                                            } finally {
+                                                setIsExportingGPX(false);
+                                            }
+                                        }
+                                    }}
+                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isExportingGPX
+                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                        : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
+                                        }`}
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                        </svg>
+                                    </div>
+                                    {isExportingGPX && (
+                                        <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                                                <span className="text-emerald-300 text-sm font-medium">Exporting GPX…</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">GPS Track (GPX)</div>
+                                        <div className="text-slate-400 text-sm mt-1">Export to OpenCPN, Navionics, or any chartplotter</div>
+                                    </div>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* IMPORT ACTION SHEET — always accessible, even with zero entries */}
+            {
+                actionSheet === 'import' && (
+                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                        {/* Header bar */}
+                        <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                        <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                        </svg>
+                                    </div>
+                                    <h2 className="text-lg font-bold text-white">Import Tracks</h2>
+                                </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                    className="p-2 text-slate-400 hover:text-white transition-colors"
                                 >
                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                     </svg>
                                 </button>
-                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Community Share</h2>
                             </div>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
+                            <p className="text-sm text-slate-400 mt-2">
+                                Browse and download community-shared tracks
+                            </p>
                         </div>
-                    </div>
 
-                    <div className="flex-1 overflow-y-auto px-4 py-3">
-                        <div className="space-y-3 max-w-2xl mx-auto w-full">
-
-                            {/* Offline Banner */}
-                            {typeof navigator !== 'undefined' && !navigator.onLine && (
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
-                                    <span>📡</span>
-                                    <span>Sharing requires internet. Your tracks are saved locally.</span>
-                                </div>
-                            )}
-
-                            {/* Share Track Form */}
-                            <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
-
-                                {/* Title */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Title *</label>
-                                    <input
-                                        id="share-title"
-                                        type="text"
-                                        placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
-                                    />
-                                </div>
-
-                                {/* Description */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Description</label>
-                                    <textarea
-                                        id="share-description"
-                                        rows={2}
-                                        placeholder="Brief description of the route, conditions, or points of interest..."
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
-                                    />
-                                </div>
-
-                                {/* Category + Region — side by side */}
-                                <div className="flex gap-3">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Category</label>
-                                        <select
-                                            id="share-category"
-                                            defaultValue="coastal"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
-                                            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
-                                        >
-                                            <option value="anchorage">⚓ Anchorage</option>
-                                            <option value="port_entry">🏗 Port Entry</option>
-                                            <option value="bar_crossing">🌊 Bar Crossing</option>
-                                            <option value="reef_passage">🪸 Reef Passage</option>
-                                            <option value="coastal">🏖 Coastal</option>
-                                            <option value="offshore">🌊 Offshore</option>
-                                            <option value="walking">🚶 Walking</option>
-                                            <option value="driving">🚗 Driving</option>
-                                        </select>
-                                    </div>
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Region</label>
-                                        <RegionAutocomplete
-                                            id="share-region"
-                                            defaultValue={shareAutoRegion}
-                                            placeholder='e.g. "QLD, Australia"'
-                                            inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Submit Button */}
-                                <button
-                                    onClick={() => {
-                                        const rawTitle = (document.getElementById('share-title') as HTMLInputElement)?.value?.trim();
-                                        const title = rawTitle || shareAutoTitle; // fallback to auto-fill
-                                        const description = (document.getElementById('share-description') as HTMLTextAreaElement)?.value?.trim() || '';
-                                        const category = (document.getElementById('share-category') as HTMLSelectElement)?.value || 'coastal';
-                                        const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
-                                        if (!title) {
-                                            (document.getElementById('share-title') as HTMLInputElement)?.focus();
-                                            return;
-                                        }
-                                        handleShareToCommunity({ title, description, category: category as any, region });
-                                    }}
-                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
-                                >
-                                    🚀 Share Track
-                                </button>
-                            </div>
-
-                            {/* Browse Community */}
-                            <button
-                                onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-sm">Browse Community</div>
-                                    <div className="text-slate-400 text-xs">Discover anchorages, passages &amp; routes</div>
-                                </div>
-                                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-
-            {/* STATS ACTION SHEET — full screen panel */}
-            {actionSheet === 'stats' && (
-                <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                    <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
-                            </div>
-                            <button
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">Analyze your sailing performance</p>
-                    </div>
-
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {(() => {
-                                // Use the highlighted card, or fall back to active/first voyage
-                                const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
-                                const voyageEntryCount = effectiveVoyageId ? entries.filter(e => e.voyageId === effectiveVoyageId).length : 0;
-                                return (
+                        {/* Content — vertically centered */}
+                        <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                            <div className="space-y-4 max-w-2xl mx-auto w-full">
+                                {/* Import GPX File Card — hidden for now, unhide when users request it */}
+                                {false && (
                                     <button
-                                        onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: effectiveVoyageId }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
+                                        onClick={() => { if (!isImportingGPX) gpxFileInputRef.current?.click(); }}
+                                        className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${isImportingGPX
+                                            ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
+                                            : 'bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
+                                            }`}
                                     >
                                         <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
                                             <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                             </svg>
                                         </div>
-                                        <div className="flex-1 text-left">
-                                            <div className="text-white font-bold text-lg">Selected Voyage</div>
-                                            <div className="text-slate-400 text-sm mt-1">Stats for the highlighted track</div>
-                                        </div>
-                                        {voyageEntryCount > 0 && (
-                                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
-                                                {voyageEntryCount} pts
-                                            </span>
+                                        {isImportingGPX && (
+                                            <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                                                    <span className="text-amber-300 text-sm font-medium">Importing…</span>
+                                                </div>
+                                            </div>
                                         )}
+                                        <div className="flex-1 text-left">
+                                            <div className="text-white font-bold text-lg">Import GPX File</div>
+                                            <div className="text-slate-400 text-sm mt-1">Import from OpenCPN, Navionics, or any chartplotter export</div>
+                                        </div>
                                         <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                         </svg>
                                     </button>
-                                );
-                            })()}
+                                )}
 
-                            {/* All Voyages Card */}
-                            <button
-                                onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: null }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                {/* Browse Community Card */}
+                                <button
+                                    onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                    className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">Browse Community</div>
+                                        <div className="text-slate-400 text-sm mt-1">Download tracks shared by other sailors</div>
+                                    </div>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                     </svg>
+                                </button>
+
+                                {/* Imported track provenance notice */}
+                                <div className="bg-slate-800/40 border border-white/5 rounded-xl px-4 py-3">
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-amber-400 text-sm mt-0.5">ℹ️</span>
+                                        <p className="text-sm text-slate-400 leading-relaxed">
+                                            Imported tracks are marked with an <span className="text-amber-400 font-bold">Imported</span> badge and cannot be used for official deck logs or re-shared to the community.
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">All Voyages</div>
-                                    <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
-                                </div>
-                                <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
-                                    {entries.length} pts
-                                </span>
-                                <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
+
+            {/* SHARE ACTION SHEET — card menu matching Export layout */}
+            {
+                actionSheet === 'share' && (
+                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                        {/* Header bar */}
+                        <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                        <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                        </svg>
+                                    </div>
+                                    <h2 className="text-lg font-bold text-white">Share</h2>
+                                </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                    className="p-2 text-slate-400 hover:text-white transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p className="text-sm text-slate-400 mt-2">
+                                {selectedVoyageId ? 'Share the selected voyage' : 'Share your voyage data with the community'}
+                            </p>
+                        </div>
+
+                        {/* Content — vertically centered */}
+                        <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                            <div className="space-y-4 max-w-2xl mx-auto w-full">
+                                {/* Community Share Card — disabled for imported/community tracks */}
+                                <button
+                                    onClick={() => { if (!hasNonDeviceEntries) dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' }); }}
+                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${hasNonDeviceEntries
+                                        ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
+                                        }`}
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">Community Share</div>
+                                        {hasNonDeviceEntries
+                                            ? <div className="text-amber-400 text-sm mt-1">⚠️ Unavailable — contains imported or community data</div>
+                                            : <div className="text-slate-400 text-sm mt-1">Share your track, route, or anchorage with others</div>
+                                        }
+                                    </div>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+
+                                {/* Browse Community Card */}
+                                <button
+                                    onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                    className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">Browse Community</div>
+                                        <div className="text-slate-400 text-sm mt-1">Discover and import anchorages, passages & routes</div>
+                                    </div>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* SHARE FORM ACTION SHEET — full screen panel */}
+            {
+                actionSheet === 'share_form' && (
+                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                        <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <button
+                                        onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
+                                        className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                        <svg className="w-4.5 h-4.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                        </svg>
+                                    </div>
+                                    <h2 className="text-lg font-bold text-white">Community Share</h2>
+                                </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                    className="p-2 text-slate-400 hover:text-white transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-4 py-3">
+                            <div className="space-y-3 max-w-2xl mx-auto w-full">
+
+                                {/* Offline Banner */}
+                                {typeof navigator !== 'undefined' && !navigator.onLine && (
+                                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
+                                        <span>📡</span>
+                                        <span>Sharing requires internet. Your tracks are saved locally.</span>
+                                    </div>
+                                )}
+
+                                {/* Share Track Form */}
+                                <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
+
+                                    {/* Title */}
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Title *</label>
+                                        <input
+                                            id="share-title"
+                                            type="text"
+                                            placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
+                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                        />
+                                    </div>
+
+                                    {/* Description */}
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Description</label>
+                                        <textarea
+                                            id="share-description"
+                                            rows={2}
+                                            placeholder="Brief description of the route, conditions, or points of interest..."
+                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
+                                        />
+                                    </div>
+
+                                    {/* Category + Region — side by side */}
+                                    <div className="flex gap-3">
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Category</label>
+                                            <select
+                                                id="share-category"
+                                                defaultValue="coastal"
+                                                className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
+                                                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                                            >
+                                                <option value="anchorage">⚓ Anchorage</option>
+                                                <option value="port_entry">🏗 Port Entry</option>
+                                                <option value="bar_crossing">🌊 Bar Crossing</option>
+                                                <option value="reef_passage">🪸 Reef Passage</option>
+                                                <option value="coastal">🏖 Coastal</option>
+                                                <option value="offshore">🌊 Offshore</option>
+                                                <option value="walking">🚶 Walking</option>
+                                                <option value="driving">🚗 Driving</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Region</label>
+                                            <RegionAutocomplete
+                                                id="share-region"
+                                                defaultValue={shareAutoRegion}
+                                                placeholder='e.g. "QLD, Australia"'
+                                                inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <button
+                                        onClick={() => {
+                                            const rawTitle = (document.getElementById('share-title') as HTMLInputElement)?.value?.trim();
+                                            const title = rawTitle || shareAutoTitle; // fallback to auto-fill
+                                            const description = (document.getElementById('share-description') as HTMLTextAreaElement)?.value?.trim() || '';
+                                            const category = (document.getElementById('share-category') as HTMLSelectElement)?.value || 'coastal';
+                                            const region = (document.getElementById('share-region') as HTMLInputElement)?.value?.trim() || shareAutoRegion;
+                                            if (!title) {
+                                                (document.getElementById('share-title') as HTMLInputElement)?.focus();
+                                                return;
+                                            }
+                                            handleShareToCommunity({ title, description, category: category as any, region });
+                                        }}
+                                        className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
+                                    >
+                                        🚀 Share Track
+                                    </button>
+                                </div>
+
+                                {/* Browse Community */}
+                                <button
+                                    onClick={() => { dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
+                                >
+                                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-sm">Browse Community</div>
+                                        <div className="text-slate-400 text-xs">Discover anchorages, passages &amp; routes</div>
+                                    </div>
+                                    <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+
+            {/* STATS ACTION SHEET — full screen panel */}
+            {
+                actionSheet === 'stats' && (
+                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                        <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                        <svg className="w-4.5 h-4.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                        </svg>
+                                    </div>
+                                    <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
+                                </div>
+                                <button
+                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                                    className="p-2 text-slate-400 hover:text-white transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <p className="text-sm text-slate-400 mt-2">Analyze your sailing performance</p>
+                        </div>
+
+                        <div className="flex-1 flex flex-col justify-center px-4 pb-8">
+                            <div className="space-y-4 max-w-2xl mx-auto w-full">
+                                {(() => {
+                                    // Use the highlighted card, or fall back to active/first voyage
+                                    const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
+                                    const voyageEntryCount = effectiveVoyageId ? entries.filter(e => e.voyageId === effectiveVoyageId).length : 0;
+                                    return (
+                                        <button
+                                            onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: effectiveVoyageId }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                            className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
+                                        >
+                                            <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                                                <svg className="w-7 h-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                                </svg>
+                                            </div>
+                                            <div className="flex-1 text-left">
+                                                <div className="text-white font-bold text-lg">Selected Voyage</div>
+                                                <div className="text-slate-400 text-sm mt-1">Stats for the highlighted track</div>
+                                            </div>
+                                            {voyageEntryCount > 0 && (
+                                                <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
+                                                    {voyageEntryCount} pts
+                                                </span>
+                                            )}
+                                            <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    );
+                                })()}
+
+                                {/* All Voyages Card */}
+                                <button
+                                    onClick={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: null }); dispatch({ type: 'SHOW_STATS', show: true }); dispatch({ type: 'SET_ACTION_SHEET', sheet: null }); }}
+                                    className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
+                                >
+                                    <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                        <svg className="w-7 h-7 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="text-white font-bold text-lg">All Voyages</div>
+                                        <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
+                                    </div>
+                                    <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
+                                        {entries.length} pts
+                                    </span>
+                                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
 
             {/* Voyage Choice Dialog - Continue or New */}
-            {showVoyageChoiceDialog && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
-                        <h3 className="text-xl font-bold text-white mb-2 text-center">Start Tracking</h3>
-                        <p className="text-slate-400 text-sm text-center mb-6">
-                            You have an existing voyage. Would you like to continue it or start a new one?
-                        </p>
+            {
+                showVoyageChoiceDialog && (
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
+                            <h3 className="text-xl font-bold text-white mb-2 text-center">Start Tracking</h3>
+                            <p className="text-slate-400 text-sm text-center mb-6">
+                                You have an existing voyage. Would you like to continue it or start a new one?
+                            </p>
 
-                        <div className="space-y-3">
-                            <button
-                                onClick={continueLastVoyage}
-                                className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                Continue Last Voyage
-                            </button>
+                            <div className="space-y-3">
+                                <button
+                                    onClick={continueLastVoyage}
+                                    className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Continue Last Voyage
+                                </button>
 
-                            <button
-                                onClick={async () => {
-                                    dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
-                                    await startTrackingWithNewVoyage();
-                                }}
-                                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                                Start New Voyage
-                            </button>
+                                <button
+                                    onClick={async () => {
+                                        dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
+                                        await startTrackingWithNewVoyage();
+                                    }}
+                                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Start New Voyage
+                                </button>
 
-                            <button
-                                onClick={() => dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false })}
-                                className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
-                            >
-                                Cancel
-                            </button>
+                                <button
+                                    onClick={() => dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false })}
+                                    className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Stop Voyage Confirmation Dialog */}
-            {showStopVoyageDialog && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
-                        <h3 className="text-lg font-bold text-white mb-2">End Voyage?</h3>
-                        <p className="text-slate-400 text-sm mb-6">
-                            This will finalize your voyage log. You won't be able to add more entries to this voyage.
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => dispatch({ type: 'SHOW_STOP_DIALOG', show: false })}
-                                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmStopVoyage}
-                                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
-                            >
-                                End Voyage
-                            </button>
+            {
+                showStopVoyageDialog && (
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
+                            <h3 className="text-lg font-bold text-white mb-2">End Voyage?</h3>
+                            <p className="text-slate-400 text-sm mb-6">
+                                This will finalize your voyage log. You won't be able to add more entries to this voyage.
+                            </p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => dispatch({ type: 'SHOW_STOP_DIALOG', show: false })}
+                                    className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmStopVoyage}
+                                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
+                                >
+                                    End Voyage
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Delete Voyage Confirmation Modal */}
-            {deleteVoyageId && (() => {
-                const voyageEntries = entries.filter(e => e.voyageId === deleteVoyageId);
-                const sortedEntries = [...voyageEntries].sort((a, b) =>
-                    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-                );
-                const first = sortedEntries[0];
-                const last = sortedEntries[sortedEntries.length - 1];
-                const startDate = first ? new Date(first.timestamp) : new Date();
-                const endDate = last ? new Date(last.timestamp) : new Date();
-                const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
-                const voyageTotalDistance = Math.max(...voyageEntries.map(e => e.cumulativeDistanceNM || 0), 0);
+            {
+                deleteVoyageId && (() => {
+                    const voyageEntries = entries.filter(e => e.voyageId === deleteVoyageId);
+                    const sortedEntries = [...voyageEntries].sort((a, b) =>
+                        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                    );
+                    const first = sortedEntries[0];
+                    const last = sortedEntries[sortedEntries.length - 1];
+                    const startDate = first ? new Date(first.timestamp) : new Date();
+                    const endDate = last ? new Date(last.timestamp) : new Date();
+                    const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+                    const voyageTotalDistance = Math.max(...voyageEntries.map(e => e.cumulativeDistanceNM || 0), 0);
 
-                const formatLoc = (e: ShipLogEntry | undefined) => {
-                    if (!e) return 'Unknown';
-                    if (e.waypointName) return e.waypointName;
-                    return `${Math.abs(e.latitude ?? 0).toFixed(2)}°${(e.latitude ?? 0) >= 0 ? 'N' : 'S'}`;
-                };
+                    const formatLoc = (e: ShipLogEntry | undefined) => {
+                        if (!e) return 'Unknown';
+                        if (e.waypointName) return e.waypointName;
+                        return `${Math.abs(e.latitude ?? 0).toFixed(2)}°${(e.latitude ?? 0) >= 0 ? 'N' : 'S'}`;
+                    };
 
-                return (
-                    <DeleteVoyageModal
-                        isOpen={true}
-                        onClose={() => dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null })}
-                        onExportFirst={handleExportThenDelete}
-                        onDelete={handleConfirmDeleteVoyage}
-                        voyageInfo={{
-                            startLocation: formatLoc(first),
-                            endLocation: formatLoc(last),
-                            totalDays,
-                            totalEntries: voyageEntries.length,
-                            totalDistance: voyageTotalDistance
-                        }}
-                    />
-                );
-            })()}
-        </div>
+                    return (
+                        <DeleteVoyageModal
+                            isOpen={true}
+                            onClose={() => dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null })}
+                            onExportFirst={handleExportThenDelete}
+                            onDelete={handleConfirmDeleteVoyage}
+                            voyageInfo={{
+                                startLocation: formatLoc(first),
+                                endLocation: formatLoc(last),
+                                totalDays,
+                                totalEntries: voyageEntries.length,
+                                totalDistance: voyageTotalDistance
+                            }}
+                        />
+                    );
+                })()
+            }
+        </div >
     );
 };
 
