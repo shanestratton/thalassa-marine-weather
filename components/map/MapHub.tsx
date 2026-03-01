@@ -108,7 +108,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     // State
     const location = useLocationStore();
     const windState = useWindStore();
-    const [activeLayer, setActiveLayer] = useState<WeatherLayer>(embedded ? 'velocity' : 'none');
+    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('none');
     const [showLayerMenu, setShowLayerMenu] = useState(false);
     const [showPassage, setShowPassage] = useState(false);
     const [mapReady, setMapReady] = useState(false);
@@ -191,6 +191,14 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 }, beforeId);
             }
 
+            // ── Skip heavy sources in embedded mode ──
+            if (embedded) {
+                setMapReady(true);
+
+                // Defer velocity layer to after first paint
+                setTimeout(() => setActiveLayer('velocity'), 800);
+                return;
+            }
             // ── Add route line source (empty initially) ──
             map.addSource('route-line', {
                 type: 'geojson',
@@ -327,8 +335,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
                     }
                 })
-                .catch(() => {});
-
+                .catch(() => { });
             // ── Isochrone source ──
             map.addSource('isochrones', {
                 type: 'geojson',
@@ -556,7 +563,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, name || fallback);
             } catch (e) {
-            console.warn('[MapHub]', e);
+                console.warn('[MapHub]', e);
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, fallback);
             }
@@ -576,27 +583,32 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     // Load rain frames
     useEffect(() => {
         if (!embedded || !mapReady || !mapRef.current) return;
-        const m = mapRef.current;
-        (async () => {
-            try {
-                const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-                const data = await res.json();
-                const past = (data?.radar?.past ?? []).map((f: any) => ({ path: f.path, time: f.time }));
-                const forecast = (data?.radar?.nowcast ?? []).map((f: any) => ({ path: f.path, time: f.time }));
-                const allFrames = [...past, ...forecast];
-                embeddedRainFrames.current = allFrames;
-                setEmbRainCount(allFrames.length);
-                // Start at last past frame (current/NOW)
-                const nowIdx = Math.max(0, past.length - 1);
-                embRainNowIdx.current = nowIdx;
-                setEmbRainIdx(nowIdx);
-            } catch (err) {
-            }
-        })();
+        // Defer rain radar load to avoid competing with base map + velocity
+        const delayTimer = setTimeout(() => {
+            const m = mapRef.current;
+            (async () => {
+                try {
+                    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+                    const data = await res.json();
+                    const past = (data?.radar?.past ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+                    const forecast = (data?.radar?.nowcast ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+                    const allFrames = [...past, ...forecast];
+                    embeddedRainFrames.current = allFrames;
+                    setEmbRainCount(allFrames.length);
+                    // Start at last past frame (current/NOW)
+                    const nowIdx = Math.max(0, past.length - 1);
+                    embRainNowIdx.current = nowIdx;
+                    setEmbRainIdx(nowIdx);
+                } catch (err) {
+                }
+            })();
+        }, 1200); // 1.2s delay — velocity loads at 800ms, rain after
         return () => {
+            clearTimeout(delayTimer);
             try {
-                if (m.getLayer('embedded-rain')) m.removeLayer('embedded-rain');
-                if (m.getSource('embedded-rain')) m.removeSource('embedded-rain');
+                const mx = mapRef.current;
+                if (mx?.getLayer('embedded-rain')) mx.removeLayer('embedded-rain');
+                if (mx?.getSource('embedded-rain')) mx.removeSource('embedded-rain');
             } catch (_) { /* ok */ }
         };
     }, [embedded, mapReady]);
@@ -1332,7 +1344,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         paint: { 'raster-opacity': 0.75 },
                     }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
                 })
-                .catch(() => {});
+                .catch(() => { });
             return;
         }
 
@@ -1375,7 +1387,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     } catch (err) {
                         console.error('[Wind GL] Engine init failed:', err);
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             };
             map.on('moveend', onFlyEnd);
         }
@@ -1888,7 +1900,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                             const errJson = await resp.json();
                                             errDetail = errJson.error || errJson.detail || errDetail;
                                         } catch (e) {
-            console.warn('[MapHub]', e);
+                                            console.warn('[MapHub]', e);
                                             errDetail = await resp.text().catch(() => errDetail);
                                         }
                                         throw new Error(errDetail);
