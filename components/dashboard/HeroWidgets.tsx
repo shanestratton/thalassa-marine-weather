@@ -25,6 +25,14 @@ import {
 } from '../../utils';
 import { getMoonPhase } from './WeatherHelpers';
 
+/* ── Micro-animation keyframes for metric icons ── */
+const iconAnimStyles = `
+@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:0.15}}
+@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}
+@keyframes hw-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}
+`;
+
 interface HeroWidgetsProps {
     data: WeatherMetrics;  // Both rows — updates with scroll
     units: UnitPreferences;
@@ -415,13 +423,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             role="region"
             aria-label="Weather metrics dashboard"
         >
+            {/* Inject icon animation keyframes once */}
+            <style>{iconAnimStyles}</style>
+
             {/* TOP ROW: Wind, Dir, Gust, Wave, Per */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
 
                 {/* Wind Speed */}
                 <InstrumentCell
                     label="WIND"
-                    icon={<WindIcon className="w-3 h-3" />}
+                    icon={<span style={{ animation: 'hw-blow 3s ease-in-out infinite' }}><WindIcon className="w-3 h-3" /></span>}
                     value={windSpeed}
                     unit={speedUnit}
                     trend={trends?.windSpeed}
@@ -431,7 +442,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Direction — standard cell, tap for compass overlay */}
                 <InstrumentCell
                     label="DIR"
-                    icon={<CompassIcon className="w-3 h-3" rotation={0} />}
+                    icon={<span style={{ animation: 'hw-spin 8s linear infinite' }}><CompassIcon className="w-3 h-3" rotation={0} /></span>}
                     value={windDir}
                     onClick={() => setShowCompass(true)}
                 />
@@ -439,7 +450,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Gusts */}
                 <InstrumentCell
                     label="GUST"
-                    icon={<WindIcon className="w-3 h-3" />}
+                    icon={<span style={{ animation: 'hw-blow 2.5s ease-in-out infinite 0.3s' }}><WindIcon className="w-3 h-3" /></span>}
                     value={gustVal}
                     unit={speedUnit}
                     trend={trends?.windGust}
@@ -483,7 +494,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Visibility */}
                 <InstrumentCell
                     label="VIS"
-                    icon={<EyeIcon className="w-3 h-3" />}
+                    icon={<span style={{ animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>}
                     value={visVal}
                     unit={distUnit}
                     trend={trends?.visibility}
@@ -509,7 +520,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Rain */}
                 <InstrumentCell
                     label="RAIN"
-                    icon={<DropletIcon className="w-3 h-3" />}
+                    icon={<span style={{ animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
                     value={rainChance}
                     unit="%"
                 />
