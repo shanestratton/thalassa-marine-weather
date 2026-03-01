@@ -283,6 +283,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setSheetTask(null);
             setSheetNotes('');
             await loadTasks(); // Refresh list
+            toast.success('Service logged');
         } catch (e) {
             console.error('Failed to log service:', e);
             toast.error('Failed to log service');
@@ -325,6 +326,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 is_active: true,
             });
             setShowAddForm(false);
+            toast.success('Task created');
             setNewTitle('');
             setNewTaskType('maintenance');
             setNewDescription('');
@@ -428,8 +430,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setEditTask(null);
             setSheetTask(null);
             await loadTasks();
+            toast.success('Task updated');
         } catch (e) {
             console.error('Failed to update task:', e);
+            toast.error('Failed to update task');
         }
     }, [editTask, newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
 

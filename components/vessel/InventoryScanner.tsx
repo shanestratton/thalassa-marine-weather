@@ -11,6 +11,7 @@ import type { InventoryItem, InventoryCategory } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
+import { toast } from '../Toast';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -297,7 +298,11 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             setFoundItem(updated);
             triggerHaptic('light');
             onItemSaved();
-        } catch (e) { console.warn('[InventoryScanner] ignore:', e); }
+            toast.success(`Quantity ${delta > 0 ? 'increased' : 'decreased'}`);
+        } catch (e) {
+            console.warn('[InventoryScanner] qty adjust failed:', e);
+            toast.error('Failed to update quantity');
+        }
         setSaving(false);
     };
 
@@ -316,13 +321,17 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             });
             triggerHaptic('medium');
             onItemSaved();
+            toast.success('Item added to inventory');
             // In manual mode, close entirely instead of showing camera
             if (startInManualMode) {
                 onClose();
             } else {
                 dismissSheet();
             }
-        } catch (e) { console.warn('[InventoryScanner] ignore:', e); }
+        } catch (e) {
+            console.warn('[InventoryScanner] save failed:', e);
+            toast.error('Failed to save item');
+        }
         setSaving(false);
     };
 
