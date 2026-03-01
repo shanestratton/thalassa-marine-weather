@@ -21,7 +21,7 @@ const getUrl = () => {
                 url = process.env.SUPABASE_URL;
                 logConfig("Found URL in process.env.SUPABASE_URL");
             }
-        } catch { /* process.env may not exist in browser */ }
+        } catch (e) { console.warn('[supabase] process.env may not exist in browser:', e); }
     }
 
     return url;
@@ -43,7 +43,7 @@ const getKey = () => {
                 key = process.env.SUPABASE_KEY;
                 logConfig("Found KEY in process.env.SUPABASE_KEY");
             }
-        } catch { /* process.env may not exist in browser */ }
+        } catch (e) { console.warn('[supabase] process.env may not exist in browser:', e); }
     }
 
     return key;

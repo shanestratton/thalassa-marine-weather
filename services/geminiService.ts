@@ -14,7 +14,7 @@ const getSupabaseUrl = (): string => {
         if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
             return process.env.SUPABASE_URL;
         }
-    } catch { /* browser */ }
+    } catch (e) { console.warn('[gemini] browser:', e); }
     return '';
 };
 
@@ -228,7 +228,8 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
         const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(text || '{}');
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
-    } catch {
+    } catch (e) {
+            console.warn('[gemini]', e);
         /* AI geo-lookup failed — return slight coord offset as safe fallback */
         return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.045 };
     }
@@ -382,7 +383,8 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
                         } else {
                             data.destination = `Destination ${coordStr}`;
                         }
-                    } catch {
+                    } catch (e) {
+            console.warn('[gemini]', e);
                         data.destination = `Destination ${coordStr}`;
                     }
                 } else {
@@ -553,7 +555,8 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
             };
         }
         return data;
-    } catch {
+    } catch (e) {
+            console.warn('[gemini]', e);
         /* AI analysis unavailable — return static safety defaults */
         return {
             strategy: "Analysis unavailable due to network or quota limits.",

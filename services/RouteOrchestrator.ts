@@ -115,7 +115,7 @@ function findContainingMarina(
                 if (turf.booleanPointInPolygon(pt, zone as any)) {
                     return zone;
                 }
-            } catch { /* skip */ }
+            } catch (e) { console.warn('[RouteOrchestrator] skip:', e); }
         }
     }
     return null;

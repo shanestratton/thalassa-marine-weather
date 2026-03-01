@@ -483,7 +483,8 @@ class ShipLogServiceClass {
 
                 // 2. Re-evaluate logging zone (nearshore/coastal/offshore)
                 await this.rescheduleAdaptiveInterval();
-            } catch {
+            } catch (e) {
+            console.warn('[ShipLog]', e);
                 // Best effort — don't crash tracking
             }
         }, 60_000); // Every 60 seconds
@@ -665,7 +666,7 @@ class ShipLogServiceClass {
      */
     private cleanupGpsSubscriptions(): void {
         this.bgUnsubscribers.forEach(unsub => {
-            try { unsub(); } catch { /* already cleaned up */ }
+            try { unsub(); } catch (e) { console.warn('[ShipLog] already cleaned up:', e); }
         });
         this.bgUnsubscribers = [];
     }
@@ -776,7 +777,7 @@ class ShipLogServiceClass {
         this.clearAllTimers();
 
         // Flush any remaining buffered GPS points before stopping
-        try { await this.flushBufferedTrack(); } catch { /* best effort */ }
+        try { await this.flushBufferedTrack(); } catch (e) { console.warn('[ShipLog] best effort:', e); }
         this.trackBuffer.clear();
         // Update state immediately so UI responds instantly
         // IMPORTANT: Store end time now (before async ops) to ensure it's always recorded
@@ -902,7 +903,8 @@ class ShipLogServiceClass {
             try {
                 entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
                 this.lastWaterStatus = entry.isOnWater; // Seed cache for subsequent entries
-            } catch {
+            } catch (e) {
+            console.warn('[ShipLog]', e);
                 entry.isOnWater = true; // Fail open
             }
         } else {
@@ -1036,7 +1038,8 @@ class ShipLogServiceClass {
                     .update({ entry_type: 'auto', waypoint_name: null })
                     .eq('id', rows[0].id);
             }
-        } catch {
+        } catch (e) {
+            console.warn('[ShipLog]', e);
             // Best effort — demotion is non-critical
         }
     }
@@ -1550,7 +1553,8 @@ class ShipLogServiceClass {
         try {
             const { value } = await Preferences.get({ key: LAST_POSITION_KEY });
             return value ? JSON.parse(value) : null;
-        } catch {
+        } catch (e) {
+            console.warn('[ShipLog]', e);
             /* Preferences read/parse failure — null signals no cached position */
             return null;
         }

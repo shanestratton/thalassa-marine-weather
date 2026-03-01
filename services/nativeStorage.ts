@@ -31,7 +31,7 @@ export const saveLargeData = async (key: string, data: unknown) => {
                 // Capacitor Filesystem not available (web browser) — use localStorage fallback
                 try {
                     localStorage.setItem(key, jsonString);
-                } catch { /* quota exceeded — ignore */ }
+                } catch (e) { console.warn('[nativeStorage] quota exceeded — ignore:', e); }
             } finally {
                 delete saveTimers[key];
                 resolve();

@@ -268,7 +268,8 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
             const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
             return h + (m / 60);
-        } catch {
+        } catch (e) {
+            console.warn('[TideAndVessel]', e);
             /* Invalid timeZone or Intl unavailable — fall back to local device time */
             return date.getHours() + (date.getMinutes() / 60);
         }

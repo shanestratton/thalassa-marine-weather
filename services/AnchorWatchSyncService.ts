@@ -373,7 +373,8 @@ class AnchorWatchSyncServiceClass {
             const persisted: PersistedSyncSession = JSON.parse(raw);
             const ageMs = Date.now() - (persisted.savedAt || 0);
             return ageMs < 24 * 60 * 60 * 1000 && !!persisted.sessionCode;
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatchSync]', e);
             /* Corrupted localStorage JSON — treat as no session */
             return false;
         }
@@ -387,7 +388,8 @@ class AnchorWatchSyncServiceClass {
             const raw = localStorage.getItem(SYNC_SESSION_KEY);
             if (!raw) return null;
             return JSON.parse(raw);
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatchSync]', e);
             /* Corrupted localStorage JSON — treat as no session */
             return null;
         }
@@ -405,7 +407,8 @@ class AnchorWatchSyncServiceClass {
                 savedAt: Date.now(),
             };
             localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(data));
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatchSync]', e);
             // localStorage might fail in some contexts — non-critical
         }
     }
@@ -414,7 +417,8 @@ class AnchorWatchSyncServiceClass {
     private clearPersistedSession(): void {
         try {
             localStorage.removeItem(SYNC_SESSION_KEY);
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatchSync]', e);
             // Non-critical
         }
     }

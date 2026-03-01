@@ -34,7 +34,7 @@ console.error = (...args: any[]) => {
       // Empty object — try to extract more info
       try {
         return `[EmptyObj: ${arg.constructor?.name || 'Object'}] ${String(arg)}`;
-      } catch { return arg; }
+      } catch (e) { console.warn('[index]', e); return arg; }
     }
     return arg;
   });

@@ -399,7 +399,8 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
         if (!isNaN(d.getTime())) {
             normalizedSince = d.toISOString(); // Always ends with 'Z'
         }
-    } catch {
+    } catch (e) {
+            console.warn('[Sync]', e);
         // Keep original if parsing fails (should not happen with valid ISO strings)
     }
 

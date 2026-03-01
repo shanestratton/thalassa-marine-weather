@@ -122,7 +122,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             const d = new Date(t);
             if (isNaN(d.getTime())) return t;
             return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-        } catch { return t; }
+        } catch (e) { console.warn('[CelestialComponents]', e); return t; }
     };
 
     const sunrise = formatTimeStr(rawSunrise);

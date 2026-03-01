@@ -76,7 +76,8 @@ async function uriToFile(uri: string, fileName: string): Promise<File | null> {
         };
         const mime = mimeMap[ext] || blob.type || 'application/octet-stream';
         return new File([blob], fileName, { type: mime });
-    } catch {
+    } catch (e) {
+            console.warn('[DocumentsHub]', e);
         return null;
     }
 }
@@ -95,7 +96,8 @@ async function downloadFile(uri: string, fileName: string): Promise<boolean> {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         return true;
-    } catch {
+    } catch (e) {
+            console.warn('[DocumentsHub]', e);
         return false;
     }
 }

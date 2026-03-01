@@ -299,7 +299,8 @@ export async function determineLoggingZone(): Promise<LoggingZone> {
         // Default to nearshore — rescheduleAdaptiveInterval will refine after next GPS fix.
 
         return 'nearshore'; // Safe default
-    } catch {
+    } catch (e) {
+            console.warn('[helpers]', e);
         return 'nearshore'; // Fail safe
     }
 }

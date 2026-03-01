@@ -79,7 +79,8 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
         });
 
         return JSON.parse(contents.data as string) as T;
-    } catch {
+    } catch (e) {
+            console.warn('[LocalDatabase]', e);
         return fallback;
     }
 }

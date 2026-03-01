@@ -82,7 +82,8 @@ export const ChatHub: React.FC = () => {
                             : listing.seller_name || 'Seller',
                         otherPartyId,
                     });
-                } catch {
+                } catch (e) {
+            console.warn('[ChatHub]', e);
                     // Skip failed listing lookups
                 }
             }

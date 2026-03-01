@@ -511,7 +511,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                             undefined
                         );
                         incrementQuota();
-                    } catch {
+                    } catch (e) {
+            console.warn('[WeatherContext]', e);
                         throw e; // Original error if fallback also fails
                     }
                 } else {
@@ -566,7 +567,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         setWeatherData(enriched);
                         setHistoryCache(prev => ({ ...prev, [location]: enriched }));
                         saveLargeData(DATA_CACHE_KEY, enriched);
-                    } catch { /* non-critical: previous weather data already set */ }
+                    } catch (e) { console.warn('[WeatherContext] non-critical: previous weather data already set:', e); }
                 } else {
                     if (weatherDataRef.current?.boatingAdvice) {
                         const reportWithAdvice = {
@@ -816,7 +817,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 try {
                     const geo = await reverseGeocode(latitude, longitude);
                     if (geo) name = geo;
-                } catch { /* fallback to cardinal coords */ }
+                } catch (e) { console.warn('[WeatherContext] fallback to cardinal coords:', e); }
 
                 if (dist >= WEATHER_REFRESH_NM) {
                     // TIER 2: Moved ≥5nm — full location + weather update
@@ -941,7 +942,8 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
                 patched.sources = sources;
                 setWeatherData({ ...current, current: patched });
-            } catch {
+            } catch (e) {
+            console.warn('[WeatherContext]', e);
                 // Silently ignore — full refresh will pick it up
             }
         }, LIVE_OVERLAY_INTERVAL);

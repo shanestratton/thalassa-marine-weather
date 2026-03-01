@@ -133,7 +133,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     }, 5 * 60 * 1000);
                     return () => { cancelled = true; clearInterval(rainTimer); };
                 }
-            } catch { /* corrupted cache, continue with fresh fetch */ }
+            } catch (e) { console.warn('[Dashboard] corrupted cache, continue with fresh fetch:', e); }
         }
 
         // Initial fetch
@@ -286,7 +286,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             const rise = new Date(d); rise.setHours(rH, rM, 0, 0);
             const set = new Date(d); set.setHours(sH, sM, 0, 0);
             return d >= rise && d < set;
-        } catch {
+        } catch (e) {
+            console.warn('[Dashboard]', e);
             const h = new Date(widgetCardTime).getHours();
             return h >= 6 && h < 18;
         }

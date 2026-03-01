@@ -154,7 +154,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     ? `${startName || 'Unknown'} → ${endName}`
                     : startName || '';
                 setShareAutoTitle(title);
-            } catch { /* fallback to empty */ }
+            } catch (e) { console.warn('[LogPage] fallback to empty:', e); }
         })();
 
         // Auto-detect region from start location
@@ -169,7 +169,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     const region = parts.length > 1 ? parts.slice(1).join(', ') : parts[0];
                     setShareAutoRegion(region);
                 }
-            } catch { /* fallback to empty */ }
+            } catch (e) { console.warn('[LogPage] fallback to empty:', e); }
         })();
     }, [actionSheet, selectedVoyageId, entries]);
 
@@ -1321,7 +1321,7 @@ const VoyageCard: React.FC<{
                     const parts = name.split(',').map(s => s.trim()).filter(Boolean);
                     if (parts.length > 0) return parts[0];
                 }
-            } catch { /* fall through to Nominatim */ }
+            } catch (e) { console.warn('[LogPage] fall through to Nominatim:', e); }
 
             // 2. Fallback: Nominatim with progressive zoom levels (coastal/offshore positions)
             const zoomLevels = [16, 14, 10, 8, 5];
@@ -1333,7 +1333,7 @@ const VoyageCard: React.FC<{
                     const addr = data.address || {};
                     const local = addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city_district || addr.city || addr.hamlet || addr.county || null;
                     if (local) return local;
-                } catch { continue; }
+                } catch (e) { console.warn('[LogPage]', e); continue; }
             }
             return null;
         };

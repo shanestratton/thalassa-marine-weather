@@ -209,7 +209,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
 
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 return (data && data.results) || [];
-            } catch { return []; }
+            } catch (e) { console.warn('[geocoding]', e); return []; }
             // Silently ignored — non-critical failure
         }
 

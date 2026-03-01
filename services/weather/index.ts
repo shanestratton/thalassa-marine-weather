@@ -310,7 +310,8 @@ export const fetchFastWeather = async (
                     const lonStr = Math.abs(lon).toFixed(2) + (lon >= 0 ? 'E' : 'W');
                     name = `Ocean Point ${latStr} ${lonStr}`;
                 }
-            } catch {
+            } catch (e) {
+            console.warn('[index]', e);
                 name = `Location ${lat.toFixed(2)},${lon.toFixed(2)}`;
             }
         }

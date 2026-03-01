@@ -279,7 +279,7 @@ class AnchorWatchServiceClass {
             this.persistWatchState();
 
             // Keep screen awake during anchor watch
-            try { await KeepAwake.keepAwake(); } catch { /* Web fallback */ }
+            try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
 
             // Start GPS monitoring + geofence
             await this.startGpsMonitoring();
@@ -318,7 +318,7 @@ class AnchorWatchServiceClass {
         this.persistWatchState();
 
         // Keep screen awake during anchor watch
-        try { await KeepAwake.keepAwake(); } catch { /* Web fallback */ }
+        try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
 
         await BgGeoManager.ensureReady();
         await this.startGpsMonitoring();
@@ -348,7 +348,7 @@ class AnchorWatchServiceClass {
         this.stopAlarm();
 
         // Allow screen to sleep again
-        try { await KeepAwake.allowSleep(); } catch { /* Web fallback */ }
+        try { await KeepAwake.allowSleep(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
 
         this.state = 'idle';
         this.anchorPosition = null;
@@ -402,7 +402,8 @@ class AnchorWatchServiceClass {
                 speed: pos.speed,
                 timestamp: pos.timestamp,
             };
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatch]', e);
             return null;
         }
     }
@@ -448,13 +449,14 @@ class AnchorWatchServiceClass {
             this.alarmTriggeredAt = null;
 
             // Re-establish GPS monitoring and geofence
-            try { await KeepAwake.keepAwake(); } catch { /* Web fallback */ }
+            try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
             await BgGeoManager.ensureReady();
             await this.startGpsMonitoring();
 
             this.notify();
             return true;
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatch]', e);
             /* Corrupted persisted data — clear and start fresh */
             this.clearPersistedWatchState();
             return false;
@@ -475,7 +477,8 @@ class AnchorWatchServiceClass {
                 savedAt: Date.now(),
             };
             localStorage.setItem(ANCHOR_WATCH_KEY, JSON.stringify(data));
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatch]', e);
             // Non-critical
         }
     }
@@ -484,7 +487,8 @@ class AnchorWatchServiceClass {
     private clearPersistedWatchState(): void {
         try {
             localStorage.removeItem(ANCHOR_WATCH_KEY);
-        } catch {
+        } catch (e) {
+            console.warn('[AnchorWatch]', e);
             // Non-critical
         }
     }
@@ -581,7 +585,7 @@ class AnchorWatchServiceClass {
     /** Remove all event subscriptions */
     private cleanupSubscriptions(): void {
         this.bgUnsubscribers.forEach(unsub => {
-            try { unsub(); } catch { /* already cleaned */ }
+            try { unsub(); } catch (e) { console.warn('[AnchorWatch] already cleaned:', e); }
         });
         this.bgUnsubscribers = [];
     }
@@ -692,7 +696,7 @@ class AnchorWatchServiceClass {
             // Triple vibrate
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 200);
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 400);
-        } catch { /* No haptics on web */ }
+        } catch (e) { console.warn('[AnchorWatch] No haptics on web:', e); }
 
         // Start repeating alarm
         this.startAlarmSound();

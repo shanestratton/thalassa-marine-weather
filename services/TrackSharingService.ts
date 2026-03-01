@@ -231,7 +231,7 @@ class TrackSharingServiceClass {
 
         // Increment download counter (fire-and-forget)
         (async () => {
-            try { await supabase.rpc('increment_download_count', { track_id: trackId }); } catch { /* Fire-and-forget — counter miss is non-critical */ }
+            try { await supabase.rpc('increment_download_count', { track_id: trackId }); } catch (e) { console.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e); }
         })();
 
         return data.gpx_data;

@@ -76,7 +76,8 @@ export function apiCacheGet<T>(
         const ageMin = Math.round(ageMs / 60000);
         const ttlMin = Math.round(ttl / 60000);
         return entry.data;
-    } catch {
+    } catch (e) {
+            console.warn('[apiCache]', e);
         return null;
     }
 }
@@ -99,7 +100,8 @@ export function apiCacheSet<T>(
             provider,
         };
         localStorage.setItem(key, JSON.stringify(entry));
-    } catch {
+    } catch (e) {
+            console.warn('[apiCache]', e);
         // localStorage full — evict oldest entries
         evictOldest(3);
         try {
@@ -107,7 +109,8 @@ export function apiCacheSet<T>(
             localStorage.setItem(key, JSON.stringify({
                 data, storedAt: Date.now(), provider,
             }));
-        } catch {
+        } catch (e) {
+            console.warn('[apiCache]', e);
             // Still full — give up silently
         }
     }
@@ -139,7 +142,7 @@ function evictOldest(count: number): void {
             if (!raw) continue;
             const parsed = JSON.parse(raw);
             entries.push({ key, storedAt: parsed.storedAt || 0 });
-        } catch { /* skip corrupt */ }
+        } catch (e) { console.warn('[apiCache] skip corrupt:', e); }
     }
 
     entries.sort((a, b) => a.storedAt - b.storedAt);
@@ -164,7 +167,7 @@ export function apiCacheStats(): { provider: string; count: number; oldestAge: s
             existing.count++;
             existing.oldest = Math.min(existing.oldest, parsed.storedAt || 0);
             stats.set(provider, existing);
-        } catch { /* skip */ }
+        } catch (e) { console.warn('[apiCache] skip:', e); }
     }
 
     return Array.from(stats.entries()).map(([provider, { count, oldest }]) => ({
