@@ -309,6 +309,8 @@ export interface ShipDocument {
     notes: string | null;
     created_at: string;
     updated_at: string;
+    _offline?: boolean;         // Client-only flag — not persisted to DB
+    _pendingFile?: string;      // Data URI awaiting upload to storage
 }
 
 export interface UserSettings {

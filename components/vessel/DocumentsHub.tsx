@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
+import { DocumentSyncService, type DocSyncStatus } from '../../services/vessel/DocumentSyncService';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -139,7 +140,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                                 </span>
                             )}
                             {doc.file_uri && (
-                                <span className="text-[11px] text-sky-400 font-bold">📄 PDF</span>
+                                <span className="text-[11px] text-sky-400 font-bold">📎 File</span>
                             )}
                         </div>
                     </div>
@@ -182,6 +183,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     }, []);
 
     useEffect(() => { loadDocs(); }, [loadDocs]);
+
+    // Cloud pull on mount (restore on new device)
+    useEffect(() => {
+        DocumentSyncService.pullFromCloud().then(restored => {
+            if (restored > 0) {
+                loadDocs();
+                toast.success(`☁️ Restored ${restored} document${restored > 1 ? 's' : ''} from cloud`);
+            }
+        });
+    }, [loadDocs]);
 
     // ── Filtered ──
     const filtered = documents
@@ -240,6 +251,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         if (!formName.trim()) return;
         try {
             triggerHaptic('medium');
+            let savedId: string;
             if (editDoc) {
                 await LocalDocumentService.update(editDoc.id, {
                     document_name: formName.trim(),
@@ -249,8 +261,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     file_uri: formFileUri,
                     notes: formNotes.trim() || null,
                 });
+                savedId = editDoc.id;
             } else {
-                await LocalDocumentService.create({
+                const created = await LocalDocumentService.create({
                     document_name: formName.trim(),
                     category: formCategory,
                     issue_date: formIssueDate || null,
@@ -258,10 +271,13 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     file_uri: formFileUri,
                     notes: formNotes.trim() || null,
                 });
+                savedId = created.id;
             }
             setShowForm(false);
             resetForm();
             loadDocs();
+            // Mark for cloud sync
+            DocumentSyncService.markForSync(savedId);
         } catch (e) {
             console.error('Failed to save document:', e);
             toast.error('Failed to save document');
@@ -273,6 +289,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         try {
             triggerHaptic('medium');
             await LocalDocumentService.delete(id);
+            DocumentSyncService.markDeleted(id);
             loadDocs();
         } catch (e) {
             console.error('Failed to delete document:', e);
@@ -291,6 +308,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     // ── Expiry stats ──
     const expiredCount = documents.filter(d => getExpiryStatus(d.expiry_date) === 'expired').length;
     const warningCount = documents.filter(d => getExpiryStatus(d.expiry_date) === 'warning').length;
+    const pendingSyncCount = DocumentSyncService.pendingCount;
 
     // ── Render ──
     return (
@@ -306,6 +324,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             {documents.length} Documents
                             {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
                             {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
+                            {pendingSyncCount > 0 && <span className="text-sky-400 ml-2">☁️ {pendingSyncCount} pending</span>}
                         </p>
                     }
                 />
