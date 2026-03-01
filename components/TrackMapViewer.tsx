@@ -22,7 +22,6 @@ interface TrackMapViewerProps {
     isOpen: boolean;
     onClose: () => void;
     entries: ShipLogEntry[];
-    plannedEntries?: ShipLogEntry[];  // Optional: linked planned route for overlay comparison
 }
 
 // ── Vessel Icon (Leaflet DivIcon) ──
@@ -34,7 +33,7 @@ const VESSEL_ICON_HTML = `<div style="
     box-shadow: 0 0 12px rgba(0,240,255,0.6), 0 2px 8px rgba(0,0,0,0.4);
 "></div>`;
 
-export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose, entries, plannedEntries }) => {
+export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose, entries }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -224,101 +223,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             }).addTo(layerGroup);
         });
 
-        // ═══ PLANNED ROUTE OVERLAY (violet dashed line) ═══
-        let allBoundsCoords = [...trackCoords];
-
-        if (plannedEntries && plannedEntries.length >= 2) {
-            const planned = [...plannedEntries]
-                .filter(e => e.latitude && e.longitude)
-                .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-            if (planned.length >= 2) {
-                const planCoords = planned.map(e => [e.latitude!, e.longitude!] as [number, number]);
-                allBoundsCoords = [...allBoundsCoords, ...planCoords];
-
-                // Violet glow
-                L.polyline(planCoords, {
-                    color: '#a78bfa', weight: 8, opacity: 0.15,
-                    lineCap: 'round', lineJoin: 'round',
-                }).addTo(layerGroup);
-
-                // Violet dashed core
-                L.polyline(planCoords, {
-                    color: '#a78bfa', weight: 2.5, opacity: 0.7,
-                    lineCap: 'round', lineJoin: 'round',
-                    dashArray: '10 8',
-                }).addTo(layerGroup);
-
-                // Planned waypoint dots (small violet)
-                planned.forEach(e => {
-                    L.circleMarker([e.latitude!, e.longitude!], {
-                        radius: 3, fillColor: '#c4b5fd', fillOpacity: 0.8,
-                        color: 'white', weight: 1,
-                    }).addTo(layerGroup);
-                });
-
-                // ═══ DEVIATION MARKERS — where actual diverged from plan ═══
-                // Haversine helper for NM
-                const hav = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-                    const R = 3440.065;
-                    const dLat = (lat2 - lat1) * Math.PI / 180;
-                    const dLon = (lon2 - lon1) * Math.PI / 180;
-                    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-                    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                };
-
-                // Sample every ~10th actual point
-                const step = Math.max(1, Math.floor(sorted.length / 30));
-                let maxDeviation = 0;
-                let maxDevPt: [number, number] | null = null;
-
-                for (let i = 0; i < sorted.length; i += step) {
-                    const pt = sorted[i];
-                    if (!pt.latitude || !pt.longitude) continue;
-
-                    // Find nearest planned point
-                    let minDist = Infinity;
-                    for (const pp of planned) {
-                        const d = hav(pt.latitude, pt.longitude, pp.latitude!, pp.longitude!);
-                        if (d < minDist) minDist = d;
-                    }
-
-                    if (minDist > maxDeviation) {
-                        maxDeviation = minDist;
-                        maxDevPt = [pt.latitude, pt.longitude];
-                    }
-
-                    // Show orange deviation dot if > 0.5 NM off plan
-                    if (minDist > 0.5) {
-                        L.circleMarker([pt.latitude, pt.longitude], {
-                            radius: 4,
-                            fillColor: '#f97316',
-                            fillOpacity: 0.7,
-                            color: '#f97316',
-                            weight: 1,
-                        }).addTo(layerGroup)
-                            .bindPopup(`<div style="font-size:11px"><strong style="color:#f97316">⚠ Deviation</strong><br/>${minDist.toFixed(1)} NM off plan</div>`);
-                    }
-                }
-
-                // Max deviation marker (larger, red)
-                if (maxDevPt && maxDeviation > 0.5) {
-                    L.circleMarker(maxDevPt, {
-                        radius: 7,
-                        fillColor: '#ef4444',
-                        fillOpacity: 0.8,
-                        color: 'white',
-                        weight: 2,
-                    }).addTo(layerGroup)
-                        .bindPopup(`<div style="font-size:11px"><strong style="color:#ef4444">📍 Max Deviation</strong><br/>${maxDeviation.toFixed(1)} NM off planned route</div>`)
-                        .openPopup();
-                }
-            }
-        }
-
-        // Fit bounds on first load only (include both tracks)
+        // Fit bounds on first load only
         if (!hasFitBoundsRef.current) {
-            const bounds = L.latLngBounds(allBoundsCoords);
+            const bounds = L.latLngBounds(trackCoords);
             map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: false });
             hasFitBoundsRef.current = true;
         }
@@ -338,7 +245,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             vesselMarkerRef.current = marker;
             // Don't add to map yet — added on first scrub/play
         }
-    }, [entries, plannedEntries]);
+    }, [entries]);
 
     // Trigger layer update
     useEffect(() => {
@@ -601,18 +508,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     <div className="w-3 h-3 rounded-full" style={{ background: '#00f0ff', boxShadow: '0 0 6px rgba(0,240,255,0.5)' }}></div>
                     <span className="text-slate-300">Vessel</span>
                 </div>
-                {plannedEntries && plannedEntries.length >= 2 && (
-                    <>
-                        <div className="flex items-center gap-2">
-                            <div className="w-4 h-0.5 bg-purple-400" style={{ borderTop: '2px dashed #a78bfa' }}></div>
-                            <span className="text-purple-300">Planned</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                            <span className="text-amber-300">Deviation</span>
-                        </div>
-                    </>
-                )}
+
             </div>
         </div>
     );
