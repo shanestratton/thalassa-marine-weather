@@ -1,23 +1,16 @@
 /**
- * PageTransition — iOS-style spring-physics page transitions with swipe-back.
+ * PageTransition — Lightweight CSS-only page transitions.
  *
- * Wraps child pages in AnimatePresence + motion.div to produce:
- *   PUSH  → new page slides in from right, old slides left
- *   POP   → old page slides right, new appears from left
- *   TAB   → instant swap (for bottom nav tab switches)
+ * Replaces framer-motion springs with GPU-composited CSS transitions.
+ * Uses only transform + opacity (composite-only properties) so
+ * the transition runs on the GPU compositor thread — zero JS per frame.
  *
- * Swipe-back:
- *   On "pushed" pages, a thin invisible strip on the left edge
- *   captures horizontal drag gestures and triggers a pop when the
- *   drag crosses the dismiss threshold.
- *
- *   The gesture is isolated to the edge strip so it doesn't conflict
- *   with CTA slide buttons, carousels, or other horizontal scrollers.
- *
- * Uses framer-motion spring physics for natural deceleration.
+ * Mode:
+ *   PUSH  → new page slides in from right
+ *   POP   → new page slides in from left
+ *   TAB   → instant swap (fade, no slide)
  */
-import React, { useCallback } from 'react';
-import { motion, AnimatePresence, PanInfo } from 'framer-motion';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 export type TransitionDirection = 'push' | 'pop' | 'tab';
 
@@ -25,43 +18,18 @@ interface PageTransitionProps {
     pageKey: string;
     direction: TransitionDirection;
     children: React.ReactNode;
-    /** Whether this page can be swiped back (push pages only) */
     canSwipeBack?: boolean;
-    /** Callback when swipe-back completes */
     onSwipeBack?: () => void;
 }
 
-// iOS-style spring configuration
-const SPRING = {
-    type: 'spring' as const,
-    stiffness: 300,
-    damping: 30,
-    mass: 0.8,
-};
+// Durations (ms)
+const SLIDE_DURATION = 280;
+const TAB_DURATION = 120;
 
 // Swipe-back thresholds
-const SWIPE_EDGE_WIDTH = 24;       // px — edge zone strip width
-const SWIPE_DISMISS_THRESHOLD = 0.30; // fraction of screen width
-const SWIPE_VELOCITY_THRESHOLD = 400; // px/s — quick flick dismisses
-
-const animationVariants = {
-    push: {
-        initial: { x: '100%', opacity: 1 },
-        animate: { x: 0, opacity: 1 },
-        exit: { x: '-30%', opacity: 0.5 },
-    },
-    pop: {
-        initial: { x: '-30%', opacity: 1 },
-        animate: { x: 0, opacity: 1 },
-        exit: { x: '100%', opacity: 0.7 },
-    },
-    tab: {
-        // Instant swap — no crossfade to prevent bleed-through
-        initial: { opacity: 1 },
-        animate: { opacity: 1 },
-        exit: { opacity: 0 },
-    },
-};
+const SWIPE_EDGE_WIDTH = 24;
+const SWIPE_DISMISS_FRACTION = 0.30;
+const SWIPE_VELOCITY_THRESHOLD = 400;
 
 export const PageTransition: React.FC<PageTransitionProps> = ({
     pageKey,
@@ -70,51 +38,92 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
     canSwipeBack = false,
     onSwipeBack,
 }) => {
-    const variant = animationVariants[direction];
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [phase, setPhase] = useState<'idle' | 'entering'>('idle');
+    const prevKeyRef = useRef(pageKey);
 
-    const handleEdgeDragEnd = useCallback((_: unknown, info: PanInfo) => {
-        if (!onSwipeBack) return;
+    useEffect(() => {
+        if (pageKey !== prevKeyRef.current) {
+            prevKeyRef.current = pageKey;
 
+            if (direction === 'tab') {
+                // Instant — no animation
+                setPhase('idle');
+                return;
+            }
+
+            // Start off-screen, then animate in next frame
+            setPhase('entering');
+            const raf = requestAnimationFrame(() => {
+                requestAnimationFrame(() => setPhase('idle'));
+            });
+            return () => cancelAnimationFrame(raf);
+        }
+    }, [pageKey, direction]);
+
+    // Compute inline transform for enter state
+    const getEntryTransform = (): React.CSSProperties => {
+        if (phase !== 'entering') {
+            return {
+                transform: 'translate3d(0, 0, 0)',
+                opacity: 1,
+                transition: direction === 'tab'
+                    ? `opacity ${TAB_DURATION}ms ease-out`
+                    : `transform ${SLIDE_DURATION}ms cubic-bezier(0.32, 0.72, 0, 1), opacity ${SLIDE_DURATION}ms ease-out`,
+            };
+        }
+
+        // Starting position — off-screen
+        if (direction === 'push') {
+            return {
+                transform: 'translate3d(100%, 0, 0)',
+                opacity: 0.9,
+                transition: 'none',
+            };
+        } else if (direction === 'pop') {
+            return {
+                transform: 'translate3d(-30%, 0, 0)',
+                opacity: 0.9,
+                transition: 'none',
+            };
+        }
+
+        return { opacity: 1, transition: 'none' };
+    };
+
+    // Edge swipe-back gesture
+    const touchStartRef = useRef({ x: 0, y: 0, started: false });
+
+    const handleTouchStart = useCallback((e: React.TouchEvent) => {
+        const touch = e.touches[0];
+        if (touch.clientX <= SWIPE_EDGE_WIDTH && canSwipeBack && onSwipeBack) {
+            touchStartRef.current = { x: touch.clientX, y: touch.clientY, started: true };
+        }
+    }, [canSwipeBack, onSwipeBack]);
+
+    const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+        if (!touchStartRef.current.started || !onSwipeBack) return;
+        touchStartRef.current.started = false;
+
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - touchStartRef.current.x;
         const screenWidth = window.innerWidth;
-        const draggedFraction = info.offset.x / screenWidth;
-        const velocity = info.velocity.x;
 
-        // Dismiss if dragged far enough OR flicked fast enough
-        if (draggedFraction > SWIPE_DISMISS_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) {
+        if (dx / screenWidth > SWIPE_DISMISS_FRACTION || dx > 100) {
             onSwipeBack();
         }
     }, [onSwipeBack]);
 
     return (
-        <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-                key={pageKey}
-                initial={variant.initial}
-                animate={variant.animate}
-                exit={variant.exit}
-                transition={direction === 'tab'
-                    ? { duration: 0.15, ease: 'easeInOut' }
-                    : SPRING
-                }
-                className="absolute inset-0 will-change-transform bg-slate-950"
-            >
-                {children}
-
-                {/* Invisible edge-zone strip for swipe-back gesture.
-                    Only captures drags that start in this 24px-wide strip.
-                    Does NOT interfere with CTA buttons, carousels, etc. */}
-                {canSwipeBack && onSwipeBack && (
-                    <motion.div
-                        className="absolute left-0 top-0 h-full z-[60]"
-                        style={{ width: SWIPE_EDGE_WIDTH }}
-                        drag="x"
-                        dragConstraints={{ left: 0, right: 0 }}
-                        dragElastic={{ left: 0, right: 0.9 }}
-                        dragDirectionLock
-                        onDragEnd={handleEdgeDragEnd}
-                    />
-                )}
-            </motion.div>
-        </AnimatePresence>
+        <div
+            ref={containerRef}
+            key={pageKey}
+            className="absolute inset-0 will-change-transform bg-slate-950"
+            style={getEntryTransform()}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
+            {children}
+        </div>
     );
 };
