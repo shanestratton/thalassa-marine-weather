@@ -94,8 +94,9 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     // User cancelled
                     handleManualEntry();
                 }
-            } catch (err: any) {
-                if (err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : '';
+                if (msg.includes('canceled') || msg.includes('cancelled')) {
                     handleManualEntry();
                 } else {
                     setCameraError('Scanner unavailable. Use manual entry below.');
@@ -167,9 +168,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     setNewItem(prev => ({ ...prev, barcode: code }));
                     triggerHaptic('medium');
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 // User cancelled or error
-                if (err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
+                const msg = err instanceof Error ? err.message : '';
+                if (msg.includes('canceled') || msg.includes('cancelled')) {
                     // User pressed back — that's fine
                 } else {
                     setCameraError('Scanner unavailable. Enter barcode manually.');
