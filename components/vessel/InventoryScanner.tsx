@@ -512,13 +512,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </div>
 
                         {/* Expiry / Service Date */}
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
                             />
                         </div>
                     </div>
@@ -782,13 +782,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </div>
 
                         {/* Expiry / Service Date */}
-                        <div>
+                        <div className="min-w-0 overflow-hidden">
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                className="w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
                             />
                         </div>
                     </div>
