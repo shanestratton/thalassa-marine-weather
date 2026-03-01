@@ -309,7 +309,6 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const [items, setItems] = useState<EquipmentItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<EquipmentCategory | 'all'>('all');
     const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
 
     // Add form state
@@ -347,9 +346,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     useEffect(() => { loadItems(); }, [loadItems]);
 
-    // ── Filtered items ──
+    // ── Filtered + grouped items ──
+    const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
+
     const filteredItems = items
-        .filter(i => selectedCategory === 'all' || i.category === selectedCategory)
         .filter(i => {
             if (!searchQuery.trim()) return true;
             const q = searchQuery.toLowerCase();
@@ -360,7 +360,17 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 i.serial_number.toLowerCase().includes(q)
             );
         })
-        .sort((a, b) => a.equipment_name.localeCompare(b.equipment_name));
+        .sort((a, b) => {
+            const catA = CATEGORY_ORDER.indexOf(a.category);
+            const catB = CATEGORY_ORDER.indexOf(b.category);
+            if (catA !== catB) return catA - catB;
+            return a.equipment_name.localeCompare(b.equipment_name);
+        });
+
+    // Group by category for rendering
+    const groupedItems = CATEGORY_ORDER
+        .map(cat => ({ category: cat, items: filteredItems.filter(i => i.category === cat) }))
+        .filter(g => g.items.length > 0);
 
     // ── Handlers ──
     const handleAdd = useCallback(async () => {
@@ -599,26 +609,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     />
                 </div>
 
-                {/* ── Category filters ── */}
-                <div className="shrink-0 px-4 pb-3">
-                    <div className="grid grid-cols-4 gap-2">
-                        <button
-                            onClick={() => setSelectedCategory('all')}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === 'all' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                        >
-                            All
-                        </button>
-                        {CATEGORIES.map(cat => (
-                            <button
-                                key={cat.id}
-                                onClick={() => setSelectedCategory(cat.id)}
-                                className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                            >
-                                {cat.icon} {cat.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+
 
                 {/* ── Equipment list (scrollable) ── */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -636,7 +627,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 </div>
                             ))}
                         </div>
-                    ) : filteredItems.length === 0 ? (
+                    ) : groupedItems.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
                             <div className="relative w-20 h-20 mb-5">
                                 <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
@@ -654,21 +645,35 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             </p>
                         </div>
                     ) : (
-                        filteredItems.map(item => (
-                            <SwipeableEquipmentCard
-                                key={item.id}
-                                item={item}
-                                onTap={() => {
-                                    triggerHaptic('light');
-                                    setSelectedItem(item);
-                                }}
-                                onDelete={() => handleDelete(item.id)}
-                                onContextMenu={() => {
-                                    triggerHaptic('light');
-                                    setContextItem(item);
-                                }}
-                            />
-                        ))
+                        groupedItems.map(group => {
+                            const catConfig = CATEGORIES.find(c => c.id === group.category);
+                            return (
+                                <div key={group.category}>
+                                    <div className="flex items-center gap-2 mb-2 mt-1">
+                                        <span className="text-sm">{catConfig?.icon}</span>
+                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
+                                        <span className="text-[10px] text-gray-600 font-bold">({group.items.length})</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {group.items.map(item => (
+                                            <SwipeableEquipmentCard
+                                                key={item.id}
+                                                item={item}
+                                                onTap={() => {
+                                                    triggerHaptic('light');
+                                                    setSelectedItem(item);
+                                                }}
+                                                onDelete={() => handleDelete(item.id)}
+                                                onContextMenu={() => {
+                                                    triggerHaptic('light');
+                                                    setContextItem(item);
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })
                     )}
                 </div>
 
