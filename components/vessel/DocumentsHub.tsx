@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
-import { DocumentSyncService, type DocSyncStatus } from '../../services/vessel/DocumentSyncService';
+import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -60,6 +60,103 @@ const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: s
     none: { dot: 'bg-gray-500', text: 'text-gray-500', border: 'border-gray-500/20', label: 'No Expiry' },
 };
 
+// ── File helpers ───────────────────────────────────────────────
+
+/** Convert a data URI or cloud URL to a File object */
+async function uriToFile(uri: string, fileName: string): Promise<File | null> {
+    try {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+        const mimeMap: Record<string, string> = {
+            pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+            png: 'image/png', heic: 'image/heic', doc: 'application/msword',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        };
+        const mime = mimeMap[ext] || blob.type || 'application/octet-stream';
+        return new File([blob], fileName, { type: mime });
+    } catch {
+        return null;
+    }
+}
+
+/** Download a file to the device */
+async function downloadFile(uri: string, fileName: string): Promise<boolean> {
+    try {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Share a file via Web Share API (email, AirDrop, WhatsApp, etc.) */
+async function shareFile(uri: string, doc: ShipDocument): Promise<boolean> {
+    const fileName = `${doc.document_name.replace(/[^a-zA-Z0-9 ]/g, '').trim()}` ||
+        'document';
+
+    // Determine file extension from URI
+    let ext = 'pdf';
+    if (uri.startsWith('data:')) {
+        const mimeMatch = uri.match(/^data:([^;]+);/);
+        const mime = mimeMatch?.[1] || '';
+        if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+        else if (mime.includes('png')) ext = 'png';
+        else if (mime.includes('pdf')) ext = 'pdf';
+        else if (mime.includes('heic')) ext = 'heic';
+    } else {
+        const urlExt = uri.split('.').pop()?.split('?')[0]?.toLowerCase();
+        if (urlExt && ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'heic'].includes(urlExt)) {
+            ext = urlExt;
+        }
+    }
+
+    const fullFileName = `${fileName}.${ext}`;
+
+    // Try Web Share API with files (works on iOS Safari, Android Chrome)
+    if (navigator.share) {
+        try {
+            const file = await uriToFile(uri, fullFileName);
+            if (file && navigator.canShare?.({ files: [file] })) {
+                await navigator.share({
+                    title: doc.document_name,
+                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
+                    files: [file],
+                });
+                return true;
+            }
+            // Fallback: share URL only (for cloud-stored docs)
+            if (!uri.startsWith('data:')) {
+                await navigator.share({
+                    title: doc.document_name,
+                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
+                    url: uri,
+                });
+                return true;
+            }
+        } catch (e: unknown) {
+            if ((e as Error).name === 'AbortError') return false; // User cancelled
+        }
+    }
+
+    // Fallback: open in new tab (user can save/share from there)
+    if (!uri.startsWith('data:')) {
+        window.open(uri, '_blank');
+        return true;
+    }
+
+    return false;
+}
+
 // ── SwipeableDocCard ───────────────────────────────────────────
 
 interface SwipeableDocCardProps {
@@ -71,10 +168,12 @@ interface SwipeableDocCardProps {
 const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelete }) => {
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
+    const [actionBusy, setActionBusy] = useState<'download' | 'share' | null>(null);
     const startX = useRef(0);
     const deleteThreshold = 80;
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
+    const hasFile = !!doc.file_uri;
 
     const handleTouchStart = (e: React.TouchEvent) => {
         startX.current = e.touches[0].clientX;
@@ -88,6 +187,27 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
     const handleTouchEnd = () => {
         setIsSwiping(false);
         setSwipeOffset(swipeOffset >= deleteThreshold ? deleteThreshold : 0);
+    };
+
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!doc.file_uri) return;
+        setActionBusy('download');
+        triggerHaptic('light');
+        const ok = await downloadFile(doc.file_uri, doc.document_name);
+        if (ok) toast.success('📥 Saved to device');
+        else toast.error('Download failed');
+        setActionBusy(null);
+    };
+
+    const handleShare = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!doc.file_uri) return;
+        setActionBusy('share');
+        triggerHaptic('light');
+        const ok = await shareFile(doc.file_uri, doc);
+        if (!ok) toast.error('Share not available');
+        setActionBusy(null);
     };
 
     return (
@@ -139,8 +259,44 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                                     {new Date(doc.expiry_date).toLocaleDateString()}
                                 </span>
                             )}
-                            {doc.file_uri && (
-                                <span className="text-[11px] text-sky-400 font-bold">📎 File</span>
+                            {/* File action buttons */}
+                            {hasFile && (
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    {/* Download to phone */}
+                                    <button
+                                        onClick={handleDownload}
+                                        disabled={actionBusy === 'download'}
+                                        className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                        aria-label="Download to phone"
+                                    >
+                                        {actionBusy === 'download' ? (
+                                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                    {/* Share / Email */}
+                                    <button
+                                        onClick={handleShare}
+                                        disabled={actionBusy === 'share'}
+                                        className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                        aria-label="Share or email"
+                                    >
+                                        {actionBusy === 'share' ? (
+                                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>

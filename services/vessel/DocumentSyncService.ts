@@ -24,7 +24,7 @@ import type { ShipDocument } from '../../types';
 // ── Constants ──────────────────────────────────────────────────
 
 const TABLE = 'ship_documents';
-const STORAGE_BUCKET = 'ship-documents';
+const STORAGE_BUCKET = 'vessel_vault';
 const SYNC_STATUS_KEY = 'thalassa_doc_sync_status';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ class DocumentSyncServiceClass {
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
             };
             const ext = extMap[mime] || fileName?.split('.').pop() || 'dat';
-            const storagePath = `${user.id}/${docId}.${ext}`;
+            const storagePath = `${user.id}/documents/${docId}.${ext}`;
 
             const { error } = await supabase.storage
                 .from(STORAGE_BUCKET)
@@ -155,7 +155,7 @@ class DocumentSyncServiceClass {
     private async _deleteFileFromStorage(fileUri: string): Promise<void> {
         if (!supabase || !fileUri) return;
         try {
-            const match = fileUri.match(/ship-documents\/(.+)$/);
+            const match = fileUri.match(/vessel_vault\/(.+)$/);
             if (match) {
                 await supabase.storage.from(STORAGE_BUCKET).remove([match[1]]);
             }
