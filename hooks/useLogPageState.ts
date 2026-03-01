@@ -287,6 +287,7 @@ export function useLogPageState() {
 
     useEffect(() => {
         let mounted = true;
+        let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const timeout = setTimeout(() => {
             /* Safety: dismiss spinner after 5s if init hangs (web/no Capacitor) */
             if (mounted) dispatch({ type: 'DONE_LOADING' });
@@ -297,6 +298,14 @@ export function useLogPageState() {
             try {
                 await ShipLogService.initialize();
                 if (mounted) await loadData();
+
+                // FIX: Supabase auth session may still be rehydrating from storage
+                // on cold starts. If getLogEntries returned [] because getUser() was
+                // null, retry after a short delay to give the session time to restore.
+                // This is the root cause of "empty LogPage on first visit".
+                retryTimer = setTimeout(async () => {
+                    if (mounted) await loadData();
+                }, 1500);
             } catch {
                 /* Init or load failure — stop spinner to show empty state */
                 if (mounted) dispatch({ type: 'DONE_LOADING' });
@@ -304,7 +313,25 @@ export function useLogPageState() {
                 clearTimeout(timeout);
             }
         })();
-        return () => { mounted = false; clearTimeout(timeout); };
+
+        // AUTH SESSION LISTENER: Reload data when Supabase session becomes available.
+        // Handles the case where the user navigates to LogPage before auth finishes.
+        let authUnsubscribe: (() => void) | undefined;
+        if (supabase) {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+                if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                    if (mounted) loadData();
+                }
+            });
+            authUnsubscribe = () => subscription.unsubscribe();
+        }
+
+        return () => {
+            mounted = false;
+            clearTimeout(timeout);
+            if (retryTimer) clearTimeout(retryTimer);
+            authUnsubscribe?.();
+        };
     }, [loadData]);
 
     // ── GPS Status Polling ──────────────────────────────────────────────────
