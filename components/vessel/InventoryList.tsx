@@ -395,6 +395,20 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         <h3 className="text-base font-black text-white mb-3">Edit Item</h3>
 
                         <div className="space-y-2">
+                            {/* Category — first */}
+                            <div>
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                                <div className="grid grid-cols-4 gap-1 mt-0.5">
+                                    {CATEGORIES.map(cat => (
+                                        <button key={cat} type="button" onClick={() => setEditCategory(cat)}
+                                            className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                        >
+                                            {CATEGORY_ICONS[cat]} {cat}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             {/* Name */}
                             <div>
                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
@@ -436,20 +450,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
                                         </svg>
                                     </button>
-                                </div>
-                            </div>
-
-                            {/* Category */}
-                            <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                                <div className="grid grid-cols-4 gap-1 mt-0.5">
-                                    {CATEGORIES.map(cat => (
-                                        <button key={cat} type="button" onClick={() => setEditCategory(cat)}
-                                            className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                                        >
-                                            {CATEGORY_ICONS[cat]} {cat}
-                                        </button>
-                                    ))}
                                 </div>
                             </div>
 
