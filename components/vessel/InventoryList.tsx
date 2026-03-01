@@ -37,7 +37,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [items, setItems] = useState<InventoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [activeCategory, setActiveCategory] = useState<InventoryCategory | null>(null);
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [stats, setStats] = useState<{ totalItems: number; totalQuantity: number; lowStock: number } | null>(null);
@@ -55,14 +54,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     useEffect(() => { loadItems(); }, [loadItems]);
 
-    // ── Filtered items ──
+    // ── Filtered + grouped items ──
     const filtered = useMemo(() => {
         let result = items;
-
-        // Category filter
-        if (activeCategory) {
-            result = result.filter(i => i.category === activeCategory);
-        }
 
         // Search filter (client-side for instant response)
         if (searchQuery.trim()) {
@@ -76,8 +70,21 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             );
         }
 
-        return result;
-    }, [items, activeCategory, searchQuery]);
+        // Sort by category order then alphabetically
+        return result.sort((a, b) => {
+            const catA = CATEGORIES.indexOf(a.category);
+            const catB = CATEGORIES.indexOf(b.category);
+            if (catA !== catB) return catA - catB;
+            return a.item_name.localeCompare(b.item_name);
+        });
+    }, [items, searchQuery]);
+
+    // Group by category for rendering
+    const groupedItems = useMemo(() =>
+        CATEGORIES
+            .map(cat => ({ category: cat, items: filtered.filter(i => i.category === cat) }))
+            .filter(g => g.items.length > 0),
+        [filtered]);
 
     // ── Delete item ──
     const handleDelete = async (id: string) => {
@@ -180,30 +187,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     />
                 </div>
 
-                {/* ── Category filters ── */}
-                <div className="shrink-0 px-4 pb-3">
-                    <div className="grid grid-cols-4 gap-2">
-                        <button
-                            onClick={() => setActiveCategory(null)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${!activeCategory ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                        >
-                            All
-                        </button>
-                        {CATEGORIES.map(cat => {
-                            const count = items.filter(i => i.category === cat).length;
-                            if (count === 0) return null;
-                            return (
-                                <button
-                                    key={cat}
-                                    onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                                    className={`py-2 rounded-full text-xs font-bold transition-all text-center ${activeCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                                >
-                                    {CATEGORY_ICONS[cat]} {cat}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
+
 
                 {/* ── Item List (scrollable, stops above CTA) ── */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
@@ -220,7 +204,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 </div>
                             ))}
                         </div>
-                    ) : filtered.length === 0 ? (
+                    ) : groupedItems.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
                             <div className="relative w-20 h-20 mb-5">
                                 <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
@@ -238,126 +222,132 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </p>
                         </div>
                     ) : (
-                        filtered.map(item => {
-                            const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
-                            const isExpanded = expandedId === item.id;
-                            const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
-                            const now = Date.now();
-                            const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
-                            const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
-                            const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
-
-                            return (
-                                <div
-                                    key={item.id}
-                                    className={`bg-slate-800/40 border rounded-lg overflow-hidden transition-all ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
-                                >
-                                    {/* Main row */}
-                                    <button
-                                        onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                                        className="w-full px-3 py-3 text-left"
-                                    >
-                                        {/* Category badge — top of card */}
-                                        <div className="flex items-center gap-1.5 mb-1.5">
-                                            <span className="text-[10px]">{CATEGORY_ICONS[item.category]}</span>
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{item.category}</span>
-                                        </div>
-                                        {/* Name + quantity row */}
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1 min-w-0">
-                                                <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
-                                                {item.location_zone && (
-                                                    <p className="text-[11px] text-gray-500 truncate">
-                                                        📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
-                                                    </p>
-                                                )}
-                                                {isExpired && (
-                                                    <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
-                                                )}
-                                                {isExpiringSoon && (
-                                                    <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
-                                                )}
-                                            </div>
-                                            <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
-                                                <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
-                                                    {item.quantity}
-                                                </p>
-                                            </div>
-                                            <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                            </svg>
-                                        </div>
-                                    </button>
-
-                                    {/* Expanded detail */}
-                                    {isExpanded && (
-                                        <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
-                                            <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
-                                                <div>
-                                                    <span className="text-gray-500">Category</span>
-                                                    <p className="text-white font-bold">{item.category}</p>
-                                                </div>
-                                                {item.barcode && (
-                                                    <div>
-                                                        <span className="text-gray-500">Barcode</span>
-                                                        <p className="text-white font-mono">{item.barcode}</p>
-                                                    </div>
-                                                )}
-                                                {item.description && (
-                                                    <div className="col-span-2">
-                                                        <span className="text-gray-500">Notes</span>
-                                                        <p className="text-gray-300">{item.description}</p>
-                                                    </div>
-                                                )}
-                                                {item.expiry_date && (
-                                                    <div>
-                                                        <span className="text-gray-500">Expiry / Service</span>
-                                                        <p className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}>
-                                                            {new Date(item.expiry_date).toLocaleDateString()}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        onClick={() => handleQuantityAdjust(item.id, -1)}
-                                                        disabled={item.quantity <= 0}
-                                                        className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
-                                                    >
-                                                        −
-                                                    </button>
-                                                    <span className="text-white font-black text-lg w-8 text-center tabular-nums">{item.quantity}</span>
-                                                    <button
-                                                        onClick={() => handleQuantityAdjust(item.id, 1)}
-                                                        className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                                <button
-                                                    onClick={() => openEdit(item)}
-                                                    className="flex-1 py-2 rounded-xl bg-sky-500/10 text-sky-400 text-[11px] font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-all text-center"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(item.id)}
-                                                    className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all text-center"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
-
-                                            {isLow && (
-                                                <p className="text-[11px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
-                                            )}
-                                        </div>
-                                    )}
+                        groupedItems.map(group => (
+                            <div key={group.category}>
+                                <div className="flex items-center gap-2 mb-2 mt-1">
+                                    <span className="text-sm">{CATEGORY_ICONS[group.category]}</span>
+                                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{group.category}</span>
+                                    <span className="text-[10px] text-gray-600 font-bold">({group.items.length})</span>
                                 </div>
-                            );
-                        })
+                                <div className="space-y-2">
+                                    {group.items.map(item => {
+                                        const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
+                                        const isExpanded = expandedId === item.id;
+                                        const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
+                                        const now = Date.now();
+                                        const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
+                                        const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
+                                        const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
+
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                className={`bg-slate-800/40 border rounded-lg overflow-hidden transition-all ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
+                                            >
+                                                {/* Main row */}
+                                                <button
+                                                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                                                    className="w-full px-3 py-3 text-left"
+                                                >
+                                                    {/* Name + quantity row */}
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
+                                                            {item.location_zone && (
+                                                                <p className="text-[11px] text-gray-500 truncate">
+                                                                    📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
+                                                                </p>
+                                                            )}
+                                                            {isExpired && (
+                                                                <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
+                                                            )}
+                                                            {isExpiringSoon && (
+                                                                <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
+                                                            )}
+                                                        </div>
+                                                        <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
+                                                            <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
+                                                                {item.quantity}
+                                                            </p>
+                                                        </div>
+                                                        <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                                        </svg>
+                                                    </div>
+                                                </button>
+
+                                                {/* Expanded detail */}
+                                                {isExpanded && (
+                                                    <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
+                                                        <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+                                                            <div>
+                                                                <span className="text-gray-500">Category</span>
+                                                                <p className="text-white font-bold">{item.category}</p>
+                                                            </div>
+                                                            {item.barcode && (
+                                                                <div>
+                                                                    <span className="text-gray-500">Barcode</span>
+                                                                    <p className="text-white font-mono">{item.barcode}</p>
+                                                                </div>
+                                                            )}
+                                                            {item.description && (
+                                                                <div className="col-span-2">
+                                                                    <span className="text-gray-500">Notes</span>
+                                                                    <p className="text-gray-300">{item.description}</p>
+                                                                </div>
+                                                            )}
+                                                            {item.expiry_date && (
+                                                                <div>
+                                                                    <span className="text-gray-500">Expiry / Service</span>
+                                                                    <p className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                                                        {new Date(item.expiry_date).toLocaleDateString()}
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    onClick={() => handleQuantityAdjust(item.id, -1)}
+                                                                    disabled={item.quantity <= 0}
+                                                                    className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                                                >
+                                                                    −
+                                                                </button>
+                                                                <span className="text-white font-black text-lg w-8 text-center tabular-nums">{item.quantity}</span>
+                                                                <button
+                                                                    onClick={() => handleQuantityAdjust(item.id, 1)}
+                                                                    className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => openEdit(item)}
+                                                                className="flex-1 py-2 rounded-xl bg-sky-500/10 text-sky-400 text-[11px] font-bold uppercase tracking-wider hover:bg-sky-500/20 transition-all text-center"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDelete(item.id)}
+                                                                className="flex-1 py-2 rounded-xl bg-red-500/10 text-red-400 text-[11px] font-bold uppercase tracking-wider hover:bg-red-500/20 transition-all text-center"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+
+                                                        {isLow && (
+                                                            <p className="text-[11px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))
                     )}
                 </div>
 
