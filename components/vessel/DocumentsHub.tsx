@@ -155,7 +155,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [documents, setDocuments] = useState<ShipDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<DocumentCategory | null>(null);
 
     // Add/Edit state
     const [showForm, setShowForm] = useState(false);
@@ -183,23 +182,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // ── Filtered ──
     const filtered = documents
-        .filter(d => selectedCategory === null || d.category === selectedCategory)
         .filter(d => {
             if (!searchQuery.trim()) return true;
             return d.document_name.toLowerCase().includes(searchQuery.toLowerCase());
         });
 
-    // Group by category for display
+    // Group by category, sorted alphabetically within each group
     const grouped = CATEGORIES.map(cat => ({
         ...cat,
         docs: filtered.filter(d => d.category === cat.id)
-            .sort((a, b) => {
-                // Expired/warning first
-                const sa = getExpiryStatus(a.expiry_date);
-                const sb = getExpiryStatus(b.expiry_date);
-                const order: Record<ExpiryStatus, number> = { expired: 0, warning: 1, valid: 2, none: 3 };
-                return order[sa] - order[sb];
-            }),
+            .sort((a, b) => a.document_name.localeCompare(b.document_name)),
     })).filter(g => g.docs.length > 0);
 
     // ── Handlers ──
@@ -308,20 +300,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     />
                 </div>
 
-                {/* Category filters */}
-                <div className="shrink-0 px-4 pb-3">
-                    <div className="grid grid-cols-3 gap-2">
-                        {CATEGORIES.map(cat => (
-                            <button
-                                key={cat.id}
-                                onClick={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}
-                                className={`py-2 rounded-full text-xs font-bold transition-all text-center ${selectedCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
-                            >
-                                {cat.icon} {cat.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+
 
                 {/* Documents list (scrollable, grouped) */}
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
@@ -355,20 +334,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 {searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
                             </p>
                         </div>
-                    ) : selectedCategory !== null ? (
-                        /* Flat list when category selected */
-                        <div className="space-y-2">
-                            {filtered.map(doc => (
-                                <SwipeableDocCard
-                                    key={doc.id}
-                                    doc={doc}
-                                    onTap={() => handleOpenDoc(doc)}
-                                    onDelete={() => handleDelete(doc.id)}
-                                />
-                            ))}
-                        </div>
                     ) : (
-                        /* Grouped by category */
+                        /* Grouped by category, alphabetical within */
                         grouped.map(group => (
                             <div key={group.id}>
                                 <div className="flex items-center gap-2 mb-2">
