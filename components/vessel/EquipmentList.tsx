@@ -18,6 +18,7 @@ import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
 import { PageHeader } from '../ui/PageHeader';
+import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -472,27 +473,15 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                 {/* Edit Equipment Modal */}
                 {showEditForm && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowEditForm(false)}>
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                        <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)] flex flex-col overflow-hidden"
-                            onClick={e => e.stopPropagation()}
+                    <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit Equipment">
+                        {renderFormFields()}
+                        <button
+                            onClick={handleSaveEdit}
+                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
                         >
-                            <button onClick={() => setShowEditForm(false)} aria-label="Close form" className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                            <h3 className="text-lg font-black text-white mb-5">Edit Equipment</h3>
-                            {renderFormFields()}
-                            <button
-                                onClick={handleSaveEdit}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
-                            >
-                                Save Changes
-                            </button>
-                        </div>
-                    </div>
+                            Save Changes
+                        </button>
+                    </ModalSheet>
                 )}
             </>
         );
@@ -773,36 +762,19 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <div
-                    className="fixed inset-0 z-[999] flex items-start justify-center"
-                    style={{ padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }}
-                    onClick={() => setShowAddForm(false)}
-                >
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in zoom-in-95 duration-300 flex flex-col"
-                        style={{ maxHeight: '100%' }}
-                        onClick={e => e.stopPropagation()}
+                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add Equipment" alignTop>
+                    {renderFormFields()}
+                    {!newName.trim() && (
+                        <p className="text-[10px] text-amber-400/80 text-center mt-2">Equipment name is required</p>
+                    )}
+                    <button
+                        onClick={handleAdd}
+                        disabled={!newName.trim()}
+                        className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
                     >
-                        <button onClick={() => setShowAddForm(false)} aria-label="Close form" className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <h3 className="text-base font-black text-white mb-3">Add Equipment</h3>
-                        {renderFormFields()}
-                        {!newName.trim() && (
-                            <p className="text-[10px] text-amber-400/80 text-center mt-2">Equipment name is required</p>
-                        )}
-                        <button
-                            onClick={handleAdd}
-                            disabled={!newName.trim()}
-                            className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
-                        >
-                            Register Equipment
-                        </button>
-                    </div>
-                </div>
+                        Register Equipment
+                    </button>
+                </ModalSheet>
             )}
 
             <ConfirmDialog
