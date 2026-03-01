@@ -167,20 +167,18 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
-                <div className="flex-[2] flex flex-col justify-center items-center min-w-0 py-2 px-1">
+                <div className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
                     {isLive ? (
-                        <>
-                            <div className="flex items-center gap-2 max-w-full">
-                                {/* Pulsing green live dot */}
-                                <div
-                                    className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
-                                    style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
-                                />
-                                <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={12} />
-                            </div>
-                        </>
+                        <div className="flex items-center gap-2 max-w-full">
+                            {/* Pulsing green live dot */}
+                            <div
+                                className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
+                                style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
+                            />
+                            <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={12} />
+                        </div>
                     ) : (
-                        <>
+                        <div className="flex flex-col items-center">
                             <span className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
                                 {dateLabel}
                             </span>
@@ -192,7 +190,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     {timeLabel}
                                 </span>
                             )}
-                        </>
+                        </div>
                     )}
                 </div>
 
