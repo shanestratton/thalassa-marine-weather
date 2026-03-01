@@ -68,6 +68,9 @@ class DiaryServiceClass {
             window.addEventListener('online', () => this.syncPending());
             // Attempt sync on init
             setTimeout(() => this.syncPending(), 5000);
+            // Periodic retry every 30s — catches stuck pending entries
+            // (navigator.onLine is unreliable on iOS/Capacitor)
+            setInterval(() => this.syncPending(), 30_000);
         }
     }
 
@@ -313,17 +316,25 @@ class DiaryServiceClass {
     // ── Sync Engine ────────────────────────────────────────────
 
     async syncPending(): Promise<void> {
-        if (this._syncInProgress || !navigator.onLine || !supabase) return;
+        if (this._syncInProgress) return;
+        // On native (Capacitor), navigator.onLine can lie — probe the network instead
+        const isOnline = await this._checkConnectivity();
+        if (!isOnline || !supabase) return;
         this._syncInProgress = true;
 
         try {
             const pending = this._getPendingEntries();
             if (pending.length === 0) return;
 
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) return;
+            console.log(`[Diary] Syncing ${pending.length} pending entries…`);
 
-            const synced: string[] = [];
+            const user = (await supabase.auth.getUser()).data.user;
+            if (!user) {
+                console.warn('[Diary] No authenticated user — skipping sync');
+                return;
+            }
+
+            let syncedCount = 0;
 
             for (const entry of pending) {
                 try {
@@ -368,7 +379,20 @@ class DiaryServiceClass {
                         .single();
 
                     if (!error && data) {
-                        synced.push(entry.id);
+                        // Remove this entry from pending immediately (crash-safe)
+                        const remaining = this._getPendingEntries().filter(e => e.id !== entry.id);
+                        this._savePending(remaining);
+                        syncedCount++;
+                        console.log(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
+                    } else if (error) {
+                        console.error(`[Diary] ❌ Supabase error for "${entry.title}":`, error.message, error.code, error.details);
+                        // If it's a duplicate (unique constraint), remove from pending — it's already synced
+                        if (error.code === '23505') {
+                            console.warn(`[Diary] Duplicate detected — removing from pending queue`);
+                            const remaining = this._getPendingEntries().filter(e => e.id !== entry.id);
+                            this._savePending(remaining);
+                            syncedCount++;
+                        }
                     }
                 } catch (e) {
                     console.error('[Diary] Sync failed for entry:', entry.id, e);
@@ -376,16 +400,34 @@ class DiaryServiceClass {
                 }
             }
 
-            // Remove synced entries from pending
-            if (synced.length > 0) {
-                const remaining = pending.filter(e => !synced.includes(e.id));
-                this._savePending(remaining);
+            if (syncedCount > 0) {
                 this._invalidateCache();
                 // Refresh cache with server data
-                this._refreshFromServer(50);
+                await this._refreshFromServer(50);
+                console.log(`[Diary] Sync complete — ${syncedCount} entries synced`);
             }
         } finally {
             this._syncInProgress = false;
+        }
+    }
+
+    /** Reliable connectivity check — navigator.onLine is unreliable on iOS/Capacitor */
+    private async _checkConnectivity(): Promise<boolean> {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            // If browser says offline, trust it
+            return false;
+        }
+        // Probe Supabase with a lightweight request
+        try {
+            const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
+            if (!supabaseUrl) return navigator?.onLine ?? true;
+            const res = await fetch(`${supabaseUrl}/rest/v1/`, {
+                method: 'HEAD',
+                signal: AbortSignal.timeout(5000),
+            });
+            return res.ok || res.status === 401; // 401 = reachable but auth required — still online
+        } catch {
+            return false;
         }
     }
 
