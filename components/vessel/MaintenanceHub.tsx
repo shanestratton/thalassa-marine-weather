@@ -191,10 +191,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // Add task form
     const [showAddForm, setShowAddForm] = useState(false);
     const [newTitle, setNewTitle] = useState('');
+    const [newTaskType, setNewTaskType] = useState<'maintenance' | 'repair'>('maintenance');
     const [newCategory, setNewCategory] = useState<MaintenanceCategory>('Engine');
     const [newTrigger, setNewTrigger] = useState<MaintenanceTriggerType>('monthly');
     const [newInterval, setNewInterval] = useState('200');
-    const [newDueDate, setNewDueDate] = useState('');
+    const [newDueDate, setNewDueDate] = useState(new Date().toISOString().split('T')[0]);
     const [newDueHours, setNewDueHours] = useState('');
     const [newDescription, setNewDescription] = useState('');
 
@@ -337,9 +338,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             });
             setShowAddForm(false);
             setNewTitle('');
+            setNewTaskType('maintenance');
             setNewDescription('');
             setNewInterval('200');
-            setNewDueDate('');
+            setNewDueDate(new Date().toISOString().split('T')[0]);
             setNewDueHours('');
             await loadTasks();
         } catch (e) {
@@ -728,26 +730,53 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
-                            <h3 className="text-lg font-black text-white mb-5">New Maintenance Task</h3>
+                            <h3 className="text-base font-black text-white mb-4">New Task</h3>
 
-                            {/* Category chips — first */}
+                            {/* ── Task Type Selector ── */}
                             <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {CATEGORIES.map(cat => (
-                                        <button
-                                            key={cat.id}
-                                            onClick={() => setNewCategory(cat.id)}
-                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
-                                                }`}
-                                        >
-                                            {cat.icon} {cat.label}
-                                        </button>
-                                    ))}
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-2">What type of job?</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={() => { setNewTaskType('maintenance'); setNewCategory('Engine'); }}
+                                        className={`py-3 rounded-xl text-sm font-black transition-all text-center ${newTaskType === 'maintenance'
+                                                ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
+                                                : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                            }`}
+                                    >
+                                        🔄 Maintenance
+                                    </button>
+                                    <button
+                                        onClick={() => { setNewTaskType('repair'); setNewCategory('Repair'); }}
+                                        className={`py-3 rounded-xl text-sm font-black transition-all text-center ${newTaskType === 'repair'
+                                                ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
+                                                : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                            }`}
+                                    >
+                                        🔧 Repair
+                                    </button>
                                 </div>
                             </div>
+
+                            {/* Category chips — only for Maintenance type */}
+                            {newTaskType === 'maintenance' && (
+                                <div className="mb-3">
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1.5">Category</label>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                        {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
+                                            <button
+                                                key={cat.id}
+                                                onClick={() => setNewCategory(cat.id)}
+                                                className={`py-1.5 rounded-full text-[11px] font-bold transition-all text-center ${newCategory === cat.id
+                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                    : 'bg-white/5 text-gray-500 border border-white/5'
+                                                    }`}
+                                            >
+                                                {cat.icon} {cat.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Title */}
                             <div className="mb-4">
@@ -827,13 +856,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Next due — for time-based triggers */}
                             {newTrigger !== 'engine_hours' && newCategory !== 'Repair' && (
-                                <div className="mb-4">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Starts From</label>
+                                <div className="mb-4 min-w-0">
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Starts From</label>
                                     <input
                                         type="date"
                                         value={newDueDate}
                                         onChange={e => setNewDueDate(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                        className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                     />
                                     <p className="text-[11px] text-gray-500 mt-1">
                                         Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
