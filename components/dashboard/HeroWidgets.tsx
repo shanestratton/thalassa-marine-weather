@@ -16,6 +16,7 @@ import {
     CompassIcon,
     DropletIcon
 } from '../Icons';
+import { AnimatedRainIcon, AnimatedSunIcon, AnimatedWaveIcon } from '../ui/AnimatedIcons';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import {
     convertTemp,
@@ -31,6 +32,9 @@ const iconAnimStyles = `
 @keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}
 @keyframes hw-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 @keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}
+@keyframes hw-ripple{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
+@keyframes hw-wobble{0%,100%{transform:rotate(0deg)}20%{transform:rotate(-8deg)}40%{transform:rotate(6deg)}60%{transform:rotate(-4deg)}80%{transform:rotate(2deg)}}
+@keyframes hw-sparkle{0%,100%{transform:scale(1);opacity:0.85}50%{transform:scale(1.15);opacity:1}}
 `;
 
 interface HeroWidgetsProps {
@@ -317,7 +321,7 @@ const BarometerCell: React.FC<{
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
             {/* Label — no trend arrow here (moved to value line) */}
             <div className="flex items-center gap-1.5 opacity-90">
-                <span className="w-3 h-3 text-emerald-400"><GaugeIcon className="w-3 h-3" /></span>
+                <span className="w-3 h-3 text-emerald-400" style={{ display: 'inline-flex', animation: 'hw-wobble 4s ease-in-out infinite' }}><GaugeIcon className="w-3 h-3" /></span>
                 <span className="text-[11px] font-sans font-bold tracking-widest uppercase text-emerald-300">HPA</span>
             </div>
 
@@ -460,7 +464,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Wave/Swell Height — adapts to location type */}
                 <InstrumentCell
                     label={isOffshore ? 'SWELL' : 'WAVE'}
-                    icon={<WaveIcon className="w-3 h-3" />}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-ripple 2.5s ease-in-out infinite' }}><WaveIcon className="w-3 h-3" /></span>}
                     value={waveHeight ?? '--'}
                     unit={waveUnit}
                     trend={trends?.waveHeight}
@@ -471,7 +475,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Period — wave or swell period */}
                 <InstrumentCell
                     label="PER."
-                    icon={<WaveIcon className="w-3 h-3" />}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-ripple 2.5s ease-in-out infinite 0.4s' }}><WaveIcon className="w-3 h-3" /></span>}
                     value={wavePeriod}
                     unit="s"
                     dirDeg={swellDirDeg}
@@ -487,7 +491,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* UV */}
                 <InstrumentCell
                     label="UV"
-                    icon={<SunIcon className="w-3 h-3" />}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-sparkle 3s ease-in-out infinite' }}><AnimatedSunIcon className="w-3 h-3 text-emerald-400" /></span>}
                     value={uvVal}
                 />
 
@@ -510,7 +514,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Humidity */}
                 <InstrumentCell
                     label="HUM"
-                    icon={<DropletIcon className="w-3 h-3" />}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
                     value={humidityVal}
                     unit="%"
                     trend={trends?.humidity}
@@ -520,7 +524,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Rain */}
                 <InstrumentCell
                     label="RAIN"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
+                    icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                     value={rainChance}
                     unit="%"
                 />
