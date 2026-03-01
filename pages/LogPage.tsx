@@ -90,11 +90,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         archivedVoyages,
         handleArchiveVoyage,
         handleUnarchiveVoyage,
-        // Planned → Actual linking
-        plannedVoyages,
-        getPlannedEntriesForVoyage,
-        linkVoyageToPlan,
-        unlinkVoyageFromPlan,
+
     } = useLogPageState();
 
     const toast = useToast();
@@ -396,7 +392,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </div>
                                 ) : (
                                     voyageGroups
-                                        .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onArchive={() => handleArchiveVoyage(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} availablePlans={plannedVoyages} getLinkedEntries={getPlannedEntriesForVoyage} onLink={linkVoyageToPlan} onUnlink={unlinkVoyageFromPlan} />)
+                                        .map(voyage => <VoyageCard key={voyage.voyageId} voyage={voyage} isSelected={selectedVoyageId === voyage.voyageId} isExpanded={expandedVoyages.has(voyage.voyageId)} onToggle={() => toggleVoyage(voyage.voyageId)} onSelect={() => dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })} onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)} onArchive={() => handleArchiveVoyage(voyage.voyageId)} onShowMap={() => { dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId }); dispatch({ type: 'SHOW_TRACK_MAP', show: true }); }} filteredEntries={filteredEntries} onDeleteEntry={handleDeleteEntry} onEditEntry={handleEditEntry} />)
                                 )}
 
                                 {/* ── Archived Voyages ── */}
@@ -486,7 +482,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 isOpen={showTrackMap}
                 onClose={() => dispatch({ type: 'SHOW_TRACK_MAP', show: false })}
                 entries={selectedVoyageId ? entries.filter(e => e.voyageId === selectedVoyageId) : entries}
-                plannedEntries={selectedVoyageId ? getPlannedEntriesForVoyage(selectedVoyageId) : undefined}
             />
 
             {/* Community Track Browser */}
@@ -1277,12 +1272,7 @@ const VoyageCard: React.FC<{
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
-    // Linking
-    availablePlans?: { voyageId: string; entries: ShipLogEntry[] }[];
-    getLinkedEntries?: (voyageId: string) => ShipLogEntry[];
-    onLink?: (actualVoyageId: string, planVoyageId: string) => Promise<boolean>;
-    onUnlink?: (actualVoyageId: string) => Promise<boolean>;
-}> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onArchive, onShowMap, filteredEntries, onDeleteEntry, onEditEntry, availablePlans, getLinkedEntries, onLink, onUnlink }) => {
+}> = React.memo(({ voyage, isSelected, isExpanded, onToggle, onSelect, onDelete, onArchive, onShowMap, filteredEntries, onDeleteEntry, onEditEntry }) => {
     // --- Swipe-to-reveal actions ---
     const [swipeOffset, setSwipeOffset] = useState(0);
     const touchStartX = useRef(0);
@@ -1313,18 +1303,7 @@ const VoyageCard: React.FC<{
     const isImported = voyage.entries.some(e => e.source && e.source !== 'device' && e.source !== 'planned_route');
     const isPlannedRoute = voyage.entries.some(e => e.source === 'planned_route');
 
-    // Linked plan detection
-    const linkedPlanId = voyage.entries.find(e => e.linkedPlanId)?.linkedPlanId;
-    const linkedPlanEntries = linkedPlanId && getLinkedEntries ? getLinkedEntries(voyage.voyageId) : [];
-    const hasLinkedPlan = linkedPlanEntries.length >= 2;
-    const [showLinkPicker, setShowLinkPicker] = useState(false);
 
-    // Comparison stats
-    const planDist = hasLinkedPlan ? Math.max(0, ...linkedPlanEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
-    const planSorted = hasLinkedPlan ? [...linkedPlanEntries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()) : [];
-    const planDurationMs = planSorted.length >= 2 ? new Date(planSorted[planSorted.length - 1].timestamp).getTime() - new Date(planSorted[0].timestamp).getTime() : 0;
-    const distDelta = dist - planDist;
-    const timeDeltaMs = durationMs - planDurationMs;
 
     // Reverse-geocode start and end locations for card title
     const [startLocName, setStartLocName] = useState<string | null>(null);
@@ -1478,67 +1457,7 @@ const VoyageCard: React.FC<{
                     {isImported && !isPlannedRoute && (
                         <div className="text-[11px] text-amber-400/60 mt-1">⚠ Unverified track — not from onboard GPS</div>
                     )}
-                    {/* Linked plan comparison */}
-                    {hasLinkedPlan && !isPlannedRoute && (
-                        <div className="mt-1.5 flex items-center gap-2 text-[11px]">
-                            <span className="text-purple-400">📐 vs planned:</span>
-                            <span className={distDelta > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                                {distDelta > 0 ? '+' : ''}{distDelta.toFixed(1)} NM
-                            </span>
-                            <span className="text-slate-500">·</span>
-                            <span className={timeDeltaMs > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                                {timeDeltaMs > 0 ? '+' : ''}{Math.round(timeDeltaMs / 60000)}m
-                            </span>
-                            {onUnlink && (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onUnlink(voyage.voyageId); }}
-                                    className="ml-auto text-slate-500 hover:text-red-400 transition-colors"
-                                    title="Unlink from planned route"
-                                >✕</button>
-                            )}
-                        </div>
-                    )}
-                    {/* Link to plan button (non-planned, non-linked, plans available) */}
-                    {!isPlannedRoute && !hasLinkedPlan && availablePlans && availablePlans.length > 0 && (
-                        <div className="mt-1.5 relative">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setShowLinkPicker(!showLinkPicker); }}
-                                className="text-[11px] text-purple-400/70 hover:text-purple-300 transition-colors flex items-center gap-1"
-                            >
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                                </svg>
-                                Link to planned route
-                            </button>
-                            {showLinkPicker && (
-                                <div className="absolute left-0 top-full mt-1 z-50 bg-slate-800 border border-purple-500/20 rounded-lg shadow-xl overflow-hidden min-w-[200px]">
-                                    {availablePlans.map(plan => {
-                                        const pSorted = [...plan.entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                                        const pFirst = pSorted[0];
-                                        const pLast = pSorted[pSorted.length - 1];
-                                        return (
-                                            <button
-                                                key={plan.voyageId}
-                                                onClick={async (e) => {
-                                                    e.stopPropagation();
-                                                    if (onLink) await onLink(voyage.voyageId, plan.voyageId);
-                                                    setShowLinkPicker(false);
-                                                }}
-                                                className="w-full px-3 py-2 text-left hover:bg-purple-500/10 transition-colors border-b border-white/5 last:border-b-0"
-                                            >
-                                                <div className="text-xs text-white font-medium truncate">
-                                                    {pFirst?.waypointName || 'Start'} → {pLast?.waypointName || 'End'}
-                                                </div>
-                                                <div className="text-[11px] text-slate-500">
-                                                    {plan.entries.length} pts · {Math.max(0, ...plan.entries.map(e => e.cumulativeDistanceNM || 0)).toFixed(1)} NM
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    )}
+
                 </button>
 
                 {/* RIGHT — action buttons */}
