@@ -284,69 +284,49 @@ const InstrumentCell: React.FC<{
 }> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick }) => {
     return (
         <div className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`} onClick={onClick}>
-            {/* Label with icon — no trend arrow here for clean alignment */}
-            <div className="flex items-center gap-1.5 opacity-90">
-                <span className={`w-3 h-3 ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}>{icon}</span>
-                <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}>
+            {/* Header: icon + label + trend — locked to a single 12px line */}
+            <div className="flex items-center gap-1 opacity-90 h-3">
+                <span className={`w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}>{icon}</span>
+                <span className={`text-[11px] font-sans font-bold tracking-widest uppercase leading-none ${tealHeading ? 'text-emerald-300' : 'text-amber-300'}`}>
                     {label}
                 </span>
+                <TrendArrow trend={trend} improving={improving} />
             </div>
 
-            {/* Value + trend arrow inline */}
+            {/* Value */}
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
                 {dirDeg !== undefined && dirDeg !== null && <DirectionArrow degrees={dirDeg} size={12} />}
                 <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
                     {value}
                 </span>
                 {unit && <span className="text-[11px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{unit}</span>}
-                <TrendArrow trend={trend} improving={improving} />
             </div>
         </div>
     );
 };
 
-// --- Barometer Cell (HPA — trend inline with value) ---
+// --- Barometer Cell (HPA — consistent with InstrumentCell) ---
 const BarometerCell: React.FC<{
     pressure: string | number;
     trend?: 'up' | 'down' | 'stable';
 }> = ({ pressure, trend }) => {
-    const isRising = trend === 'up';
-    const isFalling = trend === 'down';
-    const isStable = trend === 'stable';
-
     // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
-    const arrowColor = isStable ? 'text-white/60' : isRising ? 'text-emerald-400' : 'text-red-400';
+    const isRising = trend === 'up';
 
     return (
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
-            {/* Label — no trend arrow here (moved to value line) */}
-            <div className="flex items-center gap-1.5 opacity-90">
-                <span className="w-3 h-3 text-emerald-400" style={{ display: 'inline-flex', animation: 'hw-wobble 4s ease-in-out infinite' }}><GaugeIcon className="w-3 h-3" /></span>
-                <span className="text-[11px] font-sans font-bold tracking-widest uppercase text-emerald-300">HPA</span>
+            {/* Header: icon + label + trend — locked to 12px line */}
+            <div className="flex items-center gap-1 opacity-90 h-3">
+                <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400" style={{ animation: 'hw-wobble 4s ease-in-out infinite' }}><GaugeIcon className="w-3 h-3" /></span>
+                <span className="text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">HPA</span>
+                <TrendArrow trend={trend} improving={isRising} />
             </div>
 
-            {/* Value with inline trend arrow */}
+            {/* Value */}
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
                 <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
                     {pressure}
                 </span>
-                {trend && (
-                    <span className={`inline-flex items-center ml-0.5 ${arrowColor}`}>
-                        {isStable ? (
-                            <svg width="10" height="10" viewBox="0 0 8 8" fill="none">
-                                <line x1="1" y1="4" x2="7" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            </svg>
-                        ) : isRising ? (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                <path d="M6 2L9 7H3L6 2Z" fill="currentColor" />
-                            </svg>
-                        ) : (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                <path d="M6 10L3 5H9L6 10Z" fill="currentColor" />
-                            </svg>
-                        )}
-                    </span>
-                )}
             </div>
         </div>
     );
