@@ -111,37 +111,45 @@ ALTER TABLE equipment_register ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ship_documents ENABLE ROW LEVEL SECURITY;
 
 -- equipment_register policies
+DROP POLICY IF EXISTS "Users can view own equipment" ON equipment_register;
 CREATE POLICY "Users can view own equipment"
     ON equipment_register FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own equipment" ON equipment_register;
 CREATE POLICY "Users can create own equipment"
     ON equipment_register FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own equipment" ON equipment_register;
 CREATE POLICY "Users can update own equipment"
     ON equipment_register FOR UPDATE
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own equipment" ON equipment_register;
 CREATE POLICY "Users can delete own equipment"
     ON equipment_register FOR DELETE
     USING (auth.uid() = user_id);
 
 -- ship_documents policies
+DROP POLICY IF EXISTS "Users can view own documents" ON ship_documents;
 CREATE POLICY "Users can view own documents"
     ON ship_documents FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own documents" ON ship_documents;
 CREATE POLICY "Users can create own documents"
     ON ship_documents FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own documents" ON ship_documents;
 CREATE POLICY "Users can update own documents"
     ON ship_documents FOR UPDATE
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own documents" ON ship_documents;
 CREATE POLICY "Users can delete own documents"
     ON ship_documents FOR DELETE
     USING (auth.uid() = user_id);
@@ -158,6 +166,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Storage RLS: users can only access files in their own folder
 -- Path convention: {user_id}/{equipment|documents}/{filename}
 
+DROP POLICY IF EXISTS "Users can upload to own vault folder" ON storage.objects;
 CREATE POLICY "Users can upload to own vault folder"
     ON storage.objects FOR INSERT
     WITH CHECK (
@@ -165,6 +174,7 @@ CREATE POLICY "Users can upload to own vault folder"
         AND auth.uid()::text = (storage.foldername(name))[1]
     );
 
+DROP POLICY IF EXISTS "Users can view own vault files" ON storage.objects;
 CREATE POLICY "Users can view own vault files"
     ON storage.objects FOR SELECT
     USING (
@@ -172,6 +182,7 @@ CREATE POLICY "Users can view own vault files"
         AND auth.uid()::text = (storage.foldername(name))[1]
     );
 
+DROP POLICY IF EXISTS "Users can update own vault files" ON storage.objects;
 CREATE POLICY "Users can update own vault files"
     ON storage.objects FOR UPDATE
     USING (
@@ -179,9 +190,11 @@ CREATE POLICY "Users can update own vault files"
         AND auth.uid()::text = (storage.foldername(name))[1]
     );
 
+DROP POLICY IF EXISTS "Users can delete own vault files" ON storage.objects;
 CREATE POLICY "Users can delete own vault files"
     ON storage.objects FOR DELETE
     USING (
         bucket_id = 'vessel_vault'
         AND auth.uid()::text = (storage.foldername(name))[1]
     );
+
