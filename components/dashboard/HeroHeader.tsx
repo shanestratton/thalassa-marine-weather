@@ -1,56 +1,23 @@
-import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useEnvironment } from '../../context/ThemeContext';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
 
 /**
- * AutoFitCondition — auto-sizing text that shrinks/grows to fit one line.
- * Uses a binary search to find the largest font that fits without overflow.
+ * ConditionText — simple text sizing based on string length.
+ * No JavaScript DOM measurement = no flash on render.
  */
-const AutoFitCondition: React.FC<{ text: string; maxFontPx: number; minFontPx: number }> = ({ text, maxFontPx, minFontPx }) => {
-    const spanRef = useRef<HTMLSpanElement>(null);
-    const [fontSize, setFontSize] = useState(maxFontPx);
-
-    useEffect(() => {
-        const el = spanRef.current;
-        if (!el) return;
-
-        const fit = () => {
-            const parent = el.parentElement;
-            if (!parent) return;
-
-            // Available width (subtract siblings like icon, dot, gap)
-            const parentWidth = parent.clientWidth;
-            // Use a test span approach: start at max and shrink
-            let lo = minFontPx, hi = maxFontPx, best = minFontPx;
-            while (lo <= hi) {
-                const mid = Math.floor((lo + hi) / 2);
-                el.style.fontSize = `${mid}px`;
-                if (el.scrollWidth <= parentWidth * 0.85) { // 85% to leave room for icon/dot
-                    best = mid;
-                    lo = mid + 1;
-                } else {
-                    hi = mid - 1;
-                }
-            }
-            setFontSize(best);
-            el.style.fontSize = `${best}px`;
-        };
-
-        // Fit on mount and resize
-        fit();
-        const ro = new ResizeObserver(fit);
-        ro.observe(el.parentElement!);
-        return () => ro.disconnect();
-    }, [text, maxFontPx, minFontPx]);
+const ConditionText: React.FC<{ text: string; live?: boolean }> = ({ text, live }) => {
+    // Pick size based on length: short conditions get bigger text
+    const sizeClass = text.length <= 8
+        ? (live ? 'text-xl' : 'text-lg')   // "Clear", "Cloudy", "Sunny"
+        : text.length <= 14
+            ? (live ? 'text-lg' : 'text-base') // "Mostly Clear", "Partly Cloudy"
+            : 'text-sm';                        // "Thunderstorms"
 
     return (
-        <span
-            ref={spanRef}
-            className="text-ivory font-mono font-bold tracking-tight leading-none whitespace-nowrap"
-            style={{ fontSize: `${fontSize}px` }}
-        >
+        <span className={`${sizeClass} text-ivory font-mono font-bold tracking-tight leading-none`}>
             {text}
         </span>
     );
@@ -175,7 +142,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
                                 style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                             />
-                            <AutoFitCondition text={displayCondition} maxFontPx={28} minFontPx={14} />
+                            <ConditionText text={displayCondition} live />
                         </div>
                     ) : (
                         <div className="flex flex-col items-center">
@@ -183,7 +150,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 {dateLabel}
                             </span>
                             <div className="flex items-center justify-center gap-2 max-w-full">
-                                <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={13} />
+                                <ConditionText text={displayCondition} />
                             </div>
                             {timeLabel && (
                                 <span className="text-sky-400/70 text-[11px] font-bold font-mono leading-none mt-1">
