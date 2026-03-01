@@ -169,21 +169,21 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* CENTER: Status dot + icon + condition */}
                 <div className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
                     {isLive ? (
-                        <div className="flex items-center gap-2 max-w-full">
+                        <div className="flex items-center justify-center gap-2 max-w-full">
                             {/* Pulsing green live dot */}
                             <div
                                 className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
                                 style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                             />
-                            <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={12} />
+                            <AutoFitCondition text={displayCondition} maxFontPx={28} minFontPx={14} />
                         </div>
                     ) : (
                         <div className="flex flex-col items-center">
                             <span className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
                                 {dateLabel}
                             </span>
-                            <div className="flex items-center gap-2 max-w-full">
-                                <AutoFitCondition text={displayCondition} maxFontPx={20} minFontPx={11} />
+                            <div className="flex items-center justify-center gap-2 max-w-full">
+                                <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={13} />
                             </div>
                             {timeLabel && (
                                 <span className="text-sky-400/70 text-[11px] font-bold font-mono leading-none mt-1">
