@@ -123,12 +123,14 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
             >
-                {/* Row 1: Category icon + Title + 3-dot menu */}
+                {/* Category badge — top of card */}
+                <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px]">{catConfig?.icon || '📋'}</span>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{catConfig?.label || task.category}</span>
+                </div>
+                {/* Row 1: Title + 3-dot menu */}
                 <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="text-xs shrink-0">{catConfig?.icon || '📋'}</span>
-                        <h4 className="text-sm font-bold text-white truncate">{task.title}</h4>
-                    </div>
+                    <h4 className="text-sm font-bold text-white truncate flex-1 min-w-0">{task.title}</h4>
                     <button
                         onClick={(e) => { e.stopPropagation(); onTap(); }}
                         className="p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"

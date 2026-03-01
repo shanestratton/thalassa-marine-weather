@@ -255,31 +255,38 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     {/* Main row */}
                                     <button
                                         onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                                        className="w-full px-3 py-3 flex items-center gap-3 text-left"
+                                        className="w-full px-3 py-3 text-left"
                                     >
-                                        <span className="text-xs shrink-0">{CATEGORY_ICONS[item.category]}</span>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
-                                            {item.location_zone && (
-                                                <p className="text-[11px] text-gray-500 truncate">
-                                                    📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
+                                        {/* Category badge — top of card */}
+                                        <div className="flex items-center gap-1.5 mb-1.5">
+                                            <span className="text-[10px]">{CATEGORY_ICONS[item.category]}</span>
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{item.category}</span>
+                                        </div>
+                                        {/* Name + quantity row */}
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
+                                                {item.location_zone && (
+                                                    <p className="text-[11px] text-gray-500 truncate">
+                                                        📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
+                                                    </p>
+                                                )}
+                                                {isExpired && (
+                                                    <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
+                                                )}
+                                                {isExpiringSoon && (
+                                                    <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
+                                                )}
+                                            </div>
+                                            <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
+                                                <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
+                                                    {item.quantity}
                                                 </p>
-                                            )}
-                                            {isExpired && (
-                                                <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
-                                            )}
-                                            {isExpiringSoon && (
-                                                <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
-                                            )}
+                                            </div>
+                                            <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                            </svg>
                                         </div>
-                                        <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
-                                            <p className={`text-sm font-black tabular-nums ${isLow ? 'text-amber-400' : 'text-white'}`}>
-                                                {item.quantity}
-                                            </p>
-                                        </div>
-                                        <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                        </svg>
                                     </button>
 
                                     {/* Expanded detail */}
