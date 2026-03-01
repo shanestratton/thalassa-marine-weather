@@ -20,10 +20,14 @@ interface FormFieldProps {
     className?: string;
     /** Use monospace font (for barcodes, serials) */
     mono?: boolean;
+    /** Input mode for mobile keyboard (e.g. 'numeric') */
+    inputMode?: 'text' | 'numeric' | 'decimal' | 'tel' | 'email' | 'url';
+    /** Textarea rows (default: 3) */
+    rows?: number;
 }
 
-const BASE_INPUT = 'w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500';
-const DATE_INPUT = 'w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]';
+const BASE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500';
+const DATE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 transition-colors [color-scheme:dark]';
 
 export const FormField: React.FC<FormFieldProps> = ({
     label,
@@ -37,6 +41,8 @@ export const FormField: React.FC<FormFieldProps> = ({
     min,
     className = '',
     mono,
+    inputMode,
+    rows = 3,
 }) => {
     const isDate = type === 'date';
     const isTextarea = type === 'textarea';
@@ -54,8 +60,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                     placeholder={placeholder}
                     disabled={disabled}
                     autoFocus={autoFocus}
-                    rows={3}
-                    className={inputClass}
+                    rows={rows}
+                    className={`${inputClass} resize-none`}
                 />
             ) : (
                 <input
@@ -66,6 +72,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     disabled={disabled}
                     autoFocus={autoFocus}
                     min={min}
+                    inputMode={inputMode}
                     className={inputClass}
                 />
             )}

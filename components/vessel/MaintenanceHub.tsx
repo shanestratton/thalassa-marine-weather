@@ -22,6 +22,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -170,16 +171,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [sheetNotes, setSheetNotes] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
-    // Add task form
+    // Add/Edit task form (consolidated)
+    const { form, setField, setCategory: setFormCategory, setTaskType, setTrigger, reset: resetForm, populate: populateForm } = useMaintenanceForm();
     const [showAddForm, setShowAddForm] = useState(false);
-    const [newTitle, setNewTitle] = useState('');
-    const [newTaskType, setNewTaskType] = useState<'maintenance' | 'repair'>('maintenance');
-    const [newCategory, setNewCategory] = useState<MaintenanceCategory>('Engine');
-    const [newTrigger, setNewTrigger] = useState<MaintenanceTriggerType>('monthly');
-    const [newInterval, setNewInterval] = useState('200');
-    const [newDueDate, setNewDueDate] = useState(new Date().toISOString().split('T')[0]);
-    const [newDueHours, setNewDueHours] = useState('');
-    const [newDescription, setNewDescription] = useState('');
 
     // History
     const [historyItems, setHistoryItems] = useState<MaintenanceHistory[]>([]);
@@ -294,51 +288,46 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // ── Add Task ──
     const handleAddTask = useCallback(async () => {
-        if (!newTitle.trim()) return;
+        if (!form.title.trim()) return;
         try {
             triggerHaptic('medium');
 
             // Repairs: auto-set to daily trigger with today's due date
             // They'll go red almost immediately — fix it or delete it!
-            const isRepair = newCategory === 'Repair';
-            const triggerType = isRepair ? 'daily' : newTrigger;
+            const isRepair = form.category === 'Repair';
+            const triggerType = isRepair ? 'daily' : form.trigger;
 
             // Auto-compute interval and due date for period-based triggers
-            const periodDays = isRepair ? 1 : PERIOD_DAYS[newTrigger];
+            const periodDays = isRepair ? 1 : PERIOD_DAYS[form.trigger];
             const intervalValue = triggerType === 'engine_hours'
-                ? (newInterval ? parseInt(newInterval, 10) : null)
+                ? (form.interval ? parseInt(form.interval, 10) : null)
                 : (periodDays ?? null);
             const dueDate = triggerType === 'engine_hours'
                 ? null
                 : (isRepair
                     ? new Date().toISOString().split('T')[0]
-                    : (newDueDate || new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0]));
+                    : (form.dueDate || new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0]));
 
             await MaintenanceService.createTask({
-                title: newTitle.trim(),
-                description: newDescription.trim() || null,
-                category: newCategory,
+                title: form.title.trim(),
+                description: form.description.trim() || null,
+                category: form.category,
                 trigger_type: triggerType,
                 interval_value: intervalValue,
                 next_due_date: dueDate,
-                next_due_hours: triggerType === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
+                next_due_hours: triggerType === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
                 last_completed: null,
                 is_active: true,
             });
             setShowAddForm(false);
             toast.success('Task created');
-            setNewTitle('');
-            setNewTaskType('maintenance');
-            setNewDescription('');
-            setNewInterval('200');
-            setNewDueDate(new Date().toISOString().split('T')[0]);
-            setNewDueHours('');
+            resetForm();
             await loadTasks();
         } catch (e) {
             console.error('Failed to create task:', e);
             toast.error('Failed to create task');
         }
-    }, [newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
+    }, [form, resetForm, loadTasks]);
 
     // ── Load History ──
     const loadHistory = useCallback(async (taskId: string) => {
@@ -395,36 +384,38 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── Edit Task ──
     const openEditForm = useCallback((task: TaskWithStatus) => {
         setEditTask(task);
-        setNewTitle(task.title);
-        setNewCategory(task.category);
-        setNewTrigger(task.trigger_type);
-        setNewInterval(String(task.interval_value || '200'));
-        setNewDueDate(task.next_due_date ? task.next_due_date.split('T')[0] : '');
-        setNewDueHours(task.next_due_hours !== null ? String(task.next_due_hours) : '');
-        setNewDescription(task.description || '');
+        populateForm({
+            title: task.title,
+            category: task.category,
+            trigger: task.trigger_type,
+            interval: String(task.interval_value || '200'),
+            dueDate: task.next_due_date ? task.next_due_date.split('T')[0] : '',
+            dueHours: task.next_due_hours !== null ? String(task.next_due_hours) : '',
+            description: task.description || '',
+        });
         setShowEditForm(true);
-    }, []);
+    }, [populateForm]);
 
     const handleEditTask = useCallback(async () => {
-        if (!editTask || !newTitle.trim()) return;
+        if (!editTask || !form.title.trim()) return;
         try {
             triggerHaptic('medium');
-            const periodDays = PERIOD_DAYS[newTrigger];
-            const intervalValue = newTrigger === 'engine_hours'
-                ? (newInterval ? parseInt(newInterval, 10) : null)
+            const periodDays = PERIOD_DAYS[form.trigger];
+            const intervalValue = form.trigger === 'engine_hours'
+                ? (form.interval ? parseInt(form.interval, 10) : null)
                 : (periodDays ?? null);
-            const dueDate = newTrigger === 'engine_hours'
+            const dueDate = form.trigger === 'engine_hours'
                 ? null
-                : (newDueDate || null);
+                : (form.dueDate || null);
 
             await MaintenanceService.updateTask(editTask.id, {
-                title: newTitle.trim(),
-                description: newDescription.trim() || null,
-                category: newCategory,
-                trigger_type: newTrigger,
+                title: form.title.trim(),
+                description: form.description.trim() || null,
+                category: form.category,
+                trigger_type: form.trigger,
                 interval_value: intervalValue,
                 next_due_date: dueDate,
-                next_due_hours: newTrigger === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
+                next_due_hours: form.trigger === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
             });
             setShowEditForm(false);
             setEditTask(null);
@@ -435,7 +426,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             console.error('Failed to update task:', e);
             toast.error('Failed to update task');
         }
-    }, [editTask, newTitle, newDescription, newCategory, newTrigger, newInterval, newDueDate, newDueHours, loadTasks]);
+    }, [editTask, form, loadTasks]);
 
     // ── Render ──
     return (
@@ -729,8 +720,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
                                     <div className="grid grid-cols-2 gap-2">
                                         <button
-                                            onClick={() => { setNewTaskType('maintenance'); setNewCategory('Engine'); }}
-                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${newTaskType === 'maintenance'
+                                            onClick={() => { setTaskType('maintenance'); setFormCategory('Engine'); }}
+                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${form.taskType === 'maintenance'
                                                 ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
                                                 }`}
@@ -738,8 +729,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             🔄 Maintenance
                                         </button>
                                         <button
-                                            onClick={() => { setNewTaskType('repair'); setNewCategory('Repair'); }}
-                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${newTaskType === 'repair'
+                                            onClick={() => { setTaskType('repair'); setFormCategory('Repair'); }}
+                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${form.taskType === 'repair'
                                                 ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
                                                 }`}
@@ -750,15 +741,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
 
                                 {/* Category chips — only for Maintenance type */}
-                                {newTaskType === 'maintenance' && (
+                                {form.taskType === 'maintenance' && (
                                     <div>
                                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
                                         <div className="grid grid-cols-3 gap-1.5">
                                             {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
                                                 <button
                                                     key={cat.id}
-                                                    onClick={() => setNewCategory(cat.id)}
-                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${newCategory === cat.id
+                                                    onClick={() => setFormCategory(cat.id)}
+                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${form.category === cat.id
                                                         ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                         : 'bg-white/5 text-gray-500 border border-white/5'
                                                         }`}
@@ -775,13 +766,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Task Name *</label>
                                     <input
                                         type="text"
-                                        value={newTitle}
-                                        onChange={e => setNewTitle(e.target.value)}
+                                        value={form.title}
+                                        onChange={e => setField('title', e.target.value)}
                                         placeholder="Main Engine Oil Change"
                                         autoFocus
-                                        className={`w-full bg-white/5 border rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors ${!newTitle.trim() && newTitle !== '' ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30'}`}
+                                        className={`w-full bg-white/5 border rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors ${!form.title.trim() && form.title !== '' ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30'}`}
                                     />
-                                    {!newTitle.trim() && newTitle !== '' && (
+                                    {!form.title.trim() && form.title !== '' && (
                                         <p className="text-[10px] text-red-400 mt-1">Task name is required</p>
                                     )}
                                 </div>
@@ -790,8 +781,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <div>
                                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
                                     <textarea
-                                        value={newDescription}
-                                        onChange={e => setNewDescription(e.target.value)}
+                                        value={form.description}
+                                        onChange={e => setField('description', e.target.value)}
                                         placeholder="Don't forget to check the bottom for rust..."
                                         rows={1}
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none"
@@ -799,15 +790,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
 
                                 {/* Trigger type — hidden for Repair */}
-                                {newCategory !== 'Repair' && (
+                                {form.category !== 'Repair' && (
                                     <div>
                                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
                                         <div className="grid grid-cols-3 gap-1.5">
                                             {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                                 <button
                                                     key={t}
-                                                    onClick={() => setNewTrigger(t)}
-                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${newTrigger === t
+                                                    onClick={() => setTrigger(t)}
+                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${form.trigger === t
                                                         ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                         : 'bg-white/5 text-gray-500 border border-white/5'
                                                         }`}
@@ -820,15 +811,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 )}
 
                                 {/* Interval — only for engine hours */}
-                                {newTrigger === 'engine_hours' && newCategory !== 'Repair' && (
+                                {form.trigger === 'engine_hours' && form.category !== 'Repair' && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="min-w-0">
                                             <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Interval (Hrs)</label>
                                             <input
                                                 type="text"
                                                 inputMode="numeric"
-                                                value={newInterval}
-                                                onChange={e => setNewInterval(e.target.value)}
+                                                value={form.interval}
+                                                onChange={e => setField('interval', e.target.value)}
                                                 placeholder="200"
                                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                                             />
@@ -838,8 +829,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             <input
                                                 type="text"
                                                 inputMode="numeric"
-                                                value={newDueHours}
-                                                onChange={e => setNewDueHours(e.target.value)}
+                                                value={form.dueHours}
+                                                onChange={e => setField('dueHours', e.target.value)}
                                                 placeholder={String(engineHours + 200)}
                                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                                             />
@@ -848,29 +839,29 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 )}
 
                                 {/* Next due — for time-based triggers */}
-                                {newTrigger !== 'engine_hours' && newCategory !== 'Repair' && (
+                                {form.trigger !== 'engine_hours' && form.category !== 'Repair' && (
                                     <div className="min-w-0">
                                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Starts From</label>
                                         <input
                                             type="date"
-                                            value={newDueDate}
-                                            onChange={e => setNewDueDate(e.target.value)}
+                                            value={form.dueDate}
+                                            onChange={e => setField('dueDate', e.target.value)}
                                             className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                         />
                                         <p className="text-[10px] text-gray-500 mt-0.5">
-                                            Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
+                                            Repeats every {TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}
                                         </p>
                                     </div>
                                 )}
                             </div>
 
                             {/* Save — pinned at bottom */}
-                            {!newTitle.trim() && (
+                            {!form.title.trim() && (
                                 <p className="text-[10px] text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
                             )}
                             <button
                                 onClick={handleAddTask}
-                                disabled={!newTitle.trim()}
+                                disabled={!form.title.trim()}
                                 className="w-full py-3 mt-2 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
                             >
                                 Create Task
@@ -900,13 +891,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Task Name */}
                             <div className="mb-3">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                                <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                <input type="text" value={form.title} onChange={e => setField('title', e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Notes */}
                             <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
+                                <textarea value={form.description} onChange={e => setField('description', e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 
                             {/* Category */}
@@ -914,7 +905,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {CATEGORIES.map(cat => (
-                                        <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
                                             {cat.icon} {cat.label}
                                         </button>
                                     ))}
@@ -926,7 +917,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
                                 <div className="grid grid-cols-3 gap-2">
                                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                        <button key={t} onClick={() => setNewTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
                                             {TRIGGER_LABELS[t]}
                                         </button>
                                     ))}
@@ -934,30 +925,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </div>
 
                             {/* Engine hours interval */}
-                            {newTrigger === 'engine_hours' && (
+                            {form.trigger === 'engine_hours' && (
                                 <>
                                     <div className="mb-4">
                                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                        <input type="text" inputMode="numeric" value={form.interval} onChange={e => setField('interval', e.target.value)} placeholder="200" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                     </div>
                                     <div className="mb-6">
                                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                        <input type="text" inputMode="numeric" value={form.dueHours} onChange={e => setField('dueHours', e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                     </div>
                                 </>
                             )}
 
                             {/* Due date — for non-engine triggers */}
-                            {newTrigger !== 'engine_hours' && (
+                            {form.trigger !== 'engine_hours' && (
                                 <div className="mb-6">
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
-                                    <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                    <input type="date" value={form.dueDate} onChange={e => setField('dueDate', e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                 </div>
                             )}
 
                             <button
                                 onClick={handleEditTask}
-                                disabled={!newTitle.trim()}
+                                disabled={!form.title.trim()}
                                 className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
                             >
                                 Save Changes

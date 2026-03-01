@@ -22,6 +22,7 @@ import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
+import { FormField } from '../ui/FormField';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -511,42 +512,21 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     </div>
                 </div>
 
-                <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Equipment Name</label>
-                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
-                </div>
+                <FormField label="Equipment Name" value={newName} onChange={setNewName} placeholder="Main Engine" required />
 
                 <div className="grid grid-cols-2 gap-2">
-                    <div className="min-w-0">
-                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Make</label>
-                        <input type="text" value={newMake} onChange={e => setNewMake(e.target.value)} placeholder="Yanmar" className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
-                    </div>
-                    <div className="min-w-0">
-                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Model</label>
-                        <input type="text" value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="4JH4-TE" className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
-                    </div>
+                    <FormField label="Make" value={newMake} onChange={setNewMake} placeholder="Yanmar" />
+                    <FormField label="Model" value={newModel} onChange={setNewModel} placeholder="4JH4-TE" />
                 </div>
 
-                <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Serial Number</label>
-                    <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-500 outline-none focus:border-sky-500/30" />
-                </div>
+                <FormField label="Serial Number" value={newSerial} onChange={setNewSerial} placeholder="YNM-4JH4TE-12345" mono />
 
                 <div className="grid grid-cols-2 gap-2">
-                    <div className="min-w-0 overflow-hidden">
-                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Install Date</label>
-                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
-                    </div>
-                    <div className="min-w-0 overflow-hidden">
-                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Warranty Expiry</label>
-                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
-                    </div>
+                    <FormField label="Install Date" type="date" value={newInstallDate} onChange={setNewInstallDate} />
+                    <FormField label="Warranty Expiry" type="date" value={newWarrantyExpiry} onChange={setNewWarrantyExpiry} />
                 </div>
 
-                <div>
-                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
-                    <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details..." rows={1} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
-                </div>
+                <FormField label="Notes (Optional)" type="textarea" value={newNotes} onChange={setNewNotes} placeholder="Additional details..." rows={1} />
             </div>
         );
     }
