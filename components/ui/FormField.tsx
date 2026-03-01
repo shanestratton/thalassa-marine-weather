@@ -24,6 +24,10 @@ interface FormFieldProps {
     inputMode?: 'text' | 'numeric' | 'decimal' | 'tel' | 'email' | 'url';
     /** Textarea rows (default: 3) */
     rows?: number;
+    /** Error message — shows red border + message */
+    error?: string;
+    /** Hint text below the field */
+    hint?: string;
 }
 
 const BASE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500';
@@ -43,10 +47,18 @@ export const FormField: React.FC<FormFieldProps> = ({
     mono,
     inputMode,
     rows = 3,
+    error,
+    hint,
 }) => {
     const isDate = type === 'date';
     const isTextarea = type === 'textarea';
-    const inputClass = `${isDate ? DATE_INPUT : BASE_INPUT}${mono ? ' font-mono' : ''} ${className}`.trim();
+    const borderClass = error
+        ? 'border-red-500/40 focus:border-red-500/60'
+        : 'border-white/10 focus:border-sky-500/30';
+    const baseClass = isDate
+        ? `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-2 py-2 text-[13px] text-white outline-none transition-colors [color-scheme:dark]`
+        : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-none transition-colors placeholder:text-gray-500`;
+    const inputClass = `${baseClass}${mono ? ' font-mono' : ''} ${className}`.trim();
 
     return (
         <div className={isDate ? 'min-w-0 overflow-hidden' : undefined}>
@@ -76,6 +88,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                     className={inputClass}
                 />
             )}
+            {error && <p className="text-[10px] text-red-400 mt-1">{error}</p>}
+            {hint && !error && <p className="text-[10px] text-gray-500 mt-0.5">{hint}</p>}
         </div>
     );
 };

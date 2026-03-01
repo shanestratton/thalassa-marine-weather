@@ -23,6 +23,7 @@ import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
+import { FormField } from '../ui/FormField';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -762,32 +763,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 )}
 
                                 {/* Title */}
-                                <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Task Name *</label>
-                                    <input
-                                        type="text"
-                                        value={form.title}
-                                        onChange={e => setField('title', e.target.value)}
-                                        placeholder="Main Engine Oil Change"
-                                        autoFocus
-                                        className={`w-full bg-white/5 border rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors ${!form.title.trim() && form.title !== '' ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30'}`}
-                                    />
-                                    {!form.title.trim() && form.title !== '' && (
-                                        <p className="text-[10px] text-red-400 mt-1">Task name is required</p>
-                                    )}
-                                </div>
+                                <FormField
+                                    label="Task Name"
+                                    value={form.title}
+                                    onChange={v => setField('title', v)}
+                                    placeholder="Main Engine Oil Change"
+                                    autoFocus
+                                    required
+                                    error={!form.title.trim() && form.title !== '' ? 'Task name is required' : undefined}
+                                />
 
                                 {/* Notes */}
-                                <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
-                                    <textarea
-                                        value={form.description}
-                                        onChange={e => setField('description', e.target.value)}
-                                        placeholder="Don't forget to check the bottom for rust..."
-                                        rows={1}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none"
-                                    />
-                                </div>
+                                <FormField
+                                    label="Notes (Optional)"
+                                    type="textarea"
+                                    value={form.description}
+                                    onChange={v => setField('description', v)}
+                                    placeholder="Don't forget to check the bottom for rust..."
+                                    rows={1}
+                                />
 
                                 {/* Trigger type — hidden for Repair */}
                                 {form.category !== 'Repair' && (
@@ -813,45 +807,32 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 {/* Interval — only for engine hours */}
                                 {form.trigger === 'engine_hours' && form.category !== 'Repair' && (
                                     <div className="grid grid-cols-2 gap-2">
-                                        <div className="min-w-0">
-                                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Interval (Hrs)</label>
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={form.interval}
-                                                onChange={e => setField('interval', e.target.value)}
-                                                placeholder="200"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
-                                            />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Next Due (Hrs)</label>
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={form.dueHours}
-                                                onChange={e => setField('dueHours', e.target.value)}
-                                                placeholder={String(engineHours + 200)}
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
-                                            />
-                                        </div>
+                                        <FormField
+                                            label="Interval (Hrs)"
+                                            value={form.interval}
+                                            onChange={v => setField('interval', v)}
+                                            placeholder="200"
+                                            inputMode="numeric"
+                                        />
+                                        <FormField
+                                            label="Next Due (Hrs)"
+                                            value={form.dueHours}
+                                            onChange={v => setField('dueHours', v)}
+                                            placeholder={String(engineHours + 200)}
+                                            inputMode="numeric"
+                                        />
                                     </div>
                                 )}
 
                                 {/* Next due — for time-based triggers */}
                                 {form.trigger !== 'engine_hours' && form.category !== 'Repair' && (
-                                    <div className="min-w-0">
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Starts From</label>
-                                        <input
-                                            type="date"
-                                            value={form.dueDate}
-                                            onChange={e => setField('dueDate', e.target.value)}
-                                            className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
-                                        />
-                                        <p className="text-[10px] text-gray-500 mt-0.5">
-                                            Repeats every {TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}
-                                        </p>
-                                    </div>
+                                    <FormField
+                                        label="Starts From"
+                                        type="date"
+                                        value={form.dueDate}
+                                        onChange={v => setField('dueDate', v)}
+                                        hint={`Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`}
+                                    />
                                 )}
                             </div>
 
@@ -890,14 +871,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Task Name */}
                             <div className="mb-3">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                                <input type="text" value={form.title} onChange={e => setField('title', e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                <FormField
+                                    label="Task Name"
+                                    value={form.title}
+                                    onChange={v => setField('title', v)}
+                                    placeholder="Main Engine Oil Change"
+                                    required
+                                />
                             </div>
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={form.description} onChange={e => setField('description', e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
+                                <FormField
+                                    label="Notes (Optional)"
+                                    type="textarea"
+                                    value={form.description}
+                                    onChange={v => setField('description', v)}
+                                    placeholder="Don't forget to check for rust..."
+                                    rows={2}
+                                />
                             </div>
 
                             {/* Category */}
@@ -928,12 +920,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {form.trigger === 'engine_hours' && (
                                 <>
                                     <div className="mb-4">
-                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={form.interval} onChange={e => setField('interval', e.target.value)} placeholder="200" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                        <FormField label="Interval (Hours)" value={form.interval} onChange={v => setField('interval', v)} placeholder="200" inputMode="numeric" />
                                     </div>
                                     <div className="mb-6">
-                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={form.dueHours} onChange={e => setField('dueHours', e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                        <FormField label="Next Due at (Hours)" value={form.dueHours} onChange={v => setField('dueHours', v)} placeholder={String(engineHours + 200)} inputMode="numeric" />
                                     </div>
                                 </>
                             )}
@@ -941,8 +931,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Due date — for non-engine triggers */}
                             {form.trigger !== 'engine_hours' && (
                                 <div className="mb-6">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
-                                    <input type="date" value={form.dueDate} onChange={e => setField('dueDate', e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                    <FormField label="Next Due Date" type="date" value={form.dueDate} onChange={v => setField('dueDate', v)} />
                                 </div>
                             )}
 
@@ -970,6 +959,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Close X */}
                             <button
                                 onClick={() => setShowHistory(false)}
+                                aria-label="Close history"
                                 className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                             >
                                 <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
