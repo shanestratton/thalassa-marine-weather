@@ -263,11 +263,14 @@ body,
   }
 }
 
-/* Animations matching the 'tailwindcss-animate' style classes used in React components */
+/* Animations — GPU-composited via translate3d + will-change */
 .animate-in {
-  animation-duration: 0.5s;
+  animation-duration: 0.3s;
   animation-fill-mode: both;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 .fade-in {
@@ -321,48 +324,48 @@ body,
 
 @keyframes slideInBottom {
   from {
-    transform: translateY(var(--tw-enter-translate-y, 100%));
+    transform: translate3d(0, var(--tw-enter-translate-y, 100%), 0);
     opacity: 0;
   }
 
   to {
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
   }
 }
 
 @keyframes slideInTop {
   from {
-    transform: translateY(var(--tw-enter-translate-y, -100%));
+    transform: translate3d(0, var(--tw-enter-translate-y, -100%), 0);
     opacity: 0;
   }
 
   to {
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
   }
 }
 
 @keyframes slideInRight {
   from {
-    transform: translateX(var(--tw-enter-translate-x, 100%));
+    transform: translate3d(var(--tw-enter-translate-x, 100%), 0, 0);
     opacity: 0;
   }
 
   to {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
     opacity: 1;
   }
 }
 
 @keyframes zoomIn {
   from {
-    transform: scale(var(--tw-enter-scale, 0.95));
+    transform: scale3d(var(--tw-enter-scale, 0.95), var(--tw-enter-scale, 0.95), 1);
     opacity: 0;
   }
 
   to {
-    transform: scale(1);
+    transform: scale3d(1, 1, 1);
     opacity: 1;
   }
 }
@@ -371,12 +374,12 @@ body,
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.99);
+    transform: translate3d(0, 8px, 0) scale3d(0.99, 0.99, 1);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale3d(1, 1, 1);
   }
 }
 
