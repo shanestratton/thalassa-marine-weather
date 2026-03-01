@@ -137,7 +137,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 {/* key ensures React swaps the whole block atomically — no two-step size→text jank */}
                 <div key={`${isLive ? 'live' : dateLabel}-${displayCondition}`} className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
                     {isLive ? (
-                        <div className="flex items-center justify-center gap-2 max-w-full">
+                        <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
                             {/* Pulsing green live dot */}
                             <div
                                 className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
