@@ -19,6 +19,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { EmptyState } from '../ui/EmptyState';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -485,7 +486,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         placeholder="Search documents..."
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                     />
                 </div>
 
@@ -507,22 +508,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             ))}
                         </div>
                     ) : filtered.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                            <div className="relative w-20 h-20 mb-5">
-                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
-                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                </svg>
-                            </div>
-                            <p className="text-base font-bold text-white mb-1">
-                                {searchQuery ? 'No Documents Match' : 'No Documents Filed'}
-                            </p>
-                            <p className="text-sm text-white/60 max-w-[240px] text-center">
-                                {searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>}
+                            title={searchQuery ? 'No Documents Match' : 'No Documents Filed'}
+                            subtitle={searchQuery ? 'Try a different search term.' : 'Slide below to file your first document.'}
+                            className="py-16"
+                        />
                     ) : (
                         /* Grouped by category, alphabetical within */
                         grouped.map(group => (
@@ -595,18 +586,18 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             {/* Document Name */}
                             <div className="mb-3">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
-                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Dates — side by side */}
                             <div className="grid grid-cols-2 gap-2 mb-3 overflow-hidden">
                                 <div className="min-w-0">
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Issue Date</label>
-                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                                 <div className="min-w-0">
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Expiry Date</label>
-                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                             </div>
 
@@ -621,7 +612,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     className="hidden"
                                 />
                                 {formFileUri ? (
-                                    <div className="flex items-center gap-2 bg-white/[0.04] border border-emerald-500/20 rounded-xl px-3 py-2.5">
+                                    <div className="flex items-center gap-2 bg-white/5 border border-emerald-500/20 rounded-xl px-3 py-2.5">
                                         <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
                                         </svg>
@@ -640,7 +631,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <button
                                         type="button"
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="w-full flex items-center justify-center gap-2 bg-white/[0.04] border border-dashed border-white/[0.15] rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white hover:border-sky-500/30 hover:bg-white/[0.06] transition-all active:scale-[0.98]"
+                                        className="w-full flex items-center justify-center gap-2 bg-white/5 border border-dashed border-white/[0.15] rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white hover:border-sky-500/30 hover:bg-white/[0.06] transition-all active:scale-[0.98]"
                                     >
                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
@@ -653,13 +644,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             {/* Notes */}
                             <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 
+                            {!formName.trim() && (
+                                <p className="text-[10px] text-amber-400/80 text-center mt-2">Document name is required</p>
+                            )}
                             <button
                                 onClick={handleSave}
                                 disabled={!formName.trim()}
-                                className={`w-full py-3 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
+                                className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
                                     ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                                     : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                                     }`}

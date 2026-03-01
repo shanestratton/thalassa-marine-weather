@@ -21,6 +21,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { EmptyState } from '../ui/EmptyState';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -172,7 +173,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
 
                     {/* Specs card */}
-                    <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5">
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
                         <h3 className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-4">Specifications</h3>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div>
@@ -218,7 +219,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                         ? 'bg-emerald-500/10 border-emerald-500/30'
                         : warrantyActive === false
                             ? 'bg-red-500/10 border-red-500/30'
-                            : 'bg-white/[0.04] border-white/[0.08]'
+                            : 'bg-white/5 border-white/10'
                         }`}>
                         <h3 className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-2">Warranty Status</h3>
                         {warrantyActive === true && (
@@ -257,7 +258,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
 
                     {/* Notes */}
                     {item.notes && (
-                        <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5">
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
                             <h3 className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-2">Notes</h3>
                             <p className="text-sm text-gray-300 leading-relaxed">{item.notes}</p>
                         </div>
@@ -510,39 +511,39 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                 <div>
                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Equipment Name</label>
-                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                     <div className="min-w-0">
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Make</label>
-                        <input type="text" value={newMake} onChange={e => setNewMake(e.target.value)} placeholder="Yanmar" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        <input type="text" value={newMake} onChange={e => setNewMake(e.target.value)} placeholder="Yanmar" className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                     </div>
                     <div className="min-w-0">
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Model</label>
-                        <input type="text" value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="4JH4-TE" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                        <input type="text" value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="4JH4-TE" className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                     </div>
                 </div>
 
                 <div>
                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Serial Number</label>
-                    <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                    <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-500 outline-none focus:border-sky-500/30" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                     <div className="min-w-0 overflow-hidden">
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Install Date</label>
-                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                     <div className="min-w-0 overflow-hidden">
                         <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Warranty Expiry</label>
-                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                     </div>
                 </div>
 
                 <div>
                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
-                    <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details..." rows={1} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                    <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details..." rows={1} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
                 </div>
             </div>
         );
@@ -595,7 +596,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         placeholder="Search equipment, make, model, serial..."
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                     />
                 </div>
 
@@ -618,22 +619,12 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             ))}
                         </div>
                     ) : groupedItems.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                            <div className="relative w-20 h-20 mb-5">
-                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
-                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                </svg>
-                            </div>
-                            <p className="text-base font-bold text-white mb-1">
-                                {searchQuery ? 'No Equipment Matches' : 'No Equipment Registered'}
-                            </p>
-                            <p className="text-sm text-white/60 max-w-[240px] text-center">
-                                {searchQuery ? 'Try a different search term.' : 'Slide below to register your first item.'}
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.1-5.1a7 7 0 119.9 0l-5.1 5.1a.5.5 0 01-.7 0zM12 7v4m0 0h.01" /></svg>}
+                            title={searchQuery ? 'No Equipment Matches' : 'No Equipment Registered'}
+                            subtitle={searchQuery ? 'Try a different search term.' : 'Slide below to register your first item.'}
+                            className="py-16"
+                        />
                     ) : (
                         groupedItems.map(group => {
                             const catConfig = CATEGORIES.find(c => c.id === group.category);
@@ -642,7 +633,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                     <div className="flex items-center gap-2 mb-2 mt-1">
                                         <span className="text-sm">{catConfig?.icon}</span>
                                         <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
-                                        <span className="text-[10px] text-gray-600 font-bold">({group.items.length})</span>
+                                        <span className="text-[10px] text-gray-500 font-bold">({group.items.length})</span>
                                     </div>
                                     <div className="space-y-2">
                                         {group.items.map(item => (
@@ -818,10 +809,13 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         </button>
                         <h3 className="text-base font-black text-white mb-3">Add Equipment</h3>
                         {renderFormFields()}
+                        {!newName.trim() && (
+                            <p className="text-[10px] text-amber-400/80 text-center mt-2">Equipment name is required</p>
+                        )}
                         <button
                             onClick={handleAdd}
                             disabled={!newName.trim()}
-                            className="w-full py-3 mt-3 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
+                            className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
                         >
                             Register Equipment
                         </button>
