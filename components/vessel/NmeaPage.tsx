@@ -10,6 +10,7 @@ import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { FormField } from '../ui/FormField';
 
 interface NmeaPageProps {
     onBack: () => void;
@@ -91,25 +92,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         {!isConnected && (
                             <div className="flex gap-2 mb-3">
                                 <div className="flex-1">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Host IP</label>
-                                    <input
-                                        type="text"
-                                        value={host}
-                                        onChange={e => setHost(e.target.value)}
-                                        placeholder="192.168.1.1"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 font-mono"
-                                    />
+                                    <FormField label="Host IP" value={host} onChange={setHost} placeholder="192.168.1.1" mono />
                                 </div>
                                 <div className="w-24">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Port</label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={port}
-                                        onChange={e => setPort(e.target.value)}
-                                        placeholder="10110"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 font-mono"
-                                    />
+                                    <FormField label="Port" value={port} onChange={setPort} placeholder="10110" mono inputMode="numeric" />
                                 </div>
                             </div>
                         )}
@@ -117,6 +103,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         <button
                             onClick={isConnected ? handleDisconnect : handleConnect}
                             disabled={connecting || isConnecting}
+                            aria-label={isConnected ? 'Disconnect NMEA' : 'Connect NMEA'}
                             className={`w-full py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50 ${isConnected
                                 ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
                                 : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'

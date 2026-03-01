@@ -19,6 +19,7 @@ import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 
@@ -221,26 +222,41 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         [filtered]);
 
     const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [deletedItem, setDeletedItem] = useState<InventoryItem | null>(null);
+    const deleteTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // ── Delete item ──
+    // ── Soft-delete with undo ──
     const handleDelete = (id: string) => {
-        setDeleteTargetId(id);
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+        triggerHaptic('medium');
+        // Remove from UI immediately
+        setItems(prev => prev.filter(i => i.id !== id));
+        setExpandedId(null);
+        setDeletedItem(item);
+
+        // Schedule actual delete after 5s
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = setTimeout(async () => {
+            try {
+                await InventoryService.delete(id);
+            } catch (e) {
+                console.warn('[InventoryList] delete failed:', e);
+                toast.error('Failed to delete item');
+                // Restore item on failure
+                setItems(prev => [...prev, item]);
+            }
+            setDeletedItem(null);
+        }, 5000);
     };
 
-    const confirmDelete = async () => {
-        if (!deleteTargetId) return;
-        triggerHaptic('medium');
-        try {
-            await InventoryService.delete(deleteTargetId);
-            setItems(prev => prev.filter(i => i.id !== deleteTargetId));
-            setExpandedId(null);
-            toast.success('Item deleted');
-        } catch (e) {
-            console.warn('[InventoryList] delete failed:', e);
-            toast.error('Failed to delete item');
-        } finally {
-            setDeleteTargetId(null);
+    const handleUndoDelete = () => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        if (deletedItem) {
+            setItems(prev => [...prev, deletedItem]);
+            toast.success('Item restored');
         }
+        setDeletedItem(null);
     };
 
     // ── Edit item ──
@@ -417,7 +433,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto no-scrollbar"
                         onClick={e => e.stopPropagation()}
                     >
-                        <button onClick={() => setEditItem(null)} className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                        <button onClick={() => setEditItem(null)} aria-label="Close form" className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
                             <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -538,14 +554,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 </div>
             )}
 
-            <ConfirmDialog
-                isOpen={!!deleteTargetId}
-                title="Delete Item?"
-                message="This will permanently remove this item from your inventory."
-                confirmLabel="Delete"
-                destructive
-                onConfirm={confirmDelete}
-                onCancel={() => setDeleteTargetId(null)}
+            <UndoToast
+                isOpen={!!deletedItem}
+                message={`"${deletedItem?.item_name}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={() => setDeletedItem(null)}
             />
         </div>
     );
