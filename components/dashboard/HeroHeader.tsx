@@ -7,9 +7,9 @@ import { convertTemp } from '../../utils';
 /**
  * ConditionText — simple text sizing based on string length.
  * No JavaScript DOM measurement = no flash on render.
+ * Same size for live + forecast so carousel swipes don't jank.
  */
 const ConditionText: React.FC<{ text: string; live?: boolean }> = ({ text, live }) => {
-    // Pick size based on length: short conditions get bigger text
     const sizeClass = text.length <= 8
         ? (live ? 'text-xl' : 'text-lg')   // "Clear", "Cloudy", "Sunny"
         : text.length <= 14
@@ -134,7 +134,8 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
-                <div className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
+                {/* key ensures React swaps the whole block atomically — no two-step size→text jank */}
+                <div key={`${isLive ? 'live' : dateLabel}-${displayCondition}`} className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full">
                             {/* Pulsing green live dot */}
