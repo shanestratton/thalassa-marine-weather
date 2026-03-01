@@ -18,7 +18,18 @@ interface InventoryScannerProps {
     startInManualMode?: boolean; // Skip camera and go straight to add form
 }
 
-const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical'];
+const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc'];
+
+const CATEGORY_ICONS: Record<InventoryCategory, string> = {
+    Engine: '⚙️',
+    Plumbing: '🔧',
+    Electrical: '⚡',
+    Rigging: '⛵',
+    Safety: '🛟',
+    Provisions: '🥫',
+    Medical: '🏥',
+    Misc: '📦',
+};
 
 export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, startInManualMode = false }) => {
     // ── Scanner state ──
@@ -349,6 +360,25 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 {/* ── Form ── */}
                 <div className="flex-1 overflow-y-auto px-4 no-scrollbar" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="space-y-2">
+                        {/* Category — first */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <div className="grid grid-cols-4 gap-1.5 mt-0.5">
+                                {CATEGORIES.map(cat => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
+                                        className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${newItem.category === cat
+                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
+                                            }`}
+                                    >
+                                        {CATEGORY_ICONS[cat]} {cat}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Item name */}
                         <div>
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
@@ -419,24 +449,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             </div>
                         )}
 
-                        {/* Category */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                            <div className="flex flex-wrap gap-1.5 mt-0.5">
-                                {CATEGORIES.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
-                                        className={`px-3 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
-                                            ? 'bg-sky-600 text-white'
-                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                                            }`}
-                                    >
-                                        {cat}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Quantity + Min */}
                         <div className="grid grid-cols-2 gap-3">
@@ -662,6 +675,25 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     <h3 className="text-lg font-black text-white mb-4">Add New Item</h3>
 
                     <div className="space-y-3">
+                        {/* Category — first */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <div className="grid grid-cols-4 gap-1.5 mt-1">
+                                {CATEGORIES.map(cat => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
+                                        className={`py-1.5 rounded-lg text-[11px] font-bold transition-all text-center ${newItem.category === cat
+                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
+                                            }`}
+                                    >
+                                        {CATEGORY_ICONS[cat]} {cat}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Item name */}
                         <div>
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
@@ -687,24 +719,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             />
                         </div>
 
-                        {/* Category */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                            <div className="flex flex-wrap gap-1.5 mt-1">
-                                {CATEGORIES.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
-                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${newItem.category === cat
-                                            ? 'bg-sky-600 text-white'
-                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                                            }`}
-                                    >
-                                        {cat}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Quantity + Min */}
                         <div className="grid grid-cols-2 gap-3">

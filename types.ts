@@ -220,7 +220,7 @@ export interface GribDownloadState {
 }
 
 /** Inventory item categories */
-export type InventoryCategory = 'Engine' | 'Plumbing' | 'Electrical' | 'Rigging' | 'Safety' | 'Provisions' | 'Medical';
+export type InventoryCategory = 'Engine' | 'Plumbing' | 'Electrical' | 'Rigging' | 'Safety' | 'Provisions' | 'Medical' | 'Misc';
 
 /** Ship's inventory item */
 export interface InventoryItem {

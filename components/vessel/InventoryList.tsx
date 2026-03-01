@@ -21,7 +21,7 @@ interface InventoryListProps {
     onBack: () => void;
 }
 
-const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical'];
+const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc'];
 
 const CATEGORY_ICONS: Record<InventoryCategory, string> = {
     Engine: '⚙️',
@@ -31,6 +31,7 @@ const CATEGORY_ICONS: Record<InventoryCategory, string> = {
     Safety: '🛟',
     Provisions: '🥫',
     Medical: '🏥',
+    Misc: '📦',
 };
 
 export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
