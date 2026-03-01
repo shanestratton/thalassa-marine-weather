@@ -714,167 +714,173 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ADD TASK FORM (Bottom Sheet) */}
                 {/* ═══════════════════════════════════════════ */}
                 {showAddForm && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
+                    <div
+                        className="fixed inset-0 z-[999] flex items-start justify-center"
+                        style={{ padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }}
+                        onClick={() => setShowAddForm(false)}
+                    >
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)] overflow-y-auto"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in zoom-in-95 duration-300 flex flex-col"
+                            style={{ maxHeight: '100%' }}
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Close X */}
                             <button
                                 onClick={() => setShowAddForm(false)}
-                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                                className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                             >
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
-                            <h3 className="text-base font-black text-white mb-4">New Task</h3>
+                            <h3 className="text-base font-black text-white mb-3">New Task</h3>
 
-                            {/* ── Task Type Selector ── */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-2">What type of job?</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        onClick={() => { setNewTaskType('maintenance'); setNewCategory('Engine'); }}
-                                        className={`py-3 rounded-xl text-sm font-black transition-all text-center ${newTaskType === 'maintenance'
+                            {/* Flex content — shrinks to fit */}
+                            <div className="flex-1 min-h-0 flex flex-col gap-2">
+
+                                {/* ── Task Type Selector ── */}
+                                <div>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => { setNewTaskType('maintenance'); setNewCategory('Engine'); }}
+                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${newTaskType === 'maintenance'
                                                 ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                            }`}
-                                    >
-                                        🔄 Maintenance
-                                    </button>
-                                    <button
-                                        onClick={() => { setNewTaskType('repair'); setNewCategory('Repair'); }}
-                                        className={`py-3 rounded-xl text-sm font-black transition-all text-center ${newTaskType === 'repair'
+                                                }`}
+                                        >
+                                            🔄 Maintenance
+                                        </button>
+                                        <button
+                                            onClick={() => { setNewTaskType('repair'); setNewCategory('Repair'); }}
+                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${newTaskType === 'repair'
                                                 ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                            }`}
-                                    >
-                                        🔧 Repair
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Category chips — only for Maintenance type */}
-                            {newTaskType === 'maintenance' && (
-                                <div className="mb-3">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1.5">Category</label>
-                                    <div className="grid grid-cols-3 gap-1.5">
-                                        {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
-                                            <button
-                                                key={cat.id}
-                                                onClick={() => setNewCategory(cat.id)}
-                                                className={`py-1.5 rounded-full text-[11px] font-bold transition-all text-center ${newCategory === cat.id
-                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                    : 'bg-white/5 text-gray-500 border border-white/5'
-                                                    }`}
-                                            >
-                                                {cat.icon} {cat.label}
-                                            </button>
-                                        ))}
+                                                }`}
+                                        >
+                                            🔧 Repair
+                                        </button>
                                     </div>
                                 </div>
-                            )}
 
-                            {/* Title */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                                <input
-                                    type="text"
-                                    value={newTitle}
-                                    onChange={e => setNewTitle(e.target.value)}
-                                    placeholder="Main Engine Oil Change"
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                />
-                            </div>
-
-                            {/* Notes */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea
-                                    value={newDescription}
-                                    onChange={e => setNewDescription(e.target.value)}
-                                    placeholder="Don't forget to check the bottom for rust..."
-                                    rows={2}
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
-                                />
-                            </div>
-
-                            {/* Trigger type — hidden for Repair (ad-hoc items, no schedule) */}
-                            {newCategory !== 'Repair' && (
-                                <div className="mb-4">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                            <button
-                                                key={t}
-                                                onClick={() => setNewTrigger(t)}
-                                                className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newTrigger === t
-                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                    : 'bg-white/5 text-gray-500 border border-white/5'
-                                                    }`}
-                                            >
-                                                {TRIGGER_LABELS[t]}
-                                            </button>
-                                        ))}
+                                {/* Category chips — only for Maintenance type */}
+                                {newTaskType === 'maintenance' && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                            {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() => setNewCategory(cat.id)}
+                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${newCategory === cat.id
+                                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                        : 'bg-white/5 text-gray-500 border border-white/5'
+                                                        }`}
+                                                >
+                                                    {cat.icon} {cat.label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {/* Interval — only for engine hours */}
-                            {newTrigger === 'engine_hours' && (
-                                <>
-                                    <div className="mb-4">
-                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                            Interval (Hours)
-                                        </label>
-                                        <input
-                                            type="text"
-                                            inputMode="numeric"
-                                            value={newInterval}
-                                            onChange={e => setNewInterval(e.target.value)}
-                                            placeholder="200"
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                        />
-                                    </div>
-
-                                    <div className="mb-6">
-                                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                        <input
-                                            type="text"
-                                            inputMode="numeric"
-                                            value={newDueHours}
-                                            onChange={e => setNewDueHours(e.target.value)}
-                                            placeholder={String(engineHours + 200)}
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
-                                        />
-                                    </div>
-                                </>
-                            )}
-
-                            {/* Next due — for time-based triggers */}
-                            {newTrigger !== 'engine_hours' && newCategory !== 'Repair' && (
-                                <div className="mb-4 min-w-0">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Starts From</label>
+                                {/* Title */}
+                                <div>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Task Name</label>
                                     <input
-                                        type="date"
-                                        value={newDueDate}
-                                        onChange={e => setNewDueDate(e.target.value)}
-                                        className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                        type="text"
+                                        value={newTitle}
+                                        onChange={e => setNewTitle(e.target.value)}
+                                        placeholder="Main Engine Oil Change"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
                                     />
-                                    <p className="text-[11px] text-gray-500 mt-1">
-                                        Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
-                                    </p>
                                 </div>
-                            )}
 
-                            {/* Save */}
+                                {/* Notes */}
+                                <div>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
+                                    <textarea
+                                        value={newDescription}
+                                        onChange={e => setNewDescription(e.target.value)}
+                                        placeholder="Don't forget to check the bottom for rust..."
+                                        rows={1}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
+                                    />
+                                </div>
+
+                                {/* Trigger type — hidden for Repair */}
+                                {newCategory !== 'Repair' && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                            {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                                <button
+                                                    key={t}
+                                                    onClick={() => setNewTrigger(t)}
+                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${newTrigger === t
+                                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                        : 'bg-white/5 text-gray-500 border border-white/5'
+                                                        }`}
+                                                >
+                                                    {TRIGGER_LABELS[t]}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Interval — only for engine hours */}
+                                {newTrigger === 'engine_hours' && newCategory !== 'Repair' && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="min-w-0">
+                                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Interval (Hrs)</label>
+                                            <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={newInterval}
+                                                onChange={e => setNewInterval(e.target.value)}
+                                                placeholder="200"
+                                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                            />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Next Due (Hrs)</label>
+                                            <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={newDueHours}
+                                                onChange={e => setNewDueHours(e.target.value)}
+                                                placeholder={String(engineHours + 200)}
+                                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Next due — for time-based triggers */}
+                                {newTrigger !== 'engine_hours' && newCategory !== 'Repair' && (
+                                    <div className="min-w-0">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Starts From</label>
+                                        <input
+                                            type="date"
+                                            value={newDueDate}
+                                            onChange={e => setNewDueDate(e.target.value)}
+                                            className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                        />
+                                        <p className="text-[10px] text-gray-500 mt-0.5">
+                                            Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Save — pinned at bottom */}
                             <button
                                 onClick={handleAddTask}
                                 disabled={!newTitle.trim()}
-                                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
+                                className="w-full py-3 mt-3 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
                             >
                                 Create Task
                             </button>
