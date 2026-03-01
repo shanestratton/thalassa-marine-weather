@@ -8,8 +8,9 @@
  *   Coastal     →  "5s"
  *   Offshore    →  "30s"
  *
- * Also shows a brief flash when a position check is deduped ("✓ No movement"),
- * confirming the system is alive even when the vessel is stationary.
+ * Pulse dot indicates motion state:
+ *   Green pulse — vessel is moving (new positions being recorded)
+ *   Red pulse   — no movement detected (position unchanged / deduped)
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -24,7 +25,7 @@ function formatIntervalLabel(ms: number): string {
 
 export const GpsTrackingIndicator: React.FC = () => {
     const [status, setStatus] = useState(() => ShipLogService.getTrackingStatus());
-    const [showDedup, setShowDedup] = useState(false);
+    const [isStationary, setIsStationary] = useState(false);
     const lastCheckRef = useRef<number | undefined>(undefined);
 
     // Poll tracking status every 1 second so it reacts quickly to mode changes
@@ -33,14 +34,10 @@ export const GpsTrackingIndicator: React.FC = () => {
             const s = ShipLogService.getTrackingStatus();
             setStatus(s);
 
-            // Detect new dedup event: lastCheckTime changed AND it was deduped
+            // Detect motion state from dedup events
             if (s.lastCheckTime && s.lastCheckTime !== lastCheckRef.current) {
                 lastCheckRef.current = s.lastCheckTime;
-                if (s.lastCheckDeduped) {
-                    setShowDedup(true);
-                    // Auto-hide after 2.5 seconds
-                    setTimeout(() => setShowDedup(false), 2500);
-                }
+                setIsStationary(!!s.lastCheckDeduped);
             }
         }, 1000);
         return () => clearInterval(id);
@@ -56,29 +53,34 @@ export const GpsTrackingIndicator: React.FC = () => {
     const label = formatIntervalLabel(intervalMs);
     const gpsStatus = ShipLogService.getGpsStatus();
 
-    // Color based on GPS health
-    const dotColor = gpsStatus === 'locked'
-        ? 'bg-emerald-400'
+    // GPS health dot (inner solid dot)
+    const healthDotColor = gpsStatus === 'locked'
+        ? (isStationary ? 'bg-red-400' : 'bg-emerald-400')
         : gpsStatus === 'stale'
             ? 'bg-amber-400'
             : 'bg-red-500';
 
+    // Badge background
     const bgColor = status.isRapidMode
         ? 'bg-red-500/90 border-red-400/40'
-        : 'bg-emerald-600/90 border-emerald-400/30';
+        : isStationary
+            ? 'bg-slate-700/90 border-slate-500/30'
+            : 'bg-emerald-600/90 border-emerald-400/30';
 
+    // Pulse ring color: green = moving, red = stationary
     const pulseColor = status.isRapidMode
         ? 'bg-red-500'
-        : 'bg-emerald-500';
+        : isStationary
+            ? 'bg-red-400'
+            : 'bg-emerald-500';
 
     return (
         <div className="pointer-events-none">
-            {/* Main badge */}
-            <div className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${bgColor} border backdrop-blur-md shadow-lg`}>
-                {/* Pulse ring */}
+            <div className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${bgColor} border backdrop-blur-md shadow-lg transition-colors duration-500`}>
+                {/* Pulse ring — green when moving, red when stationary */}
                 <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`} />
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${dotColor}`} />
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${healthDotColor} transition-colors duration-500`} />
                 </span>
 
                 {/* GPS icon */}
@@ -92,23 +94,6 @@ export const GpsTrackingIndicator: React.FC = () => {
                     {label}
                 </span>
             </div>
-
-            {/* Dedup feedback badge — flashes briefly when position is unchanged */}
-            {showDedup && (
-                <div
-                    className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-700/90 border border-slate-500/30 backdrop-blur-md shadow-sm"
-                    style={{
-                        animation: 'dedupFadeIn 0.3s ease-out, dedupFadeOut 0.5s ease-in 2s forwards',
-                    }}
-                >
-                    <svg className="w-3 h-3 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-slate-300 text-[11px] font-medium tracking-wide whitespace-nowrap">
-                        No movement
-                    </span>
-                </div>
-            )}
         </div>
     );
 };
