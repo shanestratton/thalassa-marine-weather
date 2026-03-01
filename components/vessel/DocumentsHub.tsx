@@ -606,14 +606,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             </div>
 
                             {/* Dates — side by side */}
-                            <div className="grid grid-cols-2 gap-2 mb-3">
-                                <div>
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
-                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                            <div className="grid grid-cols-2 gap-2 mb-3 overflow-hidden">
+                                <div className="min-w-0">
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Issue Date</label>
+                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
-                                <div>
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
-                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                                <div className="min-w-0">
+                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Expiry Date</label>
+                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                             </div>
 
