@@ -207,6 +207,9 @@ export function useLogPageState() {
     const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);
     const [careerEntries, setCareerEntries] = useState<ShipLogEntry[]>([]);
 
+    // Guard: prevents loadData from overwriting optimistic tracking=false during stop
+    const stoppingRef = useRef(false);
+
     // ── Initialization ──────────────────────────────────────────────────────
 
     const ARCHIVE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -239,9 +242,10 @@ export function useLogPageState() {
         dispatch({
             type: 'LOAD_DATA',
             entries: merged,
-            isTracking: status.isTracking,
-            isPaused: status.isPaused,
-            isRapidMode: status.isRapidMode,
+            // While stopping, keep tracked state as false to prevent UI bounce
+            isTracking: stoppingRef.current ? false : status.isTracking,
+            isPaused: stoppingRef.current ? false : status.isPaused,
+            isRapidMode: stoppingRef.current ? false : status.isRapidMode,
             currentVoyageId: voyageId,
         });
 
@@ -429,9 +433,15 @@ export function useLogPageState() {
 
     const confirmStopVoyage = useCallback(async () => {
         dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
-        // Instant UI response — dispatch first, service call is fire-and-forget
+        // Instant UI response — dispatch first, guard prevents polls from overwriting
+        stoppingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-        ShipLogService.stopTracking().then(() => loadData()).catch(() => { });
+        try {
+            await ShipLogService.stopTracking();
+        } catch { /* swallow */ }
+        // Clear the guard, then reload to pick up final state
+        stoppingRef.current = false;
+        await loadData();
     }, [loadData]);
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
