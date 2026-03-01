@@ -573,10 +573,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                 {/* ═══ ADD / EDIT DOCUMENT MODAL ═══ */}
                 {showForm && (
-                    <div className="fixed inset-0 z-[999] flex items-start justify-center p-4 pt-16 overflow-y-auto" onClick={() => { setShowForm(false); resetForm(); }}>
+                    <div className="fixed inset-0 z-[999] flex items-start justify-center overflow-y-auto" style={{ padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }} onClick={() => { setShowForm(false); resetForm(); }}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in zoom-in-95 duration-300"
                             onClick={e => e.stopPropagation()}
                         >
                             <button onClick={() => { setShowForm(false); resetForm(); }} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -585,14 +585,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 </svg>
                             </button>
 
-                            <h3 className="text-lg font-black text-white mb-5">{editDoc ? 'Edit Document' : 'Add Document'}</h3>
+                            <h3 className="text-base font-black text-white mb-3">{editDoc ? 'Edit Document' : 'Add Document'}</h3>
 
                             {/* Category — first */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                                <div className="grid grid-cols-3 gap-2">
+                            <div className="mb-3">
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1.5">Category</label>
+                                <div className="grid grid-cols-3 gap-1.5">
                                     {CATEGORIES.map(cat => (
-                                        <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                        <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-1.5 rounded-full text-[11px] font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
                                             {cat.icon} {cat.label}
                                         </button>
                                     ))}
@@ -600,25 +600,25 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             </div>
 
                             {/* Document Name */}
-                            <div className="mb-4">
+                            <div className="mb-3">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
-                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                             </div>
 
-                            {/* Dates */}
-                            <div className="grid grid-cols-1 gap-3 mb-4">
+                            {/* Dates — side by side */}
+                            <div className="grid grid-cols-2 gap-2 mb-3">
                                 <div>
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Issue Date</label>
-                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                                 <div>
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Expiry Date</label>
-                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
                                 </div>
                             </div>
 
                             {/* Attach Document */}
-                            <div className="mb-4">
+                            <div className="mb-3">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Attach Document</label>
                                 <input
                                     ref={fileInputRef}
@@ -658,15 +658,15 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             </div>
 
                             {/* Notes */}
-                            <div className="mb-6">
+                            <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 
                             <button
                                 onClick={handleSave}
                                 disabled={!formName.trim()}
-                                className={`w-full py-3.5 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
+                                className={`w-full py-3 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editDoc
                                     ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                                     : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                                     }`}
