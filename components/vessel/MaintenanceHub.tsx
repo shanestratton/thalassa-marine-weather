@@ -727,7 +727,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             <h3 className="text-base font-black text-white mb-3">New Task</h3>
 
                             {/* Flex content — shrinks to fit */}
-                            <div className="flex-1 min-h-0 flex flex-col gap-2">
+                            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
 
                                 {/* ── Task Type Selector ── */}
                                 <div>

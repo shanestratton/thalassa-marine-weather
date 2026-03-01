@@ -480,7 +480,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowEditForm(false)}>
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                         <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)] flex flex-col overflow-hidden"
                             onClick={e => e.stopPropagation()}
                         >
                             <button onClick={() => setShowEditForm(false)} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
@@ -505,7 +505,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     function renderFormFields() {
         return (
-            <div className="flex-1 min-h-0 flex flex-col gap-2">
+            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
                 <div>
                     <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
                     <div className="grid grid-cols-3 gap-1.5">
