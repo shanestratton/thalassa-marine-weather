@@ -3,6 +3,14 @@ import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ThalassaProvider } from './context/ThalassaContext';
+import { Keyboard } from '@capacitor/keyboard';
+import { Capacitor } from '@capacitor/core';
+
+// Enable iOS keyboard "Done" toolbar — lets you dismiss the keyboard
+// without having to find somewhere else to tap
+if (Capacitor.isNativePlatform()) {
+  Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => { });
+}
 
 // Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue
 // that fires during the brief window between chart mount and layout stabilization.
