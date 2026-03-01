@@ -20,6 +20,7 @@ import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -380,19 +381,27 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         }
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
     const handleDelete = useCallback(async (id: string) => {
-        if (!confirm('Delete this equipment? This cannot be undone.')) return;
+        setDeleteTargetId(id);
+    }, []);
+
+    const confirmDelete = useCallback(async () => {
+        if (!deleteTargetId) return;
         try {
             triggerHaptic('medium');
-            await LocalEquipmentService.delete(id);
+            await LocalEquipmentService.delete(deleteTargetId);
             setSelectedItem(null);
             setContextItem(null);
             loadItems();
         } catch (e) {
             console.error('Failed to delete equipment:', e);
             toast.error('Failed to delete equipment');
+        } finally {
+            setDeleteTargetId(null);
         }
-    }, [loadItems]);
+    }, [deleteTargetId, loadItems]);
 
     const handleCopySerial = (serial: string) => {
         navigator.clipboard.writeText(serial).then(() => {
@@ -819,6 +828,16 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                isOpen={!!deleteTargetId}
+                title="Delete Equipment?"
+                message="This will permanently remove this equipment from your register."
+                confirmLabel="Delete"
+                destructive
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div>
     );
 };
