@@ -418,6 +418,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setShowForm(false);
             resetForm();
             loadDocs();
+            toast.success(editDoc ? 'Document updated' : 'Document filed');
             // Mark for cloud sync
             DocumentSyncService.markForSync(savedId);
         } catch (e) {

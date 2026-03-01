@@ -376,6 +376,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setNewName(''); setNewMake(''); setNewModel(''); setNewSerial('');
             setNewInstallDate(''); setNewWarrantyExpiry(''); setNewNotes('');
             loadItems();
+            toast.success('Equipment registered');
         } catch (e) {
             console.error('Failed to add equipment:', e);
             toast.error('Failed to add equipment');
@@ -438,6 +439,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 warranty_expiry: newWarrantyExpiry || null,
                 notes: newNotes.trim() || null,
             } : null);
+            toast.success('Equipment updated');
         } catch (e) {
             console.error('Failed to update equipment:', e);
             toast.error('Failed to update equipment');

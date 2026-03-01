@@ -179,7 +179,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setItems(data);
             const s = await InventoryService.getStats();
             setStats(s);
-        } catch (e) { console.warn('[InventoryList] ignore:', e); }
+        } catch (e) {
+            console.warn('[InventoryList] load failed:', e);
+            toast.error('Failed to load inventory');
+        }
         setLoading(false);
     }, []);
 
