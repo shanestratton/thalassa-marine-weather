@@ -21,6 +21,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -368,18 +369,26 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [engineHours]);
 
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
     // ── Delete Task ──
     const handleDeleteTask = useCallback(async (taskId: string) => {
-        if (!confirm('Delete this maintenance task? This cannot be undone.')) return;
+        setDeleteTargetId(taskId);
+    }, []);
+
+    const confirmDeleteTask = useCallback(async () => {
+        if (!deleteTargetId) return;
         try {
             triggerHaptic('medium');
-            await MaintenanceService.deleteTask(taskId);
+            await MaintenanceService.deleteTask(deleteTargetId);
             await loadTasks();
         } catch (e) {
             console.error('Failed to delete task:', e);
             toast.error('Failed to delete task');
+        } finally {
+            setDeleteTargetId(null);
         }
-    }, [loadTasks]);
+    }, [deleteTargetId, loadTasks]);
 
     // ── Edit Task ──
     const openEditForm = useCallback((task: TaskWithStatus) => {
@@ -1062,6 +1071,16 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     </div>
                 )}
             </div>
+
+            <ConfirmDialog
+                isOpen={!!deleteTargetId}
+                title="Delete Task?"
+                message="This will permanently remove this maintenance task and its service history."
+                confirmLabel="Delete"
+                destructive
+                onConfirm={confirmDeleteTask}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div >
     );
 };

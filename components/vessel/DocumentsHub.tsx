@@ -18,6 +18,7 @@ import { SlideToAction } from '../ui/SlideToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -77,7 +78,7 @@ async function uriToFile(uri: string, fileName: string): Promise<File | null> {
         const mime = mimeMap[ext] || blob.type || 'application/octet-stream';
         return new File([blob], fileName, { type: mime });
     } catch (e) {
-            console.warn('[DocumentsHub]', e);
+        console.warn('[DocumentsHub]', e);
         return null;
     }
 }
@@ -97,7 +98,7 @@ async function downloadFile(uri: string, fileName: string): Promise<boolean> {
         URL.revokeObjectURL(url);
         return true;
     } catch (e) {
-            console.warn('[DocumentsHub]', e);
+        console.warn('[DocumentsHub]', e);
         return false;
     }
 }
@@ -424,18 +425,26 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         }
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
     const handleDelete = useCallback(async (id: string) => {
-        if (!confirm('Delete this document? This cannot be undone.')) return;
+        setDeleteTargetId(id);
+    }, []);
+
+    const confirmDelete = useCallback(async () => {
+        if (!deleteTargetId) return;
         try {
             triggerHaptic('medium');
-            await LocalDocumentService.delete(id);
-            DocumentSyncService.markDeleted(id);
+            await LocalDocumentService.delete(deleteTargetId);
+            DocumentSyncService.markDeleted(deleteTargetId);
             loadDocs();
         } catch (e) {
             console.error('Failed to delete document:', e);
             toast.error('Failed to delete document');
+        } finally {
+            setDeleteTargetId(null);
         }
-    }, [loadDocs]);
+    }, [deleteTargetId, loadDocs]);
 
     const handleOpenDoc = (doc: ShipDocument) => {
         if (doc.file_uri) {
@@ -661,6 +670,15 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     </div>
                 )}
             </div>
+            <ConfirmDialog
+                isOpen={!!deleteTargetId}
+                title="Delete Document?"
+                message="This will permanently remove this document from your vault."
+                confirmLabel="Delete"
+                destructive
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div>
     );
 };
