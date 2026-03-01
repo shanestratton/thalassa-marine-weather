@@ -289,7 +289,7 @@ const App: React.FC = () => {
                                         <PageTransition
                                             pageKey={currentView}
                                             direction={transitionDirection}
-                                            canSwipeBack={['details', 'compass', 'inventory', 'maintenance', 'polars', 'nmea', 'equipment', 'documents', 'diary', 'route'].includes(currentView)}
+                                            canSwipeBack={false}
                                             onSwipeBack={() => setPage('vessel')}
                                         >
                                             <div className="h-full overflow-y-auto overflow-x-hidden">
