@@ -99,10 +99,14 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
                 onTouchEnd={handleTouchEnd}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
-                {/* Row 1: Category icon + Name + Warranty dot + 3-dot menu */}
+                {/* Category badge — top of card */}
+                <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px]">{CATEGORY_ICONS[item.category] || '📋'}</span>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{item.category}</span>
+                </div>
+                {/* Row 1: Name + Warranty dot + 3-dot menu */}
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="text-xs shrink-0">{CATEGORY_ICONS[item.category] || '📋'}</span>
                         <h4 className="text-sm font-bold text-white truncate">{item.equipment_name}</h4>
                         {/* Warranty status dot */}
                         {item.warranty_expiry && (
@@ -126,7 +130,7 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
                 </div>
 
                 {/* Row 2: Make — Model */}
-                <p className="text-[11px] text-slate-400 font-bold mt-1 ml-6">
+                <p className="text-[11px] text-slate-400 font-bold mt-1">
                     {item.make} — {item.model}
                 </p>
             </div>

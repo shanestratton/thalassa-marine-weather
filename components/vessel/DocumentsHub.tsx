@@ -118,6 +118,11 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
 
                 {/* Content */}
                 <div className="flex-1 p-4">
+                    {/* Category badge — top of card */}
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px]">{CATEGORY_ICONS[doc.category] || '📋'}</span>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{doc.category}</span>
+                    </div>
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 text-left">
                             <h4 className="text-sm font-black text-white tracking-wide mb-0.5">{doc.document_name}</h4>
