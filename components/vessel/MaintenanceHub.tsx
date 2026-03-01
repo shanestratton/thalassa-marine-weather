@@ -729,6 +729,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </button>
                             <h3 className="text-lg font-black text-white mb-5">New Maintenance Task</h3>
 
+                            {/* Category chips — first */}
+                            <div className="mb-4">
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {CATEGORIES.map(cat => (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => setNewCategory(cat.id)}
+                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                }`}
+                                        >
+                                            {cat.icon} {cat.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             {/* Title */}
                             <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
@@ -751,25 +770,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     rows={2}
                                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
                                 />
-                            </div>
-
-                            {/* Category chips */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {CATEGORIES.map(cat => (
-                                        <button
-                                            key={cat.id}
-                                            onClick={() => setNewCategory(cat.id)}
-                                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
-                                                }`}
-                                        >
-                                            {cat.icon} {cat.label}
-                                        </button>
-                                    ))}
-                                </div>
                             </div>
 
                             {/* Trigger type — hidden for Repair (ad-hoc items, no schedule) */}

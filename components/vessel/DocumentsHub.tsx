@@ -424,13 +424,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                             <h3 className="text-lg font-black text-white mb-5">{editDoc ? 'Edit Document' : 'Add Document'}</h3>
 
-                            {/* Document Name */}
-                            <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
-                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                            </div>
-
-                            {/* Category */}
+                            {/* Category — first */}
                             <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                                 <div className="grid grid-cols-3 gap-2">
@@ -440,6 +434,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            {/* Document Name */}
+                            <div className="mb-4">
+                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
+                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Dates */}

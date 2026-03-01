@@ -498,11 +498,6 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         return (
             <>
                 <div className="mb-4">
-                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Equipment Name</label>
-                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                </div>
-
-                <div className="mb-4">
                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                     <div className="grid grid-cols-3 gap-2">
                         {CATEGORIES.map(cat => (
@@ -511,6 +506,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             </button>
                         ))}
                     </div>
+                </div>
+
+                <div className="mb-4">
+                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Equipment Name</label>
+                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
