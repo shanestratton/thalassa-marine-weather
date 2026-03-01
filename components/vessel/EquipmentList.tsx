@@ -503,58 +503,57 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         );
     }
 
-    // ── Shared form fields ──
     function renderFormFields() {
         return (
-            <>
-                <div className="mb-4">
-                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                    <div className="grid grid-cols-3 gap-2">
+            <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
+                    <div className="grid grid-cols-3 gap-1.5">
                         {CATEGORIES.map(cat => (
-                            <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                            <button key={cat.id} onClick={() => setNewCategory(cat.id)} className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
                                 {cat.icon} {cat.label}
                             </button>
                         ))}
                     </div>
                 </div>
 
-                <div className="mb-4">
-                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Equipment Name</label>
-                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Equipment Name</label>
+                    <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Main Engine" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div>
-                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Make</label>
-                        <input type="text" value={newMake} onChange={e => setNewMake(e.target.value)} placeholder="Yanmar" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="min-w-0">
+                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Make</label>
+                        <input type="text" value={newMake} onChange={e => setNewMake(e.target.value)} placeholder="Yanmar" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                     </div>
-                    <div>
-                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Model</label>
-                        <input type="text" value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="4JH4-TE" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                    </div>
-                </div>
-
-                <div className="mb-4">
-                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Serial Number</label>
-                    <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500/30" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div>
-                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Install Date</label>
-                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
-                    </div>
-                    <div>
-                        <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Warranty Expiry</label>
-                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                    <div className="min-w-0">
+                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Model</label>
+                        <input type="text" value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="4JH4-TE" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
                     </div>
                 </div>
 
-                <div className="mb-4">
-                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                    <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details, service contacts..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Serial Number</label>
+                    <input type="text" value={newSerial} onChange={e => setNewSerial(e.target.value)} placeholder="YNM-4JH4TE-12345" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500/30" />
                 </div>
-            </>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="min-w-0 overflow-hidden">
+                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Install Date</label>
+                        <input type="date" value={newInstallDate} onChange={e => setNewInstallDate(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                    </div>
+                    <div className="min-w-0 overflow-hidden">
+                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Warranty Expiry</label>
+                        <input type="date" value={newWarrantyExpiry} onChange={e => setNewWarrantyExpiry(e.target.value)} className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Notes (Optional)</label>
+                    <textarea value={newNotes} onChange={e => setNewNotes(e.target.value)} placeholder="Additional details..." rows={1} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                </div>
+            </div>
         );
     }
 
@@ -810,23 +809,28 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setShowAddForm(false)}>
+                <div
+                    className="fixed inset-0 z-[999] flex items-start justify-center"
+                    style={{ padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }}
+                    onClick={() => setShowAddForm(false)}
+                >
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in zoom-in-95 duration-300 flex flex-col"
+                        style={{ maxHeight: '100%' }}
                         onClick={e => e.stopPropagation()}
                     >
-                        <button onClick={() => setShowAddForm(false)} className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <button onClick={() => setShowAddForm(false)} className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10">
+                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
-                        <h3 className="text-lg font-black text-white mb-5">Add Equipment</h3>
+                        <h3 className="text-base font-black text-white mb-3">Add Equipment</h3>
                         {renderFormFields()}
                         <button
                             onClick={handleAdd}
                             disabled={!newName.trim()}
-                            className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                            className="w-full py-3 mt-3 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
                         >
                             Register Equipment
                         </button>
