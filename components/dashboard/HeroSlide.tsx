@@ -568,7 +568,7 @@ const HeroSlideComponent = ({
         if (!tides || tides.length === 0) return null;
 
         return (
-            <div className="w-full px-0 pb-0 relative transition-all duration-300 ease-in-out" style={{ height: '77px' }}>
+            <div className="w-full px-0 pb-0 relative transition-all duration-300 ease-in-out" style={{ height: '69px' }}>
                 <TideGraph
                     tides={tides}
                     unit={units.tideHeight || 'm'}
@@ -898,6 +898,8 @@ const HeroSlideComponent = ({
 
     return (
         <div className="relative w-full h-full overflow-hidden">
+            {/* Icon animation keyframes (shared with HeroWidgets) */}
+            <style>{`@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:.15}}@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}@keyframes hw-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}`}</style>
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
 
@@ -1042,17 +1044,17 @@ const HeroSlideComponent = ({
                                                 const OFFSHORE_WIDGETS = [
                                                     { id: 'waterTemperature', label: 'WATER', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
-                                                    { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
+                                                    { id: 'currentDirection', label: 'SET', icon: <span style={{ display: 'inline-flex', animation: 'hw-spin 8s linear infinite' }}><CompassIcon rotation={0} className="w-3 h-3" /></span>, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
                                                     { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                     { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
                                                 ];
                                                 const INLAND_WIDGETS = [
-                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-                                                    { id: 'precip', label: 'RAIN', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
+                                                    { id: 'precip', label: 'RAIN', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite 0.5s' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'pressure', label: 'HPA', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
-                                                    { id: 'visibility', label: 'VIS', icon: <EyeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
+                                                    { id: 'visibility', label: 'VIS', icon: <span style={{ display: 'inline-flex', animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                     { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                 ];
 

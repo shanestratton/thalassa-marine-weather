@@ -176,7 +176,6 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     className="w-[7px] h-[7px] rounded-full bg-emerald-400 shrink-0"
                                     style={{ animation: 'hh-pulse 2s ease-in-out infinite' }}
                                 />
-                                <span className="text-2xl leading-none shrink-0">{conditionIcon}</span>
                                 <AutoFitCondition text={displayCondition} maxFontPx={24} minFontPx={12} />
                             </div>
                         </>
@@ -186,7 +185,6 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                 {dateLabel}
                             </span>
                             <div className="flex items-center gap-2 max-w-full">
-                                <span className="text-xl leading-none shrink-0">{conditionIcon}</span>
                                 <AutoFitCondition text={displayCondition} maxFontPx={20} minFontPx={11} />
                             </div>
                             {timeLabel && (

@@ -70,8 +70,8 @@ export const NmeaGpsIndicator: React.FC = () => {
         return () => clearInterval(id);
     }, []);
 
-    const active = nmeaActive || precisionActive;
-    if (!active) return null;
+    // Only show badge when external NMEA GPS hardware is connected
+    if (!nmeaActive) return null;
 
     // NMEA: color based on HDOP; Precision: always green
     const dotColor = nmeaActive
@@ -97,9 +97,8 @@ export const NmeaGpsIndicator: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788" />
                 </svg>
 
-                {/* Label */}
                 <span className="text-white font-bold text-[11px] tracking-wide leading-none whitespace-nowrap">
-                    EXT {qualityLabel}
+                    Ext GPS
                 </span>
 
                 {/* Satellite count (NMEA only) */}
