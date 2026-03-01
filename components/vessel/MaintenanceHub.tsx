@@ -314,23 +314,30 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         try {
             triggerHaptic('medium');
 
+            // Repairs: auto-set to daily trigger with today's due date
+            // They'll go red almost immediately — fix it or delete it!
+            const isRepair = newCategory === 'Repair';
+            const triggerType = isRepair ? 'daily' : newTrigger;
+
             // Auto-compute interval and due date for period-based triggers
-            const periodDays = PERIOD_DAYS[newTrigger];
-            const intervalValue = newTrigger === 'engine_hours'
+            const periodDays = isRepair ? 1 : PERIOD_DAYS[newTrigger];
+            const intervalValue = triggerType === 'engine_hours'
                 ? (newInterval ? parseInt(newInterval, 10) : null)
                 : (periodDays ?? null);
-            const dueDate = newTrigger === 'engine_hours'
+            const dueDate = triggerType === 'engine_hours'
                 ? null
-                : (newDueDate || new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0]);
+                : (isRepair
+                    ? new Date().toISOString().split('T')[0]
+                    : (newDueDate || new Date(Date.now() + (periodDays || 30) * 86400000).toISOString().split('T')[0]));
 
             await MaintenanceService.createTask({
                 title: newTitle.trim(),
                 description: newDescription.trim() || null,
                 category: newCategory,
-                trigger_type: newTrigger,
+                trigger_type: triggerType,
                 interval_value: intervalValue,
                 next_due_date: dueDate,
-                next_due_hours: newTrigger === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
+                next_due_hours: triggerType === 'engine_hours' && newDueHours ? parseInt(newDueHours, 10) : null,
                 last_completed: null,
                 is_active: true,
             });
