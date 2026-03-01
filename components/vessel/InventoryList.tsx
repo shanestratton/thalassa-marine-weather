@@ -20,6 +20,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { UndoToast } from '../ui/UndoToast';
+import { FormField } from '../ui/FormField';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 
@@ -457,9 +458,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                             {/* Name */}
                             <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
-                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
+                                <FormField
+                                    label="Item Name"
+                                    value={editName}
+                                    onChange={setEditName}
+                                    required
+                                    error={!editName.trim() && editName !== '' ? 'Item name is required' : undefined}
+                                />
                             </div>
 
                             {/* Barcode */}
@@ -501,44 +506,20 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                             {/* Quantity + Min */}
                             <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
-                                    <input type="number" value={editQty} onChange={e => setEditQty(Math.max(0, parseInt(e.target.value) || 0))}
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Qty</label>
-                                    <input type="number" value={editMinQty} onChange={e => setEditMinQty(Math.max(0, parseInt(e.target.value) || 0))}
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors" />
-                                </div>
+                                <FormField label="Quantity" type="number" value={editQty} onChange={v => setEditQty(Math.max(0, parseInt(v) || 0))} min={0} />
+                                <FormField label="Min Qty" type="number" value={editMinQty} onChange={v => setEditMinQty(Math.max(0, parseInt(v) || 0))} min={0} />
                             </div>
 
                             {/* Location */}
                             <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
-                                    <input type="text" value={editZone} onChange={e => setEditZone(e.target.value)} placeholder="Engine Room"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Specific</label>
-                                    <input type="text" value={editSpecific} onChange={e => setEditSpecific(e.target.value)} placeholder="Port locker"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
-                                </div>
+                                <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine Room" />
+                                <FormField label="Specific" value={editSpecific} onChange={setEditSpecific} placeholder="Port locker" />
                             </div>
 
                             {/* Notes + Expiry side by side */}
                             <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
-                                    <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)} placeholder="Part no, batch"
-                                        className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500" />
-                                </div>
-                                <div className="min-w-0 overflow-hidden">
-                                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
-                                    <input type="date" value={editExpiry} onChange={e => setEditExpiry(e.target.value)}
-                                        className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-2 py-1.5 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]" />
-                                </div>
+                                <FormField label="Notes" value={editDescription} onChange={setEditDescription} placeholder="Part no, batch" />
+                                <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
                             </div>
                         </div>
 
