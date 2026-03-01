@@ -119,11 +119,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         // Log to console with boundary name for easier debugging
         const boundaryName = this.props.boundaryName || 'Unknown';
 
-        // Enhanced error logging for debugging non-Error objects
-        try {
-        } catch (e) {
-            // Silently ignored — non-critical failure
-        }
+        // Enhanced error logging for debugging
+        console.error(`[ErrorBoundary:${boundaryName}] Caught render error:`, error);
+        console.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
 
         // Call optional error callback
         if (this.props.onError) {

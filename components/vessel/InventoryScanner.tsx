@@ -18,18 +18,7 @@ interface InventoryScannerProps {
     startInManualMode?: boolean; // Skip camera and go straight to add form
 }
 
-const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc'];
-
-const CATEGORY_ICONS: Record<InventoryCategory, string> = {
-    Engine: '⚙️',
-    Plumbing: '🔧',
-    Electrical: '⚡',
-    Rigging: '⛵',
-    Safety: '🛟',
-    Provisions: '🥫',
-    Medical: '🏥',
-    Misc: '📦',
-};
+import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
 
 export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, startInManualMode = false }) => {
     // ── Scanner state ──

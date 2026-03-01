@@ -70,7 +70,10 @@ class DiaryServiceClass {
             setTimeout(() => this.syncPending(), 5000);
             // Periodic retry every 30s — catches stuck pending entries
             // (navigator.onLine is unreliable on iOS/Capacitor)
-            setInterval(() => this.syncPending(), 30_000);
+            setInterval(() => {
+                // Only probe network if there are actually pending entries
+                if (this._getPendingEntries().length > 0) this.syncPending();
+            }, 30_000);
         }
     }
 
@@ -275,7 +278,7 @@ class DiaryServiceClass {
                 .getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Photo upload failed:', e); return null; }
     }
 
     private async _fileToDataUri(file: File): Promise<string> {
@@ -310,7 +313,7 @@ class DiaryServiceClass {
                 .getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Data URI upload failed:', e); return null; }
     }
 
     // ── Sync Engine ────────────────────────────────────────────
@@ -426,7 +429,8 @@ class DiaryServiceClass {
                 signal: AbortSignal.timeout(5000),
             });
             return res.ok || res.status === 401; // 401 = reachable but auth required — still online
-        } catch {
+        } catch (e) {
+            console.warn('[Diary] Connectivity check failed:', e);
             return false;
         }
     }
@@ -437,22 +441,22 @@ class DiaryServiceClass {
         try {
             const raw = localStorage.getItem(CACHE_KEY);
             return raw ? JSON.parse(raw) : [];
-        } catch { return []; }
+        } catch (e) { console.warn('[Diary] Cache read failed:', e); return []; }
     }
 
     private _saveCachedEntries(entries: DiaryEntry[]): void {
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(entries)); } catch { }
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(entries)); } catch (e) { console.warn('[Diary] Cache write failed:', e); }
     }
 
     private _getPendingEntries(): DiaryEntry[] {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
             return raw ? JSON.parse(raw) : [];
-        } catch { return []; }
+        } catch (e) { console.warn('[Diary] Pending read failed:', e); return []; }
     }
 
     private _savePending(entries: DiaryEntry[]): void {
-        try { localStorage.setItem(PENDING_KEY, JSON.stringify(entries)); } catch { }
+        try { localStorage.setItem(PENDING_KEY, JSON.stringify(entries)); } catch (e) { console.error('[Diary] Pending write failed — entries may be lost:', e); }
     }
 
     private _addPending(entry: DiaryEntry): void {
@@ -462,7 +466,7 @@ class DiaryServiceClass {
     }
 
     private _invalidateCache(): void {
-        try { localStorage.removeItem(CACHE_KEY); } catch { }
+        try { localStorage.removeItem(CACHE_KEY); } catch (e) { console.warn('[Diary] Cache invalidation failed:', e); }
     }
 
     private async _refreshFromServer(limit: number): Promise<void> {
@@ -481,7 +485,7 @@ class DiaryServiceClass {
             if (data && data.length > 0) {
                 this._saveCachedEntries(data as DiaryEntry[]);
             }
-        } catch { }
+        } catch (e) { console.error('[Diary] Server refresh failed:', e); }
     }
 
     // ── Image Compression ──────────────────────────────────────
@@ -515,7 +519,7 @@ class DiaryServiceClass {
         try {
             const match = url.match(/diary-photos\/(.+)$/);
             return match ? match[1] : null;
-        } catch { return null; }
+        } catch (e) { console.warn('[Diary] Storage path extraction failed:', e); return null; }
     }
 
     // ── GPS ────────────────────────────────────────────────────
@@ -527,7 +531,7 @@ class DiaryServiceClass {
             const fresh = await BgGeoManager.getFreshPosition(10000, 10);
             if (fresh) return { lat: fresh.latitude, lon: fresh.longitude };
             return null;
-        } catch { return null; }
+        } catch (e) { console.warn('[Diary] GPS location failed:', e); return null; }
     }
 
     /** Reverse geocode lat/lon to a human-readable place name via Nominatim */
@@ -550,7 +554,8 @@ class DiaryServiceClass {
             if (addr.state) parts.push(addr.state);
             else if (addr.county) parts.push(addr.county);
             return parts.length > 0 ? parts.join(', ') : (data.display_name?.split(',').slice(0, 2).join(',').trim() || null);
-        } catch {
+        } catch (e) {
+            console.warn('[Diary] Reverse geocode failed:', e);
             return null;
         }
     }
@@ -587,7 +592,7 @@ class DiaryServiceClass {
             if (!res.ok) return null;
             const data = await res.json();
             return data?.enhanced || null;
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Gemini enhance failed:', e); return null; }
     }
 
     // ── Audio ──────────────────────────────────────────────────
@@ -628,7 +633,7 @@ class DiaryServiceClass {
                 .getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Audio blob upload failed:', e); return null; }
     }
 
     private async _uploadAudioDataUri(dataUri: string): Promise<string | null> {
@@ -640,7 +645,7 @@ class DiaryServiceClass {
             const res = await fetch(dataUri);
             const blob = await res.blob();
             return this._uploadAudioBlob(blob);
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Audio data URI upload failed:', e); return null; }
     }
 
     async transcribeAudio(audioUrl: string, mimeType?: string): Promise<string | null> {
@@ -681,7 +686,7 @@ class DiaryServiceClass {
             if (!res.ok) return null;
             const data = await res.json();
             return data?.transcript || null;
-        } catch { return null; }
+        } catch (e) { console.error('[Diary] Audio transcription failed:', e); return null; }
     }
 
     // ── Status ─────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
+import { useSwipeable } from '../../hooks/useSwipeable';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -166,28 +167,11 @@ interface SwipeableDocCardProps {
 }
 
 const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelete }) => {
-    const [swipeOffset, setSwipeOffset] = useState(0);
-    const [isSwiping, setIsSwiping] = useState(false);
+    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
     const [actionBusy, setActionBusy] = useState<'download' | 'share' | null>(null);
-    const startX = useRef(0);
-    const deleteThreshold = 80;
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
     const hasFile = !!doc.file_uri;
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-        startX.current = e.touches[0].clientX;
-        setIsSwiping(true);
-    };
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (!isSwiping) return;
-        const diff = startX.current - e.touches[0].clientX;
-        setSwipeOffset(Math.max(0, Math.min(diff, deleteThreshold + 20)));
-    };
-    const handleTouchEnd = () => {
-        setIsSwiping(false);
-        setSwipeOffset(swipeOffset >= deleteThreshold ? deleteThreshold : 0);
-    };
 
     const handleDownload = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -215,7 +199,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
             {/* Delete button */}
             <div
                 className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => { setSwipeOffset(0); onDelete(); }}
+                onClick={() => { resetSwipe(); onDelete(); }}
             >
                 <div className="text-center text-white">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -229,9 +213,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${colors.border} rounded-2xl overflow-hidden bg-white/[0.03]`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                {...handlers}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Traffic light bar */}
