@@ -71,7 +71,7 @@ function formatDistance(distanceNM: number): string {
  * ```
  */
 function createMetricSource(
-    value: unknown,
+    value: string | number | boolean | null | undefined,
     source: DataSource,
     sourceName: string,
     distance?: number

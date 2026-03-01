@@ -17,6 +17,10 @@ const DATING_PROFILES_TABLE = 'sailor_dating_profiles';
 const LIKES_TABLE = 'sailor_likes';
 const CHAT_PROFILES_TABLE = 'chat_profiles';
 
+/** Raw Supabase row — typed loosely since we normalize immediately */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseRow = Record<string, any>;
+
 // ═══════════════════════════════════════════════════
 // TYPES — CREW (Find Crew)
 // ═══════════════════════════════════════════════════
@@ -205,7 +209,7 @@ class LonelyHeartsServiceClass {
         return null;
     }
 
-    private normalizeCrewProfile(data: any): CrewProfile {
+    private normalizeCrewProfile(data: SupabaseRow): CrewProfile {
         return {
             user_id: data.user_id,
             listing_type: data.listing_type || null,
@@ -267,8 +271,8 @@ class LonelyHeartsServiceClass {
             const url = urlData.publicUrl;
             await this.updateCrewProfile({ photo_url: url });
             return { success: true, url };
-        } catch (err: any) {
-            return { success: false, error: err.message || 'Upload failed' };
+        } catch (err: unknown) {
+            return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
         }
     }
 
@@ -295,7 +299,7 @@ class LonelyHeartsServiceClass {
         return null;
     }
 
-    private normalizeDatingProfile(data: any): DatingProfile {
+    private normalizeDatingProfile(data: SupabaseRow): DatingProfile {
         return {
             user_id: data.user_id,
             first_name: data.first_name || data.dating_first_name || null,
@@ -361,8 +365,8 @@ class LonelyHeartsServiceClass {
 
             await this.updateDatingProfile({ photos });
             return { success: true, url };
-        } catch (err: any) {
-            return { success: false, error: err.message || 'Upload failed' };
+        } catch (err: unknown) {
+            return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
         }
     }
 
@@ -412,7 +416,7 @@ class LonelyHeartsServiceClass {
 
         const { data: crewProfiles } = await query;
 
-        const crewMap = new Map<string, any>();
+        const crewMap = new Map<string, SupabaseRow>();
         if (crewProfiles) {
             for (const cp of crewProfiles) {
                 crewMap.set(cp.user_id, cp);
@@ -420,7 +424,7 @@ class LonelyHeartsServiceClass {
         }
 
         // 3. Build cards with filters
-        const chatMap = new Map<string, any>();
+        const chatMap = new Map<string, SupabaseRow>();
         for (const cp of chatProfiles) {
             chatMap.set(cp.user_id, cp);
         }
@@ -461,7 +465,7 @@ class LonelyHeartsServiceClass {
         return this.getCrewListings({}, limit);
     }
 
-    private buildCrewCard(chatProfile: any, crewProfile: any): CrewCard {
+    private buildCrewCard(chatProfile: SupabaseRow, crewProfile: SupabaseRow | null): CrewCard {
         const cp = crewProfile || {};
         return {
             user_id: chatProfile.user_id,
@@ -506,7 +510,7 @@ class LonelyHeartsServiceClass {
             .select('*')
             .in('user_id', userIds);
 
-        const datingMap = new Map<string, any>();
+        const datingMap = new Map<string, SupabaseRow>();
         if (datingProfiles) {
             for (const dp of datingProfiles) {
                 datingMap.set(dp.user_id, dp);
@@ -515,14 +519,14 @@ class LonelyHeartsServiceClass {
 
         let cards: DatingCard[] = [];
         for (const cp of chatProfiles) {
-            const dp = datingMap.get(cp.user_id);
+            const dp = datingMap.get(cp.user_id) ?? null;
             cards.push(this.buildDatingCard(cp, dp));
         }
 
         return cards.slice(0, limit);
     }
 
-    private buildDatingCard(chatProfile: any, datingProfile: any): DatingCard {
+    private buildDatingCard(chatProfile: SupabaseRow, datingProfile: SupabaseRow | null): DatingCard {
         const dp = datingProfile || {};
         return {
             user_id: chatProfile.user_id,

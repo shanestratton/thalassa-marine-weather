@@ -1,5 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
-import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics } from '../../../types';
+import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -87,6 +87,10 @@ function mapCondition(code: string): string {
 let cachedFull: { data: WeatherKitFullResponse; fetchedAt: number; key: string } | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+/** Raw JSON payload from Apple WeatherKit API — loosely typed external data */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WeatherKitRaw = Record<string, any>;
+
 // ── Supabase helpers ──────────────────────────────────────────
 
 function getSupabaseUrl(): string {
@@ -137,7 +141,7 @@ function roundToNearestMinute(isoStr: string): string {
 // ── Response Mappers ──────────────────────────────────────────
 
 /** Map Apple currentWeather → WeatherKitObservation */
-function mapCurrentWeather(cw: any): WeatherKitObservation {
+function mapCurrentWeather(cw: WeatherKitRaw): WeatherKitObservation {
     const conditionCode = cw.conditionCode || '';
     return {
         temperature: cw.temperature ?? null,
@@ -159,11 +163,11 @@ function mapCurrentWeather(cw: any): WeatherKitObservation {
 }
 
 /** Map Apple forecastHourly → HourlyForecast[] */
-function mapHourlyForecast(forecastHourly: any): HourlyForecast[] {
+function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
     const hours = forecastHourly?.hours;
     if (!Array.isArray(hours)) return [];
 
-    return hours.map((h: any): HourlyForecast => ({
+    return hours.map((h: WeatherKitRaw): HourlyForecast => ({
         time: h.forecastStart || '',
         windSpeed: msToKnots(kmhToMs(h.windSpeed)),
         windGust: h.windGust != null ? msToKnots(kmhToMs(h.windGust)) : null,
@@ -188,11 +192,11 @@ function mapHourlyForecast(forecastHourly: any): HourlyForecast[] {
 }
 
 /** Map Apple forecastDaily → ForecastDay[] */
-function mapDailyForecast(forecastDaily: any): ForecastDay[] {
+function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
     const days = forecastDaily?.days;
     if (!Array.isArray(days)) return [];
 
-    return days.map((d: any): ForecastDay => {
+    return days.map((d: WeatherKitRaw): ForecastDay => {
         const dateStr = d.forecastStart || '';
         const dateObj = new Date(dateStr);
         const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
@@ -220,7 +224,7 @@ function mapDailyForecast(forecastDaily: any): ForecastDay[] {
 }
 
 /** Map Apple forecastNextHour → MinutelyRain[] */
-function mapNextHourForecast(forecastNextHour: any): { rain: MinutelyRain[]; summary: string } {
+function mapNextHourForecast(forecastNextHour: WeatherKitRaw): { rain: MinutelyRain[]; summary: string } {
     const minutes = forecastNextHour?.minutes;
     const summary = forecastNextHour?.summary?.[0]?.condition
         ?? forecastNextHour?.metadata?.conditionCode
@@ -232,7 +236,7 @@ function mapNextHourForecast(forecastNextHour: any): { rain: MinutelyRain[]; sum
         // Apple provides summary periods with startTime, endTime, condition, precipitationChance
         const periods = forecastNextHour.summary;
         if (periods.length > 0) {
-            const firstPrecip = periods.find((p: any) =>
+            const firstPrecip = periods.find((p: WeatherKitRaw) =>
                 p.condition === 'rain' || p.condition === 'drizzle' ||
                 p.condition === 'snow' || p.condition === 'sleet'
             );
@@ -256,7 +260,7 @@ function mapNextHourForecast(forecastNextHour: any): { rain: MinutelyRain[]; sum
         return { rain: [], summary: summaryText };
     }
 
-    const rain: MinutelyRain[] = minutes.slice(0, 60).map((m: any) => ({
+    const rain: MinutelyRain[] = minutes.slice(0, 60).map((m: WeatherKitRaw) => ({
         time: m.startTime || '',
         intensity: m.precipitationIntensity ?? 0,
     }));
@@ -310,7 +314,7 @@ export const fetchWeatherKitFull = async (
     };
 
     try {
-        let json: any;
+        let json: WeatherKitRaw;
         try {
             const res = await CapacitorHttp.post({
                 url,
@@ -326,7 +330,8 @@ export const fetchWeatherKitFull = async (
                 throw new Error(`HTTP ${res.status}: ${errBody?.substring(0, 100)}`);
             }
             json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        } catch (capacitorErr: any) {            const res = await fetch(url, {
+        } catch (capacitorErr: unknown) {
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -354,10 +359,11 @@ export const fetchWeatherKitFull = async (
 
         // Cache (memory + persistent)
         cachedFull = { data: result, fetchedAt: Date.now(), key: cacheKey };
-        apiCacheSet('weatherkit', lat, lon, result);        return result;
+        apiCacheSet('weatherkit', lat, lon, result); return result;
 
-    } catch (e: any) {
-        console.error('[WeatherKit] ❌ FETCH FAILED:', e?.message || e);
+    } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error('[WeatherKit] ❌ FETCH FAILED:', errMsg);
         console.error('[WeatherKit] This means ALL atmospheric data will fall back to StormGlass.');
         return null;
     }
@@ -432,7 +438,7 @@ export function buildReportFromWeatherKit(
     });
 
     // Build sources map — every atmospheric field from WeatherKit
-    const sources: Record<string, any> = {};
+    const sources: Record<string, MetricSource> = {};
     if (obs) {
         if (obs.temperature !== null) sources['airTemperature'] = wkSource(obs.temperature);
         if (obs.temperatureApparent !== null) sources['feelsLike'] = wkSource(obs.temperatureApparent);

@@ -57,7 +57,7 @@ export type DataSource = 'buoy' | 'stormglass' | 'weatherkit';
 export type SourceColor = 'emerald' | 'amber' | 'sky' | 'white';
 
 export interface MetricSource {
-    value: any;
+    value: string | number | boolean | null | undefined;
     source: DataSource;
     sourceColor: SourceColor;
     sourceName: string; // e.g., "Buoy 46086", "YBBN Airport", "StormGlass Pro"
