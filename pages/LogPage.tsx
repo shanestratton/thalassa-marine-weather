@@ -312,8 +312,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
 
                     {/* ── Scrollable Voyage List ── */}
-                    <div className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}>
-                        {/* Live Recording Card */}
+                    <div className={`flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2 ${isTracking ? 'flex flex-col py-2' : ''}`} style={{ paddingBottom: isTracking ? '8px' : 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}>
+                        {/* Live Recording Card — fills available space when tracking */}
                         {isTracking && currentVoyageId && (() => {
                             const activeEntries = entries.filter(e => e.voyageId === currentVoyageId);
                             const dist = activeEntries.length > 0 ? Math.max(0, ...activeEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
@@ -326,15 +326,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             const speeds = activeEntries.filter(e => e.speedKts && e.speedKts > 0);
                             const liveAvgSpeed = speeds.length > 0 ? speeds.reduce((s, e) => s + (e.speedKts || 0), 0) / speeds.length : 0;
                             return (
-                                <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 snap-start">
-                                    <div className="flex items-center gap-2 mb-3">
+                                <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-gradient-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 my-2 snap-start">
+                                    <div className="flex items-center gap-2 mb-3 shrink-0">
                                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                                         <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Live Recording</span>
                                     </div>
                                     {first?.waypointName && first.waypointName !== 'Voyage Start' && first.waypointName !== 'Latest Position' && (
-                                        <div className="text-xs text-slate-400 mb-3">Departed: {first.waypointName}</div>
+                                        <div className="text-xs text-slate-400 mb-3 shrink-0">Departed: {first.waypointName}</div>
                                     )}
-                                    <div className="grid grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-3 gap-3 shrink-0">
                                         <div>
                                             <div className="text-2xl font-extrabold text-emerald-400">{(dist ?? 0).toFixed(1)}</div>
                                             <div className="text-[11px] text-slate-500 uppercase">NM</div>
@@ -348,12 +348,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
                                         </div>
                                     </div>
-                                    {/* Live Mini Map */}
-                                    {activeEntries.length >= 2 && (
-                                        <div className="mt-3">
-                                            <LiveMiniMap entries={activeEntries} height={200} isLive={true} />
-                                        </div>
-                                    )}
+                                    {/* Live Mini Map — always visible, grows to fill remaining space */}
+                                    <div className="mt-3 flex-1 min-h-[120px]">
+                                        <LiveMiniMap entries={activeEntries} height="100%" isLive={true} />
+                                    </div>
                                 </div>
                             );
                         })()}

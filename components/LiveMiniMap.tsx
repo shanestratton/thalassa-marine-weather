@@ -18,7 +18,7 @@ import 'leaflet/dist/leaflet.css';
 
 interface LiveMiniMapProps {
     entries: ShipLogEntry[];
-    height?: number;          // px, default 160
+    height?: number | string;  // px number or CSS string like '100%'
     isLive?: boolean;         // Show pulsing vessel dot at latest position
     className?: string;
 }
@@ -72,7 +72,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(({ entries, height =
 
         setTimeout(() => map.invalidateSize(), 150);
 
+        // Auto-resize when container changes size (e.g. flex-grow)
+        const ro = new ResizeObserver(() => map.invalidateSize());
+        ro.observe(containerRef.current);
+
         return () => {
+            ro.disconnect();
             map.remove();
             mapRef.current = null;
             layerGroupRef.current = null;
