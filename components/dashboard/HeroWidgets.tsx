@@ -432,7 +432,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Wind Speed */}
                 <InstrumentCell
                     label="WIND"
-                    icon={<span style={{ animation: 'hw-blow 3s ease-in-out infinite' }}><WindIcon className="w-3 h-3" /></span>}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blow 3s ease-in-out infinite' }}><WindIcon className="w-3 h-3" /></span>}
                     value={windSpeed}
                     unit={speedUnit}
                     trend={trends?.windSpeed}
@@ -442,7 +442,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Direction — standard cell, tap for compass overlay */}
                 <InstrumentCell
                     label="DIR"
-                    icon={<span style={{ animation: 'hw-spin 8s linear infinite' }}><CompassIcon className="w-3 h-3" rotation={0} /></span>}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-spin 8s linear infinite' }}><CompassIcon className="w-3 h-3" rotation={0} /></span>}
                     value={windDir}
                     onClick={() => setShowCompass(true)}
                 />
@@ -450,7 +450,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Gusts */}
                 <InstrumentCell
                     label="GUST"
-                    icon={<span style={{ animation: 'hw-blow 2.5s ease-in-out infinite 0.3s' }}><WindIcon className="w-3 h-3" /></span>}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blow 2.5s ease-in-out infinite 0.3s' }}><WindIcon className="w-3 h-3" /></span>}
                     value={gustVal}
                     unit={speedUnit}
                     trend={trends?.windGust}
@@ -494,7 +494,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Visibility */}
                 <InstrumentCell
                     label="VIS"
-                    icon={<span style={{ animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>}
                     value={visVal}
                     unit={distUnit}
                     trend={trends?.visibility}
@@ -520,7 +520,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Rain */}
                 <InstrumentCell
                     label="RAIN"
-                    icon={<span style={{ animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
+                    icon={<span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
                     value={rainChance}
                     unit="%"
                 />
