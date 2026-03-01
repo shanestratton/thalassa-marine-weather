@@ -97,7 +97,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                         value={host}
                                         onChange={e => setHost(e.target.value)}
                                         placeholder="192.168.1.1"
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 font-mono"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 font-mono"
                                     />
                                 </div>
                                 <div className="w-24">
@@ -108,7 +108,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                         value={port}
                                         onChange={e => setPort(e.target.value)}
                                         placeholder="10110"
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 font-mono"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 font-mono"
                                     />
                                 </div>
                             </div>

@@ -560,7 +560,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <div className="flex items-center gap-2 mb-2 mt-1">
                                         <span className="text-sm">{catConfig?.icon}</span>
                                         <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
-                                        <span className="text-[10px] text-gray-600 font-bold">({group.tasks.length})</span>
+                                        <span className="text-[10px] text-gray-500 font-bold">({group.tasks.length})</span>
                                     </div>
                                     <div className="space-y-2">
                                         {group.tasks.map(task => (
@@ -637,7 +637,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Engine hours snapshot — only for engine-based tasks */}
                             {sheetTask.trigger_type === 'engine_hours' && (
-                                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 mb-4">
+                                <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
                                     <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
                                     <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
                                 </div>
@@ -652,7 +652,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     value={sheetNotes}
                                     onChange={e => setSheetNotes(e.target.value)}
                                     placeholder="Found slight weeping on raw water pump gasket..."
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl p-3 text-sm text-white placeholder-gray-600 resize-none h-20 outline-none focus:border-sky-500/30"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-none focus:border-sky-500/30"
                                 />
                             </div>
 
@@ -768,14 +768,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                                 {/* Title */}
                                 <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Task Name</label>
+                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Task Name *</label>
                                     <input
                                         type="text"
                                         value={newTitle}
                                         onChange={e => setNewTitle(e.target.value)}
                                         placeholder="Main Engine Oil Change"
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                        autoFocus
+                                        className={`w-full bg-white/5 border rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none transition-colors ${!newTitle.trim() && newTitle !== '' ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30'}`}
                                     />
+                                    {!newTitle.trim() && newTitle !== '' && (
+                                        <p className="text-[10px] text-red-400 mt-1">Task name is required</p>
+                                    )}
                                 </div>
 
                                 {/* Notes */}
@@ -786,7 +790,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         onChange={e => setNewDescription(e.target.value)}
                                         placeholder="Don't forget to check the bottom for rust..."
                                         rows={1}
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none"
                                     />
                                 </div>
 
@@ -822,7 +826,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 value={newInterval}
                                                 onChange={e => setNewInterval(e.target.value)}
                                                 placeholder="200"
-                                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                                             />
                                         </div>
                                         <div className="min-w-0">
@@ -833,7 +837,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 value={newDueHours}
                                                 onChange={e => setNewDueHours(e.target.value)}
                                                 placeholder={String(engineHours + 200)}
-                                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                                             />
                                         </div>
                                     </div>
@@ -847,7 +851,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             type="date"
                                             value={newDueDate}
                                             onChange={e => setNewDueDate(e.target.value)}
-                                            className="w-full min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
+                                            className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]"
                                         />
                                         <p className="text-[10px] text-gray-500 mt-0.5">
                                             Repeats every {TRIGGER_LABELS[newTrigger].replace('📅 ', '').toLowerCase()}
@@ -857,10 +861,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </div>
 
                             {/* Save — pinned at bottom */}
+                            {!newTitle.trim() && (
+                                <p className="text-[10px] text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
+                            )}
                             <button
                                 onClick={handleAddTask}
                                 disabled={!newTitle.trim()}
-                                className="w-full py-3 mt-3 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
+                                className="w-full py-3 mt-2 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
                             >
                                 Create Task
                             </button>
@@ -889,13 +896,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Task Name */}
                             <div className="mb-3">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Task Name</label>
-                                <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                <input type="text" value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Main Engine Oil Change" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                             </div>
 
                             {/* Notes */}
                             <div className="mb-4">
                                 <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30 resize-none" />
+                                <textarea value={newDescription} onChange={e => setNewDescription(e.target.value)} placeholder="Don't forget to check for rust..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
                             </div>
 
                             {/* Category */}
@@ -927,11 +934,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <>
                                     <div className="mb-4">
                                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Interval (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                        <input type="text" inputMode="numeric" value={newInterval} onChange={e => setNewInterval(e.target.value)} placeholder="200" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                     </div>
                                     <div className="mb-6">
                                         <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due at (Hours)</label>
-                                        <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                        <input type="text" inputMode="numeric" value={newDueHours} onChange={e => setNewDueHours(e.target.value)} placeholder={String(engineHours + 200)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                     </div>
                                 </>
                             )}
@@ -940,7 +947,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {newTrigger !== 'engine_hours' && (
                                 <div className="mb-6">
                                     <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Next Due Date</label>
-                                    <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30" />
+                                    <input type="date" value={newDueDate} onChange={e => setNewDueDate(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
                                 </div>
                             )}
 

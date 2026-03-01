@@ -17,6 +17,9 @@ import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
+import { EmptyState } from '../ui/EmptyState';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 
 interface InventoryListProps {
@@ -214,14 +217,27 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             .filter(g => g.items.length > 0),
         [filtered]);
 
+    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
     // ── Delete item ──
-    const handleDelete = async (id: string) => {
+    const handleDelete = (id: string) => {
+        setDeleteTargetId(id);
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTargetId) return;
         triggerHaptic('medium');
         try {
-            await InventoryService.delete(id);
-            setItems(prev => prev.filter(i => i.id !== id));
+            await InventoryService.delete(deleteTargetId);
+            setItems(prev => prev.filter(i => i.id !== deleteTargetId));
             setExpandedId(null);
-        } catch (e) { console.warn('[InventoryList] ignore:', e); }
+            toast.success('Item deleted');
+        } catch (e) {
+            console.warn('[InventoryList] delete failed:', e);
+            toast.error('Failed to delete item');
+        } finally {
+            setDeleteTargetId(null);
+        }
     };
 
     // ── Edit item ──
@@ -266,7 +282,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setItems(prev => prev.map(i => i.id === editItem.id ? updated : i));
             setEditItem(null);
             triggerHaptic('medium');
-        } catch (e) { console.warn('[InventoryList] ignore:', e); }
+            toast.success('Item updated');
+        } catch (e) {
+            console.warn('[InventoryList] edit failed:', e);
+            toast.error('Failed to update item');
+        }
     };
 
     // ── Quick quantity adjustment ──
@@ -275,7 +295,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         try {
             const updated = await InventoryService.adjustQuantity(id, delta);
             setItems(prev => prev.map(i => i.id === id ? updated : i));
-        } catch (e) { console.warn('[InventoryList] ignore:', e); }
+        } catch (e) {
+            console.warn('[InventoryList] qty adjust failed:', e);
+            toast.error('Failed to update quantity');
+        }
     };
 
     if (showScanner) {
@@ -311,7 +334,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         placeholder="Search by name or location..."
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-sky-500/30"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                     />
                 </div>
 
@@ -333,29 +356,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             ))}
                         </div>
                     ) : groupedItems.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                            <div className="relative w-20 h-20 mb-5">
-                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
-                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                </svg>
-                            </div>
-                            <p className="text-base font-bold text-white mb-1">
-                                {searchQuery ? 'No Items Match' : 'No Inventory Yet'}
-                            </p>
-                            <p className="text-sm text-white/60 max-w-[240px] text-center">
-                                {searchQuery ? 'Try a different search term.' : 'Slide below to add your first item, or scan a barcode.'}
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon={<svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>}
+                            title={searchQuery ? 'No Items Match' : 'No Inventory Yet'}
+                            subtitle={searchQuery ? 'Try a different search term.' : 'Slide below to add your first item, or scan a barcode.'}
+                            className="py-16"
+                        />
                     ) : (
                         groupedItems.map(group => (
                             <div key={group.category}>
                                 <div className="flex items-center gap-2 mb-2 mt-1">
                                     <span className="text-sm">{CATEGORY_ICONS[group.category]}</span>
                                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{group.category}</span>
-                                    <span className="text-[10px] text-gray-600 font-bold">({group.items.length})</span>
+                                    <span className="text-[10px] text-gray-500 font-bold">({group.items.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.items.map(item => (
@@ -510,14 +523,27 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </div>
                         </div>
 
+                        {!editName.trim() && (
+                            <p className="text-[10px] text-amber-400/80 text-center mt-2">Item name is required</p>
+                        )}
                         <button onClick={handleSaveEdit} disabled={!editName.trim()}
-                            className="w-full mt-3 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
+                            className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
                         >
                             Save Changes
                         </button>
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                isOpen={!!deleteTargetId}
+                title="Delete Item?"
+                message="This will permanently remove this item from your inventory."
+                confirmLabel="Delete"
+                destructive
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div>
     );
 };
