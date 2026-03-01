@@ -11,7 +11,7 @@
  * Layout mirrors LogPage / MaintenanceHub paradigm:
  *   bg-slate-950, flex-col, scroll area, fixed bottom CTA
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
 import { triggerHaptic } from '../../utils/system';
@@ -19,6 +19,7 @@ import { SlideToAction } from '../ui/SlideToAction';
 import { exportEquipmentPdf } from '../../utils/equipmentPdfExport';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
+import { useSwipeable } from '../../hooks/useSwipeable';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -52,24 +53,7 @@ interface SwipeableCardProps {
 }
 
 const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onDelete, onContextMenu }) => {
-    const [swipeOffset, setSwipeOffset] = useState(0);
-    const [isSwiping, setIsSwiping] = useState(false);
-    const startX = useRef(0);
-    const deleteThreshold = 80;
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-        startX.current = e.touches[0].clientX;
-        setIsSwiping(true);
-    };
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (!isSwiping) return;
-        const diff = startX.current - e.touches[0].clientX;
-        setSwipeOffset(Math.max(0, Math.min(diff, deleteThreshold + 20)));
-    };
-    const handleTouchEnd = () => {
-        setIsSwiping(false);
-        setSwipeOffset(swipeOffset >= deleteThreshold ? deleteThreshold : 0);
-    };
+    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
 
     const warrantyActive = item.warranty_expiry
         ? new Date(item.warranty_expiry).getTime() > Date.now()
@@ -80,7 +64,7 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
             {/* Delete button (revealed on swipe) */}
             <div
                 className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => { setSwipeOffset(0); onDelete(); }}
+                onClick={() => { resetSwipe(); onDelete(); }}
             >
                 <div className="text-center text-white">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -94,9 +78,7 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                {...handlers}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Category badge — top of card */}

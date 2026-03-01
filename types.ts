@@ -222,6 +222,23 @@ export interface GribDownloadState {
 /** Inventory item categories */
 export type InventoryCategory = 'Engine' | 'Plumbing' | 'Electrical' | 'Rigging' | 'Safety' | 'Provisions' | 'Medical' | 'Misc';
 
+/** Canonical category list — single source of truth */
+export const INVENTORY_CATEGORIES: InventoryCategory[] = [
+    'Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc',
+];
+
+/** Canonical category icons — single source of truth */
+export const INVENTORY_CATEGORY_ICONS: Record<InventoryCategory, string> = {
+    Engine: '⚙️',
+    Plumbing: '🔧',
+    Electrical: '⚡',
+    Rigging: '⛵',
+    Safety: '🛟',
+    Provisions: '🥫',
+    Medical: '🏥',
+    Misc: '📦',
+};
+
 /** Ship's inventory item */
 export interface InventoryItem {
     id: string;              // UUID

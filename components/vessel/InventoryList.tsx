@@ -8,31 +8,20 @@
  * - Quick scan button to open InventoryScanner
  * - Swipe-to-delete (via button)
  */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { InventoryItem, InventoryCategory } from '../../types';
+import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
+import { useSwipeable } from '../../hooks/useSwipeable';
 
 interface InventoryListProps {
     onBack: () => void;
 }
-
-const CATEGORIES: InventoryCategory[] = ['Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc'];
-
-const CATEGORY_ICONS: Record<InventoryCategory, string> = {
-    Engine: '⚙️',
-    Plumbing: '🔧',
-    Electrical: '⚡',
-    Rigging: '⛵',
-    Safety: '🛟',
-    Provisions: '🥫',
-    Medical: '🏥',
-    Misc: '📦',
-};
 
 // ── SwipeableInventoryCard ─────────────────────────────────────
 
@@ -46,24 +35,7 @@ interface SwipeableInventoryCardProps {
 }
 
 const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, isExpanded, onTap, onDelete, onEdit, onQuantityAdjust }) => {
-    const [swipeOffset, setSwipeOffset] = useState(0);
-    const [isSwiping, setIsSwiping] = useState(false);
-    const startX = useRef(0);
-    const deleteThreshold = 80;
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-        startX.current = e.touches[0].clientX;
-        setIsSwiping(true);
-    };
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (!isSwiping) return;
-        const diff = startX.current - e.touches[0].clientX;
-        setSwipeOffset(Math.max(0, Math.min(diff, deleteThreshold + 20)));
-    };
-    const handleTouchEnd = () => {
-        setIsSwiping(false);
-        setSwipeOffset(swipeOffset >= deleteThreshold ? deleteThreshold : 0);
-    };
+    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
 
     const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
     const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
@@ -77,7 +49,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
             {/* Delete button (revealed on swipe) */}
             <div
                 className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => { setSwipeOffset(0); onDelete(); }}
+                onClick={() => { resetSwipe(); onDelete(); }}
             >
                 <div className="text-center text-white">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -91,9 +63,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg border ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                {...handlers}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Main row */}
