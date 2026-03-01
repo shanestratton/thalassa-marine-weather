@@ -358,7 +358,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 </div>
 
                 {/* ── Form ── */}
-                <div className="flex-1 overflow-y-auto px-4 no-scrollbar" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                <div className="flex-1 overflow-y-auto px-4 no-scrollbar" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 16rem)' }}>
                     <div className="space-y-2">
                         {/* Category — first */}
                         <div>
@@ -387,7 +387,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 value={newItem.item_name}
                                 onChange={e => setNewItem(prev => ({ ...prev, item_name: e.target.value }))}
                                 placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 autoFocus
                             />
                         </div>
@@ -401,7 +401,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.barcode}
                                     onChange={e => setNewItem(prev => ({ ...prev, barcode: e.target.value }))}
                                     placeholder="Optional"
-                                    className="flex-[2] bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                    className="flex-[2] min-w-0 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                                 <button
                                     type="button"
@@ -449,77 +449,75 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             </div>
                         )}
 
-
-
                         {/* Quantity + Min */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="min-w-0">
                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
                                 <input
                                     type="number"
                                     min="0"
                                     value={newItem.quantity}
                                     onChange={e => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
                                 />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
                                 <input
                                     type="number"
                                     min="0"
                                     value={newItem.min_quantity}
                                     onChange={e => setNewItem(prev => ({ ...prev, min_quantity: parseInt(e.target.value) || 0 }))}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
                                 />
                             </div>
                         </div>
 
                         {/* Location */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="min-w-0">
                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
                                 <input
                                     type="text"
                                     value={newItem.location_zone}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
                                     placeholder="Engine Room"
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
                                 <input
                                     type="text"
                                     value={newItem.location_specific}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
                                     placeholder="Stbd drawer"
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
                         </div>
 
-                        {/* Description */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
-                            <input
-                                type="text"
-                                value={newItem.description}
-                                onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
-                                placeholder="Part number, batch, etc."
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                            />
-                        </div>
-
-                        {/* Expiry / Service Date */}
-                        <div className="min-w-0 overflow-hidden">
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
-                            <input
-                                type="date"
-                                value={newItem.expiry_date}
-                                onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
-                            />
+                        {/* Notes + Expiry side by side */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="min-w-0">
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                                <input
+                                    type="text"
+                                    value={newItem.description}
+                                    onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
+                                    placeholder="Part no, batch"
+                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                />
+                            </div>
+                            <div className="min-w-0 overflow-hidden">
+                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
+                                <input
+                                    type="date"
+                                    value={newItem.expiry_date}
+                                    onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
+                                    className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
+                                />
+                            </div>
                         </div>
                     </div>
 
