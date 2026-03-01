@@ -417,7 +417,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     })();
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col">
+        <div className="fixed inset-x-0 top-0 z-[9999] bg-slate-900 flex flex-col rounded-b-2xl overflow-hidden" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 64px + 8px)' }}>
             {/* Header */}
             <div className="bg-slate-800/95 backdrop-blur-md border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingLeft: '16px', paddingRight: '16px', paddingBottom: '12px' }}>
                 <div>
@@ -577,7 +577,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             </div>
 
             {/* ═══ PLAYBACK SCRUBBER ═══ */}
-            <div className="bg-slate-900/95 backdrop-blur-xl border-t border-white/[0.08] px-4 py-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+            <div className="bg-slate-900/95 backdrop-blur-xl border-t border-white/[0.08] px-4 py-3">
                 <div className="flex items-center gap-3">
                     {/* Play / Pause */}
                     <button
