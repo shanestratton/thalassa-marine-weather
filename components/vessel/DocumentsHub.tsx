@@ -20,6 +20,7 @@ import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
+import { FormField } from '../ui/FormField';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -586,20 +587,29 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                             {/* Document Name */}
                             <div className="mb-3">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Document Name</label>
-                                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Vessel Registration, Hull Insurance 2026..." className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30" />
+                                <FormField
+                                    label="Document Name"
+                                    value={formName}
+                                    onChange={setFormName}
+                                    placeholder="Vessel Registration, Hull Insurance 2026..."
+                                    required
+                                />
                             </div>
 
                             {/* Dates — side by side */}
                             <div className="grid grid-cols-2 gap-2 mb-3 overflow-hidden">
-                                <div className="min-w-0">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Issue Date</label>
-                                    <input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
-                                </div>
-                                <div className="min-w-0">
-                                    <label className="text-[11px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Expiry Date</label>
-                                    <input type="date" value={formExpiryDate} onChange={e => setFormExpiryDate(e.target.value)} className="w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-1.5 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 [color-scheme:dark]" />
-                                </div>
+                                <FormField
+                                    label="Issue Date"
+                                    type="date"
+                                    value={formIssueDate}
+                                    onChange={setFormIssueDate}
+                                />
+                                <FormField
+                                    label="Expiry Date"
+                                    type="date"
+                                    value={formExpiryDate}
+                                    onChange={setFormExpiryDate}
+                                />
                             </div>
 
                             {/* Attach Document */}
@@ -644,8 +654,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Notes (Optional)</label>
-                                <textarea value={formNotes} onChange={e => setFormNotes(e.target.value)} placeholder="Policy number, agent contact..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30 resize-none" />
+                                <FormField
+                                    label="Notes (Optional)"
+                                    type="textarea"
+                                    value={formNotes}
+                                    onChange={setFormNotes}
+                                    placeholder="Policy number, agent contact..."
+                                    rows={2}
+                                />
                             </div>
 
                             {!formName.trim() && (
