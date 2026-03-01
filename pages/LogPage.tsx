@@ -357,7 +357,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={handleStopTracking}
-                                        className="w-[160px] shrink-0 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
+                                        className="flex-[2] h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                     >
                                         <StopIcon className="w-4 h-4" />
                                         Stop
@@ -517,7 +517,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* EXPORT ACTION SHEET — full screen panel */}
             {
                 actionSheet === 'export' && (
-                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
                         {/* Header bar */}
                         <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                             <div className="flex items-center justify-between">
@@ -639,7 +639,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* IMPORT ACTION SHEET — always accessible, even with zero entries */}
             {
                 actionSheet === 'import' && (
-                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
                         {/* Header bar */}
                         <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                             <div className="flex items-center justify-between">
@@ -737,7 +737,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* SHARE ACTION SHEET — card menu matching Export layout */}
             {
                 actionSheet === 'share' && (
-                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
                         {/* Header bar */}
                         <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                             <div className="flex items-center justify-between">
@@ -818,7 +818,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* SHARE FORM ACTION SHEET — full screen panel */}
             {
                 actionSheet === 'share_form' && (
-                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
                         <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2.5">
@@ -963,7 +963,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* STATS ACTION SHEET — full screen panel */}
             {
                 actionSheet === 'stats' && (
-                    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
+                    <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
                         <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2.5">
@@ -1048,7 +1048,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Voyage Choice Dialog - Continue or New */}
             {
                 showVoyageChoiceDialog && (
-                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
                         <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
                             <h3 className="text-xl font-bold text-white mb-2 text-center">Start Tracking</h3>
                             <p className="text-slate-400 text-sm text-center mb-6">
@@ -1095,7 +1095,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Stop Voyage Confirmation Dialog */}
             {
                 showStopVoyageDialog && (
-                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
                         <div className="bg-slate-800 rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl">
                             <h3 className="text-lg font-bold text-white mb-2">End Voyage?</h3>
                             <p className="text-slate-400 text-sm mb-6">
