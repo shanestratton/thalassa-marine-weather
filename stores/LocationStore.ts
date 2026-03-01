@@ -82,7 +82,8 @@ export const LocationStore = {
                 state = { ...state, isReversGeocoding: false };
                 notify();
             }
-        } catch {
+        } catch (e) {
+            console.warn('[LocationStore]', e);
             state = { ...state, isReversGeocoding: false };
             notify();
         }
@@ -162,7 +163,8 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
         ].filter(Boolean);
 
         return parts.length > 0 ? parts.join(', ') : null;
-    } catch {
+    } catch (e) {
+            console.warn('[LocationStore]', e);
         return null;
     }
 }

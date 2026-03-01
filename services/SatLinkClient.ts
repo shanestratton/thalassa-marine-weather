@@ -102,7 +102,7 @@ class SatLinkClientClass {
                 path: this.state.tempFilePath,
                 directory: Directory.Documents,
             });
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[SatLink] ignore:', e); }
 
         this.state = this.createIdleState();
         this.emitStatus();
@@ -218,7 +218,7 @@ class SatLinkClientClass {
                     toDirectory: Directory.Documents,
                 });
                 this.state.tempFilePath = finalPath;
-            } catch { /* rename failed, temp file still valid */ }
+            } catch (e) { console.warn('[SatLink] rename failed, temp file still valid:', e); }
 
             this.emitStatus();
             this.emitProgress();

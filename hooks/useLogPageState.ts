@@ -310,7 +310,8 @@ export function useLogPageState() {
                 retryTimer = setTimeout(async () => {
                     if (mounted) await loadData();
                 }, 1500);
-            } catch {
+            } catch (e) {
+            console.warn('[useLogPageState]', e);
                 /* Init or load failure — stop spinner to show empty state */
                 if (mounted) dispatch({ type: 'DONE_LOADING' });
             } finally {
@@ -438,7 +439,7 @@ export function useLogPageState() {
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
         try {
             await ShipLogService.stopTracking();
-        } catch { /* swallow */ }
+        } catch (e) { console.warn('[useLogPageState] swallow:', e); }
         // Clear the guard, then reload to pick up final state
         stoppingRef.current = false;
         await loadData();
@@ -502,7 +503,8 @@ export function useLogPageState() {
                 // Delete the community share(s) first
                 await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
             }
-        } catch {
+        } catch (e) {
+            console.warn('[useLogPageState]', e);
             // Shared track check failed — proceed with local delete anyway
         }
 

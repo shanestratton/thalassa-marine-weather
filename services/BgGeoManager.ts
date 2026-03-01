@@ -101,7 +101,7 @@ class BgGeoManagerClass {
     async requestStop(): Promise<void> {
         this.startCount = Math.max(0, this.startCount - 1);
         if (this.startCount === 0) {
-            try { await BackgroundGeolocation.stop(); } catch { /* may not be running */ }
+            try { await BackgroundGeolocation.stop(); } catch (e) { console.warn('[BgGeo] may not be running:', e); }
         }
     }
 
@@ -110,7 +110,7 @@ class BgGeoManagerClass {
      */
     async forceStop(): Promise<void> {
         this.startCount = 0;
-        try { await BackgroundGeolocation.stop(); } catch { /* ok */ }
+        try { await BackgroundGeolocation.stop(); } catch (e) { console.warn('[BgGeo] ok:', e); }
     }
 
     // ---- SUBSCRIBE HELPERS ----
@@ -156,7 +156,8 @@ class BgGeoManagerClass {
                 timeout: timeoutSec,
             });
             return this._locationToCache(loc);
-        } catch {
+        } catch (e) {
+            console.warn('[BgGeo]', e);
             // If getCurrentPosition fails, return stale cache as last resort
             return this._lastPosition;
         }
@@ -178,7 +179,7 @@ class BgGeoManagerClass {
     }
 
     async removeGeofence(id: string): Promise<void> {
-        try { await BackgroundGeolocation.removeGeofence(id); } catch { /* may not exist */ }
+        try { await BackgroundGeolocation.removeGeofence(id); } catch (e) { console.warn('[BgGeo] may not exist:', e); }
     }
 
     // ---- INTERNAL ----
@@ -243,7 +244,7 @@ class BgGeoManagerClass {
                 const cached = this._locationToCache(location);
                 this._lastPosition = cached;
                 this.locationListeners.forEach(cb => {
-                    try { cb(cached); } catch { /* listener error */ }
+                    try { cb(cached); } catch (e) { console.warn('[BgGeo] listener error:', e); }
                 });
             },
             (error) => {
@@ -256,7 +257,7 @@ class BgGeoManagerClass {
         // Geofence events → fan-out
         const geoSub = BackgroundGeolocation.onGeofence((event) => {
             this.geofenceListeners.forEach(cb => {
-                try { cb(event); } catch { /* listener error */ }
+                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
             });
         });
         this.coreSubscriptions.push(geoSub);
@@ -269,7 +270,7 @@ class BgGeoManagerClass {
                 this._lastPosition = cached;
             }
             this.heartbeatListeners.forEach(cb => {
-                try { cb(event); } catch { /* listener error */ }
+                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
             });
         });
         this.coreSubscriptions.push(hbSub);
@@ -277,7 +278,7 @@ class BgGeoManagerClass {
         // Activity change → fan-out (moving ↔ stationary transitions)
         const actSub = BackgroundGeolocation.onActivityChange((event) => {
             this.activityListeners.forEach(cb => {
-                try { cb(event); } catch { /* listener error */ }
+                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
             });
         });
         this.coreSubscriptions.push(actSub);

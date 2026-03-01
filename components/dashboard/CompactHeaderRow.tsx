@@ -37,7 +37,7 @@ export const CompactHeaderRow = ({
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch { return new Set(); }
+        } catch (e) { console.warn('[CompactHeaderRow]', e); return new Set(); }
     };
 
     const dismissed = getDismissed();

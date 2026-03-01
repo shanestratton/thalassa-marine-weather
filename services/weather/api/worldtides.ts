@@ -28,7 +28,7 @@ function isRateLimited(): boolean {
         const oneHourAgo = Date.now() - 3600_000;
         const recent = timestamps.filter(t => t > oneHourAgo);
         return recent.length >= MAX_CALLS_PER_HOUR;
-    } catch { return false; }
+    } catch (e) { console.warn('[worldtides]', e); return false; }
 }
 
 function recordCall(): void {
@@ -39,7 +39,7 @@ function recordCall(): void {
         const recent = timestamps.filter(t => t > oneHourAgo);
         recent.push(Date.now());
         localStorage.setItem(WT_RATE_KEY, JSON.stringify(recent));
-    } catch { /* localStorage full — proceed anyway */ }
+    } catch (e) { console.warn('[worldtides] localStorage full — proceed anyway:', e); }
 }
 
 /** Get Supabase URL for Edge Function calls */
@@ -123,7 +123,8 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
             const errorBody = typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data);
             return null;
         }
-    } catch {
+    } catch (e) {
+            console.warn('[worldtides]', e);
         // Fallback: native fetch (web/dev)
         try {
             const nativeRes = await fetch(url);
@@ -132,7 +133,8 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
                 recordCall();
                 return nativeData as WorldTidesResponse;
             }
-        } catch {
+        } catch (e) {
+            console.warn('[worldtides]', e);
             // Both methods failed
         }
         return null;

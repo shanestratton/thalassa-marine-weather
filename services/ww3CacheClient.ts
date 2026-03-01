@@ -87,7 +87,8 @@ async function fetchMetadata(): Promise<WW3Metadata | null> {
         metadataCache = await resp.json();
         metadataFetchedAt = now;
         return metadataCache;
-    } catch {
+    } catch (e) {
+            console.warn('[ww3Cache]', e);
         return null;
     }
 }
@@ -105,7 +106,8 @@ async function fetchShard(cycle: string, forecastHour: number): Promise<WW3Shard
         const shard: WW3Shard = await resp.json();
         shardCache.set(key, shard);
         return shard;
-    } catch {
+    } catch (e) {
+            console.warn('[ww3Cache]', e);
         return null;
     }
 }

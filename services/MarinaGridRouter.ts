@@ -111,7 +111,7 @@ export async function routeThroughMarina(
             .map(f => {
                 try {
                     return turf.buffer(f, OBSTACLE_BUFFER_M, { units: 'meters' }) as Feature<Polygon | MultiPolygon>;
-                } catch { return null; }
+                } catch (e) { console.warn('[MarinaGrid]', e); return null; }
             })
             .filter((f): f is Feature<Polygon | MultiPolygon> => f !== null);
     }
@@ -216,7 +216,8 @@ export async function routeThroughMarina(
         } else {
             smoothCoords = rawCoords;
         }
-    } catch {
+    } catch (e) {
+            console.warn('[MarinaGrid]', e);
         smoothCoords = rawCoords;
     }
 

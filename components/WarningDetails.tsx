@@ -22,7 +22,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch { return new Set(); }
+        } catch (e) { console.warn('[WarningDetails]', e); return new Set(); }
     });
 
     const dismiss = (alert: string) => {
@@ -31,7 +31,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch { /* non-critical */ }
+        } catch (e) { console.warn('[WarningDetails] non-critical:', e); }
     };
 
     const dismissAll = () => {
@@ -41,7 +41,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch { /* non-critical */ }
+        } catch (e) { console.warn('[WarningDetails] non-critical:', e); }
     };
 
     const activeAlerts = alerts.filter(a => isCritical(a) || !dismissed.has(a));

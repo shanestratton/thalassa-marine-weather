@@ -86,7 +86,7 @@ describe('DiaryService — Pending Queue', () => {
         let pending: unknown[] = [];
         try {
             pending = JSON.parse(localStorageMock.getItem(PENDING_KEY)!);
-        } catch {
+        } catch (_e) {
             pending = [];
         }
         expect(pending).toEqual([]);

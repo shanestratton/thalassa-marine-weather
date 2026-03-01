@@ -497,7 +497,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         return () => {
             const map = mapRef.current?.getMap();
             if (map && windLayerRef.current) {
-                try { map.removeLayer(windLayerRef.current.id); } catch { /* ok */ }
+                try { map.removeLayer(windLayerRef.current.id); } catch (e) { console.warn('[SpatiotemporalMap] ok:', e); }
                 windLayerRef.current = null;
             }
         };

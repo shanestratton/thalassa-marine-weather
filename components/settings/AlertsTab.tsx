@@ -16,7 +16,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     ) => {
         if (field === 'enabled' && value === true) {
             if ('Notification' in window && Notification.permission !== 'granted') {
-                try { await Notification.requestPermission(); } catch { /* user denied or API unavailable */ }
+                try { await Notification.requestPermission(); } catch (e) { console.warn('[AlertsTab] user denied or API unavailable:', e); }
             }
         }
         onSave({

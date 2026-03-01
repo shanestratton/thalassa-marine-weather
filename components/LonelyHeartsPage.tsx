@@ -202,13 +202,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         if (!iso) return '';
         try {
             return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-        } catch { return iso; }
+        } catch (e) { console.warn('[LonelyHeartsPage]', e); return iso; }
     };
 
     /** Detect sentinel end dates (2038+) that mean "open-ended" */
     const isOpenEnded = (iso: string | null) => {
         if (!iso) return true;
-        try { return new Date(iso).getFullYear() >= 2038; } catch { return false; }
+        try { return new Date(iso).getFullYear() >= 2038; } catch (e) { console.warn('[LonelyHeartsPage]', e); return false; }
     };
 
     /** Get the current user's ID from the service (for own-card detection) */

@@ -212,9 +212,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         triggerHaptic('medium');
                         closeInlineScanner();
                     }
-                } catch { /* frame failed */ }
+                } catch (e) { console.warn('[InventoryScanner] frame failed:', e); }
             }, 500);
-        } catch {
+        } catch (e) {
+            console.warn('[InventoryScanner]', e);
             setCameraError('Camera access denied.');
             setShowInlineScanner(false);
         }
@@ -250,7 +251,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         handleBarcodeScan(code);
                     }
                 }
-            } catch {
+            } catch (e) {
+            console.warn('[InventoryScanner]', e);
                 // Detection frame failed — continue
             }
         }, 500); // Scan every 500ms
@@ -272,7 +274,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 setNewItem(prev => ({ ...prev, barcode }));
                 setSheetMode('new');
             }
-        } catch {
+        } catch (e) {
+            console.warn('[InventoryScanner]', e);
             setNewItem(prev => ({ ...prev, barcode }));
             setSheetMode('new');
         }
@@ -294,7 +297,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             setFoundItem(updated);
             triggerHaptic('light');
             onItemSaved();
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryScanner] ignore:', e); }
         setSaving(false);
     };
 
@@ -319,7 +322,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             } else {
                 dismissSheet();
             }
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryScanner] ignore:', e); }
         setSaving(false);
     };
 

@@ -62,7 +62,7 @@ async function fetchUserPolarData(): Promise<PolarData | null> {
         if (data && !error && data.polar_data) {
             return data.polar_data as PolarData;
         }
-    } catch { /* No polar data */ }
+    } catch (e) { console.warn('[weather] No polar data:', e); }
     return null;
 }
 
@@ -257,7 +257,7 @@ export async function enhanceVoyagePlanWithWeather(
     if (vessel.type === 'sail') {
         try {
             polarData = await fetchUserPolarData();
-        } catch { /* Non-critical */ }
+        } catch (e) { console.warn('[weather] Non-critical:', e); }
     }
 
     // Decimate centerline for weather API (max ~100 points) — API can't handle thousands

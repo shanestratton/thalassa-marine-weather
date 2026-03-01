@@ -191,7 +191,8 @@ export const useAppController = () => {
             try {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
-            } catch {
+            } catch (e) {
+            console.warn('[useAppController]', e);
                 // Geocode failed — fall through
             }
         }

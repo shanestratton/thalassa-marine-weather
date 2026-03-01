@@ -235,7 +235,7 @@ Deno.serve(async (req: Request) => {
                 const buf = await upstream.arrayBuffer();
                 if (buf.byteLength < 100) return null;
                 return buf;
-            } catch { return null; }
+            } catch (e) { console.warn('[index]', e); return null; }
         });
 
         const results = await Promise.all(fetches);

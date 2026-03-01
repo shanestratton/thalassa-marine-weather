@@ -88,7 +88,8 @@ export async function getOfflineQueueCount(): Promise<number> {
         if (!value) return 0;
         const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
         return queue.length;
-    } catch {
+    } catch (e) {
+            console.warn('[OfflineQueue]', e);
         /* Preferences read/parse failure — 0 is safe default */
         return 0;
     }

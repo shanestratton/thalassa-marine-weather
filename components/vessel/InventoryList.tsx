@@ -176,7 +176,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setItems(data);
             const s = await InventoryService.getStats();
             setStats(s);
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryList] ignore:', e); }
         setLoading(false);
     }, []);
 
@@ -221,7 +221,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             await InventoryService.delete(id);
             setItems(prev => prev.filter(i => i.id !== id));
             setExpandedId(null);
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryList] ignore:', e); }
     };
 
     // ── Edit item ──
@@ -266,7 +266,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setItems(prev => prev.map(i => i.id === editItem.id ? updated : i));
             setEditItem(null);
             triggerHaptic('medium');
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryList] ignore:', e); }
     };
 
     // ── Quick quantity adjustment ──
@@ -275,7 +275,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         try {
             const updated = await InventoryService.adjustQuantity(id, delta);
             setItems(prev => prev.map(i => i.id === id ? updated : i));
-        } catch { /* ignore */ }
+        } catch (e) { console.warn('[InventoryList] ignore:', e); }
     };
 
     if (showScanner) {
@@ -454,7 +454,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                         setEditBarcode(barcodes[0].rawValue);
                                                         triggerHaptic('medium');
                                                     }
-                                                } catch { /* cancelled */ }
+                                                } catch (e) { console.warn('[InventoryList] cancelled:', e); }
                                             }
                                         }}
                                         className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"

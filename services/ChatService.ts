@@ -128,7 +128,8 @@ class ChatServiceClass {
                 this.loadUserRole(),
                 this.syncOfflineQueue(),
             ]);
-        } catch {
+        } catch (e) {
+            console.warn('[Chat]', e);
             // Non-critical — will retry on next call
             this.initPromise = null; // Allow retry
         }
@@ -170,7 +171,7 @@ class ChatServiceClass {
                     return parsed;
                 }
             }
-        } catch { /* corrupt cache — fetch fresh */ }
+        } catch (e) { console.warn('[Chat] corrupt cache — fetch fresh:', e); }
 
         // 2. No cache — fetch from Supabase
         return this._fetchAndCacheChannels();
@@ -186,7 +187,7 @@ class ChatServiceClass {
 
         if (error || !data || data.length === 0) return [];
         const channels = data as ChatChannel[];
-        try { localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels)); } catch { }
+        try { localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels)); } catch (e) { console.warn('[Chat] Operation failed:', e); }
         return channels;
     }
 
@@ -271,7 +272,7 @@ class ChatServiceClass {
 
     async markHelpful(messageId: string): Promise<void> {
         if (!supabase) return;
-        try { await supabase.rpc('increment_helpful_count', { msg_id: messageId }); } catch { /* best effort */ }
+        try { await supabase.rpc('increment_helpful_count', { msg_id: messageId }); } catch (e) { console.warn('[Chat] best effort:', e); }
     }
 
     // --- REALTIME SUBSCRIPTIONS ---
@@ -700,7 +701,8 @@ class ChatServiceClass {
                 body: opts.body,
                 data: opts.data || {},
             });
-        } catch {
+        } catch (e) {
+            console.warn('[Chat]', e);
             /* Push notification is best-effort — never block message sending */
         }
     }
@@ -739,7 +741,8 @@ class ChatServiceClass {
             if (inserts.length > 0) {
                 await supabase.from('push_notification_queue').insert(inserts);
             }
-        } catch {
+        } catch (e) {
+            console.warn('[Chat]', e);
             /* Best effort */
         }
     }
@@ -752,7 +755,7 @@ class ChatServiceClass {
             const queue: QueuedMessage[] = value ? JSON.parse(value) : [];
             queue.push(msg);
             await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(queue) });
-        } catch { /* best effort */ }
+        } catch (e) { console.warn('[Chat] best effort:', e); }
     }
 
     private async syncOfflineQueue(): Promise<void> {
@@ -773,7 +776,7 @@ class ChatServiceClass {
                     await this.sendDM(msg.recipient_id, msg.message);
                 }
             }
-        } catch { /* best effort */ }
+        } catch (e) { console.warn('[Chat] best effort:', e); }
     }
 
     // --- UNREAD COUNT ---

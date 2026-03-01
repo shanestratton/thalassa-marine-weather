@@ -357,7 +357,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                     };
                                                 }
                                             }
-                                        } catch { /* non-critical */ }
+                                        } catch (e) { console.warn('[RoutePlanner] non-critical:', e); }
 
                                         const result = await fetchVoyagePlan(origin, destination, dummyVessel, departureDate, undefined, undefined, undefined, weatherCtx);
                                         if (result.bestDepartureWindow) {
@@ -373,7 +373,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                             `${String(dt.getUTCHours()).padStart(2, '0')}:${String(dt.getUTCMinutes()).padStart(2, '0')}`
                                                         );
                                                     }
-                                                } catch { /* fallthrough */ }
+                                                } catch (e) { console.warn('[RoutePlanner] fallthrough:', e); }
                                             }
 
                                             // Fallback: parse timeRange for the time only

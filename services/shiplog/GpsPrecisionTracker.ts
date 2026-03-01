@@ -198,7 +198,7 @@ class GpsPrecisionTrackerClass {
 
     private notifyListeners(avgAccuracy: number): void {
         this.listeners.forEach(cb => {
-            try { cb(this.currentQuality, avgAccuracy); } catch { /* isolated */ }
+            try { cb(this.currentQuality, avgAccuracy); } catch (e) { console.warn('[GpsPrecisionTracker] isolated:', e); }
         });
     }
 }

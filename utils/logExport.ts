@@ -769,7 +769,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         try {
             const wpName = await reverseGeocode(wp.latitude!, wp.longitude!);
             waypointNames.set(i, wpName);
-        } catch {
+        } catch (e) {
+            console.warn('[logExport]', e);
             // Use coords as fallback
         }
     }

@@ -84,7 +84,8 @@ class DocumentSyncServiceClass {
         try {
             const raw = localStorage.getItem(SYNC_STATUS_KEY);
             this._statusCache = raw ? JSON.parse(raw) : {};
-        } catch {
+        } catch (e) {
+            console.warn('[DocumentSync]', e);
             this._statusCache = {};
         }
     }
@@ -92,7 +93,7 @@ class DocumentSyncServiceClass {
     private _saveStatus(): void {
         try {
             localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(this._statusCache));
-        } catch { /* localStorage full — ignore */ }
+        } catch (e) { console.warn('[DocumentSync] localStorage full — ignore:', e); }
     }
 
     // ── Upload file to Supabase Storage ────────────────────────
@@ -159,7 +160,7 @@ class DocumentSyncServiceClass {
             if (match) {
                 await supabase.storage.from(STORAGE_BUCKET).remove([match[1]]);
             }
-        } catch { /* ignore cleanup errors */ }
+        } catch (e) { console.warn('[DocumentSync] ignore cleanup errors:', e); }
     }
 
     // ── Sync single document to Supabase ───────────────────────

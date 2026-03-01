@@ -895,7 +895,8 @@ async function fetchElevationGrid(
         let west: number, south: number, east: number, north: number;
         try {
             [west, south, east, north] = image.getBoundingBox();
-        } catch {
+        } catch (e) {
+            console.warn('[index]', e);
             const tp = image.fileDirectory.ModelTiepoint;
             const ps = image.fileDirectory.ModelPixelScale;
             if (tp && ps) {
@@ -1295,7 +1296,8 @@ async function fetchWeatherGrid(
                     }));
 
                     return { key: `${pt.lat},${pt.lon}`, samples };
-                } catch {
+                } catch (e) {
+            console.warn('[index]', e);
                     return null;
                 }
             })
@@ -1391,7 +1393,8 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
             // A proper implementation would decode the GRIB2 binary
             console.log(`[WeatherRouter] WW3 f${fStr}: ${blob.byteLength} bytes received`);
 
-        } catch {
+        } catch (e) {
+            console.warn('[index]', e);
             // Individual forecast hour failed — continue
         }
     }

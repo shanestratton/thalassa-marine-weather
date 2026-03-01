@@ -555,7 +555,8 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 const name = await reverseGeocode(lat, lng);
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, name || fallback);
-            } catch {
+            } catch (e) {
+            console.warn('[MapHub]', e);
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, fallback);
             }
@@ -608,7 +609,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         if (!frames.length || embRainIdx < 0 || embRainIdx >= frames.length) return;
         const frame = frames[embRainIdx];
         if (m.getSource('embedded-rain')) {
-            try { m.removeLayer('embedded-rain'); m.removeSource('embedded-rain'); } catch { /* ok */ }
+            try { m.removeLayer('embedded-rain'); m.removeSource('embedded-rain'); } catch (e) { console.warn('[MapHub] ok:', e); }
         }
         m.addSource('embedded-rain', {
             type: 'raster',
@@ -946,7 +947,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             try {
                 m.removeLayer('weather-tiles');
                 m.removeSource('weather-tiles');
-            } catch { /* ignore */ }
+            } catch (e) { console.warn('[MapHub] ignore:', e); }
         }
         m.addSource('weather-tiles', {
             type: 'raster',
@@ -1886,7 +1887,8 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                                         try {
                                             const errJson = await resp.json();
                                             errDetail = errJson.error || errJson.detail || errDetail;
-                                        } catch {
+                                        } catch (e) {
+            console.warn('[MapHub]', e);
                                             errDetail = await resp.text().catch(() => errDetail);
                                         }
                                         throw new Error(errDetail);

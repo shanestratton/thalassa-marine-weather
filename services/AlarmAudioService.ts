@@ -58,7 +58,8 @@ class AlarmAudioServiceClass {
         if (Capacitor.isNativePlatform()) {
             try {
                 await AlarmAudioPlugin.stopAlarm();
-            } catch {
+            } catch (e) {
+            console.warn('[AlarmAudio]', e);
                 /* best effort */
             }
         }

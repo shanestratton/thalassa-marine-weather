@@ -139,7 +139,8 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
             reader.onerror = () => resolve(null);
             reader.readAsDataURL(blob);
         });
-    } catch {
+    } catch (e) {
+            console.warn('[diaryExport]', e);
         return null;
     }
 }
@@ -381,7 +382,8 @@ export async function generateDiaryPDF(
                                 pdf.setDrawColor(200, 205, 210);
                                 pdf.setLineWidth(0.2);
                                 pdf.rect(photoX, entryY, photoSize, photoSize, 'S');
-                            } catch {
+                            } catch (e) {
+            console.warn('[diaryExport]', e);
                                 // Skip failed images
                             }
                             photoX += photoSize + 3;

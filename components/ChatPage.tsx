@@ -187,7 +187,7 @@ export const ChatPage: React.FC = () => {
         try {
             const stored = localStorage.getItem('chat_liked_messages');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch { return new Set(); }
+        } catch (e) { console.warn('[ChatPage]', e); return new Set(); }
     });
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
@@ -479,7 +479,8 @@ export const ChatPage: React.FC = () => {
                     setPinLng(151.2153);
                 }
             }
-        } catch {
+        } catch (e) {
+            console.warn('[ChatPage]', e);
             setPinLat(-33.8568);
             setPinLng(151.2153);
         }
@@ -655,7 +656,8 @@ export const ChatPage: React.FC = () => {
                 .filter(v => v.entryCount >= 2) // Need at least 2 points for a track
                 .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
             setVoyageList(list);
-        } catch {
+        } catch (e) {
+            console.warn('[ChatPage]', e);
             setVoyageList([]);
         } finally {
             setTrackLoadingVoyages(false);
@@ -937,7 +939,7 @@ export const ChatPage: React.FC = () => {
         setLikedMessages(prev => {
             const next = new Set(prev);
             next.add(msgId);
-            try { localStorage.setItem('chat_liked_messages', JSON.stringify([...next])); } catch { }
+            try { localStorage.setItem('chat_liked_messages', JSON.stringify([...next])); } catch (e) { console.warn('[ChatPage]', e); }
             return next;
         });
     }, [likedMessages]);

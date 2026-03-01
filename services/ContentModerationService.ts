@@ -24,7 +24,7 @@ const getSupabaseUrl = (): string => {
         if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
             return process.env.SUPABASE_URL;
         }
-    } catch { /* browser env */ }
+    } catch (e) { console.warn('[ContentModeration] browser env:', e); }
     return '';
 };
 
@@ -233,7 +233,8 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
                 clean = clean.substring(firstBrace, lastBrace + 1);
             }
             parsed = JSON.parse(clean);
-        } catch {
+        } catch (e) {
+            console.warn('[ContentModeration]', e);
             parsed = null;
         }
 
@@ -295,7 +296,8 @@ export const reportMessage = async (
             });
 
         return !error;
-    } catch {
+    } catch (e) {
+            console.warn('[ContentModeration]', e);
         return false;
     }
 };
@@ -407,7 +409,8 @@ const logModerationAction = async (
 
     try {
         await supabase.from(MODERATION_LOG_TABLE).insert(log);
-    } catch {
+    } catch (e) {
+            console.warn('[ContentModeration]', e);
         // Best effort — moderation logging is non-critical
     }
 };

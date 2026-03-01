@@ -186,7 +186,8 @@ export class ParticleEngine {
             });
 
             this.ctx.restore();
-        } catch {
+        } catch (e) {
+            console.warn('[ParticleEngine]', e);
             /* Canvas draw error — restore state to prevent corruption */
             this.ctx.restore();
         }

@@ -119,7 +119,7 @@ export const fetchStormGlassWeather = async (
                 distToWaterIdx,
                 elevation: wRes.elevation
             };
-        } catch { return null; }
+        } catch (e) { console.warn('[stormglass]', e); return null; }
     };
 
     // 1. CRITICAL: Fetch Weather First (Fail fast if this breaks)

@@ -147,7 +147,8 @@ class PushNotificationServiceClass {
                     device_token: this.deviceToken,
                 });
                 log.info('Push token removed from Supabase');
-            } catch {
+            } catch (e) {
+            console.warn('[PushNotification]', e);
                 /* best effort */
             }
         }
@@ -165,7 +166,8 @@ class PushNotificationServiceClass {
         try {
             const status = await PushNotifications.checkPermissions();
             return status.receive === 'granted';
-        } catch {
+        } catch (e) {
+            console.warn('[PushNotification]', e);
             return false;
         }
     }

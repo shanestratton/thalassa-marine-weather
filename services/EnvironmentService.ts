@@ -249,7 +249,8 @@ class EnvironmentServiceClass {
                 savedAt: Date.now(),
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        } catch {
+        } catch (e) {
+            console.warn('[Environment]', e);
             // Non-critical
         }
     }
@@ -280,7 +281,8 @@ class EnvironmentServiceClass {
             } else {
                 this.state.current = this.state.mode;
             }
-        } catch {
+        } catch (e) {
+            console.warn('[Environment]', e);
             // Corrupted data — start fresh
             localStorage.removeItem(STORAGE_KEY);
         }
@@ -290,7 +292,7 @@ class EnvironmentServiceClass {
     private notifyListeners(): void {
         const snapshot = this.getState();
         this.listeners.forEach(cb => {
-            try { cb(snapshot); } catch { /* Isolated listener error */ }
+            try { cb(snapshot); } catch (e) { console.warn('[Environment] Isolated listener error:', e); }
         });
     }
 }

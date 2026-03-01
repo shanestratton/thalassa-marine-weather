@@ -126,7 +126,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                         return prev;
                     });
                 }
-            } catch {
+            } catch (e) {
+            console.warn('[OnboardingWizard]', e);
                 /* Reverse geocode failed — fall back to WP coordinate format */
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {

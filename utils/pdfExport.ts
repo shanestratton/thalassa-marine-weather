@@ -329,7 +329,8 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
                     }
                 }
             }
-        } catch {
+        } catch (e) {
+            console.warn('[pdfExport]', e);
             // Mapbox unavailable — fall through to vector fallback
         }
 

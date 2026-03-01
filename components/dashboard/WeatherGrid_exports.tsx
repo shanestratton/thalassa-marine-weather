@@ -16,7 +16,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch { return new Set(); }
+        } catch (e) { console.warn('[WeatherGrid_exports]', e); return new Set(); }
     });
 
     // Critical warnings that CANNOT be dismissed (life/vessel safety)
@@ -42,7 +42,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch { /* non-critical */ }
+        } catch (e) { console.warn('[WeatherGrid_exports] non-critical:', e); }
     };
 
     if (!activeAlerts || activeAlerts.length === 0) {

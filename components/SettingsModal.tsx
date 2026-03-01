@@ -190,7 +190,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             navigator.geolocation.getCurrentPosition(async (position) => {
                 const { latitude, longitude } = position.coords;
                 let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch { /* fallback to WP coords */ }
+                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { console.warn('[SettingsModal] fallback to WP coords:', e); }
                 onSave({ defaultLocation: resolvedName });
                 setDetectingLoc(false);
             }, () => setDetectingLoc(false));
