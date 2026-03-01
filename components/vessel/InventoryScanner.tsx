@@ -575,7 +575,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 {/* Header bar */}
                 <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent pt-[max(1rem,env(safe-area-inset-top))] px-4 pb-8">
                     <div className="flex items-center justify-between">
-                        <button onClick={onClose} className="p-2 rounded-xl bg-white/10 backdrop-blur-sm">
+                        <button onClick={onClose} aria-label="Close camera" className="p-2 rounded-xl bg-white/10 backdrop-blur-sm">
                             <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
