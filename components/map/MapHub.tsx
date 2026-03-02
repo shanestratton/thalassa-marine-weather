@@ -108,7 +108,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     // State
     const location = useLocationStore();
     const windState = useWindStore();
-    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('none');
+    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('velocity');
     const [showLayerMenu, setShowLayerMenu] = useState(false);
     const [showPassage, setShowPassage] = useState(false);
     const [mapReady, setMapReady] = useState(false);
@@ -1809,7 +1809,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             {/* ═══ ACTION FABS ═══ */}
             {!embedded && (
-                <div className="absolute bottom-28 right-4 z-[500] flex flex-col gap-2">
+                <div className="absolute bottom-44 right-4 z-[500] flex flex-col gap-2">
 
                     {/* Wind Mode Toggle: Global vs Passage */}
                     {activeLayer === 'wind' && (
@@ -2051,23 +2051,40 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setWindPlaying(!windPlaying); triggerHaptic('light'); }}
-                            className="shrink-0 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-90 transition-transform"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
                         >
-                            <span className="text-white text-xs font-black">
-                                {windPlaying ? '⏸' : '▶'}
-                            </span>
+                            <span className="text-sm">{windPlaying ? '⏸' : '▶️'}</span>
                         </button>
 
-                        <div className="flex-1 relative h-8 flex items-center" style={{ touchAction: 'none' }}>
-                            <input
-                                type="range"
-                                min={0}
-                                max={windTotalHours - 1}
-                                step={0.1}
-                                value={windHour}
-                                onChange={e => { setWindPlaying(false); setWindHour(parseFloat(e.target.value)); }}
-                                className="w-full h-1.5 appearance-none bg-white/10 rounded-full cursor-pointer"
-                                style={{ accentColor: '#38bdf8' }}
+                        <div
+                            className="flex-1 relative h-10 flex items-center cursor-pointer"
+                            style={{ touchAction: 'none' }}
+                            onPointerDown={e => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                const hr = ratio * (windTotalHours - 1);
+                                setWindPlaying(false);
+                                setWindHour(hr);
+                                triggerHaptic('light');
+                            }}
+                            onPointerMove={e => {
+                                if (e.buttons === 0) return;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                const hr = ratio * (windTotalHours - 1);
+                                setWindPlaying(false);
+                                setWindHour(hr);
+                            }}
+                        >
+                            <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+                                <div className="absolute inset-y-0 left-0 bg-sky-500/40 rounded-full" style={{ width: `${(windHour / Math.max(1, windTotalHours - 1)) * 100}%` }} />
+                            </div>
+                            <div
+                                className="absolute top-1/2 w-5 h-5 bg-sky-400 rounded-full shadow-lg shadow-sky-400/30 border-2 border-white/40 pointer-events-none"
+                                style={{ left: `${(windHour / Math.max(1, windTotalHours - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
                             />
                         </div>
 
@@ -2087,22 +2104,40 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setRainPlaying(!rainPlaying); triggerHaptic('light'); }}
-                            className="shrink-0 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center active:scale-90 transition-transform"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 shrink-0 active:scale-90 transition-transform"
                         >
-                            <span className="text-white text-xs font-black">
-                                {rainPlaying ? '⏸' : '▶'}
-                            </span>
+                            <span className="text-sm">{rainPlaying ? '⏸' : '▶️'}</span>
                         </button>
 
-                        <div className="flex-1 relative h-8 flex items-center" style={{ touchAction: 'none' }}>
-                            <input
-                                type="range"
-                                min={0}
-                                max={rainFrameCount - 1}
-                                value={rainFrameIndex}
-                                onChange={e => { setRainPlaying(false); setRainFrameIndex(parseInt(e.target.value)); }}
-                                className="w-full h-1.5 appearance-none bg-white/10 rounded-full cursor-pointer"
-                                style={{ accentColor: '#22c55e' }}
+                        <div
+                            className="flex-1 relative h-10 flex items-center cursor-pointer"
+                            style={{ touchAction: 'none' }}
+                            onPointerDown={e => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                const idx = Math.round(ratio * (rainFrameCount - 1));
+                                setRainPlaying(false);
+                                setRainFrameIndex(idx);
+                                triggerHaptic('light');
+                            }}
+                            onPointerMove={e => {
+                                if (e.buttons === 0) return;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                const idx = Math.round(ratio * (rainFrameCount - 1));
+                                setRainPlaying(false);
+                                setRainFrameIndex(idx);
+                            }}
+                        >
+                            <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+                                <div className="absolute inset-y-0 left-0 bg-emerald-500/40 rounded-full" style={{ width: `${(rainFrameIndex / Math.max(1, rainFrameCount - 1)) * 100}%` }} />
+                            </div>
+                            <div
+                                className="absolute top-1/2 w-5 h-5 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/30 border-2 border-white/40 pointer-events-none"
+                                style={{ left: `${(rainFrameIndex / Math.max(1, rainFrameCount - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
                             />
                         </div>
 
