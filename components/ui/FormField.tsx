@@ -28,6 +28,8 @@ interface FormFieldProps {
     error?: string;
     /** Hint text below the field */
     hint?: string;
+    /** onFocus handler (e.g. for scrollIntoView keyboard avoidance) */
+    onFocus?: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
 }
 
 const BASE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500';
@@ -49,6 +51,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     rows = 3,
     error,
     hint,
+    onFocus,
 }) => {
     const isDate = type === 'date';
     const isTextarea = type === 'textarea';
@@ -73,6 +76,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     disabled={disabled}
                     autoFocus={autoFocus}
                     rows={rows}
+                    onFocus={onFocus as React.FocusEventHandler<HTMLTextAreaElement>}
                     className={`${inputClass} resize-none`}
                 />
             ) : (
@@ -85,6 +89,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     autoFocus={autoFocus}
                     min={min}
                     inputMode={inputMode}
+                    onFocus={onFocus as React.FocusEventHandler<HTMLInputElement>}
                     className={inputClass}
                 />
             )}
