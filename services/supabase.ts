@@ -61,6 +61,13 @@ if (URL && KEY) {
 }
 
 // Only create client if keys are present
-export const supabase = (URL && KEY) ? createClient(URL, KEY) : null;
+export const supabase = (URL && KEY) ? createClient(URL, KEY, {
+    auth: {
+        persistSession: true,
+        storageKey: 'thalassa-auth-session',   // stable key survives rebuilds
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+    },
+}) : null;
 
 export const isSupabaseConfigured = () => !!supabase;

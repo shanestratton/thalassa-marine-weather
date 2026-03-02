@@ -391,31 +391,13 @@ $$;
 
 -- ═══════════════════════════════════════════════════════════════
 -- 7. Enable Supabase Realtime on vessel tables
---    Allows WebSocket subscriptions for instant crew sync.
--- ═══════════════════════════════════════════════════════════════
-
--- Add each table individually, ignoring "already added" errors
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory_items;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.equipment_register;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_tasks;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_history;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.ship_documents;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-DO $$ BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.vessel_crew;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
+--    ⚠️ Do this from the Supabase Dashboard UI:
+--    Table Editor → click each table → Enable Realtime (toggle)
+--
+--    Tables to enable:
+--      ✓ inventory_items
+--      ✓ equipment_register
+--      ✓ maintenance_tasks
+--      ✓ maintenance_history
+--      ✓ ship_documents
+--      ✓ vessel_crew
