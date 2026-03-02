@@ -18,6 +18,7 @@ import { generateDiaryPDF } from '../utils/diaryExport';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { PageHeader } from './ui/PageHeader';
+import { useSwipeable } from '../hooks/useSwipeable';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -115,6 +116,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             setEntries(data);
             setLoading(false);
         });
+        // Re-read after 10s to clear stale PENDING badges from background syncs
+        const refreshTimer = setTimeout(() => {
+            DiaryService.getEntries(100).then(data => setEntries(data));
+        }, 10000);
+        return () => clearTimeout(refreshTimer);
     }, []);
 
     // Cleanup on unmount
@@ -390,6 +396,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             }
         }
         setSaving(false);
+        // Re-fetch entries after a short delay to pick up background sync results
+        setTimeout(() => {
+            DiaryService.getEntries(100).then(data => setEntries(data));
+        }, 3000);
     };
 
     // ── Delete ─────────────────────────────────────────────────
@@ -503,6 +513,97 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             </div>
         </div>
     );
+
+    // ── Swipeable Diary Card ─────────────────────────────────────
+
+    const SwipeableDiaryCard: React.FC<{
+        entry: DiaryEntry;
+        onTap: () => void;
+        onDelete: () => void;
+    }> = ({ entry, onTap, onDelete }) => {
+        const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+        const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
+        const entryHasCoords = entry.latitude != null && entry.longitude != null;
+
+        return (
+            <div className="relative overflow-hidden rounded-2xl">
+                {/* Delete button (revealed on swipe) */}
+                <div
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    onClick={() => { resetSwipe(); onDelete(); }}
+                >
+                    <div className="text-center text-white">
+                        <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span className="text-[11px] font-bold">Delete</span>
+                    </div>
+                </div>
+
+                {/* Main card (slides on swipe) */}
+                <div
+                    className={`relative w-full text-left bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all ${isSwiping ? '' : 'duration-200'}`}
+                    style={{ transform: `translateX(-${swipeOffset}px)` }}
+                    {...handlers}
+                    onClick={() => { if (swipeOffset === 0) onTap(); }}
+                >
+                    {entry.photos.length > 0 && (
+                        <div className="flex h-28 overflow-hidden">
+                            {entry.photos.slice(0, 3).map((url, i) => (
+                                <img key={i} src={url} alt="" className={`h-full object-cover ${entry.photos.length === 1 ? 'w-full' : entry.photos.length === 2 ? 'w-1/2' : 'w-1/3'}`} />
+                            ))}
+                            {entry.photos.length > 3 && (
+                                <div className="w-1/3 h-full bg-black/50 flex items-center justify-center">
+                                    <span className="text-white/60 text-sm font-bold">+{entry.photos.length - 3}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="p-4">
+                        <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm">{moodCfg.emoji}</span>
+                                    <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
+                                    {entry.audio_url && <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
+                                    {entry._offline && <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
+                                </div>
+                                <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                                    {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
+                                </p>
+                            </div>
+                            <span className="text-[11px] text-gray-500 font-mono shrink-0 mt-0.5">
+                                {formatTime(entry.created_at)}
+                            </span>
+                        </div>
+
+                        {entryHasCoords && (
+                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/60">
+                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                </svg>
+                                <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
+                                {entry.location_name && !entry.location_name.includes('°') && (
+                                    <span className="text-gray-500 truncate">— {entry.location_name}</span>
+                                )}
+                            </div>
+                        )}
+                        {!entryHasCoords && entry.location_name && (
+                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/50">
+                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                </svg>
+                                <span className="font-medium truncate">{entry.location_name}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     // ── Render: Full Entry View ─────────────────────────────────
 
@@ -820,10 +921,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 onClick={handlePolish}
                                 disabled={polishing || body.trim().length < 10}
                                 className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${polishing
-                                        ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
-                                        : body.trim().length >= 10
-                                            ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
-                                            : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
+                                    ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
+                                    : body.trim().length >= 10
+                                        ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
+                                        : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
                                     }`}
                                 title={polishing ? 'Polishing…' : body.trim().length >= 10 ? 'Polish with Gemini' : 'Type more to enable AI polish'}
                             >
@@ -1002,23 +1103,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                                     <div className="space-y-3 ml-4 border-l border-white/5 pl-4">
                                         {dayEntries.map(entry => {
-                                            const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
-                                            const entryHasCoords = entry.latitude != null && entry.longitude != null;
-                                            return (
-                                                <button
-                                                    key={entry.id}
-                                                    onClick={() => {
-                                                        if (selectMode) {
-                                                            toggleEntrySelection(entry.id);
-                                                        } else {
-                                                            setSelectedEntry(entry);
-                                                            triggerHaptic('light');
-                                                        }
-                                                    }}
-                                                    className={`relative w-full text-left bg-white/[0.03] border rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all active:scale-[0.98] group ${selectMode && selectedIds.has(entry.id) ? 'border-sky-500/50 !bg-sky-500/5' : 'border-white/5 hover:border-white/10'}`}
-                                                >
-                                                    {/* Selection indicator */}
-                                                    {selectMode && (
+                                            if (selectMode) {
+                                                // In select mode, render as buttons with selection UI
+                                                const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
+                                                const entryHasCoords = entry.latitude != null && entry.longitude != null;
+                                                return (
+                                                    <button
+                                                        key={entry.id}
+                                                        onClick={() => toggleEntrySelection(entry.id)}
+                                                        className={`relative w-full text-left bg-white/[0.03] border rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all active:scale-[0.98] ${selectedIds.has(entry.id) ? 'border-sky-500/50 !bg-sky-500/5' : 'border-white/5 hover:border-white/10'}`}
+                                                    >
                                                         <div className="absolute top-3 right-3 z-10">
                                                             <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.has(entry.id) ? 'bg-sky-500 border-sky-500' : 'border-white/20 bg-black/30'}`}>
                                                                 {selectedIds.has(entry.id) && (
@@ -1028,61 +1122,24 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                                                 )}
                                                             </div>
                                                         </div>
-                                                    )}
-                                                    {entry.photos.length > 0 && (
-                                                        <div className="flex h-28 overflow-hidden">
-                                                            {entry.photos.slice(0, 3).map((url, i) => (
-                                                                <img key={i} src={url} alt="" className={`h-full object-cover ${entry.photos.length === 1 ? 'w-full' : entry.photos.length === 2 ? 'w-1/2' : 'w-1/3'}`} />
-                                                            ))}
-                                                            {entry.photos.length > 3 && (
-                                                                <div className="w-1/3 h-full bg-black/50 flex items-center justify-center">
-                                                                    <span className="text-white/60 text-sm font-bold">+{entry.photos.length - 3}</span>
-                                                                </div>
-                                                            )}
+                                                        <div className="p-4">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-sm">{moodCfg.emoji}</span>
+                                                                <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
+                                                            </div>
+                                                            <p className="text-xs text-gray-400 line-clamp-2">{entry.body || ''}</p>
                                                         </div>
-                                                    )}
-
-                                                    <div className="p-4">
-                                                        <div className="flex items-start justify-between gap-2">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center gap-2 mb-1">
-                                                                    <span className="text-sm">{moodCfg.emoji}</span>
-                                                                    <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
-                                                                    {entry.audio_url && <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
-                                                                    {entry._offline && <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
-                                                                </div>
-                                                                <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
-                                                                    {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
-                                                                </p>
-                                                            </div>
-                                                            <span className="text-[11px] text-gray-500 font-mono shrink-0 mt-0.5">
-                                                                {formatTime(entry.created_at)}
-                                                            </span>
-                                                        </div>
-
-                                                        {entryHasCoords && (
-                                                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/60">
-                                                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                                                </svg>
-                                                                <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
-                                                                {entry.location_name && !entry.location_name.includes('°') && (
-                                                                    <span className="text-gray-500 truncate">— {entry.location_name}</span>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        {!entryHasCoords && entry.location_name && (
-                                                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/50">
-                                                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                                                </svg>
-                                                                <span className="font-medium truncate">{entry.location_name}</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </button>
+                                                    </button>
+                                                );
+                                            }
+                                            // Normal mode: swipeable card
+                                            return (
+                                                <SwipeableDiaryCard
+                                                    key={entry.id}
+                                                    entry={entry}
+                                                    onTap={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
+                                                    onDelete={() => handleDelete(entry.id)}
+                                                />
                                             );
                                         })}
                                     </div>
