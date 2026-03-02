@@ -26,6 +26,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
+import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -192,6 +193,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [exporting, setExporting] = useState(false);
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
+    const { ref: listRef, flash } = useSuccessFlash();
 
     // ── Load ──
     const loadTasks = useCallback(async () => {
@@ -284,6 +286,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setSheetNotes('');
             await loadTasks(); // Refresh list
             toast.success('Service logged');
+            flash();
         } catch (e) {
             console.error('Failed to log service:', e);
             toast.error('Failed to log service');
@@ -327,6 +330,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             });
             setShowAddForm(false);
             toast.success('Task created');
+            flash();
             resetForm();
             await loadTasks();
         } catch (e) {
@@ -428,6 +432,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setSheetTask(null);
             await loadTasks();
             toast.success('Task updated');
+            flash();
         } catch (e) {
             console.error('Failed to update task:', e);
             toast.error('Failed to update task');
@@ -542,7 +547,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
 
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />

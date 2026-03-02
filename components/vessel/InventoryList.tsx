@@ -25,6 +25,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -195,6 +196,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('inventory_items', loadItems);
 
+    const { ref: listRef, flash } = useSuccessFlash();
+
     // ── Filtered + grouped items ──
     const filtered = useMemo(() => {
         let result = items;
@@ -308,6 +311,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setEditItem(null);
             triggerHaptic('medium');
             toast.success('Item updated');
+            flash();
         } catch (e) {
             console.warn('[InventoryList] edit failed:', e);
             toast.error('Failed to update item');
@@ -366,7 +370,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
 
                 {/* ── Item List (scrollable, stops above CTA) ── */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
                     {loading ? (
                         <div className="space-y-3 px-1">
                             {[1, 2, 3, 4].map(i => (

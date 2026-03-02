@@ -25,6 +25,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -336,6 +337,8 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('equipment_register', loadItems);
 
+    const { ref: listRef, flash } = useSuccessFlash();
+
     // ── Filtered + grouped items ──
     const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
 
@@ -383,6 +386,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setNewInstallDate(''); setNewWarrantyExpiry(''); setNewNotes('');
             loadItems();
             toast.success('Equipment registered');
+            flash();
         } catch (e) {
             console.error('Failed to add equipment:', e);
             toast.error('Failed to add equipment');
@@ -446,6 +450,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 notes: newNotes.trim() || null,
             } : null);
             toast.success('Equipment updated');
+            flash();
         } catch (e) {
             console.error('Failed to update equipment:', e);
             toast.error('Failed to update equipment');
@@ -578,7 +583,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
 
                 {/* ── Equipment list (scrollable) ── */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="space-y-3 px-1">
                             {[1, 2, 3, 4].map(i => (
