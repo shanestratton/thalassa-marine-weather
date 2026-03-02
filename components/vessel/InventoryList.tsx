@@ -26,6 +26,7 @@ import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -470,6 +471,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                             <div className="flex gap-1.5 mt-0.5">
                                 <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
                                 <button
                                     type="button"

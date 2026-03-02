@@ -77,8 +77,9 @@ function ensureHideListener() {
 /**
  * onFocus handler — scrolls the focused input above the keyboard.
  *
- * Always scrolls (doesn't try to detect if keyboard is present).
- * The keyboard is ALWAYS present when an input gets focus on mobile.
+ * Uses scrollIntoView which handles all container types including
+ * fixed-position modals. The 'center' block alignment places the
+ * input nicely above the keyboard (top half of screen).
  */
 export function scrollInputAboveKeyboard(
     e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -88,31 +89,15 @@ export function scrollInputAboveKeyboard(
     // Ensure the keyboard-hide bounce-back listener is registered
     ensureHideListener();
 
-    setTimeout(() => {
-        const scrollParent = findScrollParent(el);
-        if (!scrollParent) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
-        }
-
-        // Remember for bounce-back
+    // Remember the scroll parent for bounce-back
+    const scrollParent = findScrollParent(el);
+    if (scrollParent) {
         lastScrollParent = scrollParent;
+    }
 
-        // Get element position relative to the scroll container
-        const elRect = el.getBoundingClientRect();
-        const parentRect = scrollParent.getBoundingClientRect();
-
-        // Target: place the input ~100px from the top of the screen.
-        // The keyboard + accessory bar takes ~50% of screen height,
-        // so the top quarter is the safe zone.
-        const targetFromTop = 100;
-        const currentScrollOffset = scrollParent.scrollTop;
-        const elTopInContainer = elRect.top - parentRect.top + currentScrollOffset;
-        const scrollTo = elTopInContainer - targetFromTop;
-
-        scrollParent.scrollTo({
-            top: Math.max(0, scrollTo),
-            behavior: 'smooth',
-        });
+    // Wait for keyboard animation to complete, then scroll into view.
+    // Use a small initial delay (50ms) to let iOS register the focus.
+    setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, KEYBOARD_ANIM_MS);
 }
