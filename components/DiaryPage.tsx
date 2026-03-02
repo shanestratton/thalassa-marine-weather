@@ -19,6 +19,7 @@ import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { PageHeader } from './ui/PageHeader';
 import { useSwipeable } from '../hooks/useSwipeable';
+import { OfflineBadge } from './ui/OfflineBadge';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -771,6 +772,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         >
                             {saving ? 'Saving…' : isEditing ? 'Update' : 'Save'}
                         </button>
+                        <OfflineBadge />
                     </div>
                 </div>
 

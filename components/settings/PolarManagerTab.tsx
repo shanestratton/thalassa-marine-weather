@@ -166,6 +166,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         onClick={() => setShowAdvancedInput(true)}
                         className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
                         title="Advanced polar input"
+                        aria-label="Advanced polar input"
                     >
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                             <circle cx="10" cy="4" r="1.5" />
@@ -210,6 +211,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                             <button
                                 onClick={() => setShowAdvancedInput(false)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                                aria-label="Close advanced input"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -300,6 +302,7 @@ const SmartPolarsCard: React.FC<{
                     }}
                     className={`relative w-11 h-6 rounded-full transition-all ${smartEnabled ? 'bg-emerald-500' : nmeaStatus === 'disconnected' ? 'bg-gray-800' : 'bg-gray-700'
                         }`}
+                    aria-label={smartEnabled ? 'Disable Smart Polars' : 'Enable Smart Polars'}
                 >
                     <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${smartEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                 </button>
@@ -397,6 +400,7 @@ const SmartPolarsCard: React.FC<{
                     <button
                         onClick={onReset}
                         className="text-[11px] font-bold text-red-400/50 hover:text-red-400 uppercase tracking-wider transition-colors px-2"
+                        aria-label="Reset Smart Polar data"
                     >
                         Reset
                     </button>
