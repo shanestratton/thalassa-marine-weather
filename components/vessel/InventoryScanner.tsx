@@ -483,6 +483,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_zone}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
                                     placeholder="Engine Room"
+                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                     className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
@@ -493,32 +494,34 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_specific}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
                                     placeholder="Stbd drawer"
+                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                     className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
                         </div>
 
-                        {/* Notes + Expiry side by side */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <div className="min-w-0">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
-                                <input
-                                    type="text"
-                                    value={newItem.description}
-                                    onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
-                                    placeholder="Part no, batch"
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                                />
-                            </div>
-                            <div className="min-w-0 overflow-hidden">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
-                                <input
-                                    type="date"
-                                    value={newItem.expiry_date}
-                                    onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                    className="w-full min-w-0 mt-0.5 bg-black/40 border border-white/10 rounded-xl px-2 py-2 text-xs text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
-                                />
-                            </div>
+                        {/* Notes */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
+                            <input
+                                type="text"
+                                value={newItem.description}
+                                onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
+                                placeholder="Part no, batch"
+                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                            />
+                        </div>
+
+                        {/* Expiry / Service — full width to prevent native date picker overflow */}
+                        <div>
+                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
+                            <input
+                                type="date"
+                                value={newItem.expiry_date}
+                                onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
+                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
+                            />
                         </div>
                     </div>
 
@@ -753,6 +756,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_zone}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
                                     placeholder="Engine Room"
+                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                     className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
@@ -763,6 +767,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_specific}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
                                     placeholder="Stbd drawer"
+                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                     className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
@@ -776,18 +781,19 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 value={newItem.description}
                                 onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
                                 placeholder="Part number, batch, etc."
+                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                                 className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                             />
                         </div>
 
-                        {/* Expiry / Service Date */}
-                        <div className="min-w-0 overflow-hidden">
+                        {/* Expiry / Service Date — full width */}
+                        <div>
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
+                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
                             />
                         </div>
                     </div>
