@@ -23,6 +23,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -332,6 +333,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('ship_documents', loadDocs);
 
+    const { ref: listRef, flash } = useSuccessFlash();
+
     // Cloud pull on mount (restore on new device)
     useEffect(() => {
         DocumentSyncService.pullFromCloud().then(restored => {
@@ -425,6 +428,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             resetForm();
             loadDocs();
             toast.success(editDoc ? 'Document updated' : 'Document filed');
+            flash();
             // Mark for cloud sync
             DocumentSyncService.markForSync(savedId);
         } catch (e) {
@@ -500,7 +504,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
 
                 {/* Documents list (scrollable, grouped) */}
-                <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
+                <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="space-y-3 px-1">
                             {[1, 2, 3].map(i => (
