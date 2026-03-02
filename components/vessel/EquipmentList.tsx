@@ -22,7 +22,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
@@ -397,27 +397,41 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         }
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
-    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
+    const deleteTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleDelete = useCallback(async (id: string) => {
-        setDeleteTargetId(id);
-    }, []);
+    const handleDelete = useCallback((id: string) => {
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+        triggerHaptic('medium');
+        // Remove from UI immediately
+        setItems(prev => prev.filter(i => i.id !== id));
+        setSelectedItem(null);
+        setContextItem(null);
+        setDeletedItem(item);
 
-    const confirmDelete = useCallback(async () => {
-        if (!deleteTargetId) return;
-        try {
-            triggerHaptic('medium');
-            await LocalEquipmentService.delete(deleteTargetId);
-            setSelectedItem(null);
-            setContextItem(null);
-            loadItems();
-        } catch (e) {
-            console.error('Failed to delete equipment:', e);
-            toast.error('Failed to delete equipment');
-        } finally {
-            setDeleteTargetId(null);
+        // Schedule actual delete after 5s
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = setTimeout(async () => {
+            try {
+                await LocalEquipmentService.delete(id);
+            } catch (e) {
+                console.warn('[EquipmentList] delete failed:', e);
+                toast.error('Failed to delete equipment');
+                setItems(prev => [...prev, item]);
+            }
+            setDeletedItem(null);
+        }, 5000);
+    }, [items]);
+
+    const handleUndoDelete = useCallback(() => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        if (deletedItem) {
+            setItems(prev => [...prev, deletedItem]);
+            toast.success('Equipment restored');
         }
-    }, [deleteTargetId, loadItems]);
+        setDeletedItem(null);
+    }, [deletedItem]);
 
     const handleCopySerial = (serial: string) => {
         navigator.clipboard.writeText(serial).then(() => {
@@ -794,14 +808,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 </ModalSheet>
             )}
 
-            <ConfirmDialog
-                isOpen={!!deleteTargetId}
-                title="Delete Equipment?"
-                message="This will permanently remove this equipment from your register."
-                confirmLabel="Delete"
-                destructive
-                onConfirm={confirmDelete}
-                onCancel={() => setDeleteTargetId(null)}
+            <UndoToast
+                isOpen={!!deletedItem}
+                message={`"${deletedItem?.equipment_name}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={() => setDeletedItem(null)}
             />
         </div>
     );
