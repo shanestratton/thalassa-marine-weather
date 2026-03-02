@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { t } from '../theme';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
-import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon, PhoneIcon } from './Icons';
+import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 
 interface AuthModalProps {
@@ -12,13 +12,10 @@ interface AuthModalProps {
 }
 
 type AuthStep = 'input' | 'otp' | 'success';
-type AuthMethod = 'email' | 'phone';
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const [step, setStep] = useState<AuthStep>('input');
-    const [method, setMethod] = useState<AuthMethod>('email');
     const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
     const [otp, setOtp] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -30,7 +27,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         if (!isOpen) {
             setStep('input');
             setEmail('');
-            setPhone('');
             setOtp('');
             setError(null);
             setResendCooldown(0);
@@ -57,18 +53,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     if (!isOpen) return null;
 
-    // Format phone number for display
-    const formatPhoneInput = (value: string) => {
-        // Remove all non-digits except leading +
-        const cleaned = value.replace(/[^\d+]/g, '');
-        // Ensure starts with + for international format
-        if (cleaned && !cleaned.startsWith('+')) {
-            return '+' + cleaned;
-        }
-        return cleaned;
-    };
-
-    // Send OTP code (email or phone)
+    // Send OTP code via email
     const handleSendCode = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!supabase) {
@@ -80,27 +65,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         setError(null);
 
         try {
-            if (method === 'email') {
-                const { error } = await supabase.auth.signInWithOtp({
-                    email,
-                    options: {
-                        shouldCreateUser: true,
-                    },
-                });
-                if (error) throw error;
-            } else {
-                // Phone/SMS OTP
-                if (!phone || phone.length < 10) {
-                    throw new Error("Please enter a valid phone number with country code (e.g. +61412345678)");
-                }
-                const { error } = await supabase.auth.signInWithOtp({
-                    phone,
-                    options: {
-                        shouldCreateUser: true,
-                    },
-                });
-                if (error) throw error;
-            }
+            const { error } = await supabase.auth.signInWithOtp({
+                email,
+                options: {
+                    shouldCreateUser: true,
+                },
+            });
+            if (error) throw error;
 
             setStep('otp');
             setResendCooldown(60);
@@ -119,9 +90,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             return;
         }
 
-        const expectedLength = method === 'phone' ? 6 : 8;
-        if (otp.length !== expectedLength) {
-            setError(`Please enter the ${expectedLength}-digit code.`);
+        if (otp.length !== 8) {
+            setError("Please enter the 8-digit code.");
             return;
         }
 
@@ -129,20 +99,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         setError(null);
 
         try {
-            let result;
-            if (method === 'email') {
-                result = await supabase.auth.verifyOtp({
-                    email,
-                    token: otp,
-                    type: 'email',
-                });
-            } else {
-                result = await supabase.auth.verifyOtp({
-                    phone,
-                    token: otp,
-                    type: 'sms',
-                });
-            }
+            const result = await supabase.auth.verifyOtp({
+                email,
+                token: otp,
+                type: 'email',
+            });
 
             if (result.error) throw result.error;
 
@@ -166,19 +127,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         setError(null);
 
         try {
-            if (method === 'email') {
-                const { error } = await supabase.auth.signInWithOtp({
-                    email,
-                    options: { shouldCreateUser: true },
-                });
-                if (error) throw error;
-            } else {
-                const { error } = await supabase.auth.signInWithOtp({
-                    phone,
-                    options: { shouldCreateUser: true },
-                });
-                if (error) throw error;
-            }
+            const { error } = await supabase.auth.signInWithOtp({
+                email,
+                options: { shouldCreateUser: true },
+            });
+            if (error) throw error;
 
             setResendCooldown(60);
             setOtp('');
@@ -199,13 +152,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     // Handle OTP input - only allow digits
     const handleOtpChange = (value: string) => {
-        const maxLength = method === 'phone' ? 6 : 8;
-        const digits = value.replace(/\D/g, '').slice(0, maxLength);
+        const digits = value.replace(/\D/g, '').slice(0, 8);
         setOtp(digits);
     };
-
-    const expectedOtpLength = method === 'phone' ? 6 : 8;
-    const contactDisplay = method === 'email' ? email : phone;
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
@@ -226,7 +175,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     </h2>
                     <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
                         {step === 'input' && "Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices."}
-                        {step === 'otp' && `We sent a ${expectedOtpLength}-digit code to ${contactDisplay}`}
+                        {step === 'otp' && `We sent an 8-digit code to ${email}`}
                         {step === 'success' && "You're now signed in and your data will sync automatically."}
                     </p>
 
@@ -241,56 +190,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         </div>
                     )}
 
-                    {/* Input Step (Email or Phone) */}
+                    {/* Email Input Step */}
                     {step === 'input' && (
                         <form onSubmit={handleSendCode} className="w-full space-y-4">
-                            {/* Method Toggle - Pro Feature */}
-                            <div className="flex bg-black/40 p-1 rounded-xl ${t.border.default} mb-4">
-                                <button
-                                    type="button"
-                                    onClick={() => setMethod('email')}
-                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-2 ${method === 'email' ? 'bg-sky-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    ✉️ Email
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setMethod('phone')}
-                                    className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-2 ${method === 'phone' ? 'bg-sky-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    📱 SMS
-                                    <span className="px-1.5 py-0.5 text-sm bg-amber-500/30 text-amber-300 rounded uppercase">Pro</span>
-                                </button>
+                            <div className="text-left">
+                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">Email Address</label>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="captain@vessel.com"
+                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
+                                    required
+                                    autoFocus
+                                />
                             </div>
-
-                            {method === 'email' ? (
-                                <div className="text-left">
-                                    <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">Email Address</label>
-                                    <input
-                                        type="email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        placeholder="captain@vessel.com"
-                                        className="w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors"
-                                        required
-                                        autoFocus
-                                    />
-                                </div>
-                            ) : (
-                                <div className="text-left">
-                                    <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">Phone Number (with country code)</label>
-                                    <input
-                                        type="tel"
-                                        value={phone}
-                                        onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
-                                        placeholder="+61 412 345 678"
-                                        className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors font-mono`}
-                                        required
-                                        autoFocus
-                                    />
-                                    <p className="text-sm text-gray-500 mt-1 ml-1">Include country code (e.g. +61 for Australia, +1 for USA)</p>
-                                </div>
-                            )}
 
                             {error && (
                                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200" aria-live="assertive">
@@ -316,16 +230,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {step === 'otp' && (
                         <form onSubmit={handleVerifyOtp} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">{expectedOtpLength}-Digit Code</label>
+                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">8-Digit Code</label>
                                 <input
                                     ref={otpInputRef}
                                     type="text"
                                     inputMode="numeric"
                                     value={otp}
                                     onChange={(e) => handleOtpChange(e.target.value)}
-                                    placeholder={method === 'phone' ? '000000' : '00000000'}
-                                    className="w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors"
-                                    maxLength={expectedOtpLength}
+                                    placeholder="00000000"
+                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors`}
+                                    maxLength={8}
                                     autoComplete="one-time-code"
                                 />
                             </div>
@@ -338,8 +252,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                             <button
                                 type="submit"
-                                disabled={loading || otp.length !== expectedOtpLength}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== expectedOtpLength ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                                disabled={loading || otp.length !== 8}
+                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== 8 ? 'opacity-50' : 'hover:bg-gray-100'}`}
                             >
                                 {loading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : "Verify Code"}
                             </button>
@@ -349,8 +263,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     type="button"
                                     onClick={handleChangeInput}
                                     className="text-gray-400 hover:text-white transition-colors"
-                                    aria-label="Change Input">
-                                    ← Change {method}
+                                    aria-label="Change Email">
+                                    ← Change email
                                 </button>
                                 <button
                                     type="button"
@@ -370,7 +284,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         <DiamondIcon className="w-3 h-3 text-sky-400" /> Pro Sync
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                        <BoatIcon className="w-3 h-3 text-sky-400" /> Fleet Data
+                        <BoatIcon className="w-3 h-3 text-sky-400" /> Crew Sharing
                     </div>
                 </div>
             </div>

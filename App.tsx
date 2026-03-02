@@ -67,13 +67,14 @@ const AnchorWatchPage = lazyRetry(() => import('./components/AnchorWatchPage').t
 const ChatPage = lazyRetry(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
 const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
+const CrewPage = lazyRetry(() => import('./components/CrewManagement').then(m => ({ default: m.CrewManagement })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, setPage, isOffline, transitionDirection } = useUI();
-    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route';
+    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -242,7 +243,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && currentView !== 'crew' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
@@ -281,7 +282,7 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew'}>
                         <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -361,6 +362,7 @@ const App: React.FC = () => {
                                                             {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
                                                             {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
                                                             {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                                            {currentView === 'crew' && <CrewPage onBack={() => setPage('vessel')} />}
                                                         </div>
                                                     </div>
                                                 )}
