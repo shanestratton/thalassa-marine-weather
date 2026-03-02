@@ -39,7 +39,11 @@ CREATE TABLE IF NOT EXISTS public.vessel_crew (
 -- 2. Enable RLS
 ALTER TABLE public.vessel_crew ENABLE ROW LEVEL SECURITY;
 
--- 3. RLS Policies for vessel_crew
+-- 3. RLS Policies for vessel_crew (drop first for safe re-run)
+DROP POLICY IF EXISTS "owner_manage_crew" ON public.vessel_crew;
+DROP POLICY IF EXISTS "crew_see_invites" ON public.vessel_crew;
+DROP POLICY IF EXISTS "crew_respond_invite" ON public.vessel_crew;
+
 -- Owner can see and manage their crew entries
 CREATE POLICY "owner_manage_crew" ON public.vessel_crew
     FOR ALL USING (auth.uid() = owner_id);
@@ -114,6 +118,32 @@ DO $$ BEGIN
     DROP POLICY IF EXISTS "Users can insert their own documents" ON public.ship_documents;
     DROP POLICY IF EXISTS "Users can update their own documents" ON public.ship_documents;
     DROP POLICY IF EXISTS "Users can delete their own documents" ON public.ship_documents;
+
+    -- Also drop the new crew policies if they exist (safe re-run)
+    DROP POLICY IF EXISTS "owner_or_crew_select" ON public.inventory_items;
+    DROP POLICY IF EXISTS "owner_or_crew_insert" ON public.inventory_items;
+    DROP POLICY IF EXISTS "owner_or_crew_update" ON public.inventory_items;
+    DROP POLICY IF EXISTS "owner_only_delete" ON public.inventory_items;
+
+    DROP POLICY IF EXISTS "owner_or_crew_select" ON public.equipment_register;
+    DROP POLICY IF EXISTS "owner_or_crew_insert" ON public.equipment_register;
+    DROP POLICY IF EXISTS "owner_or_crew_update" ON public.equipment_register;
+    DROP POLICY IF EXISTS "owner_only_delete" ON public.equipment_register;
+
+    DROP POLICY IF EXISTS "owner_or_crew_select" ON public.maintenance_tasks;
+    DROP POLICY IF EXISTS "owner_or_crew_insert" ON public.maintenance_tasks;
+    DROP POLICY IF EXISTS "owner_or_crew_update" ON public.maintenance_tasks;
+    DROP POLICY IF EXISTS "owner_only_delete" ON public.maintenance_tasks;
+
+    DROP POLICY IF EXISTS "owner_or_crew_select" ON public.maintenance_history;
+    DROP POLICY IF EXISTS "owner_or_crew_insert" ON public.maintenance_history;
+    DROP POLICY IF EXISTS "owner_or_crew_update" ON public.maintenance_history;
+    DROP POLICY IF EXISTS "owner_only_delete" ON public.maintenance_history;
+
+    DROP POLICY IF EXISTS "owner_or_crew_select" ON public.ship_documents;
+    DROP POLICY IF EXISTS "owner_or_crew_insert" ON public.ship_documents;
+    DROP POLICY IF EXISTS "owner_or_crew_update" ON public.ship_documents;
+    DROP POLICY IF EXISTS "owner_only_delete" ON public.ship_documents;
 END $$;
 
 -- ── inventory_items ──
