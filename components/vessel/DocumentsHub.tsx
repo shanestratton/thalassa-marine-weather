@@ -69,101 +69,110 @@ const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: s
 
 // ── File helpers ───────────────────────────────────────────────
 
-/** Convert a data URI or cloud URL to a File object */
-async function uriToFile(uri: string, fileName: string): Promise<File | null> {
-    try {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        const ext = fileName.split('.').pop()?.toLowerCase() || '';
-        const mimeMap: Record<string, string> = {
-            pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-            png: 'image/png', heic: 'image/heic', doc: 'application/msword',
-            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        };
-        const mime = mimeMap[ext] || blob.type || 'application/octet-stream';
-        return new File([blob], fileName, { type: mime });
-    } catch (e) {
-        console.warn('[DocumentsHub]', e);
-        return null;
+/**
+ * Get file extension from a data URI or URL
+ */
+function getFileExtFromUri(uri: string): string {
+    if (uri.startsWith('data:')) {
+        const mimeMatch = uri.match(/^data:([^;]+);/);
+        const mime = mimeMatch?.[1] || '';
+        if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+        if (mime.includes('png')) return 'png';
+        if (mime.includes('heic')) return 'heic';
+        if (mime.includes('pdf')) return 'pdf';
+        if (mime.includes('word') || mime.includes('docx')) return 'docx';
+        if (mime.includes('msword') || mime.includes('doc')) return 'doc';
+        return 'pdf';
     }
+    const urlExt = uri.split('.').pop()?.split('?')[0]?.toLowerCase();
+    if (urlExt && ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'heic'].includes(urlExt)) {
+        return urlExt;
+    }
+    return 'pdf';
 }
 
-/** Download a file to the device */
-async function downloadFile(uri: string, fileName: string): Promise<boolean> {
-    try {
-        const res = await fetch(uri);
+/**
+ * Write a data URI to the Capacitor cache directory as a real file.
+ * Returns the file:// URI that native APIs can use.
+ */
+async function writeUriToCache(dataUri: string, fileName: string): Promise<string> {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    const ext = getFileExtFromUri(dataUri);
+    const safeName = `${fileName.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'document'}.${ext}`;
+
+    // Data URIs: extract base64 portion. URLs: fetch and convert.
+    let base64Data: string;
+    if (dataUri.startsWith('data:')) {
+        base64Data = dataUri.split(',')[1];
+    } else {
+        const res = await fetch(dataUri);
         const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    const result = await Filesystem.writeFile({
+        path: safeName,
+        data: base64Data,
+        directory: Directory.Cache,
+    });
+    return result.uri;
+}
+
+/**
+ * Open a document file — writes to cache then opens via native share sheet.
+ * This lets the user preview PDFs, images, etc. via their preferred app.
+ */
+async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+    try {
+        const fileUri = await writeUriToCache(uri, doc.document_name);
+        const { Share } = await import('@capacitor/share');
+        await Share.share({
+            title: doc.document_name,
+            url: fileUri,
+            dialogTitle: `Open ${doc.document_name}`,
+        });
         return true;
-    } catch (e) {
-        console.warn('[DocumentsHub]', e);
+    } catch (e: unknown) {
+        if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
+        console.warn('[DocumentsHub] openDocFile failed:', e);
         return false;
     }
 }
 
-/** Share a file via Web Share API (email, AirDrop, WhatsApp, etc.) */
-async function shareFile(uri: string, doc: ShipDocument): Promise<boolean> {
-    const fileName = `${doc.document_name.replace(/[^a-zA-Z0-9 ]/g, '').trim()}` ||
-        'document';
-
-    // Determine file extension from URI
-    let ext = 'pdf';
-    if (uri.startsWith('data:')) {
-        const mimeMatch = uri.match(/^data:([^;]+);/);
-        const mime = mimeMatch?.[1] || '';
-        if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
-        else if (mime.includes('png')) ext = 'png';
-        else if (mime.includes('pdf')) ext = 'pdf';
-        else if (mime.includes('heic')) ext = 'heic';
-    } else {
-        const urlExt = uri.split('.').pop()?.split('?')[0]?.toLowerCase();
-        if (urlExt && ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'heic'].includes(urlExt)) {
-            ext = urlExt;
-        }
-    }
-
-    const fullFileName = `${fileName}.${ext}`;
-
-    // Try Web Share API with files (works on iOS Safari, Android Chrome)
-    if (navigator.share) {
-        try {
-            const file = await uriToFile(uri, fullFileName);
-            if (file && navigator.canShare?.({ files: [file] })) {
-                await navigator.share({
-                    title: doc.document_name,
-                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
-                    files: [file],
-                });
-                return true;
-            }
-            // Fallback: share URL only (for cloud-stored docs)
-            if (!uri.startsWith('data:')) {
-                await navigator.share({
-                    title: doc.document_name,
-                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
-                    url: uri,
-                });
-                return true;
-            }
-        } catch (e: unknown) {
-            if ((e as Error).name === 'AbortError') return false; // User cancelled
-        }
-    }
-
-    // Fallback: open in new tab (user can save/share from there)
-    if (!uri.startsWith('data:')) {
-        window.open(uri, '_blank');
+/**
+ * Share a document file via native share sheet (AirDrop, Mail, Files, etc.)
+ * Uses the same Capacitor Filesystem + Share pattern as GPX export.
+ */
+async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+    try {
+        const fileUri = await writeUriToCache(uri, doc.document_name);
+        const { Share } = await import('@capacitor/share');
+        await Share.share({
+            title: doc.document_name,
+            text: `Ship's Document: ${doc.document_name} (${doc.category})`,
+            url: fileUri,
+            dialogTitle: `Share ${doc.document_name}`,
+        });
         return true;
+    } catch (e: unknown) {
+        if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
+        console.warn('[DocumentsHub] shareDocFile failed:', e);
+        return false;
     }
+}
 
-    return false;
+/**
+ * Save a document to the device (Downloads / Files).
+ * Writes to cache then opens share sheet so user can "Save to Files".
+ */
+async function saveDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
+    // On iOS, there's no direct "download" — use share sheet with Save to Files
+    return shareDocFile(uri, doc);
 }
 
 // ── SwipeableDocCard ───────────────────────────────────────────
@@ -187,7 +196,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
         if (!doc.file_uri) return;
         setActionBusy('download');
         triggerHaptic('light');
-        const ok = await downloadFile(doc.file_uri, doc.document_name);
+        const ok = await saveDocFile(doc.file_uri, doc);
         if (ok) toast.success('📥 Saved to device');
         else toast.error('Download failed');
         setActionBusy(null);
@@ -198,7 +207,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
         if (!doc.file_uri) return;
         setActionBusy('share');
         triggerHaptic('light');
-        const ok = await shareFile(doc.file_uri, doc);
+        const ok = await shareDocFile(doc.file_uri, doc);
         if (!ok) toast.error('Share not available');
         setActionBusy(null);
     };
@@ -243,7 +252,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
                             </p>
                         </div>
 
-                        <div className="shrink-0 flex flex-col items-end gap-1">
+                        <div className="shrink-0 flex flex-col items-end gap-1.5">
                             {doc.expiry_date && (
                                 <span className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
                                     {status === 'expired' ? 'Exp ' : 'Exp '}
@@ -251,32 +260,32 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
                                 </span>
                             )}
                             {/* Action buttons — edit always visible, file actions when file attached */}
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-2">
                                 {/* Edit */}
                                 <button
                                     onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10 hover:text-white active:scale-95 transition-all"
+                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10 hover:text-white active:scale-95 transition-all"
                                     aria-label="Edit document"
                                 >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                     </svg>
                                 </button>
                                 {hasFile && (
                                     <>
-                                        {/* Download to phone */}
+                                        {/* Save to Files */}
                                         <button
                                             onClick={handleDownload}
                                             disabled={actionBusy === 'download'}
-                                            className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
-                                            aria-label="Download to phone"
+                                            className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                            aria-label="Save to Files"
                                         >
                                             {actionBusy === 'download' ? (
-                                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
                                                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
                                                 </svg>
                                             ) : (
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                                 </svg>
                                             )}
@@ -285,15 +294,15 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
                                         <button
                                             onClick={handleShare}
                                             disabled={actionBusy === 'share'}
-                                            className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                            className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
                                             aria-label="Share or email"
                                         >
                                             {actionBusy === 'share' ? (
-                                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
                                                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
                                                 </svg>
                                             ) : (
-                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                                 </svg>
                                             )}
@@ -471,9 +480,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         }
     }, [deleteTargetId, loadDocs]);
 
-    const handleOpenDoc = (doc: ShipDocument) => {
+    const handleOpenDoc = async (doc: ShipDocument) => {
         if (doc.file_uri) {
-            window.open(doc.file_uri, '_blank');
+            triggerHaptic('light');
+            const ok = await openDocFile(doc.file_uri, doc);
+            if (!ok) toast.error('Could not open document');
         } else {
             openEditForm(doc);
         }
