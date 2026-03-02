@@ -83,7 +83,6 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         value={form.title}
                         onChange={v => setField('title', v)}
                         placeholder="Main Engine Oil Change"
-                        autoFocus
                         required
                         error={!form.title.trim() && form.title !== '' ? 'Task name is required' : undefined}
                     />
