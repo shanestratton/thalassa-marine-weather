@@ -8,9 +8,9 @@
  * Keyboard-aware: on iOS, listens for keyboard show/hide events
  * (via Capacitor Keyboard plugin) and shrinks the panel + shifts
  * it to the top of the screen so fields stay visible above the
- * keyboard.
+ * keyboard. Also scrolls the focused field into view after resize.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 
@@ -41,6 +41,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     alignTop = false,
 }) => {
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const panelRef = useRef<HTMLDivElement>(null);
 
     // Listen for keyboard show/hide on native platforms
     useEffect(() => {
@@ -51,9 +52,22 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         import('@capacitor/keyboard').then(({ Keyboard }) => {
             const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
                 setKeyboardHeight(info.keyboardHeight);
+
+                // After the panel shrinks (allow 250ms for CSS transition),
+                // scroll the focused field into view
+                setTimeout(() => {
+                    const focused = document.activeElement as HTMLElement;
+                    if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT')) {
+                        focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 250);
             });
             const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
                 setKeyboardHeight(0);
+                // Scroll panel back to top when keyboard hides
+                if (panelRef.current) {
+                    panelRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                }
             });
 
             cleanup = () => {
@@ -88,16 +102,18 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
     const modal = (
         <div
-            className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3 transition-all duration-200`}
+            className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`}
             onClick={onClose}
         >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-            {/* Content panel */}
+            {/* Content panel — data-modal-sheet prevents global keyboard dismiss on scroll */}
             <div
-                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto transition-[max-height] duration-200`}
-                style={{ maxHeight: panelMaxHeight }}
+                ref={panelRef}
+                data-modal-sheet
+                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
+                style={{ maxHeight: panelMaxHeight, transition: 'max-height 200ms ease' }}
                 onClick={e => e.stopPropagation()}
             >
                 {/* Close button */}

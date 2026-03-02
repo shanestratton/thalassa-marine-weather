@@ -105,7 +105,8 @@ const App: React.FC = () => {
 
     // Global keyboard dismiss — mimics native iOS behaviour.
     // Tapping outside an input/textarea/select blurs the active element,
-    // which dismisses the on-screen keyboard. Scrolling also dismisses.
+    // which dismisses the on-screen keyboard.
+    // Exception: don't dismiss when scrolling inside a modal sheet.
     useEffect(() => {
         const dismissKeyboard = (e: TouchEvent) => {
             const active = document.activeElement as HTMLElement | null;
@@ -119,6 +120,8 @@ const App: React.FC = () => {
             if (targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT') return;
             // Don't blur if they tapped inside a label (could be toggling a checkbox/radio)
             if (target.closest('label')) return;
+            // Don't blur if they're scrolling inside a modal sheet
+            if (target.closest('[data-modal-sheet]')) return;
 
             active.blur();
         };
