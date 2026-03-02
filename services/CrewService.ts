@@ -50,8 +50,8 @@ export interface CrewMember {
 // ── Captain Operations ─────────────────────────────────────────
 
 /**
- * Look up a user by email via the Edge Function.
- * Returns user_id and email if found, null if not.
+ * Look up a user by email via database function (SECURITY DEFINER).
+ * No Edge Function deployment needed — queries auth.users server-side.
  */
 export async function lookupUserByEmail(email: string): Promise<{
     found: boolean;
@@ -65,8 +65,8 @@ export async function lookupUserByEmail(email: string): Promise<{
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return null;
 
-        const { data, error } = await supabase.functions.invoke('lookup-user', {
-            body: { email: email.toLowerCase().trim() },
+        const { data, error } = await supabase.rpc('lookup_user_by_email', {
+            lookup_email: email.toLowerCase().trim(),
         });
 
         if (error) {
@@ -74,7 +74,7 @@ export async function lookupUserByEmail(email: string): Promise<{
             return null;
         }
 
-        return data;
+        return data as { found: boolean; user_id?: string; email?: string; reason?: string };
     } catch (e) {
         console.error('[CrewService] Lookup error:', e);
         return null;
