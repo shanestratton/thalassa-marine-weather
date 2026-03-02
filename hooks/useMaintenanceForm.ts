@@ -63,6 +63,8 @@ function formReducer(state: MaintenanceFormState, action: FormAction): Maintenan
     }
 }
 
+export type UseMaintenanceFormReturn = ReturnType<typeof useMaintenanceForm>;
+
 export function useMaintenanceForm() {
     const [form, dispatch] = useReducer(formReducer, initialState);
 
