@@ -768,7 +768,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 value={newItem.expiry_date}
                                 onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
                                 className="w-full max-w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark] box-border"
-                                style={{ WebkitAppearance: 'none', maxWidth: '100%' }}
                             />
                         </div>
                     </div>

@@ -43,10 +43,13 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     return (
         <div
             className={`fixed inset-0 ${zIndex} flex ${alignTop ? 'items-start' : 'items-center'} justify-center`}
-            style={alignTop
-                ? { padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }
-                : { padding: '1rem' }
-            }
+            style={{
+                padding: '0 12px',
+                paddingTop: alignTop
+                    ? 'calc(env(safe-area-inset-top, 0px) + 56px)'
+                    : 'calc(env(safe-area-inset-top, 0px) + 16px)',
+                paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)',
+            }}
             onClick={onClose}
         >
             {/* Backdrop */}
@@ -54,7 +57,8 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
             {/* Content panel */}
             <div
-                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)] overflow-y-auto`}
+                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 flex flex-col`}
+                style={{ maxHeight: '100%' }}
                 onClick={e => e.stopPropagation()}
             >
                 {/* Close button */}
@@ -70,10 +74,12 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
                 {/* Title */}
                 {title && (
-                    <h3 className="text-lg font-black text-white mb-4">{title}</h3>
+                    <h3 className="text-lg font-black text-white mb-4 shrink-0">{title}</h3>
                 )}
 
-                {children}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    {children}
+                </div>
             </div>
         </div>
     );
