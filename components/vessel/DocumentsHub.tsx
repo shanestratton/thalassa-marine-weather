@@ -629,6 +629,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                         type="button"
                                         onClick={() => { setFormFileUri(null); setFormFileName(null); }}
                                         className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
+                                        aria-label="Remove attachment"
                                     >
                                         <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
