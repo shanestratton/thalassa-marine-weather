@@ -40,52 +40,44 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 }) => {
     if (!isOpen) return null;
 
-    // Use explicit top/bottom instead of inset-0 + padding so that
-    // maxHeight: 100% on the child actually refers to the constrained area.
-    const top = alignTop
-        ? 'calc(env(safe-area-inset-top, 0px) + 56px)'
-        : 'calc(env(safe-area-inset-top, 0px) + 16px)';
-    const bottom = 'calc(env(safe-area-inset-bottom, 0px) + 4.5rem)';
+    // Max height: total screen minus clearance for header (top) + tab bar (bottom).
+    // 12rem ≈ 192px covers status bar + header + tab bar + safe areas on all iPhones.
+    const panelMaxHeight = alignTop
+        ? 'calc(100dvh - 12rem)'
+        : 'calc(100dvh - 12rem)';
 
     return (
-        <>
-            {/* Full-screen backdrop (click to close) */}
-            <div
-                className={`fixed inset-0 ${zIndex} bg-black/60 backdrop-blur-sm`}
-                onClick={onClose}
-            />
+        <div
+            className={`fixed inset-0 ${zIndex} flex ${alignTop ? 'items-start pt-24' : 'items-center'} justify-center px-3`}
+            onClick={onClose}
+        >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-            {/* Positioning container — explicit top/bottom clears header + tab bar */}
+            {/* Content panel */}
             <div
-                className={`fixed left-3 right-3 ${zIndex} flex ${alignTop ? 'items-start' : 'items-center'} justify-center`}
-                style={{ top, bottom }}
-                onClick={onClose}
+                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
+                style={{ maxHeight: panelMaxHeight }}
+                onClick={e => e.stopPropagation()}
             >
-                {/* Content panel — maxHeight 100% now refers to the constrained area */}
-                <div
-                    className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
-                    style={{ maxHeight: '100%' }}
-                    onClick={e => e.stopPropagation()}
+                {/* Close button */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                    aria-label="Close"
                 >
-                    {/* Close button */}
-                    <button
-                        onClick={onClose}
-                        className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                        aria-label="Close"
-                    >
-                        <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
 
-                    {/* Title */}
-                    {title && (
-                        <h3 className="text-lg font-black text-white mb-4">{title}</h3>
-                    )}
+                {/* Title */}
+                {title && (
+                    <h3 className="text-lg font-black text-white mb-4">{title}</h3>
+                )}
 
-                    {children}
-                </div>
+                {children}
             </div>
-        </>
+        </div>
     );
 };
