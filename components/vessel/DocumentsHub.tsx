@@ -19,7 +19,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { ModalSheet } from '../ui/ModalSheet';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
@@ -459,26 +459,40 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         }
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
-    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);
+    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleDelete = useCallback(async (id: string) => {
-        setDeleteTargetId(id);
-    }, []);
+    const handleDelete = useCallback((id: string) => {
+        const doc = documents.find(d => d.id === id);
+        if (!doc) return;
+        triggerHaptic('medium');
+        // Remove from UI immediately
+        setDocuments(prev => prev.filter(d => d.id !== id));
+        setDeletedDoc(doc);
 
-    const confirmDelete = useCallback(async () => {
-        if (!deleteTargetId) return;
-        try {
-            triggerHaptic('medium');
-            await LocalDocumentService.delete(deleteTargetId);
-            DocumentSyncService.markDeleted(deleteTargetId);
-            loadDocs();
-        } catch (e) {
-            console.error('Failed to delete document:', e);
-            toast.error('Failed to delete document');
-        } finally {
-            setDeleteTargetId(null);
+        // Schedule actual delete after 5s
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = setTimeout(async () => {
+            try {
+                await LocalDocumentService.delete(id);
+                DocumentSyncService.markDeleted(id);
+            } catch (e) {
+                console.warn('[DocumentsHub] delete failed:', e);
+                toast.error('Failed to delete document');
+                setDocuments(prev => [...prev, doc]);
+            }
+            setDeletedDoc(null);
+        }, 5000);
+    }, [documents]);
+
+    const handleUndoDelete = useCallback(() => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        if (deletedDoc) {
+            setDocuments(prev => [...prev, deletedDoc]);
+            toast.success('Document restored');
         }
-    }, [deleteTargetId, loadDocs]);
+        setDeletedDoc(null);
+    }, [deletedDoc]);
 
     const handleOpenDoc = async (doc: ShipDocument) => {
         if (doc.file_uri) {
@@ -703,14 +717,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     </ModalSheet>
                 )}
             </div>
-            <ConfirmDialog
-                isOpen={!!deleteTargetId}
-                title="Delete Document?"
-                message="This will permanently remove this document from your vault."
-                confirmLabel="Delete"
-                destructive
-                onConfirm={confirmDelete}
-                onCancel={() => setDeleteTargetId(null)}
+            <UndoToast
+                isOpen={!!deletedDoc}
+                message={`"${deletedDoc?.document_name}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={() => setDeletedDoc(null)}
             />
         </div >
     );

@@ -21,7 +21,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
-import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { FormField } from '../ui/FormField';
@@ -358,26 +358,41 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [engineHours]);
 
-    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [deletedTask, setDeletedTask] = useState<MaintenanceTask | null>(null);
+    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // ── Delete Task ──
-    const handleDeleteTask = useCallback(async (taskId: string) => {
-        setDeleteTargetId(taskId);
-    }, []);
+    // ── Soft-delete with undo ──
+    const handleDeleteTask = useCallback((taskId: string) => {
+        const task = tasks.find(t => t.id === taskId);
+        if (!task) return;
+        triggerHaptic('medium');
+        // Remove from UI immediately
+        setTasks(prev => prev.filter(t => t.id !== taskId));
+        setSheetTask(null);
+        setDeletedTask(task);
 
-    const confirmDeleteTask = useCallback(async () => {
-        if (!deleteTargetId) return;
-        try {
-            triggerHaptic('medium');
-            await MaintenanceService.deleteTask(deleteTargetId);
-            await loadTasks();
-        } catch (e) {
-            console.error('Failed to delete task:', e);
-            toast.error('Failed to delete task');
-        } finally {
-            setDeleteTargetId(null);
+        // Schedule actual delete after 5s
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = setTimeout(async () => {
+            try {
+                await MaintenanceService.deleteTask(taskId);
+            } catch (e) {
+                console.warn('[MaintenanceHub] delete failed:', e);
+                toast.error('Failed to delete task');
+                setTasks(prev => [...prev, task]);
+            }
+            setDeletedTask(null);
+        }, 5000);
+    }, [tasks]);
+
+    const handleUndoDelete = useCallback(() => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        if (deletedTask) {
+            setTasks(prev => [...prev, deletedTask]);
+            toast.success('Task restored');
         }
-    }, [deleteTargetId, loadTasks]);
+        setDeletedTask(null);
+    }, [deletedTask]);
 
     // ── Edit Task ──
     const openEditForm = useCallback((task: TaskWithStatus) => {
@@ -736,14 +751,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 }
             </div>
 
-            <ConfirmDialog
-                isOpen={!!deleteTargetId}
-                title="Delete Task?"
-                message="This will permanently remove this maintenance task and its service history."
-                confirmLabel="Delete"
-                destructive
-                onConfirm={confirmDeleteTask}
-                onCancel={() => setDeleteTargetId(null)}
+            <UndoToast
+                isOpen={!!deletedTask}
+                message={`"${deletedTask?.title}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={() => setDeletedTask(null)}
             />
         </div >
     );
