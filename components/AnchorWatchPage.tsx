@@ -562,6 +562,55 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         const joined = await AnchorWatchSyncService.joinSession(sessionCode);
         if (joined) setViewMode('shore');
     }, [sessionCode]);
+    // Slide-to-confirm state (must be before any early returns — React Rules of Hooks)
+    const slideTrackRef = useRef<HTMLDivElement>(null);
+    const [slideX, setSlideX] = useState(0);
+    const [isDragging, setIsDragging] = useState(false);
+    const slideThreshold = 0.85; // 85% to trigger
+
+    const handleSlideStart = useCallback((clientX: number) => {
+        if (isSettingAnchor) return;
+        setIsDragging(true);
+    }, [isSettingAnchor]);
+
+    const handleSlideMove = useCallback((clientX: number) => {
+        if (!isDragging || !slideTrackRef.current) return;
+        const rect = slideTrackRef.current.getBoundingClientRect();
+        const thumbWidth = 56;
+        const maxTravel = rect.width - thumbWidth;
+        const offset = clientX - rect.left - thumbWidth / 2;
+        setSlideX(Math.max(0, Math.min(offset, maxTravel)));
+    }, [isDragging]);
+
+    const handleSlideEnd = useCallback(() => {
+        if (!isDragging || !slideTrackRef.current) return;
+        setIsDragging(false);
+        const rect = slideTrackRef.current.getBoundingClientRect();
+        const thumbWidth = 56;
+        const maxTravel = rect.width - thumbWidth;
+        const ratio = slideX / maxTravel;
+        if (ratio >= slideThreshold) {
+            // Show sound check modal the first time, then go straight to anchor
+            if (!soundCheckShownRef.current) {
+                setShowSoundCheck(true);
+            } else {
+                handleSetAnchor();
+            }
+        }
+        setSlideX(0);
+    }, [isDragging, slideX, handleSetAnchor]);
+
+    // Confirm and proceed from sound check modal
+    const handleSoundCheckConfirm = useCallback(() => {
+        soundCheckShownRef.current = true;
+        setShowSoundCheck(false);
+        handleSetAnchor();
+    }, [handleSetAnchor]);
+
+    // Reset slide position when not dragging
+    useEffect(() => {
+        if (!isDragging) setSlideX(0);
+    }, [isDragging]);
 
     // ---- RENDER: ALARM OVERLAY ----
     if (snapshot?.state === 'alarm') {
@@ -655,56 +704,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         scopeRatio >= 7 ? 'excellent' : scopeRatio >= 5 ? 'adequate' : 'poor';
     const scopeColor =
         scopeQuality === 'excellent' ? '#34d399' : scopeQuality === 'adequate' ? '#fbbf24' : '#f87171';
-
-    // Slide-to-confirm state
-    const slideTrackRef = useRef<HTMLDivElement>(null);
-    const [slideX, setSlideX] = useState(0);
-    const [isDragging, setIsDragging] = useState(false);
-    const slideThreshold = 0.85; // 85% to trigger
-
-    const handleSlideStart = useCallback((clientX: number) => {
-        if (isSettingAnchor) return;
-        setIsDragging(true);
-    }, [isSettingAnchor]);
-
-    const handleSlideMove = useCallback((clientX: number) => {
-        if (!isDragging || !slideTrackRef.current) return;
-        const rect = slideTrackRef.current.getBoundingClientRect();
-        const thumbWidth = 56;
-        const maxTravel = rect.width - thumbWidth;
-        const offset = clientX - rect.left - thumbWidth / 2;
-        setSlideX(Math.max(0, Math.min(offset, maxTravel)));
-    }, [isDragging]);
-
-    const handleSlideEnd = useCallback(() => {
-        if (!isDragging || !slideTrackRef.current) return;
-        setIsDragging(false);
-        const rect = slideTrackRef.current.getBoundingClientRect();
-        const thumbWidth = 56;
-        const maxTravel = rect.width - thumbWidth;
-        const ratio = slideX / maxTravel;
-        if (ratio >= slideThreshold) {
-            // Show sound check modal the first time, then go straight to anchor
-            if (!soundCheckShownRef.current) {
-                setShowSoundCheck(true);
-            } else {
-                handleSetAnchor();
-            }
-        }
-        setSlideX(0);
-    }, [isDragging, slideX, handleSetAnchor]);
-
-    // Confirm and proceed from sound check modal
-    const handleSoundCheckConfirm = useCallback(() => {
-        soundCheckShownRef.current = true;
-        setShowSoundCheck(false);
-        handleSetAnchor();
-    }, [handleSetAnchor]);
-
-    // Reset slide position when not dragging
-    useEffect(() => {
-        if (!isDragging) setSlideX(0);
-    }, [isDragging]);
 
     if (viewMode === 'setup') {
         // Radar ring sizes — normalized to a 200-unit viewbox
