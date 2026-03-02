@@ -346,28 +346,21 @@ const App: React.FC = () => {
 
                                                 {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
 
-                                                {/* Master-detail: On md+ show VesselHub sidebar + child pane side by side */}
+                                                {/* Vessel sub-pages — full-screen push on all devices */}
                                                 {isVesselView && currentView !== 'vessel' && (
-                                                    <div className="h-full flex">
-                                                        {/* Sidebar — hidden on mobile (full-screen push is used instead) */}
-                                                        <div className="hidden md:block w-80 shrink-0 border-r border-white/[0.06] overflow-y-auto">
-                                                            <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />
-                                                        </div>
-                                                        {/* Detail pane */}
-                                                        <div className="flex-1 min-w-0 overflow-y-auto">
-                                                            {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
-                                                            {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
-                                                            {currentView === 'crew' && <CrewPage onBack={() => setPage('vessel')} />}
-                                                        </div>
-                                                    </div>
+                                                    <>
+                                                        {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
+                                                        {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'crew' && <CrewPage onBack={() => setPage('vessel')} />}
+                                                    </>
                                                 )}
                                             </div>
                                         </PageTransition>
@@ -405,7 +398,7 @@ const App: React.FC = () => {
 
                 {!isMobileLandscape && (
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
-                        <div className="flex justify-around items-center h-16 md:h-20 max-w-2xl mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
+                        <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
                             <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />

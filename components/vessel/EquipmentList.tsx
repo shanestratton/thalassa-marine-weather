@@ -181,7 +181,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                     {/* Specs card */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
                         <h3 className="text-label text-gray-500 font-bold uppercase tracking-widest mb-4">Specifications</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <p className="text-label text-gray-500 uppercase tracking-widest font-bold mb-0.5">Make</p>
                                 <p className="text-sm font-bold text-white">{item.make || '—'}</p>

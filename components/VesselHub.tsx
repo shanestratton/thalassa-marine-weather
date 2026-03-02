@@ -143,7 +143,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     ];
 
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 pt-4 pb-24 animate-in fade-in duration-300">
+        <div className="w-full px-4 pt-4 pb-24 animate-in fade-in duration-300">
 
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 1: ACTIVE WATCH — Two compact cards */}
@@ -154,7 +154,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
@@ -200,7 +200,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
                 </div>
 
-                <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
+                <div className="grid grid-cols-4 gap-3">
                     {officeCards.map(card => {
                         const disabled = card.id === 'passage' && isObserver;
                         return (
@@ -274,7 +274,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
                 </div>
 
-                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06] md:max-w-xl">
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06]">
                     {/* Account & Subscription */}
                     <button
                         onClick={() => onNavigate('settings')}
