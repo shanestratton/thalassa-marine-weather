@@ -24,6 +24,7 @@ import { useSwipeable } from '../../hooks/useSwipeable';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -331,6 +332,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     }, []);
 
     useEffect(() => { loadItems(); }, [loadItems]);
+
+    // Realtime sync — crew edits appear instantly
+    useRealtimeSync('equipment_register', loadItems);
 
     // ── Filtered + grouped items ──
     const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];

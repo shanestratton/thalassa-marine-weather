@@ -25,6 +25,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { FormField } from '../ui/FormField';
+import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 
 interface MaintenanceHubProps {
     onBack: () => void;
@@ -216,6 +217,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setEngineHoursInput(hrs.toLocaleString());
         }
     }, [loadTasks]);
+
+    // Realtime sync — crew edits appear instantly
+    useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], loadTasks);
 
     // ── Engine Hours ──
     const saveEngineHours = useCallback(() => {

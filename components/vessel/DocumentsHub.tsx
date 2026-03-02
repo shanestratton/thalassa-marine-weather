@@ -22,6 +22,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 
 interface DocumentsHubProps {
     onBack: () => void;
@@ -327,6 +328,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     }, []);
 
     useEffect(() => { loadDocs(); }, [loadDocs]);
+
+    // Realtime sync — crew edits appear instantly
+    useRealtimeSync('ship_documents', loadDocs);
 
     // Cloud pull on mount (restore on new device)
     useEffect(() => {

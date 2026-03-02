@@ -24,6 +24,7 @@ import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -190,6 +191,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     }, []);
 
     useEffect(() => { loadItems(); }, [loadItems]);
+
+    // Realtime sync — crew edits appear instantly
+    useRealtimeSync('inventory_items', loadItems);
 
     // ── Filtered + grouped items ──
     const filtered = useMemo(() => {
