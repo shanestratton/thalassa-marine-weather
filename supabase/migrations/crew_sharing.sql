@@ -401,3 +401,74 @@ $$;
 --      ✓ maintenance_history
 --      ✓ ship_documents
 --      ✓ vessel_crew
+
+-- ═══════════════════════════════════════════════════════════════
+-- 8. BEFORE INSERT triggers — rewrite user_id for crew members
+--
+--    Problem: When crew adds a record, user_id = crew_member_id.
+--    Captain can't see it because they query user_id = captain_id.
+--
+--    Fix: If the inserting user is a crew member for a captain on
+--    this register, rewrite user_id to the captain's ID. This puts
+--    the record into the captain's collection where everyone can see it.
+-- ═══════════════════════════════════════════════════════════════
+
+-- Generic rewrite function (takes register name as parameter)
+CREATE OR REPLACE FUNCTION crew_rewrite_user_id()
+RETURNS TRIGGER AS $$
+DECLARE
+    captain_id UUID;
+    register_name TEXT;
+BEGIN
+    -- If user_id is already someone else's (crew setting it to captain's ID), allow it
+    IF NEW.user_id != auth.uid() THEN
+        RETURN NEW;
+    END IF;
+
+    -- Determine which register this table belongs to
+    register_name := TG_ARGV[0];
+
+    -- Check if the current user is crew for any captain on this register
+    SELECT vc.owner_id INTO captain_id
+    FROM public.vessel_crew vc
+    WHERE vc.crew_user_id = auth.uid()
+      AND vc.status = 'accepted'
+      AND register_name = ANY(vc.shared_registers)
+    LIMIT 1;
+
+    -- If they're crew, rewrite user_id to the captain's ID
+    IF captain_id IS NOT NULL THEN
+        NEW.user_id := captain_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Attach to each vessel table with the register name as argument
+
+DROP TRIGGER IF EXISTS trg_crew_rewrite_inventory ON public.inventory_items;
+CREATE TRIGGER trg_crew_rewrite_inventory
+    BEFORE INSERT ON public.inventory_items
+    FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('inventory');
+
+DROP TRIGGER IF EXISTS trg_crew_rewrite_equipment ON public.equipment_register;
+CREATE TRIGGER trg_crew_rewrite_equipment
+    BEFORE INSERT ON public.equipment_register
+    FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('equipment');
+
+DROP TRIGGER IF EXISTS trg_crew_rewrite_maintenance_tasks ON public.maintenance_tasks;
+CREATE TRIGGER trg_crew_rewrite_maintenance_tasks
+    BEFORE INSERT ON public.maintenance_tasks
+    FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('maintenance');
+
+DROP TRIGGER IF EXISTS trg_crew_rewrite_maintenance_history ON public.maintenance_history;
+CREATE TRIGGER trg_crew_rewrite_maintenance_history
+    BEFORE INSERT ON public.maintenance_history
+    FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('maintenance');
+
+DROP TRIGGER IF EXISTS trg_crew_rewrite_documents ON public.ship_documents;
+CREATE TRIGGER trg_crew_rewrite_documents
+    BEFORE INSERT ON public.ship_documents
+    FOR EACH ROW EXECUTE FUNCTION crew_rewrite_user_id('documents');
+
