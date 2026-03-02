@@ -55,9 +55,9 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-            {/* Content panel */}
+            {/* Content panel — grows to fit content, scrolls only if it exceeds available height */}
             <div
-                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 flex flex-col`}
+                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
                 style={{ maxHeight: '100%' }}
                 onClick={e => e.stopPropagation()}
             >
@@ -74,12 +74,10 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
                 {/* Title */}
                 {title && (
-                    <h3 className="text-lg font-black text-white mb-4 shrink-0">{title}</h3>
+                    <h3 className="text-lg font-black text-white mb-4">{title}</h3>
                 )}
 
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                    {children}
-                </div>
+                {children}
             </div>
         </div>
     );
