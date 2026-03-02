@@ -12,6 +12,7 @@
  *   bg-slate-950, flex-col, scroll area, fixed bottom CTA
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
 import { triggerHaptic } from '../../utils/system';
@@ -663,11 +664,12 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             </div>
 
             {/* ═══ CONTEXT MENU BOTTOM SHEET ═══ */}
-            {contextItem && (
-                <div className="fixed inset-0 z-[999] flex items-end justify-center" onClick={() => setContextItem(null)}>
+            {contextItem && createPortal(
+                <div className="fixed inset-0 z-[999] flex items-center justify-center px-3" onClick={() => setContextItem(null)}>
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-t-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,24px))] animate-in fade-in slide-in-from-bottom-4 duration-300"
+                        className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto"
+                        style={{ maxHeight: 'calc(100dvh - 12rem)' }}
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Close X */}
@@ -771,7 +773,8 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
