@@ -96,7 +96,6 @@ export const FormField: React.FC<FormFieldProps> = ({
                     inputMode={inputMode}
                     onFocus={handleFocus as React.FocusEventHandler<HTMLInputElement>}
                     className={inputClass}
-                    style={isDate ? { WebkitAppearance: 'none', maxWidth: '100%' } : undefined}
                 />
             )}
             {error && <p className="text-micro text-red-400 mt-1">{error}</p>}

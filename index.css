@@ -101,12 +101,13 @@
 
 /* ── Date Input Constraint ──
    Prevents native iOS date picker widget from overflowing containers.
-   The webkit calendar-picker-indicator is especially problematic. */
+   We keep the native appearance but constrain the width and ensure
+   a consistent minimum height (iOS touch target = 44px). */
 input[type="date"] {
-  -webkit-appearance: none;
-  appearance: none;
   max-width: 100%;
   box-sizing: border-box;
+  min-height: 44px;
+  line-height: normal;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
