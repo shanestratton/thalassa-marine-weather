@@ -260,7 +260,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             };
 
-            mediaRecorder.start(250); // Collect data every 250ms
+            mediaRecorder.start(100); // Collect data every 100ms for snappy response
             setIsRecording(true);
             setRecordingTime(0);
             triggerHaptic('medium');
@@ -681,24 +681,27 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         placeholder="Entry title (optional)"
                         value={title}
                         onChange={e => setTitle(e.target.value)}
-                        className="shrink-0 w-full bg-transparent text-xl font-bold text-white placeholder-gray-500 border-none outline-none"
+                        className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                     />
 
-                    {/* Mood selector */}
-                    <div className="shrink-0 flex items-center gap-1">
-                        {(Object.entries(MOOD_CONFIG) as [DiaryMood, typeof MOOD_CONFIG.epic][]).map(([key, cfg]) => (
-                            <button
-                                key={key}
-                                onClick={() => { setMood(key); triggerHaptic('light'); }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${mood === key
-                                    ? 'bg-white/15 border border-white/20 scale-105'
-                                    : 'bg-white/5 border border-transparent opacity-50 hover:opacity-80'
-                                    }`}
-                            >
-                                <span>{cfg.emoji}</span>
-                                <span className={cfg.color}>{cfg.label}</span>
-                            </button>
-                        ))}
+                    {/* Mood selector — 4 moods, single row */}
+                    <div className="shrink-0 grid grid-cols-4 gap-1.5">
+                        {(['epic', 'good', 'neutral', 'rough'] as DiaryMood[]).map(key => {
+                            const cfg = MOOD_CONFIG[key];
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => { setMood(key); triggerHaptic('light'); }}
+                                    className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${mood === key
+                                        ? 'bg-white/15 border border-white/20 scale-[1.02]'
+                                        : 'bg-white/5 border border-white/[0.06] opacity-60 hover:opacity-90'
+                                        }`}
+                                >
+                                    <span>{cfg.emoji}</span>
+                                    <span className={cfg.color}>{cfg.label}</span>
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {/* GPS Position */}
@@ -802,33 +805,40 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         )}
                     </div>
 
-                    {/* Body text — fills remaining space */}
-                    <textarea
-                        placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
-                        value={body}
-                        onChange={e => setBody(e.target.value)}
-                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
-                    />
+                    {/* Body text + AI Polish button side-by-side */}
+                    <div className="flex-1 flex gap-2 min-h-0">
+                        <textarea
+                            placeholder={"What's happening out there, skipper?\nDescribe the conditions, the crew mood, the sunset over the bow…"}
+                            value={body}
+                            onChange={e => setBody(e.target.value)}
+                            className="flex-1 min-h-0 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                        />
 
-                    {/* AI Polish + Weather Snapshot */}
-                    <div className="shrink-0 flex flex-wrap gap-2">
-                        {body.trim().length > 10 && (
+                        {/* AI Polish — compact vertical button beside textarea */}
+                        <div className="shrink-0 flex flex-col gap-2 justify-end">
                             <button
                                 onClick={handlePolish}
-                                disabled={polishing}
-                                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500/20 to-purple-500/20 border border-purple-500/20 rounded-xl text-xs font-bold text-purple-300 hover:from-purple-500/30 hover:to-purple-500/30 transition-all disabled:opacity-50"
+                                disabled={polishing || body.trim().length < 10}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${polishing
+                                        ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
+                                        : body.trim().length >= 10
+                                            ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
+                                            : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
+                                    }`}
+                                title={polishing ? 'Polishing…' : body.trim().length >= 10 ? 'Polish with Gemini' : 'Type more to enable AI polish'}
                             >
-                                <span className="text-sm">{polishing ? '⏳' : '✨'}</span>
-                                {polishing ? 'Polishing…' : 'Polish with Gemini'}
+                                <span className="text-lg">{polishing ? '⏳' : '✨'}</span>
                             </button>
-                        )}
-                        {transcribing && (
-                            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
-                                <span className="text-sm animate-pulse">🎙️</span>
-                                <span className="text-xs font-bold text-emerald-400">Converting speech to text…</span>
-                            </div>
-                        )}
+                        </div>
                     </div>
+
+                    {/* Transcribing indicator */}
+                    {transcribing && (
+                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
+                            <span className="text-sm animate-pulse">🎙️</span>
+                            <span className="text-xs font-bold text-emerald-400">Converting speech to text…</span>
+                        </div>
+                    )}
 
                     {/* Weather Snapshot */}
                     {weatherSummary && (
