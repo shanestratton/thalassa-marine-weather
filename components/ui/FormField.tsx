@@ -70,7 +70,7 @@ export const FormField: React.FC<FormFieldProps> = ({
 
     return (
         <div className={isDate ? 'min-w-0 max-w-full overflow-hidden' : undefined}>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
                 {label}{required ? ' *' : ''}
             </label>
             {isTextarea ? (
@@ -98,8 +98,8 @@ export const FormField: React.FC<FormFieldProps> = ({
                     className={inputClass}
                 />
             )}
-            {error && <p className="text-[10px] text-red-400 mt-1">{error}</p>}
-            {hint && !error && <p className="text-[10px] text-gray-500 mt-0.5">{hint}</p>}
+            {error && <p className="text-micro text-red-400 mt-1">{error}</p>}
+            {hint && !error && <p className="text-micro text-gray-500 mt-0.5">{hint}</p>}
         </div>
     );
 };

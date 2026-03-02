@@ -63,7 +63,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    <span className="text-[11px] font-bold">Delete</span>
+                    <span className="text-label font-bold">Delete</span>
                 </div>
             </div>
 
@@ -80,15 +80,15 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
                         <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
                             {item.location_zone && (
-                                <p className="text-[11px] text-gray-500 truncate">
+                                <p className="text-label text-gray-500 truncate">
                                     📍 {item.location_zone}{item.location_specific ? ` — ${item.location_specific}` : ''}
                                 </p>
                             )}
                             {isExpired && (
-                                <p className="text-[11px] font-bold text-red-400 mt-0.5">⚠️ Expired</p>
+                                <p className="text-label font-bold text-red-400 mt-0.5">⚠️ Expired</p>
                             )}
                             {isExpiringSoon && (
-                                <p className="text-[11px] font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
+                                <p className="text-label font-bold text-amber-400 mt-0.5">⏳ Expires in {daysUntilExpiry}d</p>
                             )}
                         </div>
                         <div className={`px-2.5 py-1 rounded-lg text-center min-w-[3rem] ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}>
@@ -114,7 +114,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
                 {/* Expanded detail */}
                 {isExpanded && (
                     <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
-                        <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+                        <div className="grid grid-cols-2 gap-2 text-label mb-3">
                             <div>
                                 <span className="text-gray-500">Category</span>
                                 <p className="text-white font-bold">{item.category}</p>
@@ -160,7 +160,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
                         </div>
 
                         {isLow && (
-                            <p className="text-[11px] text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
+                            <p className="text-label text-amber-400 font-bold mt-2">⚠️ Below minimum ({item.min_quantity})</p>
                         )}
                     </div>
                 )}
@@ -349,7 +349,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={['Ship\'s Office', 'Inventory']}
                     subtitle={
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
                             {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
                             {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
                         </p>
@@ -396,8 +396,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <div key={group.category}>
                                 <div className="flex items-center gap-2 mb-2 mt-1">
                                     <span className="text-sm">{CATEGORY_ICONS[group.category]}</span>
-                                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{group.category}</span>
-                                    <span className="text-[10px] text-gray-500 font-bold">({group.items.length})</span>
+                                    <span className="text-label font-black text-gray-500 uppercase tracking-widest">{group.category}</span>
+                                    <span className="text-micro text-gray-500 font-bold">({group.items.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.items.map(item => (
@@ -442,11 +442,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     <div className="space-y-2">
                         {/* Category — first */}
                         <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Category</label>
                             <div className="grid grid-cols-4 gap-1 mt-0.5">
                                 {CATEGORIES.map(cat => (
                                     <button key={cat} type="button" onClick={() => setEditCategory(cat)}
-                                        className={`py-1 rounded-lg text-[11px] font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                        className={`py-1 rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
                                     >
                                         {CATEGORY_ICONS[cat]} {cat}
                                     </button>
@@ -467,7 +467,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                         {/* Barcode */}
                         <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                             <div className="flex gap-1.5 mt-0.5">
                                 <input type="text" value={editBarcode} onChange={e => setEditBarcode(e.target.value)}
                                     className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors" />
@@ -522,7 +522,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     </div>
 
                     {!editName.trim() && (
-                        <p className="text-[10px] text-amber-400/80 text-center mt-2">Item name is required</p>
+                        <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
                     )}
                     <button onClick={handleSaveEdit} disabled={!editName.trim()}
                         className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"

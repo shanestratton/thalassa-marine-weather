@@ -16,6 +16,20 @@
   /* Custom Font Families - Available Globally */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* ── Type Scale Design Tokens ──
+     5 semantic sizes used across all vessel components.
+     Adjust here to globally change the type scale. */
+  --text-micro: 10px;
+  /* Hints, sub-counts, badges */
+  --text-label: 11px;
+  /* Form labels, section headers, metadata */
+  --text-body: 14px;
+  /* Body text, input values (= text-sm) */
+  --text-title: 18px;
+  /* Page titles, card headings (= text-lg) */
+  --text-hero: 24px;
+  /* Hero numbers, stats (= text-2xl) */
 }
 
 
@@ -66,6 +80,17 @@
 
 .font-mono {
   font-family: var(--font-mono);
+}
+
+/* ── Semantic Type Scale Utilities ──
+   Use these instead of text-[10px] / text-[11px] / text-[13px].
+   Backed by CSS custom properties in :root for global control. */
+.text-micro {
+  font-size: var(--text-micro);
+}
+
+.text-label {
+  font-size: var(--text-label);
 }
 
 /* Custom Text Colors */
