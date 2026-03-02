@@ -27,29 +27,17 @@ import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
+import { CATEGORIES, TRIGGER_LABELS } from './maintenance/constants';
+import { ServiceLogSheet } from './maintenance/ServiceLogSheet';
+import { TaskFormModal } from './maintenance/TaskFormModal';
 
 interface MaintenanceHubProps {
     onBack: () => void;
 }
 
-// ── Category config ──
-const CATEGORIES: { id: MaintenanceCategory; label: string; icon: string }[] = [
-    { id: 'Engine', label: 'Engine', icon: '⚙️' },
-    { id: 'Safety', label: 'Safety', icon: '🔴' },
-    { id: 'Hull', label: 'Hull', icon: '🚢' },
-    { id: 'Rigging', label: 'Rigging', icon: '⛵' },
-    { id: 'Routine', label: 'Routine', icon: '📋' },
-    { id: 'Repair', label: 'Repair', icon: '🔧' },
-];
+// ── Category config (imported from ./maintenance/constants) ──
 
-const TRIGGER_LABELS: Record<MaintenanceTriggerType, string> = {
-    engine_hours: '⚙️ Engine Hours',
-    daily: '📅 Daily',
-    weekly: '📅 Weekly',
-    monthly: '📅 Monthly',
-    bi_annual: '📅 Bi-Annual',
-    annual: '📅 Annual',
-};
+
 
 /** Map period triggers to their interval in days */
 const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
@@ -608,343 +596,49 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     />
                 </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* LOG SERVICE BOTTOM SHEET */}
-                {/* ═══════════════════════════════════════════ */}
+                {/* ═══ LOG SERVICE SHEET ═══ */}
                 {sheetTask && (
-                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={() => setSheetTask(null)}>
-                        {/* Backdrop */}
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                        {/* Sheet */}
-                        <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,20px))] animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-6rem)]"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            {/* Close X */}
-                            <button
-                                onClick={() => setSheetTask(null)}
-                                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                                aria-label="Close service sheet"
-                            >
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-
-                            {/* Task info */}
-                            <div className="flex items-center gap-3 mb-5">
-                                <div className={`w-3 h-3 rounded-full ${LIGHT_COLORS[sheetTask.status].dot}`} />
-                                <div className="flex-1">
-                                    <h3 className="text-lg font-black text-white">{sheetTask.title}</h3>
-                                    <p className={`text-xs font-bold ${LIGHT_COLORS[sheetTask.status].text}`}>
-                                        {sheetTask.statusLabel}
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Engine hours snapshot — only for engine-based tasks */}
-                            {sheetTask.trigger_type === 'engine_hours' && (
-                                <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
-                                    <p className="text-label text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
-                                    <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
-                                </div>
-                            )}
-
-                            {/* Notes */}
-                            <div className="mb-4">
-                                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1">
-                                    Notes (Optional)
-                                </label>
-                                <textarea
-                                    value={sheetNotes}
-                                    onChange={e => setSheetNotes(e.target.value)}
-                                    placeholder="Found slight weeping on raw water pump gasket..."
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-none focus:border-sky-500/30"
-                                />
-                            </div>
-
-
-
-                            {/* Action buttons */}
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => loadHistory(sheetTask.id)}
-                                    className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-400 hover:bg-white/10 transition-colors"
-                                >
-                                    History
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        openEditForm(sheetTask);
-                                    }}
-                                    className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
-                                >
-                                    ✎ Edit
-                                </button>
-                                <button
-                                    onClick={handleLogService}
-                                    disabled={sheetSaving}
-                                    className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
-                                >
-                                    {sheetSaving ? (
-                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                                    ) : (
-                                        '✓ Log Service'
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    <ServiceLogSheet
+                        task={sheetTask}
+                        engineHours={engineHours}
+                        notes={sheetNotes}
+                        onNotesChange={setSheetNotes}
+                        saving={sheetSaving}
+                        onLog={handleLogService}
+                        onHistory={() => loadHistory(sheetTask.id)}
+                        onEdit={() => openEditForm(sheetTask)}
+                        onClose={() => setSheetTask(null)}
+                    />
                 )}
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* ADD TASK FORM (Bottom Sheet) */}
-                {/* ═══════════════════════════════════════════ */}
+                {/* ═══ ADD TASK FORM ═══ */}
                 {showAddForm && (
-                    <div
-                        className="fixed inset-0 z-[999] flex items-start justify-center"
-                        style={{ padding: '0 12px', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4rem + 8px)' }}
-                        onClick={() => setShowAddForm(false)}
-                    >
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-                        <div
-                            className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-4 animate-in fade-in zoom-in-95 duration-300 flex flex-col"
-                            style={{ maxHeight: '100%' }}
-                            onClick={e => e.stopPropagation()}
-                        >
-                            {/* Close X */}
-                            <button
-                                onClick={() => setShowAddForm(false)}
-                                className="absolute top-3 right-3 p-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
-                                aria-label="Close add task form"
-                            >
-                                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                            <h3 className="text-base font-black text-white mb-3">New Task</h3>
-
-                            {/* Flex content — shrinks to fit */}
-                            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
-
-                                {/* ── Task Type Selector ── */}
-                                <div>
-                                    <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            onClick={() => { setTaskType('maintenance'); setFormCategory('Engine'); }}
-                                            className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'maintenance'
-                                                ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
-                                                : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                                }`}
-                                        >
-                                            🔄 Maintenance
-                                        </button>
-                                        <button
-                                            onClick={() => { setTaskType('repair'); setFormCategory('Repair'); }}
-                                            className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'repair'
-                                                ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
-                                                : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                                }`}
-                                        >
-                                            🔧 Repair
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Category chips — only for Maintenance type */}
-                                {form.taskType === 'maintenance' && (
-                                    <div>
-                                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
-                                        <div className="grid grid-cols-3 gap-1.5">
-                                            {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
-                                                <button
-                                                    key={cat.id}
-                                                    onClick={() => setFormCategory(cat.id)}
-                                                    className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.category === cat.id
-                                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                        : 'bg-white/5 text-gray-500 border border-white/5'
-                                                        }`}
-                                                >
-                                                    {cat.icon} {cat.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Title */}
-                                <FormField
-                                    label="Task Name"
-                                    value={form.title}
-                                    onChange={v => setField('title', v)}
-                                    placeholder="Main Engine Oil Change"
-                                    autoFocus
-                                    required
-                                    error={!form.title.trim() && form.title !== '' ? 'Task name is required' : undefined}
-                                />
-
-                                {/* Notes */}
-                                <FormField
-                                    label="Notes (Optional)"
-                                    type="textarea"
-                                    value={form.description}
-                                    onChange={v => setField('description', v)}
-                                    placeholder="Don't forget to check the bottom for rust..."
-                                    rows={1}
-                                />
-
-                                {/* Trigger type — hidden for Repair */}
-                                {form.category !== 'Repair' && (
-                                    <div>
-                                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
-                                        <div className="grid grid-cols-3 gap-1.5">
-                                            {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                                <button
-                                                    key={t}
-                                                    onClick={() => setTrigger(t)}
-                                                    className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.trigger === t
-                                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                        : 'bg-white/5 text-gray-500 border border-white/5'
-                                                        }`}
-                                                >
-                                                    {TRIGGER_LABELS[t]}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Interval — only for engine hours */}
-                                {form.trigger === 'engine_hours' && form.category !== 'Repair' && (
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <FormField
-                                            label="Interval (Hrs)"
-                                            value={form.interval}
-                                            onChange={v => setField('interval', v)}
-                                            placeholder="200"
-                                            inputMode="numeric"
-                                        />
-                                        <FormField
-                                            label="Next Due (Hrs)"
-                                            value={form.dueHours}
-                                            onChange={v => setField('dueHours', v)}
-                                            placeholder={String(engineHours + 200)}
-                                            inputMode="numeric"
-                                        />
-                                    </div>
-                                )}
-
-                                {/* Next due — for time-based triggers */}
-                                {form.trigger !== 'engine_hours' && form.category !== 'Repair' && (
-                                    <FormField
-                                        label="Starts From"
-                                        type="date"
-                                        value={form.dueDate}
-                                        onChange={v => setField('dueDate', v)}
-                                        hint={`Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`}
-                                    />
-                                )}
-                            </div>
-
-                            {/* Save — pinned at bottom */}
-                            {!form.title.trim() && (
-                                <p className="text-micro text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
-                            )}
-                            <button
-                                onClick={handleAddTask}
-                                disabled={!form.title.trim()}
-                                className="w-full py-3 mt-2 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
-                            >
-                                Create Task
-                            </button>
-                        </div>
-                    </div>
+                    <TaskFormModal
+                        mode="add"
+                        form={form}
+                        setField={setField}
+                        setCategory={setFormCategory}
+                        setTaskType={setTaskType}
+                        setTrigger={setTrigger}
+                        engineHours={engineHours}
+                        onSubmit={handleAddTask}
+                        onClose={() => setShowAddForm(false)}
+                    />
                 )}
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* EDIT TASK MODAL */}
-                {/* ═══════════════════════════════════════════ */}
+                {/* ═══ EDIT TASK MODAL ═══ */}
                 {showEditForm && editTask && (
-                    <ModalSheet isOpen={true} onClose={() => { setShowEditForm(false); setEditTask(null); }} title="Edit Task">
-
-
-                        {/* Task Name */}
-                        <div className="mb-3">
-                            <FormField
-                                label="Task Name"
-                                value={form.title}
-                                onChange={v => setField('title', v)}
-                                placeholder="Main Engine Oil Change"
-                                required
-                            />
-                        </div>
-
-                        {/* Notes */}
-                        <div className="mb-4">
-                            <FormField
-                                label="Notes (Optional)"
-                                type="textarea"
-                                value={form.description}
-                                onChange={v => setField('description', v)}
-                                placeholder="Don't forget to check for rust..."
-                                rows={2}
-                            />
-                        </div>
-
-                        {/* Category */}
-                        <div className="mb-4">
-                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {CATEGORIES.map(cat => (
-                                    <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                        {cat.icon} {cat.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Trigger type */}
-                        <div className="mb-4">
-                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                                    <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                        {TRIGGER_LABELS[t]}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Engine hours interval */}
-                        {form.trigger === 'engine_hours' && (
-                            <>
-                                <div className="mb-4">
-                                    <FormField label="Interval (Hours)" value={form.interval} onChange={v => setField('interval', v)} placeholder="200" inputMode="numeric" />
-                                </div>
-                                <div className="mb-6">
-                                    <FormField label="Next Due at (Hours)" value={form.dueHours} onChange={v => setField('dueHours', v)} placeholder={String(engineHours + 200)} inputMode="numeric" />
-                                </div>
-                            </>
-                        )}
-
-                        {/* Due date — for non-engine triggers */}
-                        {form.trigger !== 'engine_hours' && (
-                            <div className="mb-6">
-                                <FormField label="Next Due Date" type="date" value={form.dueDate} onChange={v => setField('dueDate', v)} />
-                            </div>
-                        )}
-
-                        <button
-                            onClick={handleEditTask}
-                            disabled={!form.title.trim()}
-                            className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"
-                        >
-                            Save Changes
-                        </button>
-                    </ModalSheet>
+                    <TaskFormModal
+                        mode="edit"
+                        form={form}
+                        setField={setField}
+                        setCategory={setFormCategory}
+                        setTaskType={setTaskType}
+                        setTrigger={setTrigger}
+                        engineHours={engineHours}
+                        onSubmit={handleEditTask}
+                        onClose={() => { setShowEditForm(false); setEditTask(null); }}
+                    />
                 )}
 
                 {/* ═══════════════════════════════════════════ */}
