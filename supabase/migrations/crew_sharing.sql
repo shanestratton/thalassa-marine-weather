@@ -346,3 +346,45 @@ CREATE POLICY "owner_or_crew_update" ON public.ship_documents
 
 CREATE POLICY "owner_only_delete" ON public.ship_documents
     FOR DELETE USING (auth.uid() = user_id);
+
+-- ═══════════════════════════════════════════════════════════════
+-- 6. Database function for user lookup by email
+--    Replaces the need for an Edge Function.
+--    SECURITY DEFINER runs with the function owner's permissions,
+--    allowing it to query auth.users (which RLS normally blocks).
+-- ═══════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.lookup_user_by_email(lookup_email TEXT)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    found_user RECORD;
+    caller_email TEXT;
+BEGIN
+    -- Get caller's email to prevent self-lookup
+    SELECT email INTO caller_email FROM auth.users WHERE id = auth.uid();
+    
+    IF lower(caller_email) = lower(lookup_email) THEN
+        RETURN json_build_object('found', false, 'reason', 'self');
+    END IF;
+    
+    -- Look up the target user
+    SELECT id, email INTO found_user
+    FROM auth.users
+    WHERE lower(email) = lower(lookup_email)
+    LIMIT 1;
+    
+    IF found_user IS NULL THEN
+        RETURN json_build_object('found', false);
+    END IF;
+    
+    RETURN json_build_object(
+        'found', true,
+        'user_id', found_user.id,
+        'email', found_user.email
+    );
+END;
+$$;
