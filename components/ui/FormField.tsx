@@ -3,8 +3,10 @@
  *
  * Eliminates 115+ duplicate className strings across vessel components.
  * Supports text, number, date, and textarea variants.
+ * Auto-scrolls above the iOS keyboard + accessory bar on focus.
  */
 import React from 'react';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface FormFieldProps {
     label: string;
@@ -28,12 +30,9 @@ interface FormFieldProps {
     error?: string;
     /** Hint text below the field */
     hint?: string;
-    /** onFocus handler (e.g. for scrollIntoView keyboard avoidance) */
+    /** Additional onFocus handler — keyboard scroll happens automatically */
     onFocus?: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
 }
-
-const BASE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500';
-const DATE_INPUT = 'w-full min-w-0 mt-0.5 bg-white/5 border border-white/10 rounded-xl px-2 py-2 text-[13px] text-white outline-none focus:border-sky-500/30 transition-colors [color-scheme:dark]';
 
 export const FormField: React.FC<FormFieldProps> = ({
     label,
@@ -63,6 +62,12 @@ export const FormField: React.FC<FormFieldProps> = ({
         : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-none transition-colors placeholder:text-gray-500`;
     const inputClass = `${baseClass}${mono ? ' font-mono' : ''} ${className}`.trim();
 
+    // Combined focus handler: auto keyboard scroll + optional custom handler
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        scrollInputAboveKeyboard(e);
+        onFocus?.(e);
+    };
+
     return (
         <div className={isDate ? 'min-w-0 overflow-hidden' : undefined}>
             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
@@ -76,7 +81,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     disabled={disabled}
                     autoFocus={autoFocus}
                     rows={rows}
-                    onFocus={onFocus as React.FocusEventHandler<HTMLTextAreaElement>}
+                    onFocus={handleFocus as React.FocusEventHandler<HTMLTextAreaElement>}
                     className={`${inputClass} resize-none`}
                 />
             ) : (
@@ -89,7 +94,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     autoFocus={autoFocus}
                     min={min}
                     inputMode={inputMode}
-                    onFocus={onFocus as React.FocusEventHandler<HTMLInputElement>}
+                    onFocus={handleFocus as React.FocusEventHandler<HTMLInputElement>}
                     className={inputClass}
                 />
             )}
