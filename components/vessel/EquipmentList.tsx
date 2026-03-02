@@ -776,7 +776,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add Equipment" alignTop>
+                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add Equipment">
                     {renderFormFields()}
                     {!newName.trim() && (
                         <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
