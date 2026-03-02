@@ -158,7 +158,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(({
     return (
         <div
             className="absolute left-4 right-4 z-[500]"
-            style={{ bottom: 90 }}
+            style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
         >
             <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                 {/* Play / Pause */}

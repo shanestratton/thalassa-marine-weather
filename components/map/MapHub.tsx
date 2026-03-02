@@ -2047,7 +2047,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             {/* ═══ WIND TIMELINE SCRUBBER ═══ */}
             {activeLayer === 'wind' && windReady && (
-                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 90 }}>
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setWindPlaying(!windPlaying); triggerHaptic('light'); }}
@@ -2100,7 +2100,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             {/* ═══ RAIN TIMELINE SCRUBBER ═══ */}
             {activeLayer === 'rain' && rainFrameCount > 1 && (
-                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 90 }}>
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { setRainPlaying(!rainPlaying); triggerHaptic('light'); }}
