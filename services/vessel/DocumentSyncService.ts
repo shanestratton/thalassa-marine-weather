@@ -139,12 +139,20 @@ class DocumentSyncServiceClass {
                 return null;
             }
 
-            // Get public URL
-            const { data: urlData } = supabase.storage
+            // Bucket is PRIVATE — use createSignedUrl (1 year expiry)
+            // getPublicUrl does NOT work on private buckets!
+            const { data: signedData, error: signError } = await supabase.storage
                 .from(STORAGE_BUCKET)
-                .getPublicUrl(storagePath);
+                .createSignedUrl(storagePath, 365 * 24 * 60 * 60); // 1 year in seconds
 
-            return urlData?.publicUrl || null;
+            if (signError || !signedData?.signedUrl) {
+                console.error('[DocSync] Signed URL creation failed:', signError?.message);
+                // Upload succeeded but can't get URL — still mark as uploaded
+                // Return a reconstructable path so we can re-sign later
+                return `supabase-storage://${STORAGE_BUCKET}/${storagePath}`;
+            }
+
+            return signedData.signedUrl;
         } catch (e) {
             console.error('[DocSync] File upload error:', e);
             return null;
@@ -371,6 +379,45 @@ class DocumentSyncServiceClass {
         // Trigger sync to propagate deletion to cloud
         if (navigator.onLine) {
             setTimeout(() => this.syncAll(), 500);
+        }
+    }
+
+    // ── Get a fresh download URL for a document file ────────────
+    //    Handles: data URIs, supabase-storage:// paths, expired signed URLs
+
+    async getDownloadUrl(fileUri: string): Promise<string> {
+        // Data URIs are local — use directly
+        if (fileUri.startsWith('data:')) return fileUri;
+
+        // supabase-storage:// scheme — extract path and sign
+        if (fileUri.startsWith('supabase-storage://')) {
+            const path = fileUri.replace(`supabase-storage://${STORAGE_BUCKET}/`, '');
+            return await this._signStoragePath(path) ?? fileUri;
+        }
+
+        // Supabase URL (signed or public) — re-sign from storage path
+        if (fileUri.includes(STORAGE_BUCKET)) {
+            const match = fileUri.match(new RegExp(`${STORAGE_BUCKET}/([^?]+)`));
+            if (match?.[1]) {
+                const freshUrl = await this._signStoragePath(match[1]);
+                if (freshUrl) return freshUrl;
+            }
+        }
+
+        // Fallback — return as-is (could be a regular URL)
+        return fileUri;
+    }
+
+    private async _signStoragePath(path: string): Promise<string | null> {
+        if (!supabase) return null;
+        try {
+            const { data, error } = await supabase.storage
+                .from(STORAGE_BUCKET)
+                .createSignedUrl(path, 60 * 60); // 1 hour for downloads
+            if (error || !data?.signedUrl) return null;
+            return data.signedUrl;
+        } catch {
+            return null;
         }
     }
 

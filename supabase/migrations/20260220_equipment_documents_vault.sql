@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS ship_documents (
     document_name       TEXT NOT NULL,                       -- "Hull Insurance 2026"
     category            TEXT NOT NULL CHECK (category IN (
                             'Registration', 'Insurance', 'Crew Visas/IDs',
-                            'Radio/MMSI', 'Customs Clearances'
+                            'Radio/MMSI', 'Customs Clearances', 'User Manuals'
                         )),
     issue_date          TIMESTAMPTZ,                        -- Document issue date
     expiry_date         TIMESTAMPTZ,                        -- Document expiry date

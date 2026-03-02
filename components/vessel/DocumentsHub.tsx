@@ -124,12 +124,14 @@ async function writeUriToCache(dataUri: string, fileName: string): Promise<strin
 }
 
 /**
- * Open a document file — writes to cache then opens via native share sheet.
+ * Open a document file — resolves fresh URL, writes to cache, opens via native share sheet.
  * This lets the user preview PDFs, images, etc. via their preferred app.
  */
 async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
     try {
-        const fileUri = await writeUriToCache(uri, doc.document_name);
+        // Resolve fresh download URL (re-signs Supabase URLs if expired)
+        const freshUri = await DocumentSyncService.getDownloadUrl(uri);
+        const fileUri = await writeUriToCache(freshUri, doc.document_name);
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
@@ -150,7 +152,9 @@ async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
  */
 async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
     try {
-        const fileUri = await writeUriToCache(uri, doc.document_name);
+        // Resolve fresh download URL (re-signs Supabase URLs if expired)
+        const freshUri = await DocumentSyncService.getDownloadUrl(uri);
+        const fileUri = await writeUriToCache(freshUri, doc.document_name);
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
