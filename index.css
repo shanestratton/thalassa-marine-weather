@@ -93,9 +93,25 @@
   font-size: var(--text-label);
 }
 
+
 /* Custom Text Colors */
 .text-ivory {
   color: #FFFFF0;
+}
+
+/* ── Date Input Constraint ──
+   Prevents native iOS date picker widget from overflowing containers.
+   The webkit calendar-picker-indicator is especially problematic. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.5);
+  cursor: pointer;
 }
 
 /* Apply the custom property overrides via Tailwind utility-level CSS.

@@ -2,22 +2,20 @@
  * keyboardScroll — Scroll focused input above the iOS keyboard + accessory bar.
  *
  * On iOS with Capacitor (KeyboardResize.None), the keyboard overlays the
- * webview entirely. Neither the viewport nor scroll containers know the
- * keyboard is there.
+ * webview. The viewport doesn't resize — we MUST scroll manually.
  *
- * This utility:
- *  1. Waits for the keyboard animation to finish (400ms)
- *  2. Uses `visualViewport` to detect the actual visible area
- *  3. Scrolls the nearest scrollable ancestor so the input sits
- *     in the TOP QUARTER of the visible area — well clear of the
- *     keyboard + its ~44px accessory bar (tick / up-down arrows)
- *  4. Listens for keyboard dismiss (visualViewport resize back up)
- *     and scrolls the container back to its natural position
+ * Strategy:
+ *  1. On focus, wait for keyboard animation (400ms)
+ *  2. Scroll the input's nearest scrollable ancestor so the field sits
+ *     in the upper 1/4 of the screen (clear of keyboard + accessory bar)
+ *  3. On keyboard hide (Capacitor event), scroll back to top
  *
  * Usage:
  *   <input onFocus={scrollInputAboveKeyboard} />
  *   // FormField does this automatically
  */
+
+import { Capacitor } from '@capacitor/core';
 
 const KEYBOARD_ANIM_MS = 400;
 
@@ -34,85 +32,87 @@ function findScrollParent(el: HTMLElement): HTMLElement | null {
     return null;
 }
 
-// Track active cleanup handlers for keyboard dismiss
-let activeCleanup: (() => void) | null = null;
+// Track whether we've registered the keyboard hide listener
+let hideListenerRegistered = false;
+let lastScrollParent: HTMLElement | null = null;
+
+/**
+ * Register a one-time listener for keyboard hide (Capacitor).
+ * Scrolls the last active scroll parent back to 0.
+ */
+function ensureHideListener() {
+    if (hideListenerRegistered) return;
+    hideListenerRegistered = true;
+
+    if (Capacitor.isNativePlatform()) {
+        import('@capacitor/keyboard').then(({ Keyboard }) => {
+            Keyboard.addListener('keyboardWillHide', () => {
+                if (lastScrollParent) {
+                    lastScrollParent.scrollTo({
+                        top: 0,
+                        behavior: 'smooth',
+                    });
+                }
+            });
+        }).catch(() => { /* Keyboard plugin not available */ });
+    } else {
+        // Web fallback: listen for visualViewport resize
+        const vp = window.visualViewport;
+        if (vp) {
+            let wasKeyboardOpen = false;
+            vp.addEventListener('resize', () => {
+                const isNowFull = vp.height > window.innerHeight - 100;
+                if (wasKeyboardOpen && isNowFull && lastScrollParent) {
+                    lastScrollParent.scrollTo({
+                        top: 0,
+                        behavior: 'smooth',
+                    });
+                }
+                wasKeyboardOpen = !isNowFull;
+            });
+        }
+    }
+}
 
 /**
  * onFocus handler — scrolls the focused input above the keyboard.
  *
- * Usage:
- *   <input onFocus={scrollInputAboveKeyboard} />
- *   <FormField onFocus={scrollInputAboveKeyboard} />
+ * Always scrolls (doesn't try to detect if keyboard is present).
+ * The keyboard is ALWAYS present when an input gets focus on mobile.
  */
 export function scrollInputAboveKeyboard(
     e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
 ): void {
     const el = e.target as HTMLElement;
 
-    // Clean up previous listener if one was active
-    if (activeCleanup) {
-        activeCleanup();
-        activeCleanup = null;
-    }
+    // Ensure the keyboard-hide bounce-back listener is registered
+    ensureHideListener();
 
     setTimeout(() => {
         const scrollParent = findScrollParent(el);
         if (!scrollParent) {
-            // Fallback: just use scrollIntoView
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
         }
 
-        // Get visible viewport height (accounts for keyboard on iOS)
-        const visibleHeight = window.visualViewport
-            ? window.visualViewport.height
-            : window.innerHeight;
-        const fullHeight = window.innerHeight;
+        // Remember for bounce-back
+        lastScrollParent = scrollParent;
 
-        // If no keyboard detected (visible ≈ full), skip scrolling
-        if (visibleHeight > fullHeight - 50) return;
-
-        // Where the element sits relative to the scroll container
+        // Get element position relative to the scroll container
         const elRect = el.getBoundingClientRect();
         const parentRect = scrollParent.getBoundingClientRect();
 
-        // Target: place the input at 20% from the top of the VISIBLE area
-        // This puts it in the upper portion, well clear of keyboard + accessory bar
-        const targetY = visibleHeight * 0.20;
-        const currentY = elRect.top - parentRect.top + scrollParent.scrollTop;
-        const scrollTo = currentY - targetY;
+        // Target: place the input ~100px from the top of the screen.
+        // The keyboard + accessory bar takes ~50% of screen height,
+        // so the top quarter is the safe zone.
+        const targetFromTop = 100;
+        const currentScrollOffset = scrollParent.scrollTop;
+        const elTopInContainer = elRect.top - parentRect.top + currentScrollOffset;
+        const scrollTo = elTopInContainer - targetFromTop;
 
         scrollParent.scrollTo({
             top: Math.max(0, scrollTo),
             behavior: 'smooth',
         });
-
-        // ── Keyboard dismiss: bounce back ──
-        // Listen for visualViewport resize (keyboard going away)
-        const savedScrollTop = 0; // We want to go back to top
-        const vp = window.visualViewport;
-        if (vp) {
-            const onResize = () => {
-                // If viewport height is back near full height, keyboard dismissed
-                if (vp.height > fullHeight - 50) {
-                    scrollParent.scrollTo({
-                        top: savedScrollTop,
-                        behavior: 'smooth',
-                    });
-                    cleanup();
-                }
-            };
-
-            const cleanup = () => {
-                vp.removeEventListener('resize', onResize);
-                if (activeCleanup === cleanup) activeCleanup = null;
-            };
-
-            vp.addEventListener('resize', onResize);
-            activeCleanup = cleanup;
-
-            // Safety: clean up after 30s max (prevent leak if dismiss never fires)
-            setTimeout(cleanup, 30000);
-        }
     }, KEYBOARD_ANIM_MS);
 }
