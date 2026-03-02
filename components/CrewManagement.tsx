@@ -264,22 +264,33 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
 
                                 <div className="space-y-2">
                                     {memberships.map(membership => (
-                                        <div key={membership.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                                            <div className="flex items-start justify-between mb-2">
-                                                <div>
-                                                    <p className="text-sm font-bold text-white">{membership.owner_email}</p>
-                                                    <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Active Crew</p>
+                                        <div key={membership.id} className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-4">
+                                            {/* Captain info */}
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center">
+                                                        <span className="text-lg">⚓</span>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-white">{membership.owner_email}</p>
+                                                        <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Captain's Registers</p>
+                                                    </div>
                                                 </div>
                                                 <button
                                                     onClick={() => handleLeave(membership)}
-                                                    className="text-[11px] text-red-400/60 hover:text-red-400 font-bold transition-colors"
+                                                    className="text-[11px] text-red-400/60 hover:text-red-400 font-bold transition-colors px-2 py-1"
                                                 >
                                                     Leave
                                                 </button>
                                             </div>
+
+                                            {/* Explanation */}
+                                            <p className="text-[11px] text-gray-400 mb-2.5">You have access to the following registers. Any changes you make will update the captain's data.</p>
+
+                                            {/* Shared register badges */}
                                             <div className="flex flex-wrap gap-1.5">
                                                 {membership.shared_registers.map(reg => (
-                                                    <span key={reg} className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-300">
+                                                    <span key={reg} className="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[11px] font-bold text-emerald-300">
                                                         {REGISTER_ICONS[reg]} {REGISTER_LABELS[reg]}
                                                     </span>
                                                 ))}
