@@ -213,7 +213,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    <span className="text-[11px] font-bold">Delete</span>
+                    <span className="text-label font-bold">Delete</span>
                 </div>
             </div>
 
@@ -231,20 +231,20 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                 <div className="flex-1 p-4">
                     {/* Category badge — top of card */}
                     <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-[10px]">{CATEGORY_ICONS[doc.category] || '📋'}</span>
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{doc.category}</span>
+                        <span className="text-micro">{CATEGORY_ICONS[doc.category] || '📋'}</span>
+                        <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">{doc.category}</span>
                     </div>
                     <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 text-left">
                             <h4 className="text-sm font-black text-white tracking-wide mb-0.5">{doc.document_name}</h4>
-                            <p className={`text-[11px] font-bold uppercase tracking-widest ${colors.text}`}>
+                            <p className={`text-label font-bold uppercase tracking-widest ${colors.text}`}>
                                 {colors.label}
                             </p>
                         </div>
 
                         <div className="shrink-0 flex flex-col items-end gap-1">
                             {doc.expiry_date && (
-                                <span className={`px-2 py-0.5 rounded-lg text-[11px] font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
+                                <span className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
                                     {status === 'expired' ? 'Exp ' : 'Exp '}
                                     {new Date(doc.expiry_date).toLocaleDateString()}
                                 </span>
@@ -481,7 +481,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={['Ship\'s Office', 'Documents']}
                     subtitle={
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
                             {documents.length} Documents
                             {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
                             {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
@@ -531,8 +531,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             <div key={group.id}>
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="text-xs">{group.icon}</span>
-                                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
-                                    <span className="text-[11px] text-gray-500 font-bold">({group.docs.length})</span>
+                                    <span className="text-label font-black text-gray-400 uppercase tracking-widest">{group.label}</span>
+                                    <span className="text-label text-gray-500 font-bold">({group.docs.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.docs.map(doc => (
@@ -572,10 +572,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                         {/* Category — first */}
                         <div className="mb-3">
-                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1.5">Category</label>
+                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1.5">Category</label>
                             <div className="grid grid-cols-3 gap-1.5">
                                 {CATEGORIES.map(cat => (
-                                    <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-1.5 rounded-full text-[11px] font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                    <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-1.5 rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
                                         {cat.icon} {cat.label}
                                     </button>
                                 ))}
@@ -611,7 +611,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                         {/* Attach Document */}
                         <div className="mb-3">
-                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">Attach Document</label>
+                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1">Attach Document</label>
                             <input
                                 ref={fileInputRef}
                                 type="file"
@@ -663,7 +663,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         </div>
 
                         {!formName.trim() && (
-                            <p className="text-[10px] text-amber-400/80 text-center mt-2">Document name is required</p>
+                            <p className="text-micro text-amber-400/80 text-center mt-2">Document name is required</p>
                         )}
                         <button
                             onClick={handleSave}

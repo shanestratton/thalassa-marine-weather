@@ -96,7 +96,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
-                    <span className="text-[11px] font-bold">Delete</span>
+                    <span className="text-label font-bold">Delete</span>
                 </div>
             </div>
 
@@ -112,8 +112,8 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
             >
                 {/* Category badge — top of card */}
                 <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[10px]">{catConfig?.icon || '📋'}</span>
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{catConfig?.label || task.category}</span>
+                    <span className="text-micro">{catConfig?.icon || '📋'}</span>
+                    <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">{catConfig?.label || task.category}</span>
                 </div>
                 {/* Row 1: Title + 3-dot menu */}
                 <div className="flex items-start justify-between gap-2">
@@ -133,17 +133,17 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 2: Status label + due info */}
                 <div className="flex items-center justify-between mt-1.5">
-                    <p className={`text-[11px] font-bold uppercase tracking-widest ${light.text}`}>
+                    <p className={`text-label font-bold uppercase tracking-widest ${light.text}`}>
                         {task.statusLabel}
                     </p>
                     <div className="flex items-center gap-2">
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
-                            <span className="text-[11px] text-slate-400 font-mono">
+                            <span className="text-label text-slate-400 font-mono">
                                 @ {task.next_due_hours?.toLocaleString()} hrs
                             </span>
                         )}
                         {task.next_due_date && (
-                            <span className="text-[11px] text-slate-400 font-mono">
+                            <span className="text-label text-slate-400 font-mono">
                                 {new Date(task.next_due_date).toLocaleDateString()}
                             </span>
                         )}
@@ -152,7 +152,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 3: Last serviced */}
                 {task.last_completed && (
-                    <p className="text-[11px] text-slate-500 mt-1">
+                    <p className="text-label text-slate-500 mt-1">
                         Last serviced: {new Date(task.last_completed).toLocaleDateString()}
                     </p>
                 )}
@@ -452,12 +452,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     status={
                         <>
                             {counts.red > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[11px] font-black">{counts.red}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">{counts.red}</span>
                             )}
                             {counts.yellow > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[11px] font-black">{counts.yellow}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black">{counts.yellow}</span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black">{counts.green}</span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-label font-black">{counts.green}</span>
                         </>
                     }
                     action={
@@ -517,7 +517,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </svg>
                                 </div>
                                 <div>
-                                    <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
+                                    <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">Current Engine Hours</p>
                                     {isEditingHours ? (
                                         <input
                                             ref={hoursInputRef}
@@ -566,8 +566,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <div key={group.category}>
                                     <div className="flex items-center gap-2 mb-2 mt-1">
                                         <span className="text-sm">{catConfig?.icon}</span>
-                                        <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
-                                        <span className="text-[10px] text-gray-500 font-bold">({group.tasks.length})</span>
+                                        <span className="text-label font-black text-gray-500 uppercase tracking-widest">{catConfig?.label}</span>
+                                        <span className="text-micro text-gray-500 font-bold">({group.tasks.length})</span>
                                     </div>
                                     <div className="space-y-2">
                                         {group.tasks.map(task => (
@@ -646,14 +646,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {/* Engine hours snapshot — only for engine-based tasks */}
                             {sheetTask.trigger_type === 'engine_hours' && (
                                 <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
-                                    <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
+                                    <p className="text-label text-gray-500 font-bold uppercase tracking-widest mb-1">Engine Hours at Service</p>
                                     <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
                                 </div>
                             )}
 
                             {/* Notes */}
                             <div className="mb-4">
-                                <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1">
                                     Notes (Optional)
                                 </label>
                                 <textarea
@@ -731,7 +731,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                                 {/* ── Task Type Selector ── */}
                                 <div>
-                                    <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
+                                    <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
                                     <div className="grid grid-cols-2 gap-2">
                                         <button
                                             onClick={() => { setTaskType('maintenance'); setFormCategory('Engine'); }}
@@ -757,13 +757,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 {/* Category chips — only for Maintenance type */}
                                 {form.taskType === 'maintenance' && (
                                     <div>
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
+                                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
                                         <div className="grid grid-cols-3 gap-1.5">
                                             {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
                                                 <button
                                                     key={cat.id}
                                                     onClick={() => setFormCategory(cat.id)}
-                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${form.category === cat.id
+                                                    className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.category === cat.id
                                                         ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                         : 'bg-white/5 text-gray-500 border border-white/5'
                                                         }`}
@@ -799,13 +799,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 {/* Trigger type — hidden for Repair */}
                                 {form.category !== 'Repair' && (
                                     <div>
-                                        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
+                                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
                                         <div className="grid grid-cols-3 gap-1.5">
                                             {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                                 <button
                                                     key={t}
                                                     onClick={() => setTrigger(t)}
-                                                    className={`py-1 rounded-full text-[11px] font-bold transition-all text-center ${form.trigger === t
+                                                    className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.trigger === t
                                                         ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                                         : 'bg-white/5 text-gray-500 border border-white/5'
                                                         }`}
@@ -851,7 +851,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                             {/* Save — pinned at bottom */}
                             {!form.title.trim() && (
-                                <p className="text-[10px] text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
+                                <p className="text-micro text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
                             )}
                             <button
                                 onClick={handleAddTask}
@@ -896,7 +896,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Category */}
                         <div className="mb-4">
-                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {CATEGORIES.map(cat => (
                                     <button key={cat.id} onClick={() => setFormCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
@@ -908,7 +908,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Trigger type */}
                         <div className="mb-4">
-                            <label className="text-[11px] text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
                                     <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
@@ -969,7 +969,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                 {new Date(h.completed_at).toLocaleDateString()}
                                             </p>
                                             {h.engine_hours_at_service !== null && (
-                                                <span className="text-[11px] text-sky-400 font-bold">
+                                                <span className="text-label text-sky-400 font-bold">
                                                     @ {h.engine_hours_at_service?.toLocaleString()} hrs
                                                 </span>
                                             )}
@@ -1007,7 +1007,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </div>
                                     <div>
                                         <p className="text-sm font-black text-white">Print Blank Checklist</p>
-                                        <p className="text-[11px] text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
+                                        <p className="text-label text-gray-500 mt-0.5">Printable clipboard for the engine room</p>
                                     </div>
                                 </div>
                             </button>
@@ -1026,7 +1026,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     </div>
                                     <div>
                                         <p className="text-sm font-black text-white">Export Service History</p>
-                                        <p className="text-[11px] text-gray-500 mt-0.5">Formal ledger of all completed work</p>
+                                        <p className="text-label text-gray-500 mt-0.5">Formal ledger of all completed work</p>
                                     </div>
                                 </div>
                             </button>
