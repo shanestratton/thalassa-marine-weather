@@ -135,7 +135,7 @@ async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
-            url: fileUri,
+            files: [fileUri],
             dialogTitle: `Open ${doc.document_name}`,
         });
         return true;
@@ -159,7 +159,7 @@ async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
         await Share.share({
             title: doc.document_name,
             text: `Ship's Document: ${doc.document_name} (${doc.category})`,
-            url: fileUri,
+            files: [fileUri],
             dialogTitle: `Share ${doc.document_name}`,
         });
         return true;

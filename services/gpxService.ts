@@ -358,10 +358,10 @@ export async function shareGPXFile(gpxXml: string, filename: string): Promise<vo
             encoding: Encoding.UTF8,
         });
 
-        // Trigger native share sheet with the file URI
+        // Trigger native share sheet with the file as an attachment
         await Share.share({
             title: safeName,
-            url: writeResult.uri,
+            files: [writeResult.uri],
             dialogTitle: 'Export Voyage Track',
         });
     } catch (err: unknown) {
