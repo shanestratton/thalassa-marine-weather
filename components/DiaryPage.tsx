@@ -20,6 +20,8 @@ import { useWeather } from '../context/WeatherContext';
 import { PageHeader } from './ui/PageHeader';
 import { useSwipeable } from '../hooks/useSwipeable';
 import { OfflineBadge } from './ui/OfflineBadge';
+import { UndoToast } from './ui/UndoToast';
+import { toast } from './Toast';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -86,7 +88,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [weatherSummary, setWeatherSummary] = useState('');
     const [saving, setSaving] = useState(false);
     const [polishing, setPolishing] = useState(false);
-    const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    const [deletedItem, setDeletedItem] = useState<DiaryEntry | null>(null);
+    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
 
     // Timeline selection state
@@ -112,17 +115,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // ── Load entries ───────────────────────────────────────────
 
+    const refreshEntries = useCallback(() => {
+        DiaryService.getEntries(100).then(data => setEntries(data));
+    }, []);
+
     useEffect(() => {
         DiaryService.getEntries(100).then(data => {
             setEntries(data);
             setLoading(false);
         });
-        // Re-read after 10s to clear stale PENDING badges from background syncs
-        const refreshTimer = setTimeout(() => {
-            DiaryService.getEntries(100).then(data => setEntries(data));
-        }, 10000);
-        return () => clearTimeout(refreshTimer);
-    }, []);
+        // Periodically refresh to clear PENDING badges after background sync
+        const interval = setInterval(refreshEntries, 8000);
+        return () => clearInterval(interval);
+    }, [refreshEntries]);
 
     // Cleanup on unmount
     useEffect(() => {
@@ -397,21 +402,44 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             }
         }
         setSaving(false);
-        // Re-fetch entries after a short delay to pick up background sync results
-        setTimeout(() => {
-            DiaryService.getEntries(100).then(data => setEntries(data));
-        }, 3000);
+        // Re-fetch entries after a short delay to clear PENDING badges
+        setTimeout(refreshEntries, 2000);
     };
 
-    // ── Delete ─────────────────────────────────────────────────
+    // ── Delete (soft-delete with undo) ─────────────────────────
 
-    const handleDelete = async (id: string) => {
-        const ok = await DiaryService.deleteEntry(id);
-        if (ok) {
-            setEntries(prev => prev.filter(e => e.id !== id));
-            setSelectedEntry(null);
-            setDeleteConfirm(null);
+    const handleDelete = (id: string) => {
+        const item = entries.find(e => e.id === id);
+        if (!item) return;
+        triggerHaptic('medium');
+
+        // Remove from UI immediately
+        setEntries(prev => prev.filter(e => e.id !== id));
+        setSelectedEntry(null);
+        setDeletedItem(item);
+
+        // Schedule actual delete after 5s
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        deleteTimerRef.current = setTimeout(async () => {
+            try {
+                await DiaryService.deleteEntry(id);
+            } catch (e) {
+                console.warn('[DiaryPage] delete failed:', e);
+                toast.error('Failed to delete entry');
+                // Restore on failure
+                setEntries(prev => [...prev, item]);
+            }
+            setDeletedItem(null);
+        }, 5000);
+    };
+
+    const handleUndoDelete = () => {
+        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        if (deletedItem) {
+            setEntries(prev => [...prev, deletedItem]);
+            toast.success('Entry restored');
         }
+        setDeletedItem(null);
     };
 
     // ── Grouped entries ────────────────────────────────────────
@@ -631,7 +659,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                             </svg>
                         </button>
-                        <button onClick={() => setDeleteConfirm(e.id)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+                        <button onClick={() => handleDelete(e.id)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
                             <svg className="w-5 h-5 text-red-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                             </svg>
@@ -731,19 +759,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     </div>
                 </div>
 
-                {/* Delete confirm */}
-                {deleteConfirm && (
-                    <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-8">
-                        <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-sm w-full space-y-4">
-                            <h3 className="text-lg font-black text-white">Delete Entry?</h3>
-                            <p className="text-sm text-gray-400">This will permanently delete this journal entry and any attached photos or audio.</p>
-                            <div className="flex gap-3">
-                                <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold text-sm">Cancel</button>
-                                <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold text-sm">Delete</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* Undo toast */}
+                <UndoToast
+                    isOpen={!!deletedItem}
+                    message={`"${deletedItem?.title}" deleted`}
+                    onUndo={handleUndoDelete}
+                    onDismiss={() => setDeletedItem(null)}
+                    duration={5000}
+                />
             </div>
         );
     }
@@ -1192,6 +1215,15 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     )}
                 </div>
             </div>
+
+            {/* Undo toast (timeline view) */}
+            <UndoToast
+                isOpen={!!deletedItem}
+                message={`"${deletedItem?.title}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={() => setDeletedItem(null)}
+                duration={5000}
+            />
         </div >
     );
 };
