@@ -58,7 +58,7 @@ export const FormField: React.FC<FormFieldProps> = ({
         ? 'border-red-500/40 focus:border-red-500/60'
         : 'border-white/10 focus:border-sky-500/30';
     const baseClass = isDate
-        ? `w-full max-w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-2 py-2 text-[13px] text-white outline-none transition-colors [color-scheme:dark] box-border`
+        ? `w-full max-w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-sm text-white outline-none transition-colors [color-scheme:dark] box-border`
         : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-none transition-colors placeholder:text-gray-500`;
     const inputClass = `${baseClass}${mono ? ' font-mono' : ''} ${className}`.trim();
 
@@ -96,6 +96,7 @@ export const FormField: React.FC<FormFieldProps> = ({
                     inputMode={inputMode}
                     onFocus={handleFocus as React.FocusEventHandler<HTMLInputElement>}
                     className={inputClass}
+                    style={isDate ? { WebkitAppearance: 'none', maxWidth: '100%' } : undefined}
                 />
             )}
             {error && <p className="text-micro text-red-400 mt-1">{error}</p>}
