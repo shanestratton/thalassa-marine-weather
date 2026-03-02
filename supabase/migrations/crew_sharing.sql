@@ -3,8 +3,9 @@
 -- Run in Supabase Dashboard → SQL Editor
 -- ═══════════════════════════════════════════════════════════════
 
--- 1. Create vessel_crew table
-CREATE TABLE IF NOT EXISTS public.vessel_crew (
+-- 1. Drop and recreate vessel_crew table (safe — new table, no production data)
+DROP TABLE IF EXISTS public.vessel_crew CASCADE;
+CREATE TABLE public.vessel_crew (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
     -- The captain (data owner)
