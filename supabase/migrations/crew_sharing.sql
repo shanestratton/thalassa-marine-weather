@@ -388,3 +388,29 @@ BEGIN
     );
 END;
 $$;
+
+-- ═══════════════════════════════════════════════════════════════
+-- 7. Enable Supabase Realtime on vessel tables
+--    Allows WebSocket subscriptions for instant crew sync.
+-- ═══════════════════════════════════════════════════════════════
+
+-- Add tables to the supabase_realtime publication
+-- (DROP + CREATE to be idempotent)
+DO $$ BEGIN
+    -- Remove tables if already added (prevents duplicate errors)
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.inventory_items;
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.equipment_register;
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.maintenance_tasks;
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.maintenance_history;
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.ship_documents;
+    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.vessel_crew;
+EXCEPTION WHEN OTHERS THEN
+    NULL; -- Ignore if tables weren't in the publication
+END $$;
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.equipment_register;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_tasks;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_history;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.ship_documents;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.vessel_crew;
