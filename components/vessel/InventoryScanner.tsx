@@ -12,6 +12,7 @@ import { InventoryService } from '../../services/InventoryService';
 import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';
+import { FormField } from '../ui/FormField';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -381,19 +382,16 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </div>
 
                         {/* Item name */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Item Name *</label>
-                            <input
-                                type="text"
-                                value={newItem.item_name}
-                                onChange={e => setNewItem(prev => ({ ...prev, item_name: e.target.value }))}
-                                placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                                autoFocus
-                            />
-                        </div>
+                        <FormField
+                            label="Item Name"
+                            value={newItem.item_name}
+                            onChange={v => setNewItem(prev => ({ ...prev, item_name: v }))}
+                            placeholder="e.g. Racor 2010PM-OR Fuel Filter"
+                            autoFocus
+                            required
+                        />
 
-                        {/* Barcode + Scan button */}
+                        {/* Barcode + Scan button (custom layout — FormField can't do side-by-side) */}
                         <div>
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
                             <div className="flex gap-2 mt-0.5">
@@ -402,7 +400,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.barcode}
                                     onChange={e => setNewItem(prev => ({ ...prev, barcode: e.target.value }))}
                                     placeholder="Optional"
-                                    className="flex-[2] min-w-0 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
+                                    className="flex-[2] min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500"
                                 />
                                 <button
                                     type="button"
@@ -428,20 +426,18 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     muted
                                     autoPlay
                                 />
-                                {/* Reticle */}
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                     <div className="w-3/4 h-12 border-2 border-sky-400/60 rounded-lg">
                                         <div className="absolute inset-x-4 h-0.5 bg-sky-400/50 animate-pulse" style={{ top: '50%' }} />
                                     </div>
                                 </div>
-                                {/* Scanning label */}
                                 <div className="absolute bottom-1 left-0 right-0 text-center">
                                     <span className="text-[11px] font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
                                 </div>
-                                {/* Close button */}
                                 <button
                                     onClick={closeInlineScanner}
                                     className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
+                                    aria-label="Close scanner"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -452,77 +448,56 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
 
                         {/* Quantity + Min */}
                         <div className="grid grid-cols-2 gap-2">
-                            <div className="min-w-0">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Quantity</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={newItem.quantity}
-                                    onChange={e => setNewItem(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
-                                />
-                            </div>
-                            <div className="min-w-0">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Min Alert</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={newItem.min_quantity}
-                                    onChange={e => setNewItem(prev => ({ ...prev, min_quantity: parseInt(e.target.value) || 0 }))}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors"
-                                />
-                            </div>
+                            <FormField
+                                label="Quantity"
+                                type="number"
+                                value={newItem.quantity}
+                                onChange={v => setNewItem(prev => ({ ...prev, quantity: parseInt(v) || 0 }))}
+                                min={0}
+                            />
+                            <FormField
+                                label="Min Alert"
+                                type="number"
+                                value={newItem.min_quantity}
+                                onChange={v => setNewItem(prev => ({ ...prev, min_quantity: parseInt(v) || 0 }))}
+                                min={0}
+                            />
                         </div>
 
                         {/* Location */}
                         <div className="grid grid-cols-2 gap-2">
-                            <div className="min-w-0">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Zone</label>
-                                <input
-                                    type="text"
-                                    value={newItem.location_zone}
-                                    onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
-                                    placeholder="Engine Room"
-                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                                />
-                            </div>
-                            <div className="min-w-0">
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Exact Spot</label>
-                                <input
-                                    type="text"
-                                    value={newItem.location_specific}
-                                    onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
-                                    placeholder="Stbd drawer"
-                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
-                                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                                />
-                            </div>
+                            <FormField
+                                label="Zone"
+                                value={newItem.location_zone}
+                                onChange={v => setNewItem(prev => ({ ...prev, location_zone: v }))}
+                                placeholder="Engine Room"
+                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                            />
+                            <FormField
+                                label="Exact Spot"
+                                value={newItem.location_specific}
+                                onChange={v => setNewItem(prev => ({ ...prev, location_specific: v }))}
+                                placeholder="Stbd drawer"
+                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                            />
                         </div>
 
                         {/* Notes */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Notes</label>
-                            <input
-                                type="text"
-                                value={newItem.description}
-                                onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
-                                placeholder="Part no, batch"
-                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
-                            />
-                        </div>
+                        <FormField
+                            label="Notes"
+                            value={newItem.description}
+                            onChange={v => setNewItem(prev => ({ ...prev, description: v }))}
+                            placeholder="Part no, batch"
+                            onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                        />
 
-                        {/* Expiry / Service — full width to prevent native date picker overflow */}
-                        <div>
-                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service</label>
-                            <input
-                                type="date"
-                                value={newItem.expiry_date}
-                                onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full mt-0.5 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
-                            />
-                        </div>
+                        {/* Expiry / Service — full width */}
+                        <FormField
+                            label="Expiry / Service"
+                            type="date"
+                            value={newItem.expiry_date}
+                            onChange={v => setNewItem(prev => ({ ...prev, expiry_date: v }))}
+                        />
                     </div>
 
                     {/* Actions */}
