@@ -727,7 +727,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <div className="grid grid-cols-2 gap-2">
                                         <button
                                             onClick={() => { setTaskType('maintenance'); setFormCategory('Engine'); }}
-                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${form.taskType === 'maintenance'
+                                            className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'maintenance'
                                                 ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
                                                 }`}
@@ -736,7 +736,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         </button>
                                         <button
                                             onClick={() => { setTaskType('repair'); setFormCategory('Repair'); }}
-                                            className={`py-2 rounded-xl text-[13px] font-black transition-all text-center ${form.taskType === 'repair'
+                                            className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'repair'
                                                 ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
                                                 : 'bg-white/5 text-gray-500 border-2 border-white/5'
                                                 }`}
