@@ -388,7 +388,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             value={newItem.item_name}
                             onChange={v => setNewItem(prev => ({ ...prev, item_name: v }))}
                             placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                            autoFocus
                             required
                         />
 
@@ -762,13 +761,13 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </div>
 
                         {/* Expiry / Service Date — full width */}
-                        <div>
+                        <div className="min-w-0 max-w-full overflow-hidden">
                             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Expiry / Service Date</label>
                             <input
                                 type="date"
                                 value={newItem.expiry_date}
                                 onChange={e => setNewItem(prev => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark]"
+                                className="w-full max-w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500 transition-colors [color-scheme:dark] box-border"
                             />
                         </div>
                     </div>

@@ -58,7 +58,7 @@ export const FormField: React.FC<FormFieldProps> = ({
         ? 'border-red-500/40 focus:border-red-500/60'
         : 'border-white/10 focus:border-sky-500/30';
     const baseClass = isDate
-        ? `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-2 py-2 text-[13px] text-white outline-none transition-colors [color-scheme:dark]`
+        ? `w-full max-w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-2 py-2 text-[13px] text-white outline-none transition-colors [color-scheme:dark] box-border`
         : `w-full min-w-0 mt-0.5 bg-white/5 border ${borderClass} rounded-xl px-3 py-2 text-white text-sm outline-none transition-colors placeholder:text-gray-500`;
     const inputClass = `${baseClass}${mono ? ' font-mono' : ''} ${className}`.trim();
 
@@ -69,7 +69,7 @@ export const FormField: React.FC<FormFieldProps> = ({
     };
 
     return (
-        <div className={isDate ? 'min-w-0 overflow-hidden' : undefined}>
+        <div className={isDate ? 'min-w-0 max-w-full overflow-hidden' : undefined}>
             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                 {label}{required ? ' *' : ''}
             </label>

@@ -514,11 +514,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <FormField label="Specific" value={editSpecific} onChange={setEditSpecific} placeholder="Port locker" />
                         </div>
 
-                        {/* Notes + Expiry side by side */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <FormField label="Notes" value={editDescription} onChange={setEditDescription} placeholder="Part no, batch" />
-                            <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
-                        </div>
+                        {/* Notes */}
+                        <FormField label="Notes" value={editDescription} onChange={setEditDescription} placeholder="Part no, batch" />
+
+                        {/* Expiry — full width to prevent date picker overflow */}
+                        <FormField label="Expiry / Service" type="date" value={editExpiry} onChange={setEditExpiry} />
                     </div>
 
                     {!editName.trim() && (
