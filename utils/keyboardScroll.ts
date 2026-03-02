@@ -98,6 +98,6 @@ export function scrollInputAboveKeyboard(
     // Wait for keyboard animation to complete, then scroll into view.
     // Use a small initial delay (50ms) to let iOS register the focus.
     setTimeout(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, KEYBOARD_ANIM_MS);
 }
