@@ -394,23 +394,28 @@ $$;
 --    Allows WebSocket subscriptions for instant crew sync.
 -- ═══════════════════════════════════════════════════════════════
 
--- Add tables to the supabase_realtime publication
--- (DROP + CREATE to be idempotent)
+-- Add each table individually, ignoring "already added" errors
 DO $$ BEGIN
-    -- Remove tables if already added (prevents duplicate errors)
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.inventory_items;
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.equipment_register;
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.maintenance_tasks;
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.maintenance_history;
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.ship_documents;
-    ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS public.vessel_crew;
-EXCEPTION WHEN OTHERS THEN
-    NULL; -- Ignore if tables weren't in the publication
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory_items;
+EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
-
-ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory_items;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.equipment_register;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_tasks;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_history;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.ship_documents;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.vessel_crew;
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.equipment_register;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_tasks;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.maintenance_history;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.ship_documents;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.vessel_crew;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
