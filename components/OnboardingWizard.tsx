@@ -127,7 +127,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     });
                 }
             } catch (e) {
-            console.warn('[OnboardingWizard]', e);
+                console.warn('[OnboardingWizard]', e);
                 /* Reverse geocode failed — fall back to WP coordinate format */
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
@@ -509,22 +509,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Length <button onClick={toggleLengthUnit} className="text-sky-400 hover:text-white">{lengthUnit}</button></label>
-                                            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-600" />
+                                            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
                                         </div>
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Beam <button onClick={toggleBeamUnit} className="text-sky-400 hover:text-white">{beamUnit}</button></label>
-                                            <input type="number" value={beam} onChange={(e) => setBeam(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-600" />
+                                            <input type="number" value={beam} onChange={(e) => setBeam(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Draft <button onClick={toggleDraftUnit} className="text-sky-400 hover:text-white">{draftUnit}</button></label>
-                                            <input type="number" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-600" />
+                                            <input type="number" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
                                         </div>
                                         <div>
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Displacement <button onClick={toggleDispUnit} className="text-sky-400 hover:text-white">{dispUnit}</button></label>
-                                            <input type="number" value={displacement} onChange={(e) => setDisplacement(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-600" />
+                                            <input type="number" value={displacement} onChange={(e) => setDisplacement(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
                                         </div>
                                     </div>
 

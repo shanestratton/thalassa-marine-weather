@@ -244,7 +244,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 <input type="text" value={origin} onChange={e => setOrigin(e.target.value)}
                                     placeholder="Type port name or tap map…"
                                     aria-label="Departure port or location"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button type="button" onClick={() => openMap('origin')}
                                         className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select origin on map">
@@ -265,7 +265,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
                                     placeholder="Type destination or tap map…"
                                     aria-label="Destination port or location"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2">
                                     <button type="button" onClick={() => openMap('destination')}
                                         className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select destination on map">
@@ -282,7 +282,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 <input type="text" value={via} onChange={e => setVia(e.target.value)}
                                     placeholder="Via waypoint (optional)"
                                     aria-label="Via waypoint"
-                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-20 text-sm text-white font-medium placeholder-gray-600 outline-none transition-all shadow-inner" />
+                                    className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-20 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button type="button" onClick={() => openMap('via')}
                                         className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg" title="Select on Map" aria-label="Select via point on map">
