@@ -171,10 +171,11 @@ async function shareFile(uri: string, doc: ShipDocument): Promise<boolean> {
 interface SwipeableDocCardProps {
     doc: ShipDocument;
     onTap: () => void;
+    onEdit: () => void;
     onDelete: () => void;
 }
 
-const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelete }) => {
+const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit, onDelete }) => {
     const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
     const [actionBusy, setActionBusy] = useState<'download' | 'share' | null>(null);
     const status = getExpiryStatus(doc.expiry_date);
@@ -249,45 +250,57 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onDelet
                                     {new Date(doc.expiry_date).toLocaleDateString()}
                                 </span>
                             )}
-                            {/* File action buttons */}
-                            {hasFile && (
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                    {/* Download to phone */}
-                                    <button
-                                        onClick={handleDownload}
-                                        disabled={actionBusy === 'download'}
-                                        className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
-                                        aria-label="Download to phone"
-                                    >
-                                        {actionBusy === 'download' ? (
-                                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                            </svg>
-                                        )}
-                                    </button>
-                                    {/* Share / Email */}
-                                    <button
-                                        onClick={handleShare}
-                                        disabled={actionBusy === 'share'}
-                                        className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
-                                        aria-label="Share or email"
-                                    >
-                                        {actionBusy === 'share' ? (
-                                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                            </svg>
-                                        )}
-                                    </button>
-                                </div>
-                            )}
+                            {/* Action buttons — edit always visible, file actions when file attached */}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                                {/* Edit */}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                                    className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10 hover:text-white active:scale-95 transition-all"
+                                    aria-label="Edit document"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                </button>
+                                {hasFile && (
+                                    <>
+                                        {/* Download to phone */}
+                                        <button
+                                            onClick={handleDownload}
+                                            disabled={actionBusy === 'download'}
+                                            className="p-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                            aria-label="Download to phone"
+                                        >
+                                            {actionBusy === 'download' ? (
+                                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
+                                                </svg>
+                                            ) : (
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                        {/* Share / Email */}
+                                        <button
+                                            onClick={handleShare}
+                                            disabled={actionBusy === 'share'}
+                                            className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
+                                            aria-label="Share or email"
+                                        >
+                                            {actionBusy === 'share' ? (
+                                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
+                                                </svg>
+                                            ) : (
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                            )}
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -540,6 +553,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             key={doc.id}
                                             doc={doc}
                                             onTap={() => handleOpenDoc(doc)}
+                                            onEdit={() => openEditForm(doc)}
                                             onDelete={() => handleDelete(doc.id)}
                                         />
                                     ))}
