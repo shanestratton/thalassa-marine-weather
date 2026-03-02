@@ -13,6 +13,7 @@ import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';
 import { FormField } from '../ui/FormField';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface InventoryScannerProps {
     onClose: () => void;
@@ -471,14 +472,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 value={newItem.location_zone}
                                 onChange={v => setNewItem(prev => ({ ...prev, location_zone: v }))}
                                 placeholder="Engine Room"
-                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+
                             />
                             <FormField
                                 label="Exact Spot"
                                 value={newItem.location_specific}
                                 onChange={v => setNewItem(prev => ({ ...prev, location_specific: v }))}
                                 placeholder="Stbd drawer"
-                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+
                             />
                         </div>
 
@@ -488,7 +489,6 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             value={newItem.description}
                             onChange={v => setNewItem(prev => ({ ...prev, description: v }))}
                             placeholder="Part no, batch"
-                            onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
                         />
 
                         {/* Expiry / Service — full width */}
@@ -731,7 +731,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_zone}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_zone: e.target.value }))}
                                     placeholder="Engine Room"
-                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
@@ -742,7 +742,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     value={newItem.location_specific}
                                     onChange={e => setNewItem(prev => ({ ...prev, location_specific: e.target.value }))}
                                     placeholder="Stbd drawer"
-                                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                                 />
                             </div>
@@ -756,7 +756,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                 value={newItem.description}
                                 onChange={e => setNewItem(prev => ({ ...prev, description: e.target.value }))}
                                 placeholder="Part number, batch, etc."
-                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)}
+                                onFocus={scrollInputAboveKeyboard}
                                 className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500 transition-colors placeholder:text-gray-500"
                             />
                         </div>
