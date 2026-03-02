@@ -5,17 +5,14 @@
  * containers with overflow:hidden/auto, transforms, or scroll
  * contexts cannot affect the fixed positioning.
  *
- * Provides:
- * - Backdrop blur + dimming
- * - Close on backdrop tap
- * - Close button (X) in top-right
- * - Safe area padding
- * - Consistent animation (fade + zoom)
- *
- * Eliminates ~30 lines of boilerplate per modal instance.
+ * Keyboard-aware: on iOS, listens for keyboard show/hide events
+ * (via Capacitor Keyboard plugin) and shrinks the panel + shifts
+ * it to the top of the screen so fields stay visible above the
+ * keyboard.
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
 
 interface ModalSheetProps {
     /** Whether the modal is visible */
@@ -43,15 +40,55 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     zIndex = 'z-[999]',
     alignTop = false,
 }) => {
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    // Listen for keyboard show/hide on native platforms
+    useEffect(() => {
+        if (!isOpen || !Capacitor.isNativePlatform()) return;
+
+        let cleanup: (() => void) | undefined;
+
+        import('@capacitor/keyboard').then(({ Keyboard }) => {
+            const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                setKeyboardHeight(info.keyboardHeight);
+            });
+            const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                setKeyboardHeight(0);
+            });
+
+            cleanup = () => {
+                showHandle.then(h => h.remove());
+                hideHandle.then(h => h.remove());
+            };
+        }).catch(() => { /* Keyboard plugin not available */ });
+
+        return () => {
+            cleanup?.();
+            setKeyboardHeight(0);
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
-    // Max height: total screen minus clearance for header + tab bar.
-    // 12rem ≈ 192px — covers status bar + header + tab bar + safe areas.
-    const panelMaxHeight = 'calc(100dvh - 12rem)';
+    const kbOpen = keyboardHeight > 0;
+
+    // When keyboard is open: shrink panel and align to top.
+    // When closed: center vertically with generous clearance.
+    const panelMaxHeight = kbOpen
+        ? `calc(100dvh - ${keyboardHeight}px - 6rem)`
+        : 'calc(100dvh - 12rem)';
+
+    // When keyboard is open, switch to items-start with top padding
+    // so the panel sits above the keyboard. When closed, center it.
+    const alignment = kbOpen
+        ? 'items-start pt-12'
+        : alignTop
+            ? 'items-start pt-24'
+            : 'items-center';
 
     const modal = (
         <div
-            className={`fixed inset-0 ${zIndex} flex ${alignTop ? 'items-start pt-24' : 'items-center'} justify-center px-3`}
+            className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3 transition-all duration-200`}
             onClick={onClose}
         >
             {/* Backdrop */}
@@ -59,7 +96,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
             {/* Content panel */}
             <div
-                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
+                className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto transition-[max-height] duration-200`}
                 style={{ maxHeight: panelMaxHeight }}
                 onClick={e => e.stopPropagation()}
             >
