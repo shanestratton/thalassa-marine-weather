@@ -1,6 +1,10 @@
 /**
  * ModalSheet — Shared modal/bottom-sheet wrapper.
  *
+ * Renders via React Portal into document.body so that parent
+ * containers with overflow:hidden/auto, transforms, or scroll
+ * contexts cannot affect the fixed positioning.
+ *
  * Provides:
  * - Backdrop blur + dimming
  * - Close on backdrop tap
@@ -11,6 +15,7 @@
  * Eliminates ~30 lines of boilerplate per modal instance.
  */
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalSheetProps {
     /** Whether the modal is visible */
@@ -40,13 +45,11 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 }) => {
     if (!isOpen) return null;
 
-    // Max height: total screen minus clearance for header (top) + tab bar (bottom).
-    // 12rem ≈ 192px covers status bar + header + tab bar + safe areas on all iPhones.
-    const panelMaxHeight = alignTop
-        ? 'calc(100dvh - 12rem)'
-        : 'calc(100dvh - 12rem)';
+    // Max height: total screen minus clearance for header + tab bar.
+    // 12rem ≈ 192px — covers status bar + header + tab bar + safe areas.
+    const panelMaxHeight = 'calc(100dvh - 12rem)';
 
-    return (
+    const modal = (
         <div
             className={`fixed inset-0 ${zIndex} flex ${alignTop ? 'items-start pt-24' : 'items-center'} justify-center px-3`}
             onClick={onClose}
@@ -80,4 +83,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
             </div>
         </div>
     );
+
+    // Portal to document.body — escapes all parent overflow/transform contexts
+    return createPortal(modal, document.body);
 };
