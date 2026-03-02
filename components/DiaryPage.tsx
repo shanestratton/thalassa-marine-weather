@@ -681,7 +681,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         placeholder="Entry title (optional)"
                         value={title}
                         onChange={e => setTitle(e.target.value)}
-                        className="shrink-0 w-full bg-transparent text-xl font-bold text-white placeholder-gray-600 border-none outline-none"
+                        className="shrink-0 w-full bg-transparent text-xl font-bold text-white placeholder-gray-500 border-none outline-none"
                     />
 
                     {/* Mood selector */}
@@ -730,7 +730,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 placeholder="Location name (e.g. Moreton Bay, Anchor in 4m)"
                                 value={locationName}
                                 onChange={e => setLocationName(e.target.value)}
-                                className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-600 outline-none focus:border-sky-500/30 transition-colors"
+                                className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                             />
                         </div>
                     </div>
@@ -807,7 +807,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         placeholder={"What's happening out there, skipper?\n\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                         value={body}
                         onChange={e => setBody(e.target.value)}
-                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-600 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                        className="w-full flex-1 min-h-0 bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                     />
 
                     {/* AI Polish + Weather Snapshot */}

@@ -270,7 +270,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             {/* ═══════════════════════════════════════════ */}
             <div>
                 <div className="flex items-center gap-2 mb-3">
-                    <div className="w-1 h-4 rounded-full bg-gray-600" />
+                    <div className="w-1 h-4 rounded-full bg-gray-500" />
                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
                 </div>
 

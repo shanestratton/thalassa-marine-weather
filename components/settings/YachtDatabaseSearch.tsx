@@ -52,7 +52,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by model or manufacturer…"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-600 outline-none focus:border-sky-500 transition-colors"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-none focus:border-sky-500 transition-colors"
                 />
                 <svg className="absolute right-3 top-3.5 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

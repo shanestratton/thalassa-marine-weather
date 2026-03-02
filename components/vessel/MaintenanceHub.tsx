@@ -104,7 +104,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5 border-l-2 ${task.status === 'red' ? 'border-l-red-500'
                     : task.status === 'yellow' ? 'border-l-amber-400'
                         : task.status === 'green' ? 'border-l-emerald-500'
-                            : 'border-l-gray-600'
+                            : 'border-l-gray-500'
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 {...handlers}
