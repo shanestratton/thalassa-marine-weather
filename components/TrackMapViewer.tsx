@@ -18,6 +18,16 @@ import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+// ── Wind data config ──────────────────────────────────────────────
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
+const WIND_CACHE_NAME = 'thalassa-wind-cache';
+const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
+
+const WIND_COLORS = [
+    '#3498db', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#8e44ad',
+];
+
 interface TrackMapViewerProps {
     isOpen: boolean;
     onClose: () => void;
@@ -52,6 +62,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const thumbRef = useRef<HTMLDivElement>(null);
     const fillRef = useRef<HTMLDivElement>(null);
     const isDraggingRef = useRef(false);
+    const velocityLayerRef = useRef<L.Layer | null>(null);
 
     // Sorted entries for playback
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
@@ -75,11 +86,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         }
 
         const map = L.map(mapRef.current, {
-            zoomControl: true,
+            zoomControl: false,
             attributionControl: false,
             zoomAnimation: true,
             fadeAnimation: true,
-        });
+        }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
 
         // Dark nautical tile layer (base)
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -109,9 +120,80 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         mapInstanceRef.current = map;
         setTimeout(() => map.invalidateSize(), 200);
 
+        // ── Load wind velocity layer (deferred to let map init) ──────
+        const windTimerId = setTimeout(async () => {
+            try {
+                (window as any).L = L;
+                await import('leaflet-velocity-ts');
+
+                // Request full global coverage — no bounds dependency
+                const body = JSON.stringify({
+                    north: 90, south: -90,
+                    west: -180, east: 180,
+                });
+
+                let windData: any[] | null = null;
+                const cacheKey = `${SUPABASE_URL}${EDGE_FN_PATH}?track-global`;
+
+                try {
+                    const res = await fetch(`${SUPABASE_URL}${EDGE_FN_PATH}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': SUPABASE_KEY,
+                            'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        },
+                        body,
+                    });
+                    if (res.ok) {
+                        windData = await res.json();
+                        try {
+                            const cache = await caches.open(WIND_CACHE_NAME);
+                            await cache.put(cacheKey, new Response(JSON.stringify(windData)));
+                        } catch (_) { }
+                    } else {
+                        console.warn('[TrackMapViewer] Wind fetch HTTP', res.status);
+                    }
+                } catch (_) {
+                    // Try cache
+                    try {
+                        const cache = await caches.open(WIND_CACHE_NAME);
+                        const cached = await cache.match(cacheKey);
+                        if (cached) windData = await cached.json();
+                    } catch (_e) { }
+                }
+
+                if (windData && Array.isArray(windData) && windData.length > 0 && mapInstanceRef.current) {
+                    const vLayer = (L as any).velocityLayer({
+                        displayValues: false,
+                        data: windData,
+                        maxVelocity: 40,
+                        velocityScale: 0.012,
+                        particleAge: 60,
+                        particleMultiplier: 1 / 200,
+                        frameRate: 15,
+                        lineWidth: 2.5,
+                        colorScale: WIND_COLORS,
+                    });
+                    vLayer.addTo(mapInstanceRef.current);
+                    velocityLayerRef.current = vLayer;
+                    console.info('[TrackMapViewer] Wind velocity layer loaded ✓');
+                } else {
+                    console.warn('[TrackMapViewer] No wind data received');
+                }
+            } catch (err) {
+                console.warn('[TrackMapViewer] Wind layer failed:', err);
+            }
+        }, 1000);
+
         return () => {
+            clearTimeout(windTimerId);
             if (playIntervalRef.current) clearInterval(playIntervalRef.current);
             if (mapInstanceRef.current) {
+                if (velocityLayerRef.current) {
+                    try { mapInstanceRef.current.removeLayer(velocityLayerRef.current); } catch (_) { }
+                    velocityLayerRef.current = null;
+                }
                 mapInstanceRef.current.remove();
                 mapInstanceRef.current = null;
                 layerGroupRef.current = null;
@@ -417,23 +499,28 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     })();
 
     return (
-        <div className="fixed inset-x-0 top-0 z-[9999] bg-slate-900 flex flex-col rounded-b-2xl overflow-hidden" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 64px + 8px)' }}>
-            {/* Header */}
-            <div className="bg-slate-800/95 backdrop-blur-md border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingLeft: '16px', paddingRight: '16px', paddingBottom: '12px' }}>
+        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden">
+            {/* Title overlay — top left */}
+            <div className="absolute top-0 left-0 right-0 z-[1001] px-4" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
                 <div>
-                    <h2 className="text-lg font-bold text-white">Voyage Track</h2>
-                    <div className="text-[11px] text-slate-400 flex gap-3 mt-0.5">
+                    <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">Voyage Track</h2>
+                    <div className="text-[10px] text-white/60 flex gap-3 mt-0.5 font-medium">
                         <span>{totalDistance} NM</span>
                         <span>{sortedEntries.length} pts</span>
                         <span>{waypointCount} wpts</span>
                     </div>
                 </div>
+            </div>
+
+            {/* Back chevron — middle-left of screen */}
+            <div className="absolute z-[1001] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                 <button
                     onClick={onClose}
-                    className="w-9 h-9 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center transition-colors"
+                    aria-label="Back"
+                    className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95 shrink-0"
                 >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
                 </button>
             </div>
@@ -576,76 +663,44 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 </div>
             </div>
 
-            {/* ═══ PLAYBACK SCRUBBER ═══ */}
-            <div className="bg-slate-900/95 backdrop-blur-xl border-t border-white/[0.08] px-4 py-3">
-                <div className="flex items-center gap-3">
-                    {/* Play / Pause */}
-                    <button
-                        onClick={togglePlayback}
-                        className="w-11 h-11 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
-                    >
-                        {isPlaying ? (
-                            <svg className="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24">
-                                <rect x="6" y="4" width="4" height="16" rx="1" />
-                                <rect x="14" y="4" width="4" height="16" rx="1" />
-                            </svg>
-                        ) : (
-                            <svg className="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M8 5v14l11-7z" />
-                            </svg>
-                        )}
-                    </button>
-
-                    {/* Custom track */}
-                    <div
-                        ref={trackRef}
-                        className="flex-1 relative h-11 flex items-center cursor-pointer"
-                        style={{ touchAction: 'none' }}
-                        onPointerDown={handlePointerDown}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
-                        onPointerCancel={handlePointerUp}
-                    >
-                        {/* Track background */}
-                        <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
-                            {/* Active fill */}
-                            <div
-                                ref={fillRef}
-                                className="absolute inset-y-0 left-0 bg-sky-500/40 rounded-full"
-                                style={{ width: `${pct}%`, willChange: 'width' }}
-                            />
-                        </div>
-
-                        {/* Thumb */}
-                        <div
-                            ref={thumbRef}
-                            className="absolute top-1/2 w-5 h-5 -ml-[0.5px] bg-sky-400 rounded-full shadow-lg shadow-sky-400/30 border-2 border-white/40 pointer-events-none"
-                            style={{
-                                left: `${pct}%`,
-                                transform: 'translate(-50%, -50%) scale(1)',
-                                transition: isDraggingRef.current ? 'none' : 'transform 0.15s ease-out',
-                                willChange: 'left, transform',
-                            }}
-                        />
-
-                        {/* Touch target expansion */}
-                        <div className="absolute inset-0" />
-                    </div>
-
-                    {/* Time + info label */}
-                    <div className="shrink-0 text-right min-w-[56px]">
-                        <p className="text-xs font-black text-white font-mono">{timeLabel}</p>
-                        <p className="text-[10px] text-slate-500 font-bold">
-                            {currentEntry?.speedKts != null ? `${currentEntry.speedKts.toFixed(1)}kts` : ''}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Progress bar label — track position */}
-                <div className="flex justify-between mt-1.5 px-1">
-                    <span className="text-[10px] text-slate-600 font-mono">{playbackIndex + 1} / {sortedEntries.length}</span>
-                    <span className="text-[10px] text-slate-600 font-mono">{currentEntry?.cumulativeDistanceNM?.toFixed(1) || '0.0'} NM</span>
-                </div>
+            {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
+            <div
+                className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
+                style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
+            >
+                <style>{`
+                    .track-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+                    .track-slider::-webkit-slider-runnable-track { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
+                    .track-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+                `}</style>
+                <button
+                    onClick={togglePlayback}
+                    className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
+                >
+                    {isPlaying ? (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="3" height="8" rx="0.5" /><rect x="6" y="1" width="3" height="8" rx="0.5" /></svg>
+                    ) : (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9" /></svg>
+                    )}
+                </button>
+                <input
+                    type="range"
+                    min={0}
+                    max={maxIdx}
+                    value={playbackIndex}
+                    onChange={e => {
+                        setIsPlaying(false);
+                        if (playIntervalRef.current) { clearInterval(playIntervalRef.current); playIntervalRef.current = null; }
+                        const idx = parseInt(e.target.value);
+                        setPlaybackIndex(idx);
+                        moveVesselTo(idx);
+                        setShowHUD(true);
+                    }}
+                    className="track-slider flex-1 h-3"
+                />
+                <span className="text-[11px] font-bold text-white/60 min-w-[44px] text-right font-mono">
+                    {timeLabel}
+                </span>
             </div>
         </div>
     );

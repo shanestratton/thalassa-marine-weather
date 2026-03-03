@@ -20,6 +20,8 @@ interface CommunityTrackBrowserProps {
 const CATEGORY_LABELS: Record<TrackCategory, string> = {
     anchorage: '⚓ Anchorage',
     port_entry: '🏗 Port Entry',
+    marina_exit: '🚤 Marina Exit',
+    harbour_entry: '⛵ Harbour Entry',
     bar_crossing: '🌊 Bar Crossing',
     reef_passage: '🪸 Reef Passage',
     coastal: '🏖 Coastal',

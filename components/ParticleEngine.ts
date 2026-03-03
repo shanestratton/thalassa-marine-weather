@@ -30,6 +30,11 @@ export class ParticleEngine {
     private reducedMotion = false;
     private reducedMotionQuery: MediaQueryList | null = null;
 
+    // Idle sleep — stop animation after inactivity to save battery
+    private idleTimeout: ReturnType<typeof setTimeout> | null = null;
+    private isIdle = false;
+    private static IDLE_MS = 10_000; // 10 seconds of no interaction → sleep
+
     constructor(canvas: HTMLCanvasElement, map: L.Map, sampleVal: (lat: number, lon: number, type: string) => number | null, sampleDir: (lat: number, lon: number) => number) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { alpha: true })!;
@@ -59,7 +64,14 @@ export class ParticleEngine {
         this.reducedMotion = this.reducedMotionQuery.matches;
         this.reducedMotionQuery.addEventListener('change', this.handleReducedMotionChange);
 
+        // --- 4. INTERACTION-BASED WAKE ---
+        // Wake particles when user picks up phone, taps screen, or app comes to foreground
+        document.addEventListener('touchstart', this.handleInteraction, { passive: true });
+        document.addEventListener('pointerdown', this.handleInteraction, { passive: true });
+        window.addEventListener('devicemotion', this.handleDeviceMotion, { passive: true });
+
         this.initParticles();
+        this.resetIdleTimer();
     }
 
     private handleVisibilityChange = () => {
@@ -68,7 +80,25 @@ export class ParticleEngine {
             this.isVisible = false;
         } else {
             this.isVisible = true;
-            this.start();
+            this.wake(); // Wake on screen-on / app-foreground
+        }
+    }
+
+    private handleInteraction = () => {
+        if (this.isIdle) this.wake();
+    }
+
+    // Only wake on significant device movement (phone picked up)
+    private lastMotionWake = 0;
+    private handleDeviceMotion = (e: DeviceMotionEvent) => {
+        if (!this.isIdle) return;
+        const acc = e.accelerationIncludingGravity;
+        if (!acc) return;
+        // Detect significant movement (not just gravity)
+        const mag = Math.abs((acc.x || 0)) + Math.abs((acc.y || 0)) + Math.abs((acc.z || 0) - 9.8);
+        if (mag > 3 && Date.now() - this.lastMotionWake > 2000) {
+            this.lastMotionWake = Date.now();
+            this.wake();
         }
     }
 
@@ -81,6 +111,27 @@ export class ParticleEngine {
         } else {
             this.start();
         }
+    }
+
+    // ── Idle Sleep / Wake ────────────────────────────────────────
+    private resetIdleTimer() {
+        if (this.idleTimeout) clearTimeout(this.idleTimeout);
+        this.idleTimeout = setTimeout(() => this.sleep(), ParticleEngine.IDLE_MS);
+    }
+
+    private sleep() {
+        if (this.isIdle) return;
+        this.isIdle = true;
+        this.stop();
+        this.renderStaticFrame(); // Show a frozen snapshot instead of blank
+    }
+
+    /** Call on map interaction to restart animation */
+    public wake() {
+        this.resetIdleTimer();
+        if (!this.isIdle) return;
+        this.isIdle = false;
+        this.start();
     }
 
     private initParticles() {
@@ -158,7 +209,11 @@ export class ParticleEngine {
     // Cleanup listener when component unmounts
     public destroy() {
         this.stop();
+        if (this.idleTimeout) clearTimeout(this.idleTimeout);
         document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+        document.removeEventListener('touchstart', this.handleInteraction);
+        document.removeEventListener('pointerdown', this.handleInteraction);
+        window.removeEventListener('devicemotion', this.handleDeviceMotion);
         if (this.reducedMotionQuery) {
             this.reducedMotionQuery.removeEventListener('change', this.handleReducedMotionChange);
         }

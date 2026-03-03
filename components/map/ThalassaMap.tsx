@@ -68,10 +68,18 @@ const OFFLINE_STYLE: StyleSpecification = {
         'gebco-bathymetry': {
             type: 'raster',
             tiles: [
-                'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
+                'https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE',
             ],
             tileSize: 256,
-            attribution: '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry">EMODnet Bathymetry</a>',
+            attribution: '&copy; <a href="https://www.gebco.net">GEBCO</a>',
+        },
+        'openseamap': {
+            type: 'raster',
+            tiles: [
+                'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+            ],
+            tileSize: 256,
+            attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
         },
     },
     layers: [
@@ -92,6 +100,16 @@ const OFFLINE_STYLE: StyleSpecification = {
                 'raster-opacity': 0.35,
                 'raster-saturation': -0.3,
                 'raster-brightness-max': 0.7,
+            },
+        },
+        {
+            id: 'openseamap-overlay',
+            type: 'raster',
+            source: 'openseamap',
+            minzoom: 8,
+            maxzoom: 18,
+            paint: {
+                'raster-opacity': 0.9,
             },
         },
     ],

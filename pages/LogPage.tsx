@@ -25,6 +25,8 @@ import { VoyageHeader } from '../components/VoyageHeader';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { RegionAutocomplete } from '../components/RegionAutocomplete';
+import { UndoToast } from '../components/ui/UndoToast';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
@@ -63,6 +65,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         confirmStopVoyage,
         // Entry CRUD
         handleDeleteEntry,
+        handleUndoDeleteEntry,
+        deletedEntry,
         handleEditEntry,
         handleSaveEdit,
         loadData,
@@ -70,6 +74,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         toggleVoyage,
         handleDeleteVoyageRequest,
         handleConfirmDeleteVoyage,
+        showSharedVoyageWarning,
+        confirmDeleteSharedVoyage,
+        cancelDeleteSharedVoyage,
         // Export / share
         handleExportCSV,
         handleShare,
@@ -105,6 +112,57 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [shareAutoTitle, setShareAutoTitle] = useState('');
     const [shareAutoRegion, setShareAutoRegion] = useState('');
     const shareFormResetRef = useRef(0);
+
+    // ── Listen for planned route save from Passage Planner ──
+    useEffect(() => {
+        const handlePlannedRoute = async (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (!detail?.waypoints?.length || !detail?.departure || !detail?.arrival) return;
+
+            try {
+                const { waypoints, departure, arrival, departureTime, totalDistanceNM, totalDurationHours } = detail;
+                const voyageId = `planned_${Date.now()}`;
+                const depTime = new Date(departureTime).getTime();
+
+                // Create log entries for each waypoint
+                const entries: Partial<ShipLogEntry>[] = waypoints.map((wp: any, idx: number) => ({
+                    voyageId,
+                    timestamp: wp.eta || new Date(depTime + wp.timeHours * 3600_000).toISOString(),
+                    latitude: wp.lat,
+                    longitude: wp.lon,
+                    entryType: idx === 0 ? 'manual' : 'waypoint',
+                    source: 'planned_passage',
+                    waypointName: wp.id === 'DEP' ? departure.name
+                        : wp.id === 'ARR' ? arrival.name
+                            : wp.id,
+                    notes: wp.id === 'DEP' ? `Departure: ${departure.name}`
+                        : wp.id === 'ARR' ? `Arrival: ${arrival.name} — ${totalDistanceNM?.toFixed(0)} NM, ${totalDurationHours?.toFixed(0)}h`
+                            : `Course change: ${wp.bearingChange}° → ${wp.bearing}°`,
+                    speedKts: wp.speed,
+                    courseDeg: wp.bearing,
+                    windSpeed: wp.tws,
+                    distanceNM: idx > 0 ? Math.round((wp.distanceNM - (waypoints[idx - 1]?.distanceNM || 0)) * 10) / 10 : 0,
+                    cumulativeDistanceNM: wp.distanceNM,
+                }));
+
+                // Save to Supabase
+                const { supabase } = await import('../services/supabase');
+                if (!supabase) throw new Error('Supabase not initialised');
+                for (const entry of entries) {
+                    await supabase.from('ship_logs').insert(entry);
+                }
+
+                toast.success(`Planned route saved: ${departure.name} → ${arrival.name}`);
+                loadData(); // Refresh the log page
+            } catch (err) {
+                console.error('[LogPage] Failed to save planned route:', err);
+                toast.error('Failed to save planned route');
+            }
+        };
+
+        window.addEventListener('thalassa:save-planned-route', handlePlannedRoute);
+        return () => window.removeEventListener('thalassa:save-planned-route', handlePlannedRoute);
+    }, [loadData, toast]);
 
     // Destructure frequently used state for JSX readability
     const {
@@ -896,6 +954,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             >
                                                 <option value="anchorage">⚓ Anchorage</option>
                                                 <option value="port_entry">🏗 Port Entry</option>
+                                                <option value="marina_exit">🚤 Marina Exit</option>
+                                                <option value="harbour_entry">⛵ Harbour Entry</option>
                                                 <option value="bar_crossing">🌊 Bar Crossing</option>
                                                 <option value="reef_passage">🪸 Reef Passage</option>
                                                 <option value="coastal">🏖 Coastal</option>
@@ -1157,6 +1217,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     );
                 })()
             }
+            {/* Undo toast for entry deletion */}
+            <UndoToast
+                isOpen={!!deletedEntry}
+                message={`Entry deleted`}
+                onUndo={handleUndoDeleteEntry}
+                onDismiss={() => { }}
+                duration={5000}
+            />
+
+            {/* Shared voyage warning confirm dialog */}
+            <ConfirmDialog
+                isOpen={!!showSharedVoyageWarning}
+                title="Community Shared Voyage"
+                message={`This voyage has been shared to the community as ${showSharedVoyageWarning?.trackInfo || ''}. Deleting it will also remove it from the community.`}
+                confirmLabel="Delete Anyway"
+                cancelLabel="Cancel"
+                destructive
+                onConfirm={confirmDeleteSharedVoyage}
+                onCancel={cancelDeleteSharedVoyage}
+            />
         </div >
     );
 };

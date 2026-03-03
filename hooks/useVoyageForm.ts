@@ -157,6 +157,105 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 }
             }
 
+            // Step 3: GEBCO depth enhancement — tag route segments with seabed depth
+            {
+                try {
+                    const { enhanceRouteWithDepth } = await import('../services/WeatherRoutingService');
+                    const { computeRoute: computeRt } = await import('../services/WeatherRoutingService');
+
+                    // Build waypoints from the enhanced plan for depth analysis
+                    const depthWaypoints = [];
+                    if (enhancedPlan.originCoordinates) {
+                        depthWaypoints.push({
+                            id: 'dep', lat: enhancedPlan.originCoordinates.lat,
+                            lon: enhancedPlan.originCoordinates.lon, name: enhancedPlan.origin || 'Departure',
+                        });
+                    }
+                    for (const wp of (enhancedPlan.waypoints || [])) {
+                        if (wp.coordinates) {
+                            depthWaypoints.push({
+                                id: wp.name || 'wp', lat: wp.coordinates.lat,
+                                lon: wp.coordinates.lon, name: wp.name || 'WP',
+                            });
+                        }
+                    }
+                    if (enhancedPlan.destinationCoordinates) {
+                        depthWaypoints.push({
+                            id: 'arr', lat: enhancedPlan.destinationCoordinates.lat,
+                            lon: enhancedPlan.destinationCoordinates.lon, name: enhancedPlan.destination || 'Arrival',
+                        });
+                    }
+
+                    if (depthWaypoints.length >= 2) {
+                        const routeAnalysis = computeRt(depthWaypoints, {
+                            speed: vessel.cruisingSpeed || 6,
+                            vesselDraft: vessel.draft || 2.5,
+                        });
+                        const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, vessel.draft || 2.5);
+
+                        // Stash depth summary on the plan for the UI
+                        (enhancedPlan as any).__depthSummary = {
+                            minDepth: depthEnhanced.minDepth,
+                            shallowSegments: depthEnhanced.shallowSegments,
+                            totalSegments: depthEnhanced.segments.length,
+                            segments: depthEnhanced.segments.map(s => ({
+                                depth_m: s.depth_m,
+                                safety: s.depthSafety,
+                                costMultiplier: s.depthCostMultiplier,
+                            })),
+                        };
+                    }
+                } catch (depthErr) {
+                    // Non-critical — depth enhancement is additive
+                }
+            }
+
+            // Step 4: Multi-model weather comparison for offshore confidence
+            {
+                try {
+                    const { queryMultiModel, recommendModels } = await import('../services/weather/MultiModelWeatherService');
+
+                    // Build waypoints for the comparison
+                    const comparisonPoints: { lat: number; lon: number; name?: string }[] = [];
+                    if (enhancedPlan.originCoordinates) {
+                        comparisonPoints.push({
+                            lat: enhancedPlan.originCoordinates.lat,
+                            lon: enhancedPlan.originCoordinates.lon,
+                            name: enhancedPlan.origin,
+                        });
+                    }
+                    for (const wp of (enhancedPlan.waypoints || [])) {
+                        if (wp.coordinates) {
+                            comparisonPoints.push({
+                                lat: wp.coordinates.lat,
+                                lon: wp.coordinates.lon,
+                                name: wp.name,
+                            });
+                        }
+                    }
+                    if (enhancedPlan.destinationCoordinates) {
+                        comparisonPoints.push({
+                            lat: enhancedPlan.destinationCoordinates.lat,
+                            lon: enhancedPlan.destinationCoordinates.lon,
+                            name: enhancedPlan.destination,
+                        });
+                    }
+
+                    if (comparisonPoints.length >= 2) {
+                        // Auto-detect best models for the region
+                        const midpoint = comparisonPoints[Math.floor(comparisonPoints.length / 2)];
+                        const modelIds = recommendModels(midpoint.lat, midpoint.lon);
+
+                        const multiModelResult = await queryMultiModel(comparisonPoints, modelIds);
+                        if (multiModelResult) {
+                            (enhancedPlan as any).__multiModelComparison = multiModelResult;
+                        }
+                    }
+                } catch (multiErr) {
+                    // Non-critical — multi-model is advisory
+                }
+            }
+
             saveVoyagePlan(enhancedPlan);
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');

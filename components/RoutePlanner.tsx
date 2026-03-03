@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
     MapPinIcon, MapIcon, RouteIcon, CalendarIcon,
@@ -10,8 +10,7 @@ import { SlideToAction } from './ui/SlideToAction';
 import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { t } from '../theme';
-import { getSpatiotemporalPayload } from '../services/weatherRouter';
-import PassageCanvas from './passage/PassageCanvas';
+import { useUI } from '../context/UIContext';
 
 
 
@@ -56,28 +55,38 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     const [departureTime, setDepartureTime] = useState('06:00');
     const [suggestingDeparture, setSuggestingDeparture] = useState(false);
     const [suggestedReasoning, setSuggestedReasoning] = useState<string | null>(null);
-    const [is4DCanvasOpen, setIs4DCanvasOpen] = useState(false);
     const formRef = React.useRef<HTMLFormElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const { setPage } = useUI();
 
-    // Extract spatiotemporal payload from the enhanced voyage plan
-    const spatiotemporalPayload = useMemo(() => {
-        if (!voyagePlan) return null;
-        return getSpatiotemporalPayload(voyagePlan);
-    }, [voyagePlan]);
+    // ── Keyboard-aware layout (iOS Capacitor) ──
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    useEffect(() => {
+        let cleanup: (() => void) | undefined;
+        (async () => {
+            try {
+                const { Keyboard } = await import('@capacitor/keyboard');
+                const showHandle = await Keyboard.addListener('keyboardWillShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight);
+                    // Auto-scroll focused input into view
+                    setTimeout(() => {
+                        const active = document.activeElement as HTMLElement;
+                        active?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                });
+                const hideHandle = await Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+                cleanup = () => { showHandle.remove(); hideHandle.remove(); };
+            } catch { /* Not running in Capacitor — no-op */ }
+        })();
+        return () => cleanup?.();
+    }, []);
 
     return (
         <div className="relative flex-1 h-full bg-slate-950 overflow-hidden flex flex-col">
 
-            {/* ═══ 4D PASSAGE CANVAS (FULL SCREEN PORTAL) ═══ */}
-            {is4DCanvasOpen && spatiotemporalPayload && createPortal(
-                <div className="fixed inset-0 z-[3000]" style={{ background: '#040d1a' }}>
-                    <PassageCanvas
-                        payload={spatiotemporalPayload}
-                        onClose={() => setIs4DCanvasOpen(false)}
-                    />
-                </div>,
-                document.body
-            )}
+
 
             {/* ═══ HEADER ═══ */}
             <div className="shrink-0 px-4 pt-4 pb-3">
@@ -136,13 +145,15 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         />
                     </div>
 
-                    <div className="absolute top-6 right-6 z-[2200]">
+                    <div className="absolute top-6 left-4 z-[2200]">
                         <button
                             onClick={() => { setIsMapOpen(false); setTempMapSelection(null); }}
-                            aria-label="Close Map"
+                            aria-label="Back"
                             className="bg-slate-900/90 hover:bg-slate-800 text-white p-3 rounded-full shadow-2xl border border-white/20 transition-all hover:scale-110 active:scale-95"
                         >
-                            <XIcon className="w-6 h-6" />
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
                         </button>
                     </div>
                 </div>,
@@ -176,22 +187,45 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                 <span className="text-[11px] font-bold text-white uppercase tracking-widest">Premium</span>
                                             </div>
                                         )}
-                                        {spatiotemporalPayload && (
+                                        {voyagePlan && (
                                             <button
-                                                onClick={() => setIs4DCanvasOpen(true)}
+                                                onClick={() => {
+                                                    // Pass departure/arrival coords to MapHub via event
+                                                    const detail: Record<string, unknown> = {};
+                                                    if (voyagePlan.originCoordinates) {
+                                                        detail.departure = {
+                                                            lat: voyagePlan.originCoordinates.lat,
+                                                            lon: voyagePlan.originCoordinates.lon,
+                                                            name: origin,
+                                                        };
+                                                    }
+                                                    if (voyagePlan.destinationCoordinates) {
+                                                        detail.arrival = {
+                                                            lat: voyagePlan.destinationCoordinates.lat,
+                                                            lon: voyagePlan.destinationCoordinates.lon,
+                                                            name: destination,
+                                                        };
+                                                    }
+                                                    // Navigate to MAP tab
+                                                    console.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
+                                                    setPage('map');
+                                                    setTimeout(() => {
+                                                        window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+                                                    }, 200);
+                                                }}
                                                 className="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all"
                                                 style={{
-                                                    background: 'rgba(0, 240, 255, 0.08)',
-                                                    borderColor: 'rgba(0, 240, 255, 0.25)',
-                                                    color: '#00f0ff',
-                                                    textShadow: '0 0 8px rgba(0,240,255,0.3)',
+                                                    background: 'rgba(16, 185, 129, 0.08)',
+                                                    borderColor: 'rgba(16, 185, 129, 0.25)',
+                                                    color: '#10b981',
                                                 }}
-                                                aria-label="Open 4D route visualization"
+                                                aria-label="View route on map"
                                             >
                                                 <MapIcon className="w-4 h-4" />
-                                                <span className="text-[11px] font-bold uppercase tracking-widest">4D Route</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-widest">View on Map</span>
                                             </button>
                                         )}
+
                                         <button
                                             onClick={clearVoyagePlan}
                                             className="p-2 bg-slate-800/80 hover:bg-red-500/20 border border-white/10 rounded-xl text-gray-400 hover:text-red-400 transition-all"
@@ -231,7 +265,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 </div>
             ) : (
                 /* EMPTY STATE — rigid single-screen, no scroll */
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div ref={scrollContainerRef} className="flex-1 min-h-0 flex flex-col overflow-auto no-scrollbar" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
 
                     {/* ─── TOP: Form inputs anchored to top ─── */}
                     <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4">

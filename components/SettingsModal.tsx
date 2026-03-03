@@ -18,6 +18,7 @@ import { Section, Row, Toggle } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 
 
@@ -165,6 +166,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     const [detectingLoc, setDetectingLoc] = useState(false);
     const [authOpen, setAuthOpen] = useState(false);
     const [sgStatus, setSgStatus] = useState<{ status: string, message: string } | null>(null);
+    const [showFactoryReset, setShowFactoryReset] = useState(false);
 
     // Environment theme state
 
@@ -569,7 +571,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </div>
                             </Section>
                             <Section title="Danger Zone">
-                                <div className="p-4"><button onClick={resetSettings} className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"><TrashIcon className="w-4 h-4" /> Factory Reset</button></div>
+                                <div className="p-4"><button onClick={() => setShowFactoryReset(true)} className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"><TrashIcon className="w-4 h-4" /> Factory Reset</button></div>
                             </Section>
                         </div>
                     )}
@@ -589,6 +591,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                     )}
                 </div>
             </div>
+
+            {/* Factory Reset confirmation dialog */}
+            <ConfirmDialog
+                isOpen={showFactoryReset}
+                title="Factory Reset"
+                message="Restore all settings to default? This cannot be undone."
+                confirmLabel="Reset Everything"
+                cancelLabel="Cancel"
+                destructive
+                onConfirm={() => { setShowFactoryReset(false); resetSettings(); }}
+                onCancel={() => setShowFactoryReset(false)}
+            />
         </div >
     );
 };

@@ -21,6 +21,7 @@ import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import {
     computeRoute,
+    enhanceRouteWithDepth,
     formatDistance,
     formatDuration,
     formatETA,
@@ -28,7 +29,16 @@ import {
     type RouteAnalysis,
 } from '../../services/WeatherRoutingService';
 import { SynopticScrubber } from './SynopticScrubber';
-import { fetchBathymetricRoute } from '../../services/bathymetricRouter';
+import { computeIsochrones, isochroneToGeoJSON, detectTurnWaypoints, type IsochroneResult, type TurnWaypoint } from '../../services/IsochroneRouter';
+import { preloadBathymetry } from '../../services/BathymetryCache';
+import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
+import { DEFAULT_CRUISING_POLAR, DEFAULT_MOTOR_POLAR } from '../../services/defaultPolar';
+import { useSettings } from '../../context/SettingsContext';
+import { useUI } from '../../context/UIContext';
+import { SmartPolarStore } from '../../services/SmartPolarStore';
+import { findSeaBuoy } from '../../services/seaBuoyFinder';
+import { exportPassageAsGPX } from '../../services/passageGpxExport';
+import { shareGPXFile } from '../../services/gpxService';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -62,25 +72,27 @@ const STATIC_TILES: Record<string, string> = {
 };
 
 
-// Wind speed → nautical color (matches GLSL palette in WindGLEngine)
+// Wind speed → monochrome color (matches GLSL palette in WindGLEngine)
 function getWindColor(kts: number): string {
-    if (kts < 5) return 'rgba(38, 70, 130, 0.85)';   // Calm - deep blue
-    if (kts < 10) return 'rgba(40, 120, 140, 0.85)';   // Light - teal
-    if (kts < 15) return 'rgba(50, 160, 100, 0.85)';   // Gentle - green
-    if (kts < 20) return 'rgba(120, 190, 50, 0.85)';   // Moderate - lime
-    if (kts < 25) return 'rgba(220, 200, 30, 0.85)';   // Fresh - yellow
-    if (kts < 34) return 'rgba(240, 140, 0, 0.90)';    // Strong - orange
-    if (kts < 48) return 'rgba(220, 40, 30, 0.90)';    // Gale - red
-    return 'rgba(200, 50, 200, 0.90)';                  // Storm+ - magenta
+    if (kts < 5) return 'rgba(30, 35, 45, 0.85)';     // Calm - near-black
+    if (kts < 10) return 'rgba(50, 55, 65, 0.85)';    // Light - dark slate
+    if (kts < 15) return 'rgba(75, 78, 85, 0.85)';    // Gentle - mid slate
+    if (kts < 20) return 'rgba(100, 103, 108, 0.85)';  // Moderate - grey
+    if (kts < 25) return 'rgba(130, 130, 133, 0.85)';  // Fresh - light grey
+    if (kts < 34) return 'rgba(140, 102, 76, 0.90)';   // Strong - muted amber
+    if (kts < 48) return 'rgba(166, 76, 71, 0.90)';    // Gale - muted coral
+    return 'rgba(178, 64, 76, 0.90)';                   // Storm+ - warm red
 }
 
 // ── Component ──────────────────────────────────────────────────
 
-export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/navigation-night-v1', minimalLabels = false, embedded = false, center, pickerMode = false, pickerLabel }) => {
+export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocationSelect, initialZoom = 6, mapStyle = 'mapbox://styles/mapbox/dark-v11', minimalLabels = false, embedded = false, center, pickerMode = false, pickerLabel }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+    const { settings } = useSettings();
 
     // Wind GL engine ref
     const windEngineRef = useRef<WindParticleLayer | null>(null);
@@ -108,6 +120,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     // State
     const location = useLocationStore();
     const windState = useWindStore();
+    const { setPage } = useUI();
     const [activeLayer, setActiveLayer] = useState<WeatherLayer>('velocity');
     const [showLayerMenu, setShowLayerMenu] = useState(false);
     const [showPassage, setShowPassage] = useState(false);
@@ -120,6 +133,30 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
     const [speed, setSpeed] = useState(6);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
     const [settingPoint, setSettingPoint] = useState<'departure' | 'arrival' | null>(null);
+    const isoResultRef = useRef<IsochroneResult | null>(null);
+    const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
+
+    // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
+    useEffect(() => {
+        const handlePassageMode = (e: Event) => {
+            setShowPassage(true);
+            // If coordinates were passed (from RoutePlanner "View on Map" button), pre-fill them
+            const detail = (e as CustomEvent)?.detail;
+            if (detail?.departure) {
+                setDeparture(detail.departure);
+            } else {
+                setDeparture(null);
+            }
+            if (detail?.arrival) {
+                setArrival(detail.arrival);
+            } else {
+                setArrival(null);
+            }
+            setRouteAnalysis(null);
+        };
+        window.addEventListener('thalassa:passage-mode', handlePassageMode);
+        return () => window.removeEventListener('thalassa:passage-mode', handlePassageMode);
+    }, []);
 
     // ── Initialize Map ──
     useEffect(() => {
@@ -163,20 +200,24 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
 
             setMapReady(true);
 
-            // ── EMODnet Bathymetry overlay ──
+            // Find first symbol/label layer ID — used to insert overlays below labels
+            const styleLayers = map.getStyle()?.layers || [];
+            let firstSymbolId: string | undefined;
+            for (const l of styleLayers) {
+                if (l.type === 'symbol') { firstSymbolId = l.id; break; }
+            }
+
+            // ── GEBCO Bathymetry overlay — Seabed 2030 / GEBCO 2024 Grid ──
+            // Uses GEBCO_LATEST_2: colour-shaded for elevation (rich depth blues
+            // in water, topographic greens/browns on land). Updated annually.
             if (!map.getSource('gebco-bathymetry')) {
                 map.addSource('gebco-bathymetry', {
                     type: 'raster',
-                    tiles: ['https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png'],
+                    tiles: ['https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST_2&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE'],
                     tileSize: 256,
                     maxzoom: 12,
+                    attribution: '© GEBCO / Seabed 2030',
                 });
-                // Find first symbol/label layer so bathymetry sits under labels
-                const layers = map.getStyle()?.layers || [];
-                let beforeId: string | undefined;
-                for (const l of layers) {
-                    if (l.type === 'symbol') { beforeId = l.id; break; }
-                }
                 map.addLayer({
                     id: 'gebco-bathymetry-tiles',
                     type: 'raster',
@@ -184,11 +225,34 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                     minzoom: 0,
                     maxzoom: 12,
                     paint: {
-                        'raster-opacity': 0.35,
-                        'raster-saturation': -0.3,
-                        'raster-brightness-max': 0.7,
+                        'raster-opacity': 0.55,
+                        'raster-saturation': -0.7,   // Heavily muted — subtle depth tones, no bright green
+                        'raster-brightness-max': 0.85,
+                        'raster-contrast': 0.15,
                     },
-                }, beforeId);
+                }, firstSymbolId);
+            }
+
+            // ── OpenSeaMap — Always-on seamark overlay (buoys, lights, channels) ──
+            // Visible at zoom ≥8 when coastal detail matters.
+            // Sits above bathymetry, below route lines.
+            if (!map.getSource('openseamap-permanent')) {
+                map.addSource('openseamap-permanent', {
+                    type: 'raster',
+                    tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    maxzoom: 18,
+                });
+                map.addLayer({
+                    id: 'openseamap-permanent',
+                    type: 'raster',
+                    source: 'openseamap-permanent',
+                    minzoom: 8,
+                    maxzoom: 18,
+                    paint: {
+                        'raster-opacity': 0.85,
+                    },
+                }, firstSymbolId);
             }
 
             // ── Skip heavy sources in embedded mode ──
@@ -217,12 +281,14 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         'safe', '#00e676',
                         'caution', '#ff9100',
                         'danger', '#ff1744',
+                        'harbour', '#38bdf8',
                         '#00f2fe', // default cyan (before graph loads)
                     ],
                     'line-width': 12,
                     'line-blur': 10,
-                    'line-opacity': 0.6,
+                    'line-opacity': ['match', ['get', 'safety'], 'harbour', 0.3, 0.6],
                 },
+                filter: ['!=', ['get', 'dashed'], true],
             });
 
             // ── Route line (main visible track) ──
@@ -237,10 +303,27 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         'safe', '#00e676',
                         'caution', '#ff9100',
                         'danger', '#ff1744',
+                        'harbour', '#38bdf8',
                         '#00f2fe',
                     ],
                     'line-width': 3,
                     'line-opacity': 0.9,
+                },
+                filter: ['!=', ['get', 'dashed'], true],
+            });
+
+            // ── Dashed harbour connector lines ──
+            map.addLayer({
+                id: 'route-harbour-dash',
+                type: 'line',
+                source: 'route-line',
+                filter: ['==', ['get', 'dashed'], true],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#38bdf8',
+                    'line-width': 2,
+                    'line-opacity': 0.6,
+                    'line-dasharray': [4, 4],
                 },
             });
 
@@ -256,6 +339,7 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         'safe', '#b9f6ca',
                         'caution', '#ffe0b2',
                         'danger', '#ffcdd2',
+                        'harbour', '#bae6fd',
                         '#ffffff',
                     ],
                     'line-width': 1.5,
@@ -533,6 +617,38 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             mapRef.current = null;
         };
     }, [mapboxToken, mapStyle, initialZoom, minimalLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Pulsing blue "You Are Here" dot (actual device GPS) ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        if (!navigator.geolocation) return;
+
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const { latitude, longitude } = pos.coords;
+                if (!locationDotRef.current) {
+                    const el = document.createElement('div');
+                    el.className = 'loc-dot';
+                    locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                        .setLngLat([longitude, latitude])
+                        .addTo(map);
+                } else {
+                    locationDotRef.current.setLngLat([longitude, latitude]);
+                }
+            },
+            (err) => console.warn('[LocationDot] GPS error:', err.message),
+            { enableHighAccuracy: true, maximumAge: 10_000 },
+        );
+
+        return () => {
+            navigator.geolocation.clearWatch(watchId);
+            if (locationDotRef.current) {
+                locationDotRef.current.remove();
+                locationDotRef.current = null;
+            }
+        };
+    }, [mapReady]);
 
     // ── Picker Mode: tap-to-select with reverse geocode ──
     useEffect(() => {
@@ -1421,36 +1537,150 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         if (!departure || !arrival) return;
         triggerHaptic('medium');
 
+        const map = mapRef.current;
+        if (!map) { console.warn('[Passage] No map ref'); return; }
+
+        // ── Helper: project a point along bearing by distance ──
+        const project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {
+            const R = 3440.065; // Earth radius NM
+            const d = distNM / R;
+            const brng = (bearingDeg * Math.PI) / 180;
+            const φ1 = (lat * Math.PI) / 180;
+            const λ1 = (lon * Math.PI) / 180;
+            const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(brng));
+            const λ2 = λ1 + Math.atan2(Math.sin(brng) * Math.sin(d) * Math.cos(φ1), Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
+            return { lat: (φ2 * 180) / Math.PI, lon: (λ2 * 180) / Math.PI };
+        };
+
+        // ── Forward / reverse bearings for fallback projection ──
+        const dLon = ((arrival.lon - departure.lon) * Math.PI) / 180;
+        const φ1 = (departure.lat * Math.PI) / 180;
+        const φ2 = (arrival.lat * Math.PI) / 180;
+        const fwdBearing = (Math.atan2(
+            Math.sin(dLon) * Math.cos(φ2),
+            Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon)
+        ) * 180) / Math.PI;
+        const dLonRev = ((departure.lon - arrival.lon) * Math.PI) / 180;
+        const revBearing = (Math.atan2(
+            Math.sin(dLonRev) * Math.cos(φ1),
+            Math.cos(φ2) * Math.sin(φ1) - Math.sin(φ2) * Math.cos(φ1) * Math.cos(dLonRev)
+        ) * 180) / Math.PI;
+
+        // ── Find deep-water gates via radial GEBCO search ──
+        // findSeaBuoy spirals outward (12 bearings × 2 NM steps) until -50m depth
+        const FALLBACK_NM = 5;
+        let depGate: { lat: number; lon: number };
+        let arrGate: { lat: number; lon: number };
+
+        try {
+            const [depBuoy, arrBuoy] = await Promise.all([
+                findSeaBuoy(departure.lat, departure.lon, arrival.lat, arrival.lon),
+                findSeaBuoy(arrival.lat, arrival.lon, departure.lat, departure.lon),
+            ]);
+            console.info(
+                `[SeaBuoy] Dep: ${depBuoy.alreadyDeep ? 'already deep' : depBuoy.offsetNM > 0 ? `${depBuoy.offsetNM}NM → ${depBuoy.depth_m}m` : 'FAILED'}`,
+                `| Arr: ${arrBuoy.alreadyDeep ? 'already deep' : arrBuoy.offsetNM > 0 ? `${arrBuoy.offsetNM}NM → ${arrBuoy.depth_m}m` : 'FAILED'}`,
+            );
+            // Use sea buoy if it found real deep water, otherwise fallback to bearing projection
+            depGate = depBuoy.offsetNM > 0 || depBuoy.alreadyDeep
+                ? { lat: depBuoy.lat, lon: depBuoy.lon }
+                : project(departure.lat, departure.lon, fwdBearing, FALLBACK_NM);
+            arrGate = arrBuoy.offsetNM > 0 || arrBuoy.alreadyDeep
+                ? { lat: arrBuoy.lat, lon: arrBuoy.lon }
+                : project(arrival.lat, arrival.lon, revBearing, FALLBACK_NM);
+        } catch (err) {
+            console.warn('[SeaBuoy] Search failed, using geometric fallback:', err);
+            depGate = project(departure.lat, departure.lon, fwdBearing, FALLBACK_NM);
+            arrGate = project(arrival.lat, arrival.lon, revBearing, FALLBACK_NM);
+        }
+
+        console.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
+        console.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
+        // ── Great-circle passage (render immediately) ──
+        const gcCoords: number[][] = [];
+        const NUM_POINTS = 80;
+        for (let i = 0; i <= NUM_POINTS; i++) {
+            const f = i / NUM_POINTS;
+            const lat1R = (depGate.lat * Math.PI) / 180;
+            const lon1R = (depGate.lon * Math.PI) / 180;
+            const lat2R = (arrGate.lat * Math.PI) / 180;
+            const lon2R = (arrGate.lon * Math.PI) / 180;
+            const d = Math.acos(
+                Math.sin(lat1R) * Math.sin(lat2R) +
+                Math.cos(lat1R) * Math.cos(lat2R) * Math.cos(lon2R - lon1R)
+            );
+            if (d < 1e-10) {
+                gcCoords.push([depGate.lon, depGate.lat]);
+                continue;
+            }
+            const A = Math.sin((1 - f) * d) / Math.sin(d);
+            const B = Math.sin(f * d) / Math.sin(d);
+            const x = A * Math.cos(lat1R) * Math.cos(lon1R) + B * Math.cos(lat2R) * Math.cos(lon2R);
+            const y = A * Math.cos(lat1R) * Math.sin(lon1R) + B * Math.cos(lat2R) * Math.sin(lon2R);
+            const z = A * Math.sin(lat1R) + B * Math.sin(lat2R);
+            const lat = (Math.atan2(z, Math.sqrt(x * x + y * y)) * 180) / Math.PI;
+            const lon = (Math.atan2(y, x) * 180) / Math.PI;
+            gcCoords.push([lon, lat]);
+        }
+
+        // Route stats (great-circle baseline)
         const waypoints: RouteWaypoint[] = [
             { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
             { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
         ];
-
-        // Step 1: Basic straight-line route for instant visual feedback
         const result = computeRoute(waypoints, {
             speed,
             departureTime: departureTime ? new Date(departureTime) : new Date(),
         });
-
         setRouteAnalysis(result);
 
-        const map = mapRef.current;
-        if (!map) return;
-
-        // Draw straight line immediately (replaced by graph route below)
-        const routeSource = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-        if (routeSource && result.routeCoordinates.length > 1) {
-            routeSource.setData({
+        // Helper to build the 3-leg Trip Sandwich GeoJSON
+        const buildFeatures = (passageCoords: number[][]): GeoJSON.Feature<GeoJSON.LineString>[] => [
+            {
                 type: 'Feature',
-                properties: {},
+                properties: { safety: 'harbour', dashed: true },
                 geometry: {
                     type: 'LineString',
-                    coordinates: result.routeCoordinates.map(([lat, lon]) => [lon, lat]),
+                    coordinates: [
+                        [departure.lon, departure.lat],
+                        [depGate.lon, depGate.lat],
+                    ],
                 },
-            });
+            },
+            {
+                type: 'Feature',
+                properties: { safety: 'safe' },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: passageCoords,
+                },
+            },
+            {
+                type: 'Feature',
+                properties: { safety: 'harbour', dashed: true },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [arrGate.lon, arrGate.lat],
+                        [arrival.lon, arrival.lat],
+                    ],
+                },
+            },
+        ];
+
+        // ── RENDER IMMEDIATELY with great-circle ──
+        const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+        if (routeSrc) {
+            routeSrc.setData({
+                type: 'FeatureCollection',
+                features: buildFeatures(gcCoords),
+            } as any);
+            console.info(`[Passage] Trip Sandwich rendered (great-circle)`);
+        } else {
+            console.warn('[Passage] route-line source not found');
         }
 
-        // Waypoint markers — only departure + arrival (no intermediate WP cards)
+        // ── Waypoint markers ──
         const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
         if (wpSource) {
             wpSource.setData({
@@ -1470,93 +1700,118 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             });
         }
 
-        // Fit bounds
-        if (result.routeCoordinates.length > 1) {
-            const bounds = new mapboxgl.LngLatBounds();
-            for (const [lat, lon] of result.routeCoordinates) {
-                bounds.extend([lon, lat]);
-            }
-            map.fitBounds(bounds, { padding: 80, duration: 1000 });
-        }
+        // ── Fit bounds ──
+        const bounds = new mapboxgl.LngLatBounds();
+        bounds.extend([departure.lon, departure.lat]);
+        bounds.extend([arrival.lon, arrival.lat]);
+        map.fitBounds(bounds, { padding: 80, duration: 1000 });
 
-        // Step 2: Fetch graph route from edge function (replaces straight line)
-        try {
-            const graphRoute = await fetchBathymetricRoute(
-                { lat: departure.lat, lon: departure.lon },
-                { lat: arrival.lat, lon: arrival.lon },
-                2.5,
-                undefined,
-                'australia_se_qld',
-            );
+        // ── Background: attempt isochrone weather routing ──
+        // The Trip Sandwich is already visible (great-circle). Now try to enhance
+        // the middle passage with wind-optimised routing. If it succeeds, swap in.
+        setTimeout(async () => {
+            try {
+                const windState = WindStore.getState();
+                let windGrid = windState.grid;
 
-            if (graphRoute && mapRef.current) {
-                const m = mapRef.current;
-                const src = m.getSource('route-line') as mapboxgl.GeoJSONSource;
-                if (src) {
-                    // Extend the exit route GeoJSON to include the destination
-                    // The orchestrator only returns the canal/channel exit — 
-                    // we need to draw a line from the exit endpoint to the arrival
-                    let routeGeoJSON: any = graphRoute.geojson;
-
-                    if (routeGeoJSON && routeGeoJSON.geometry?.type === 'LineString') {
-                        const coords = [...routeGeoJSON.geometry.coordinates];
-                        // Append the destination if it's not already the last point
-                        const lastPt = coords[coords.length - 1];
-                        if (lastPt && (
-                            Math.abs(lastPt[0] - arrival.lon) > 0.001 ||
-                            Math.abs(lastPt[1] - arrival.lat) > 0.001
-                        )) {
-                            coords.push([arrival.lon, arrival.lat]);
-                            routeGeoJSON = {
-                                ...routeGeoJSON,
-                                geometry: {
-                                    ...routeGeoJSON.geometry,
-                                    coordinates: coords,
-                                },
-                            };
-                        }
-                    }
-
-                    // Use trafficGeoJSON for colored segments, fallback to extended geojson
-                    if (graphRoute.trafficGeoJSON) {
-                        src.setData(graphRoute.trafficGeoJSON as any);
-                    } else if (routeGeoJSON) {
-                        src.setData(routeGeoJSON);
-                    }
-
-                    // Only keep departure + arrival in route analysis (no WP cards)
-                    setRouteAnalysis(prev => prev ? {
-                        ...prev,
-                        totalDistance: graphRoute.totalNM,
-                        waypoints: [
-                            { ...prev.waypoints[0], id: '0', lat: departure.lat, lon: departure.lon, name: departure.name },
-                            { ...prev.waypoints[0], id: '1', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
-                        ],
-                    } : prev);
-
-                    // Re-fit bounds to graph route
-                    const allCoords: [number, number][] = [];
-                    if (graphRoute.trafficGeoJSON?.features) {
-                        for (const f of graphRoute.trafficGeoJSON.features) {
-                            for (const c of (f.geometry as any).coordinates) {
-                                allCoords.push(c);
-                            }
-                        }
-                    } else if (graphRoute.geojson) {
-                        allCoords.push(...graphRoute.geojson.geometry.coordinates as [number, number][]);
-                    }
-                    if (allCoords.length > 1) {
-                        const bounds = new mapboxgl.LngLatBounds();
-                        for (const [lon, lat] of allCoords) {
-                            bounds.extend([lon, lat]);
-                        }
-                        m.fitBounds(bounds, { padding: 80, duration: 1000 });
-                    }
+                if (!windGrid && map) {
+                    console.info('[Isochrone BG] Loading wind data...');
+                    await WindDataController.activate(map);
+                    await new Promise(r => setTimeout(r, 500));
+                    windGrid = WindStore.getState().grid;
                 }
+
+                if (!windGrid) {
+                    console.info('[Isochrone BG] No wind data — keeping great-circle');
+                    return;
+                }
+
+                const windField = createWindFieldFromGrid(windGrid);
+                const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+                const depTimeStr = departureTime || new Date().toISOString();
+
+                console.info('[Isochrone BG] Preloading bathymetry grid...');
+                const bathyGrid = await preloadBathymetry(depGate, arrGate);
+
+                console.info('[Isochrone BG] Running isochrone engine...');
+                const isoResult = await computeIsochrones(
+                    depGate,
+                    arrGate,
+                    depTimeStr,
+                    polar,
+                    windField,
+                    {},
+                    bathyGrid,
+                );
+
+                if (isoResult && isoResult.routeCoordinates.length >= 2) {
+                    console.info(
+                        `[Isochrone BG] ✓ Route: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h, ${isoResult.routeCoordinates.length} waypoints`
+                    );
+                    // Store isochrone result for GPX export
+                    isoResultRef.current = isoResult;
+
+                    // Swap in the isochrone route
+                    const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+                    if (src) {
+                        src.setData({
+                            type: 'FeatureCollection',
+                            features: buildFeatures(isoResult.routeCoordinates),
+                        } as any);
+                    }
+
+                    // Detect turn waypoints and render markers
+                    const depTimeStr = departureTime || new Date().toISOString();
+                    const wps = detectTurnWaypoints(isoResult.route, depTimeStr);
+                    turnWaypointsRef.current = wps;
+                    console.info(`[Waypoints] Detected ${wps.length} waypoints (incl. DEP/ARR)`);
+
+                    // Render waypoint markers on map
+                    const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
+                    if (wpSource) {
+                        wpSource.setData({
+                            type: 'FeatureCollection',
+                            features: wps.map(wp => ({
+                                type: 'Feature' as const,
+                                properties: {
+                                    name: wp.id,
+                                    distanceNM: wp.distanceNM,
+                                    bearing: wp.bearing,
+                                    eta: wp.eta,
+                                    color: wp.id === 'DEP' ? '#10b981' : wp.id === 'ARR' ? '#ef4444' : '#f59e0b',
+                                },
+                                geometry: {
+                                    type: 'Point' as const,
+                                    coordinates: [wp.lon, wp.lat],
+                                },
+                            })),
+                        });
+                    }
+
+                    // Update stats
+                    const updatedResult = { ...result };
+                    updatedResult.totalDistance = isoResult.totalDistanceNM;
+                    updatedResult.estimatedDuration = isoResult.totalDurationHours;
+                    setRouteAnalysis(updatedResult);
+                } else {
+                    console.warn('[Isochrone BG] No route found — keeping great-circle');
+                }
+            } catch (err) {
+                console.warn('[Isochrone BG] Failed — keeping great-circle:', err);
             }
-        } catch (err) {
-        }
+        }, 100); // Small delay to let the UI render first
+
     }, [departure, arrival, speed, departureTime]);
+
+    // ── Auto-compute passage when both points are set AND map is ready ──
+    useEffect(() => {
+        if (mapReady && showPassage && departure && arrival) {
+            computePassage().catch(err => {
+                console.error('[Passage] computePassage failed:', err);
+                setRouteAnalysis(null); // reset so banner doesn't show stale "Computing..."
+            });
+        }
+    }, [mapReady, showPassage, departure, arrival, computePassage]);
 
     // ── Clear Route ──
     const clearRoute = useCallback(() => {
@@ -1564,6 +1819,8 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
         setArrival(null);
         setRouteAnalysis(null);
         setDepartureTime('');
+        isoResultRef.current = null;
+        turnWaypointsRef.current = [];
 
         const map = mapRef.current;
         if (!map) return;
@@ -1581,27 +1838,55 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
             {/* Map container */}
             <div ref={containerRef} className="w-full h-full" />
 
-            {/* Pin bounce animation */}
+            {/* Pin bounce + location pulse animations */}
             <style>{`
                 @keyframes pinBounce {
                     0% { transform: rotate(-45deg) translateY(-20px) scale(0.5); opacity: 0; }
                     60% { transform: rotate(-45deg) translateY(2px) scale(1.1); }
                     100% { transform: rotate(-45deg) translateY(0) scale(1); opacity: 1; }
                 }
+                @keyframes locPulse {
+                    0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+                    70% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+                    100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+                }
+                .loc-dot {
+                    width: 8px; height: 8px; border-radius: 50%;
+                    background: #3b82f6; border: 1.5px solid #fff;
+                    animation: locPulse 2s infinite;
+                    box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
+                }
             `}</style>
 
-            {/* ═══ PICKER MODE BANNER ═══ */}
-            {pickerMode && (
-                <div className="absolute top-6 left-4 right-4 z-[600] flex items-center justify-center pointer-events-none">
-                    <div className="bg-sky-600/90 backdrop-blur-xl px-5 py-3 rounded-2xl border border-sky-400/30 shadow-2xl flex items-center gap-3 pointer-events-auto">
-                        <div className="w-2 h-2 rounded-full bg-sky-300 animate-pulse" />
-                        <span className="text-white font-bold text-sm">{pickerLabel || 'Tap map to select location'}</span>
-                    </div>
-                </div>
-            )}
+
+
 
             {/* ═══ VELOCITY WIND OVERLAY (Leaflet-velocity-ts on Mapbox) ═══ */}
             <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={activeLayer === 'velocity'} />
+
+            {/* ═══ WIND SPEED LEGEND ═══ */}
+            {(activeLayer === 'velocity' || activeLayer === 'wind') && (
+                <div
+                    className="absolute right-3 z-[600] flex flex-col items-center gap-0.5"
+                    style={{ top: '50%', transform: 'translateY(-50%)' }}
+                >
+                    <span className="text-[8px] font-bold text-white/60 uppercase tracking-wider mb-1">kts</span>
+                    <div
+                        className="rounded-full border border-white/15 shadow-lg"
+                        style={{
+                            width: 10,
+                            height: 140,
+                            background: 'linear-gradient(to bottom, #e05a50, #cc6650, #d9a060, #d9bf80, #a8b08c, #8ca5c7)',
+                        }}
+                    />
+                    {/* Speed labels */}
+                    <div className="flex flex-col items-end gap-0 mt-0.5" style={{ position: 'absolute', right: 16, top: 14, height: 140, justifyContent: 'space-between' }}>
+                        {['35+', '25', '20', '15', '10', '5'].map((label) => (
+                            <span key={label} className="text-[8px] font-semibold text-white/50 leading-none">{label}</span>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* ═══ EMBEDDED RAIN SCRUBBER ═══ */}
             {embedded && embRainCount > 1 && embRainIdx >= 0 && (
@@ -1752,8 +2037,106 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                 );
             })()}
 
+            {/* ═══ PASSAGE MODE BANNER ═══ */}
+            {showPassage && !embedded && (
+                <div className="absolute top-24 left-4 right-4 z-[501] animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="bg-slate-900/85 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 shadow-lg">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <div className="min-w-0">
+                                    <p className="text-[10px] font-black text-white/70 uppercase tracking-widest">Passage Planner</p>
+                                    <p className="text-[10px] text-gray-500 truncate">
+                                        {!departure ? 'Tap map to set Departure' :
+                                            !arrival ? 'Tap map to set Arrival' :
+                                                routeAnalysis ? `${routeAnalysis.totalDistance.toFixed(0)} NM • ${routeAnalysis.estimatedDuration.toFixed(0)}h` :
+                                                    'Computing route…'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowPassage(false);
+                                    clearRoute();
+                                    triggerHaptic('light');
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                                aria-label="Close passage planner"
+                            >
+                                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        {departure && (
+                            <div className="mt-1.5 pt-1.5 border-t border-white/5 flex gap-1.5 text-[9px]">
+                                <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/15 rounded text-emerald-400/80 font-bold truncate">
+                                    ⬤ {departure.name}
+                                </span>
+                                {arrival && (
+                                    <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/15 rounded text-red-400/80 font-bold truncate">
+                                        ◉ {arrival.name}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        {/* ── Action buttons (GPX export + Save) ── */}
+                        {routeAnalysis && departure && arrival && (
+                            <div className="mt-1.5 pt-1.5 border-t border-white/5 flex gap-2">
+                                <button
+                                    onClick={async () => {
+                                        if (!isoResultRef.current || !turnWaypointsRef.current.length) return;
+                                        try {
+                                            const gpx = exportPassageAsGPX(
+                                                isoResultRef.current,
+                                                turnWaypointsRef.current,
+                                                departure.name,
+                                                arrival.name,
+                                                departureTime || new Date().toISOString(),
+                                            );
+                                            await shareGPXFile(gpx, `passage_${departure.name}_to_${arrival.name}.gpx`);
+                                        } catch (err) {
+                                            console.error('[GPX Export]', err);
+                                        }
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/20 text-sky-400 text-[9px] font-bold uppercase tracking-wider active:scale-95 transition-transform"
+                                >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    GPX
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (!isoResultRef.current || !turnWaypointsRef.current.length) return;
+                                        // Dispatch route data for LogPage to pick up
+                                        window.dispatchEvent(new CustomEvent('thalassa:save-planned-route', {
+                                            detail: {
+                                                departure,
+                                                arrival,
+                                                departureTime: departureTime || new Date().toISOString(),
+                                                waypoints: turnWaypointsRef.current,
+                                                totalDistanceNM: isoResultRef.current.totalDistanceNM,
+                                                totalDurationHours: isoResultRef.current.totalDurationHours,
+                                                routeCoordinates: isoResultRef.current.routeCoordinates,
+                                            },
+                                        }));
+                                        setPage('voyage');
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase tracking-wider active:scale-95 transition-transform"
+                                >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                    </svg>
+                                    Save to Log
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* ═══ LAYER FAB MENU ═══ */}
-            <div className={`absolute z-[500] flex flex-col gap-2 ${embedded ? 'top-2 right-2' : 'top-14 right-4'}`}>
+            {!showPassage && !embedded && <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
                 <button
                     onClick={() => { setShowLayerMenu(!showLayerMenu); triggerHaptic('light'); }}
                     className={`backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
@@ -1805,10 +2188,10 @@ export const MapHub: React.FC<MapHubProps> = ({ mapboxToken, homePort, onLocatio
                         ))}
                     </div>
                 )}
-            </div>
+            </div>}
 
             {/* ═══ ACTION FABS ═══ */}
-            {!embedded && (
+            {!embedded && !showPassage && (
                 <div className="absolute bottom-44 right-4 z-[500] flex flex-col gap-2">
 
                     {/* Wind Mode Toggle: Global vs Passage */}

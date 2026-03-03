@@ -86,7 +86,7 @@ export const WindDataController = {
     },
 
     /**
-     * Online pipeline: fetch wind grid for visible map bounds.
+     * Online pipeline: fetch wind grid via Supabase GFS GRIB2 edge function.
      * In global mode, always fetches the full Earth grid.
      * In passage mode, fetches for the visible viewport.
      */
@@ -97,63 +97,107 @@ export const WindDataController = {
 
         const currentZoom = map.getZoom();
 
-        // Global mode: always fetch the full Earth grid regardless of zoom
+        // Determine bounds for the request
+        let north: number, south: number, west: number, east: number;
+
         if (isGlobalMode) {
-            WindStore.setLoading(true);
+            north = 90; south = -90; west = -180; east = 180;
+        } else {
+            // Passage mode: visible viewport with padding
+            const currentBounds: CachedBounds = {
+                north: Math.min(bounds.getNorth(), 85),
+                south: Math.max(bounds.getSouth(), -85),
+                west: bounds.getWest(),
+                east: bounds.getEast(),
+                zoom: currentZoom,
+            };
 
-            try {
-                const grid = await fetchGlobalWindField();
-
-                if (!grid) {
-                    WindStore.setError('No global wind data available');
-                    return;
-                }
-
-                lastFetchedBounds = {
-                    north: 85, south: -85, west: -180, east: 180, zoom: currentZoom,
-                };
-                WindStore.setGrid(grid);
-            } catch (e) {
-                console.error('[WindController] Global fetch failed:', e);
-                WindStore.setError(`Failed to fetch global wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
+            // Skip if bounds haven't changed significantly
+            if (lastFetchedBounds && !boundsChangedSignificantly(lastFetchedBounds, currentBounds)) {
+                return;
             }
-            return;
-        }
 
-        // Passage mode: fetch for visible bounds only
-        const currentBounds: CachedBounds = {
-            north: Math.min(bounds.getNorth(), 85),
-            south: Math.max(bounds.getSouth(), -85),
-            west: bounds.getWest(),
-            east: bounds.getEast(),
-            zoom: currentZoom,
-        };
-
-        // Skip if bounds haven't changed significantly
-        if (lastFetchedBounds && !boundsChangedSignificantly(lastFetchedBounds, currentBounds)) {
-            return;
+            // Add 30% padding
+            const latPad = (currentBounds.north - currentBounds.south) * 0.3;
+            const lonPad = (currentBounds.east - currentBounds.west) * 0.3;
+            north = Math.min(currentBounds.north + latPad, 90);
+            south = Math.max(currentBounds.south - latPad, -90);
+            west = currentBounds.west - lonPad;
+            east = currentBounds.east + lonPad;
         }
 
         WindStore.setLoading(true);
 
         try {
-            const grid = await fetchWindGrid(
-                currentBounds.north,
-                currentBounds.south,
-                currentBounds.west,
-                currentBounds.east,
-                currentBounds.zoom
-            );
+            // Primary: Supabase GFS GRIB2 edge function (reliable)
+            const supabaseUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL)
+                || 'https://pcisdplnodrphauixcau.supabase.co';
+            const supabaseKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
+            const edgeUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
 
-            if (!grid) {
-                WindStore.setError('No wind data available for this area');
-                return;
+            const res = await fetch(edgeUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(supabaseKey ? {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                    } : {}),
+                },
+                body: JSON.stringify({ north, south, east, west }),
+            });
+
+            if (res.ok) {
+                const buffer = await res.arrayBuffer();
+                if (buffer.byteLength > 200) {
+                    const { decodeGrib2Wind } = await import('./decodeGrib2Wind');
+                    const grib = decodeGrib2Wind(buffer);
+
+                    // Convert DecodedGrib2Wind → WindGrid
+                    const size = grib.width * grib.height;
+                    const speedArr = new Float32Array(size);
+                    for (let i = 0; i < size; i++) {
+                        speedArr[i] = Math.sqrt(grib.u[i] * grib.u[i] + grib.v[i] * grib.v[i]);
+                    }
+                    const uniqueLats: number[] = [];
+                    const uniqueLons: number[] = [];
+                    const latStep = (grib.north - grib.south) / (grib.height - 1);
+                    const lonStep = (grib.east - grib.west) / (grib.width - 1);
+                    for (let r = 0; r < grib.height; r++) uniqueLats.push(grib.south + r * latStep);
+                    for (let c = 0; c < grib.width; c++) uniqueLons.push(grib.west + c * lonStep);
+
+                    const grid: WindGrid = {
+                        u: [grib.u], v: [grib.v], speed: [speedArr],
+                        width: grib.width, height: grib.height,
+                        lats: uniqueLats, lons: uniqueLons,
+                        north: grib.north, south: grib.south,
+                        west: grib.west, east: grib.east,
+                        totalHours: 1,
+                    };
+
+                    lastFetchedBounds = {
+                        north, south, west, east, zoom: currentZoom,
+                    };
+                    WindStore.setGrid(grid);
+                    console.info(`[WindController] GFS GRIB loaded: ${grib.width}×${grib.height} grid`);
+                    return;
+                }
             }
 
-            lastFetchedBounds = currentBounds;
-            WindStore.setGrid(grid);
+            // If edge function failed, fall back to Open-Meteo
+            console.warn('[WindController] Edge function failed, trying Open-Meteo fallback');
+            const fallbackGrid = isGlobalMode
+                ? await fetchGlobalWindField()
+                : await fetchWindGrid(north, south, west, east, currentZoom);
+
+            if (fallbackGrid) {
+                lastFetchedBounds = { north, south, west, east, zoom: currentZoom };
+                WindStore.setGrid(fallbackGrid);
+            } else {
+                WindStore.setError('No wind data available');
+            }
         } catch (e) {
-            console.error('[WindController] Online fetch failed:', e);
+            console.error('[WindController] Fetch failed:', e);
             WindStore.setError(`Failed to fetch wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
         }
     },

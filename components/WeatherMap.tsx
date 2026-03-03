@@ -5,6 +5,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import {
     WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon, CompassIcon
 } from './Icons';
+import { toast } from './Toast';
 import { WeatherMetrics, GridPoint, Waypoint, BuoyStation } from '../types';
 import { MapLegend, StopDetailView, MapLayer } from './map/MapUI';
 import { useLeafletMap } from '../hooks/useLeafletMap';
@@ -563,7 +564,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                                         }
                                                     }
                                                 }
-                                            }, (err) => alert("GPS Error: " + err.message));
+                                            }, (err) => toast.error("GPS Error: " + err.message));
                                         }
                                     }}
                                     className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95 mb-2"

@@ -27,7 +27,7 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
 const CORS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {

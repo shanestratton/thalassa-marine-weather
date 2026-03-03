@@ -221,11 +221,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, [user, addDebugLog, loading]);
 
     const resetSettings = useCallback(async () => {
-        if (window.confirm("Factory Reset: Restore all settings to default? This cannot be undone.")) {
-            setSettings(DEFAULT_SETTINGS);
-            await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(DEFAULT_SETTINGS) });
-            window.location.reload();
-        }
+        setSettings(DEFAULT_SETTINGS);
+        await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(DEFAULT_SETTINGS) });
+        window.location.reload();
     }, []);
 
     const togglePro = useCallback(() => updateSettings({ isPro: true }), [updateSettings]);

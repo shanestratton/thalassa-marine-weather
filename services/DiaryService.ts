@@ -208,7 +208,7 @@ class DiaryServiceClass {
             .update({ ...updates, updated_at: new Date().toISOString() })
             .eq('id', id);
 
-        if (!error) this._invalidateCache();
+        if (!error) this._refreshFromServer(50);
         return !error;
     }
 
@@ -234,7 +234,7 @@ class DiaryServiceClass {
         }
 
         const { error } = await supabase.from(TABLE).delete().eq('id', id);
-        if (!error) this._invalidateCache();
+        if (!error) this._refreshFromServer(50);
         return !error;
     }
 
@@ -404,8 +404,9 @@ class DiaryServiceClass {
             }
 
             if (syncedCount > 0) {
-                this._invalidateCache();
-                // Refresh cache with server data
+                // Refresh cache atomically — _refreshFromServer calls _saveCachedEntries
+                // which overwrites the cache in one shot. Do NOT call _invalidateCache()
+                // first — that creates a window where getEntries() reads an empty cache.
                 await this._refreshFromServer(50);
                 console.log(`[Diary] Sync complete — ${syncedCount} entries synced`);
             }

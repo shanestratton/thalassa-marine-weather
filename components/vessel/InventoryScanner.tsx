@@ -13,6 +13,7 @@ import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';
 import { FormField } from '../ui/FormField';
+import { ModalSheet } from '../ui/ModalSheet';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface InventoryScannerProps {
@@ -344,176 +345,159 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         setScanning(true);
     };
 
-    // ── Manual mode: full-page Add Item form (no camera) ──
+    // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
         return (
-            <div className="fixed inset-0 z-[2000] bg-slate-950 flex flex-col">
-                {/* ── Header ── */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button onClick={onClose} aria-label="Back" className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Add Item</h1>
+            <ModalSheet isOpen={true} onClose={onClose} title="Add Item" zIndex="z-[2000]">
+                <div className="space-y-2">
+                    {/* Category — first */}
+                    <div>
+                        <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                        <div className="grid grid-cols-4 gap-1.5 mt-0.5">
+                            {CATEGORIES.map(cat => (
+                                <button
+                                    key={cat}
+                                    onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
+                                    className={`py-1 rounded-lg text-label font-bold transition-all text-center ${newItem.category === cat
+                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                        : 'bg-white/5 text-gray-500 border border-white/5'
+                                        }`}
+                                >
+                                    {CATEGORY_ICONS[cat]} {cat}
+                                </button>
+                            ))}
+                        </div>
                     </div>
+
+                    {/* Item name */}
+                    <FormField
+                        label="Item Name"
+                        value={newItem.item_name}
+                        onChange={v => setNewItem(prev => ({ ...prev, item_name: v }))}
+                        placeholder="e.g. Racor 2010PM-OR Fuel Filter"
+                        required
+                    />
+
+                    {/* Barcode + Scan button */}
+                    <div>
+                        <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                        <div className="flex gap-2 mt-0.5">
+                            <input
+                                type="text"
+                                value={newItem.barcode}
+                                onChange={e => setNewItem(prev => ({ ...prev, barcode: e.target.value }))}
+                                placeholder="Optional"
+                                className="flex-[2] min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500"
+                            />
+                            <button
+                                type="button"
+                                onClick={openInlineScanner}
+                                className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                                </svg>
+                                Scan
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Inline camera scanner overlay */}
+                    {showInlineScanner && (
+                        <div className="relative w-full h-40 rounded-xl overflow-hidden border border-sky-500/30 bg-black">
+                            <video
+                                ref={inlineVideoRef}
+                                className="w-full h-full object-cover"
+                                playsInline
+                                muted
+                                autoPlay
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-3/4 h-12 border-2 border-sky-400/60 rounded-lg">
+                                    <div className="absolute inset-x-4 h-0.5 bg-sky-400/50 animate-pulse" style={{ top: '50%' }} />
+                                </div>
+                            </div>
+                            <div className="absolute bottom-1 left-0 right-0 text-center">
+                                <span className="text-label font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
+                            </div>
+                            <button
+                                onClick={closeInlineScanner}
+                                className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
+                                aria-label="Close scanner"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Quantity + Min */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <FormField
+                            label="Quantity"
+                            type="number"
+                            value={newItem.quantity}
+                            onChange={v => setNewItem(prev => ({ ...prev, quantity: parseInt(v) || 0 }))}
+                            min={0}
+                        />
+                        <FormField
+                            label="Min Alert"
+                            type="number"
+                            value={newItem.min_quantity}
+                            onChange={v => setNewItem(prev => ({ ...prev, min_quantity: parseInt(v) || 0 }))}
+                            min={0}
+                        />
+                    </div>
+
+                    {/* Location */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <FormField
+                            label="Zone"
+                            value={newItem.location_zone}
+                            onChange={v => setNewItem(prev => ({ ...prev, location_zone: v }))}
+                            placeholder="Engine Room"
+                        />
+                        <FormField
+                            label="Exact Spot"
+                            value={newItem.location_specific}
+                            onChange={v => setNewItem(prev => ({ ...prev, location_specific: v }))}
+                            placeholder="Stbd drawer"
+                        />
+                    </div>
+
+                    {/* Notes */}
+                    <FormField
+                        label="Notes"
+                        value={newItem.description}
+                        onChange={v => setNewItem(prev => ({ ...prev, description: v }))}
+                        placeholder="Part no, batch"
+                    />
+
+                    {/* Expiry / Service — full width */}
+                    <FormField
+                        label="Expiry / Service"
+                        type="date"
+                        value={newItem.expiry_date}
+                        onChange={v => setNewItem(prev => ({ ...prev, expiry_date: v }))}
+                    />
                 </div>
 
-                {/* ── Form ── */}
-                <div className="flex-1 overflow-y-auto px-4 no-scrollbar" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 16rem)' }}>
-                    <div className="space-y-2">
-                        {/* Category — first */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                            <div className="grid grid-cols-4 gap-1.5 mt-0.5">
-                                {CATEGORIES.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setNewItem(prev => ({ ...prev, category: cat }))}
-                                        className={`py-1 rounded-lg text-label font-bold transition-all text-center ${newItem.category === cat
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-500 border border-white/5'
-                                            }`}
-                                    >
-                                        {CATEGORY_ICONS[cat]} {cat}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Item name */}
-                        <FormField
-                            label="Item Name"
-                            value={newItem.item_name}
-                            onChange={v => setNewItem(prev => ({ ...prev, item_name: v }))}
-                            placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                            required
-                        />
-
-                        {/* Barcode + Scan button (custom layout — FormField can't do side-by-side) */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
-                            <div className="flex gap-2 mt-0.5">
-                                <input
-                                    type="text"
-                                    value={newItem.barcode}
-                                    onChange={e => setNewItem(prev => ({ ...prev, barcode: e.target.value }))}
-                                    placeholder="Optional"
-                                    className="flex-[2] min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-500"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={openInlineScanner}
-                                    className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-                                    </svg>
-                                    Scan
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Inline camera scanner overlay */}
-                        {showInlineScanner && (
-                            <div className="relative w-full h-40 rounded-xl overflow-hidden border border-sky-500/30 bg-black">
-                                <video
-                                    ref={inlineVideoRef}
-                                    className="w-full h-full object-cover"
-                                    playsInline
-                                    muted
-                                    autoPlay
-                                />
-                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="w-3/4 h-12 border-2 border-sky-400/60 rounded-lg">
-                                        <div className="absolute inset-x-4 h-0.5 bg-sky-400/50 animate-pulse" style={{ top: '50%' }} />
-                                    </div>
-                                </div>
-                                <div className="absolute bottom-1 left-0 right-0 text-center">
-                                    <span className="text-label font-bold text-sky-400 animate-pulse uppercase tracking-widest">Scanning…</span>
-                                </div>
-                                <button
-                                    onClick={closeInlineScanner}
-                                    className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
-                                    aria-label="Close scanner"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Quantity + Min */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <FormField
-                                label="Quantity"
-                                type="number"
-                                value={newItem.quantity}
-                                onChange={v => setNewItem(prev => ({ ...prev, quantity: parseInt(v) || 0 }))}
-                                min={0}
-                            />
-                            <FormField
-                                label="Min Alert"
-                                type="number"
-                                value={newItem.min_quantity}
-                                onChange={v => setNewItem(prev => ({ ...prev, min_quantity: parseInt(v) || 0 }))}
-                                min={0}
-                            />
-                        </div>
-
-                        {/* Location */}
-                        <div className="grid grid-cols-2 gap-2">
-                            <FormField
-                                label="Zone"
-                                value={newItem.location_zone}
-                                onChange={v => setNewItem(prev => ({ ...prev, location_zone: v }))}
-                                placeholder="Engine Room"
-
-                            />
-                            <FormField
-                                label="Exact Spot"
-                                value={newItem.location_specific}
-                                onChange={v => setNewItem(prev => ({ ...prev, location_specific: v }))}
-                                placeholder="Stbd drawer"
-
-                            />
-                        </div>
-
-                        {/* Notes */}
-                        <FormField
-                            label="Notes"
-                            value={newItem.description}
-                            onChange={v => setNewItem(prev => ({ ...prev, description: v }))}
-                            placeholder="Part no, batch"
-                        />
-
-                        {/* Expiry / Service — full width */}
-                        <FormField
-                            label="Expiry / Service"
-                            type="date"
-                            value={newItem.expiry_date}
-                            onChange={v => setNewItem(prev => ({ ...prev, expiry_date: v }))}
-                        />
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-3 mt-3">
-                        <button onClick={onClose} className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold">
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleSaveNew}
-                            disabled={!newItem.item_name.trim() || saving}
-                            className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
-                        >
-                            {saving ? 'Saving…' : 'Add Item'}
-                        </button>
-                    </div>
+                {/* Actions */}
+                <div className="flex gap-3 mt-3">
+                    <button onClick={onClose} className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSaveNew}
+                        disabled={!newItem.item_name.trim() || saving}
+                        className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
+                    >
+                        {saving ? 'Saving…' : 'Add Item'}
+                    </button>
                 </div>
-            </div>
+            </ModalSheet>
         );
     }
 

@@ -1014,7 +1014,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                             <div className="px-5 pt-5 pb-3 text-center">
                                 <div className="text-4xl mb-3">🔊</div>
                                 <h2 className="text-lg font-black text-white tracking-tight">Sound Check</h2>
-                                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                <p className="text-sm text-slate-400 mt-1 leading-relaxed">
                                     Before you anchor up, make sure your alarm will wake you.
                                 </p>
                             </div>
@@ -1025,7 +1025,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     <span className="text-lg mt-0.5">✅</span>
                                     <div>
                                         <p className="text-sm font-bold text-emerald-400">Mute Switch Override</p>
-                                        <p className="text-[11px] text-emerald-400/60 leading-snug">
+                                        <p className="text-xs text-emerald-400/70 leading-snug">
                                             The drag alarm will bypass your silent switch and play at full volume through the speaker.
                                         </p>
                                     </div>
@@ -1035,7 +1035,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     <span className="text-lg mt-0.5">🔔</span>
                                     <div>
                                         <p className="text-sm font-bold text-amber-400">Recommended</p>
-                                        <p className="text-[11px] text-amber-400/60 leading-snug">
+                                        <p className="text-xs text-amber-400/70 leading-snug">
                                             Turn your volume up and disable Do Not Disturb for maximum safety — especially overnight.
                                         </p>
                                     </div>
@@ -1045,7 +1045,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     <span className="text-lg mt-0.5">📱</span>
                                     <div>
                                         <p className="text-sm font-bold text-sky-400">Keep App Open</p>
-                                        <p className="text-[11px] text-sky-400/60 leading-snug">
+                                        <p className="text-xs text-sky-400/70 leading-snug">
                                             Leave Thalassa running. Background GPS continues but the speaker alarm requires the app in view.
                                         </p>
                                     </div>

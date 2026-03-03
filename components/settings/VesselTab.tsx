@@ -9,8 +9,9 @@ import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
-function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: {
-    label: string; valInStandard: number; unitType: string; unitOptions: string[];
+function MetricInput({ label, valInStandard, unitType, standardUnit, unitOptions, onChangeValue, onChangeUnit, placeholder, isEstimated }: {
+    label: string; valInStandard: number; unitType: string; standardUnit: string;
+    unitOptions: string[];
     onChangeValue: (v: number) => void; onChangeUnit: (u: string) => void;
     placeholder?: string; isEstimated?: boolean;
 }) {
@@ -27,9 +28,9 @@ function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValu
         l: { gal: n => n / 3.78541, l: n => n },
     };
 
-    const displayVal = conversions[unitType]?.[unitType]
-        ? conversions['ft']?.[unitType]?.(valInStandard) ?? valInStandard
-        : valInStandard;
+    // Convert from standard (stored) unit → display unit
+    const toDisplay = conversions[standardUnit]?.[unitType];
+    const displayVal = toDisplay ? toDisplay(valInStandard) : valInStandard;
 
     const [localVal, setLocalVal] = useState(displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '');
 
@@ -38,7 +39,8 @@ function MetricInput({ label, valInStandard, unitType, unitOptions, onChangeValu
     const handleBlur = () => {
         const numericVal = parseFloat(localVal);
         if (isNaN(numericVal)) return;
-        const toStandard = conversions[unitType]?.['ft'] || conversions[unitType]?.['lbs'] || conversions[unitType]?.['kts'] || conversions[unitType]?.['gal'];
+        // Convert from display unit → standard (stored) unit
+        const toStandard = conversions[unitType]?.[standardUnit];
         if (toStandard) {
             onChangeValue(Math.round(toStandard(numericVal) * 100) / 100);
         } else {
@@ -133,6 +135,26 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <input type="text" value={settings.vessel?.name || ''} onChange={(e) => updateVessel('name', e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium" />
                     </div>
                 </Row>
+                <Row>
+                    <div className="w-full">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Hull Type</label>
+                        <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
+                            {(['monohull', 'catamaran', 'trimaran'] as const).map(ht => (
+                                <button key={ht} onClick={() => updateVessel('hullType', ht)} className={`flex-1 px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>{ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}</button>
+                            ))}
+                        </div>
+                    </div>
+                </Row>
+                <Row>
+                    <div className="w-full">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Keel Type</label>
+                        <div className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
+                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map(kt => (
+                                <button key={kt} onClick={() => updateVessel('keelType', kt)} className={`px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}>{kt === 'centerboard' ? 'C/Board' : kt}</button>
+                            ))}
+                        </div>
+                    </div>
+                </Row>
             </Section>
 
             {/* Yacht Database Search — replaces the old Make/Model text input */}
@@ -151,26 +173,33 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
-                        <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
-                        <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
-                        <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
-                        <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
-                        <MetricInput label="Mast Height" valInStandard={settings.vessel?.mastHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('mastHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="50" />
+                        <MetricInput label="Length" valInStandard={settings.vessel?.length || 0} standardUnit="ft" unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('length', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="30" isEstimated={settings.vessel?.estimatedFields?.includes('length')} />
+                        <MetricInput label="Beam" valInStandard={settings.vessel?.beam || 0} standardUnit="ft" unitType={settings.vesselUnits?.beam || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('beam', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, beam: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" isEstimated={settings.vessel?.estimatedFields?.includes('beam')} />
+                        <MetricInput label="Draft" valInStandard={settings.vessel?.draft || 0} standardUnit="ft" unitType={settings.vesselUnits?.draft || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('draft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, draft: u as LengthUnit } as VesselDimensionUnits })} placeholder="5" isEstimated={settings.vessel?.estimatedFields?.includes('draft')} />
+                        <MetricInput label="Displacement" valInStandard={settings.vessel?.displacement || 0} standardUnit="lbs" unitType={settings.vesselUnits?.displacement || 'lbs'} unitOptions={['lbs', 'kg', 'tonnes']} onChangeValue={(v) => updateVessel('displacement', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, displacement: u as WeightUnit } as VesselDimensionUnits })} placeholder="10000" isEstimated={settings.vessel?.estimatedFields?.includes('displacement')} />
+                        <MetricInput label="Air Draft" valInStandard={settings.vessel?.airDraft || 0} standardUnit="ft" unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('airDraft', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="50" />
                     </div>
                 </div>
             </div>
 
-            {/* Performance */}
+            {/* Performance (auto-calculated — read-only) */}
             <div className="mx-4 mb-4">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                    <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Performance</span>
+                    <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Performance (Auto)</span>
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
-                        <MetricInput label="Cruising Speed" valInStandard={settings.vessel?.cruisingSpeed || 0} unitType={settings.units.speed || 'kts'} unitOptions={['kts', 'mph', 'kmh']} onChangeValue={(v) => updateVessel('cruisingSpeed', v)} onChangeUnit={(u) => onSave({ units: { ...settings.units, speed: u as SpeedUnit } })} placeholder="6" />
-                        <MetricInput label="Max Wave Height" valInStandard={settings.vessel?.maxWaveHeight || 0} unitType={settings.vesselUnits?.length || 'ft'} unitOptions={['ft', 'm']} onChangeValue={(v) => updateVessel('maxWaveHeight', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, length: u as LengthUnit } as VesselDimensionUnits })} placeholder="10" />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">Cruising Speed</label>
+                            <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">{Math.round((settings.vessel?.cruisingSpeed || 0) * 10) / 10} kts</p>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">Max Wave Height</label>
+                            <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">{Math.round((settings.vessel?.maxWaveHeight || 0) * 10) / 10} ft</p>
+                        </div>
                     </div>
+                    <p className="text-[11px] text-gray-500 mt-3">Auto-calculated from vessel length and hull type</p>
                 </div>
             </div>
 
@@ -182,8 +211,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </div>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
-                        <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
-                        <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
+                        <MetricInput label="Fuel Cap." valInStandard={settings.vessel?.fuelCapacity || 0} standardUnit="gal" unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('fuelCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
+                        <MetricInput label="Water Cap." valInStandard={settings.vessel?.waterCapacity || 0} standardUnit="gal" unitType={settings.vesselUnits?.volume || 'gal'} unitOptions={['gal', 'l']} onChangeValue={(v) => updateVessel('waterCapacity', v)} onChangeUnit={(u) => onSave({ vesselUnits: { ...settings.vesselUnits, volume: u as VolumeUnit } as VesselDimensionUnits })} placeholder="0" />
                     </div>
                     <div className="mt-4">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">Crew Aboard (incl. Captain)</label>
@@ -203,8 +232,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         // this button is UX reassurance for the user
                     }}
                     className={`w-full py-3.5 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] ${saved
-                            ? 'bg-gradient-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
-                            : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                        ? 'bg-gradient-to-r from-emerald-600 to-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                        : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                         }`}
                 >
                     {saved ? '✓ Profile Saved' : 'Save Vessel Profile'}

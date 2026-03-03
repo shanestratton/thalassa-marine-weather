@@ -36,6 +36,11 @@ export interface RouteSegment {
 
     // Weather at segment midpoint (populated by forecast lookup)
     weather?: SegmentWeather;
+
+    // Depth at segment midpoint (populated by GEBCO query)
+    depth_m?: number | null;
+    depthSafety?: 'safe' | 'caution' | 'danger' | 'land' | null;
+    depthCostMultiplier?: number; // 1.0 = no penalty, higher = avoid
 }
 
 export interface SegmentWeather {
@@ -63,6 +68,10 @@ export interface RouteAnalysis {
     headwindPercentage: number;  // % of route with headwind
     favorablePercentage: number; // % with favorable conditions
 
+    // Depth summary along route (populated by enhanceRouteWithDepth)
+    minDepth: number | null;     // shallowest point (negative = below sea level)
+    shallowSegments: number;     // count of segments with depth caution/danger
+
     // Coordinates for polyline rendering
     routeCoordinates: [number, number][];
 }
@@ -75,6 +84,7 @@ export interface RoutingConfig {
     avoidHeavyWeather: boolean;
     maxWindThreshold: number;   // kts — threshold for "heavy weather"
     maxWaveThreshold: number;   // meters
+    vesselDraft: number;        // meters — vessel draft for depth penalties
 }
 
 const DEFAULT_CONFIG: RoutingConfig = {
@@ -85,6 +95,7 @@ const DEFAULT_CONFIG: RoutingConfig = {
     avoidHeavyWeather: false,
     maxWindThreshold: 30,
     maxWaveThreshold: 3,
+    vesselDraft: 2.5,           // 2.5m default draft
 };
 
 // ── Route Computation ──────────────────────────────────────────
@@ -194,8 +205,69 @@ export function computeRoute(
         maxWaveHeight,
         headwindPercentage,
         favorablePercentage,
+        minDepth: null,         // Populated by enhanceRouteWithDepth()
+        shallowSegments: 0,
         routeCoordinates,
     };
+}
+
+// ── Depth Enhancement ──────────────────────────────────────────
+
+/**
+ * Enhance a RouteAnalysis with GEBCO depth data.
+ *
+ * Queries the GEBCO depth service for the midpoint of each segment,
+ * then tags segments with depth_m, depthSafety, and depthCostMultiplier.
+ *
+ * Also updates minDepth and shallowSegments on the RouteAnalysis.
+ *
+ * Non-blocking — returns original analysis if depth query fails.
+ */
+export async function enhanceRouteWithDepth(
+    analysis: RouteAnalysis,
+    vesselDraft: number = 2.5,
+): Promise<RouteAnalysis> {
+    try {
+        const { GebcoDepthService } = await import('./GebcoDepthService');
+
+        // Build midpoints for each segment
+        const midpoints = analysis.segments.map(seg => ({
+            lat: (seg.startLat + seg.endLat) / 2,
+            lon: (seg.startLon + seg.endLon) / 2,
+        }));
+
+        const depthResults = await GebcoDepthService.queryRouteDepths(midpoints);
+
+        // Tag each segment with depth data
+        let minDepth: number | null = null;
+        let shallowCount = 0;
+
+        for (let i = 0; i < analysis.segments.length && i < depthResults.length; i++) {
+            const depth = depthResults[i].depth_m;
+            analysis.segments[i].depth_m = depth;
+            analysis.segments[i].depthSafety = GebcoDepthService.classifyDepth(depth, vesselDraft);
+            analysis.segments[i].depthCostMultiplier = GebcoDepthService.depthCostPenalty(depth, vesselDraft);
+
+            if (depth !== null && depth < 0) {
+                if (minDepth === null || depth > minDepth) {
+                    minDepth = depth; // Less negative = shallower
+                }
+            }
+
+            const safety = analysis.segments[i].depthSafety;
+            if (safety === 'caution' || safety === 'danger') {
+                shallowCount++;
+            }
+        }
+
+        analysis.minDepth = minDepth;
+        analysis.shallowSegments = shallowCount;
+
+        return analysis;
+    } catch (err) {
+        console.warn('[WeatherRouting] Depth enhancement failed (non-critical):', err);
+        return analysis;
+    }
 }
 
 // ── Great Circle Subdivision ───────────────────────────────────
@@ -325,6 +397,8 @@ function emptyAnalysis(waypoints: RouteWaypoint[], cfg: RoutingConfig): RouteAna
         maxWaveHeight: null,
         headwindPercentage: 0,
         favorablePercentage: 0,
+        minDepth: null,
+        shallowSegments: 0,
         routeCoordinates: [],
     };
 }

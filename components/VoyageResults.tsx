@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from './Toast';
 import { VoyagePlan, VoyageHazard, Waypoint, DeepAnalysisReport, VesselProfile } from '../types';
 import {
     ArrowRightIcon, SailBoatIcon, PowerBoatIcon, MapPinIcon, MapIcon,
@@ -14,6 +15,9 @@ import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
 import { printPassageBrief } from '../utils/pdfExport';
 import { downloadRouteGPX } from '../utils/gpxRouteExport';
+import { DepthSummaryCard } from './passage/DepthSummaryCard';
+import { ModelComparisonCard } from './passage/ModelComparisonCard';
+import type { MultiModelResult } from '../services/weather/MultiModelWeatherService';
 
 
 // --- MICRO COMPONENTS ---
@@ -523,6 +527,48 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     <ResourceCalculator voyagePlan={voyagePlan} vessel={vessel} crewCount={vessel.crewCount || 2} />
                 </AccordionSection>
 
+                {/* GEBCO DEPTH ANALYSIS */}
+                {(voyagePlan as any).__depthSummary && (
+                    <AccordionSection
+                        title="Depth Analysis"
+                        subtitle="GEBCO Bathymetric Safety"
+                        icon={<WaveIcon className="w-5 h-5" />}
+                        accent={(() => {
+                            const d = (voyagePlan as any).__depthSummary;
+                            return d?.segments?.some((s: any) => s.safety === 'danger' || s.safety === 'land') ? 'red' : d?.shallowSegments > 0 ? 'amber' : 'emerald';
+                        })()}
+                        defaultOpen={(voyagePlan as any).__depthSummary?.shallowSegments > 0}
+                        badge={(() => {
+                            const d = (voyagePlan as any).__depthSummary;
+                            if (!d) return 'Pending';
+                            return d.shallowSegments > 0 ? `${d.shallowSegments} shallow` : 'All Clear';
+                        })()}
+                    >
+                        <DepthSummaryCard
+                            data={(voyagePlan as any).__depthSummary}
+                            vesselDraft={vessel.draft}
+                        />
+                    </AccordionSection>
+                )}
+
+                {/* MULTI-MODEL WEATHER COMPARISON */}
+                {(voyagePlan as any).__multiModelComparison && (
+                    <AccordionSection
+                        title="Model Comparison"
+                        subtitle="Multi-Model Weather Ensemble"
+                        icon={<WindIcon className="w-5 h-5" />}
+                        accent={(() => {
+                            const m = (voyagePlan as any).__multiModelComparison as MultiModelResult;
+                            const confidences = m.waypoints.map((wp: any) => wp.consensus.confidence);
+                            return confidences.includes('low') ? 'red' : confidences.includes('medium') ? 'amber' : 'emerald';
+                        })()}
+                        defaultOpen={true}
+                        badge={`${((voyagePlan as any).__multiModelComparison as MultiModelResult).models.length} models`}
+                    >
+                        <ModelComparisonCard data={(voyagePlan as any).__multiModelComparison as MultiModelResult} />
+                    </AccordionSection>
+                )}
+
                 {/* HAZARD IDENTIFICATION */}
                 <AccordionSection
                     title="Hazard Identification"
@@ -734,11 +780,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                         }, 2000);
                                     }
                                 } else {
-                                    alert('Failed to save route. Please ensure you are logged in.');
+                                    toast.error('Failed to save route. Please ensure you are logged in.');
                                 }
                             } catch (err) {
                                 console.error('[SaveRoute]', err);
-                                alert('Error saving route to logbook.');
+                                toast.error('Error saving route to logbook.');
                             }
                         }}
                         className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"

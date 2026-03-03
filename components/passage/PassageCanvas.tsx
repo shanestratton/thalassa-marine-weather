@@ -303,17 +303,75 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
         async function loadWindData() {
             WindStore.setLoading(true);
 
-            const ww3Grid = await fetchWW3Grid(Math.ceil(maxTime));
-            if (!cancelled && ww3Grid) {
-                WindStore.setGrid(ww3Grid);
-                return;
+            // Try the GFS edge function first (same as MapHub — reliable)
+            try {
+                const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+                const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
+                const edgeUrl = `${SUPABASE_URL}/functions/v1/fetch-wind-grid`;
+
+                const res = await fetch(edgeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    },
+                    body: JSON.stringify({
+                        north: 90, south: -90, west: -180, east: 180,
+                        hours: Math.min(Math.ceil(maxTime) + 6, 120),
+                    }),
+                });
+
+                if (!cancelled && res.ok) {
+                    const buffer = await res.arrayBuffer();
+                    const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
+                    const grib = decodeGrib2Wind(buffer);
+                    if (!cancelled && grib) {
+                        // Convert DecodedGrib2Wind → WindGrid
+                        const size = grib.width * grib.height;
+                        const speedArr = new Float32Array(size);
+                        for (let i = 0; i < size; i++) {
+                            speedArr[i] = Math.sqrt(grib.u[i] * grib.u[i] + grib.v[i] * grib.v[i]);
+                        }
+                        const uniqueLats: number[] = [];
+                        const uniqueLons: number[] = [];
+                        const latStep = (grib.north - grib.south) / (grib.height - 1);
+                        const lonStep = (grib.east - grib.west) / (grib.width - 1);
+                        for (let r = 0; r < grib.height; r++) uniqueLats.push(grib.south + r * latStep);
+                        for (let c = 0; c < grib.width; c++) uniqueLons.push(grib.west + c * lonStep);
+
+                        WindStore.setGrid({
+                            u: [grib.u], v: [grib.v], speed: [speedArr],
+                            width: grib.width, height: grib.height,
+                            lats: uniqueLats, lons: uniqueLons,
+                            north: grib.north, south: grib.south,
+                            west: grib.west, east: grib.east,
+                            totalHours: 1,
+                        });
+                        console.info(`[4DCanvas] Wind grid loaded: ${grib.width}×${grib.height}, bounds=[${grib.south},${grib.north}]×[${grib.west},${grib.east}]`);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('[4DCanvas] GFS edge function failed, trying fallback:', err);
             }
 
-            const windGrid = await fetchGlobalWindField();
-            if (!cancelled && windGrid) {
-                WindStore.setGrid(windGrid);
-                return;
-            }
+            // Fallback: try WW3 + global Open-Meteo
+            try {
+                const ww3Grid = await fetchWW3Grid(Math.ceil(maxTime));
+                if (!cancelled && ww3Grid) {
+                    WindStore.setGrid(ww3Grid);
+                    return;
+                }
+            } catch (_) { }
+
+            try {
+                const windGrid = await fetchGlobalWindField();
+                if (!cancelled && windGrid) {
+                    WindStore.setGrid(windGrid);
+                    return;
+                }
+            } catch (_) { }
 
             if (!cancelled) WindStore.setLoading(false);
         }
@@ -449,12 +507,13 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         )}
                     </div>
 
-                    {/* CommandDeck (center-ish) */}
+                    {/* CommandDeck temporarily hidden
                     <CommandDeck
                         payload={payload}
                         collapsed={deckCollapsed}
                         onToggle={() => setDeckCollapsed(c => !c)}
                     />
+                    */}
 
                     {/* Action Buttons (right) */}
                     <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexShrink: 0 }}>
@@ -541,9 +600,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 {/* Spacer */}
                 <div style={{ flex: 1, minHeight: 8 }} />
 
-                {/* ── Bottom: HUD (above scrubber) ── */}
+                {/* Telemetry temporarily hidden
                 <div style={{ marginBottom: 6 }}>
-                    {/* Toggle tab */}
                     <button
                         onClick={() => setHudCollapsed(c => !c)}
                         aria-label={hudCollapsed ? 'Show telemetry panel' : 'Hide telemetry panel'}
@@ -584,6 +642,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                         />
                     )}
                 </div>
+                */}
             </div>
 
             {/* ═══ LAYER 3: Temporal Scrubber (pinned bottom) ═══ */}

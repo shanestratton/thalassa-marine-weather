@@ -19,6 +19,7 @@ import { NmeaListenerService, type NmeaConnectionStatus } from '../../services/N
 import { NmeaStore } from '../../services/NmeaStore';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 type InputTab = 'import' | 'manual';
 
@@ -44,6 +45,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<string | null>(settings?.polarData ? 'Loaded from device' : null);
     const [showAdvancedInput, setShowAdvancedInput] = useState(false);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
 
     // Smart Polars state
     const [smartPolarData, setSmartPolarData] = useState<PolarData | null>(null);
@@ -124,10 +126,10 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     };
 
     const handleResetSmartData = async () => {
-        if (!confirm('Reset all Smart Polar data? This cannot be undone.')) return;
         await SmartPolarStore.reset();
         setSmartPolarData(null);
         setSmartStats(SmartPolarStore.getStats());
+        setShowResetConfirm(false);
     };
 
     return (
@@ -146,7 +148,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                     hasRpmData={NmeaListenerService.getHasRpmData()}
                     onToggleSmart={toggleSmartPolars}
                     onToggleSource={togglePolarSource}
-                    onReset={handleResetSmartData}
+                    onReset={() => setShowResetConfirm(true)}
                     onNavigateToNmea={onNavigateToNmea}
                 />
             </div>
@@ -247,6 +249,18 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                     </div>
                 </div>
             )}
+
+            {/* Reset Smart Polar confirmation dialog */}
+            <ConfirmDialog
+                isOpen={showResetConfirm}
+                title="Reset Smart Polars"
+                message="Reset all Smart Polar data? This cannot be undone."
+                confirmLabel="Reset"
+                cancelLabel="Cancel"
+                destructive
+                onConfirm={handleResetSmartData}
+                onCancel={() => setShowResetConfirm(false)}
+            />
         </div>
     );
 };

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { toast } from './Toast';
 import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel, PolarData } from '../types';
 import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon, AnchorIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
@@ -25,6 +26,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
     const [name, setName] = useState('');
     const [riggingType, setRiggingType] = useState<'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other'>('Sloop');
+    const [hullType, setHullType] = useState<'monohull' | 'catamaran' | 'trimaran'>('monohull');
+    const [keelType, setKeelType] = useState<'fin' | 'full' | 'wing' | 'skeg' | 'centerboard' | 'bilge'>('fin');
 
     // Initialize Defaults from System
     const defaults = getSystemUnits();
@@ -41,12 +44,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [length, setLength] = useState<string>('');
     const [beam, setBeam] = useState<string>('');
     const [draft, setDraft] = useState<string>('');
+    const [airDraft, setAirDraft] = useState<string>('');
     const [displacement, setDisplacement] = useState<string>('');
 
     // Units
     const [lengthUnit, setLengthUnit] = useState<LengthUnit>(defaults.length);
     const [beamUnit, setBeamUnit] = useState<LengthUnit>(defaults.length);
     const [draftUnit, setDraftUnit] = useState<LengthUnit>(defaults.length);
+    const [airDraftUnit, setAirDraftUnit] = useState<LengthUnit>(defaults.length);
 
     // Weight Units - Default to lbs for US (ft), kg for Metric (m)
     const [dispUnit, setDispUnit] = useState<WeightUnit>(defaults.length === 'ft' ? 'lbs' : 'kg');
@@ -96,7 +101,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 setIsLocating(false);
             }, () => {
                 setIsLocating(false);
-                alert("Could not access location. Please enter manually.");
+                toast.error("Could not access location. Please enter manually.");
             });
         } else {
             setIsLocating(false);
@@ -167,6 +172,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         if (draft) setDraft(convertValue(parseFloat(draft), newUnit).toString());
         setDraftUnit(newUnit);
     }
+    const toggleAirDraftUnit = () => {
+        const newUnit = airDraftUnit === 'ft' ? 'm' : 'ft';
+        if (airDraft) setAirDraft(convertValue(parseFloat(airDraft), newUnit).toString());
+        setAirDraftUnit(newUnit);
+    }
 
     const toggleDispUnit = () => {
         let newUnit: WeightUnit = 'lbs';
@@ -236,6 +246,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             }
         }
 
+        let ad_ft = airDraft ? (airDraftUnit === 'm' ? parseFloat(airDraft) * 3.28084 : parseFloat(airDraft)) : undefined;
+
         const vesselData: VesselProfile = {
             name: (finalVesselType === 'observer' ? 'Observer' : name) || (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),
             type: finalVesselType,
@@ -244,7 +256,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             beam: b_ft,
             draft: d_ft,
             displacement: disp_lbs,
-            maxWaveHeight: l_ft * 0.35,
+            airDraft: ad_ft,
+            hullType,
+            keelType,
+            maxWaveHeight: hullType === 'catamaran' ? l_ft * 0.45 : hullType === 'trimaran' ? l_ft * 0.5 : l_ft * 0.35,
             cruisingSpeed: finalVesselType === 'sail' ? Math.sqrt(l_ft) * 1.2 : Math.sqrt(l_ft) * 3,
             fuelCapacity: fuel ? parseFloat(fuel) : 0,
             waterCapacity: water ? parseFloat(water) : 0,
@@ -458,7 +473,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* STEP 4: VESSEL DETAILS */}
                 {step === 4 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-500 max-h-[calc(100dvh-10rem)] overflow-y-auto no-scrollbar">
                         {vesselType === 'observer' ? (
                             <div className="text-center py-10">
                                 <SearchIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
@@ -484,6 +499,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Vessel Name</label>
                                         <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium" />
+                                    </div>
+
+                                    {/* Hull Type */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Hull Type</label>
+                                        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                                            {(['monohull', 'catamaran', 'trimaran'] as const).map(ht => (
+                                                <button key={ht} onClick={() => setHullType(ht)} className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Keel Type */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Keel Type</label>
+                                        <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map(kt => (
+                                                <button key={kt} onClick={() => setKeelType(kt)} className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{kt === 'centerboard' ? 'C/Board' : kt}</button>
+                                            ))}
+                                        </div>
                                     </div>
 
                                     {vesselType === 'sail' && (
@@ -526,6 +561,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Displacement <button onClick={toggleDispUnit} className="text-sky-400 hover:text-white">{dispUnit}</button></label>
                                             <input type="number" value={displacement} onChange={(e) => setDisplacement(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
                                         </div>
+                                    </div>
+
+                                    {/* Air Draft */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Air Draft <button onClick={toggleAirDraftUnit} className="text-sky-400 hover:text-white">{airDraftUnit}</button></label>
+                                        <input type="number" value={airDraft} onChange={(e) => setAirDraft(e.target.value)} placeholder="Height above waterline" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
+                                        <p className="text-[11px] text-gray-500 mt-1">Used for bridge clearance on routes</p>
                                     </div>
 
                                     {/* Tankage */}

@@ -11,6 +11,7 @@ export interface TrackPoint {
     distance_from_start_nm: number;       // Cumulative distance in nautical miles
     time_offset_hours: number;            // Hours from departure
     name: string;                          // Waypoint name
+    leg_type?: 'harbour' | 'ocean';        // Harbour = dotted, Ocean = solid
     lateral_offset_nm: number;             // Lateral deviation from centerline
     conditions: TrackConditions;           // Weather + depth at arrival time
 }

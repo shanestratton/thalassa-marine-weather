@@ -5,6 +5,7 @@ import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
 import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory';
 import { MarineWeatherReport } from '../types';
+import { toast } from '../components/Toast';
 
 export const useDashboardController = (
     viewMode: 'overview' | 'details' = 'overview'
@@ -154,7 +155,7 @@ export const useDashboardController = (
                 await navigator.share({ title: 'Thalassa Report', text });
             } else {
                 await navigator.clipboard.writeText(text);
-                alert("Report copied to clipboard!");
+                toast.success("Report copied to clipboard!");
             }
         } catch (e) { /* Share cancelled or unsupported */ }
     };
