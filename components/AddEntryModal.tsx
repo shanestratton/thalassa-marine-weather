@@ -53,12 +53,12 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
         e.preventDefault();
 
         if (!notes.trim() && !isWaypoint) {
-            alert('Please enter notes or create a waypoint');
+            toast.error('Please enter notes or create a waypoint');
             return;
         }
 
         if (isWaypoint && !waypointName.trim()) {
-            alert('Please enter a waypoint name');
+            toast.error('Please enter a waypoint name');
             return;
         }
 
@@ -102,7 +102,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             onSuccess();
             onClose();
         } catch (error) {
-            alert('Failed to add entry. Please try again.');
+            toast.error('Failed to add entry. Please try again.');
         } finally {
             setSaving(false);
         }

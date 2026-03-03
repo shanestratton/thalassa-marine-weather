@@ -5,7 +5,9 @@
  * Users can share voyage tracks (stripped of personal data) for other
  * sailors to discover and download. Pro tier required for downloads.
  * 
- * Categories: anchorage, port_entry, walking, reef_passage, coastal, offshore
+ * Categories: anchorage, port_entry, marina_exit, harbour_entry,
+ *   walking, reef_passage, bar_crossing, coastal, offshore,
+ *   driving, pin_repairs, pin_food, pin_fuel, pin_supplies, pin_scenic
  */
 
 import { supabase } from './supabase';
@@ -14,7 +16,7 @@ import { exportVoyageAsGPX } from './gpxService';
 
 // --- TYPES ---
 
-export type TrackCategory = 'anchorage' | 'port_entry' | 'walking' | 'reef_passage' | 'coastal' | 'offshore' | 'bar_crossing' | 'driving' | 'pin_repairs' | 'pin_food' | 'pin_fuel' | 'pin_supplies' | 'pin_scenic';
+export type TrackCategory = 'anchorage' | 'port_entry' | 'marina_exit' | 'harbour_entry' | 'walking' | 'reef_passage' | 'coastal' | 'offshore' | 'bar_crossing' | 'driving' | 'pin_repairs' | 'pin_food' | 'pin_fuel' | 'pin_supplies' | 'pin_scenic';
 
 export interface SharedTrack {
     id: string;

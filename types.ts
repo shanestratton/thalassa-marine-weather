@@ -117,7 +117,9 @@ export interface VesselProfile {
     beam: number;
     draft: number;
     displacement: number;
-    mastHeight?: number; // Mast height (for bridge clearance, routing)
+    airDraft?: number; // Air draft — height above waterline (for bridge clearance, routing)
+    hullType?: 'monohull' | 'catamaran' | 'trimaran';
+    keelType?: 'fin' | 'full' | 'wing' | 'skeg' | 'centerboard' | 'bilge';
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;

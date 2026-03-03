@@ -11,6 +11,7 @@ import { calculateDistance, degreesToCardinal } from '../utils';
 import { enhanceWithBeaconData } from '../services/beaconIntegration';
 import { EnvironmentService } from '../services/EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
+import { toast } from '../components/Toast';
 
 import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
@@ -512,7 +513,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         );
                         incrementQuota();
                     } catch (e) {
-            console.warn('[WeatherContext]', e);
+                        console.warn('[WeatherContext]', e);
                         throw e; // Original error if fallback also fails
                     }
                 } else {
@@ -604,7 +605,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // --- REFRESH / SELECT ---
     const refreshData = useCallback((silent = false) => {
-        if (!navigator.onLine) { alert("Offline"); return; }
+        if (!navigator.onLine) { toast.error("Offline"); return; }
         const data = weatherDataRef.current;
         const loc = data?.locationName || settingsRef.current.defaultLocation || '';
 
@@ -943,7 +944,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 patched.sources = sources;
                 setWeatherData({ ...current, current: patched });
             } catch (e) {
-            console.warn('[WeatherContext]', e);
+                console.warn('[WeatherContext]', e);
                 // Silently ignore — full refresh will pick it up
             }
         }, LIVE_OVERLAY_INTERVAL);

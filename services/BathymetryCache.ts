@@ -1,0 +1,189 @@
+/**
+ * BathymetryCache — Preloads depth data for a route's bounding box.
+ *
+ * Instead of making individual HTTP calls for each isochrone node,
+ * this downloads the ENTIRE route area in ONE request via the gebco-depth
+ * edge function (which proxies to NOAA ETOPO ERDDAP server-side, avoiding CORS).
+ *
+ * Resolution: 0.25° (~15 NM) — sufficient for land avoidance routing.
+ * Typical payload: ~3000 grid points for a continental route.
+ */
+
+const getSupabaseUrl = (): string =>
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL)
+    || '';
+const getSupabaseKey = (): string =>
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
+
+const GRID_STRIDE = 15; // 15 arcminutes = 0.25° per cell
+const PADDING_DEG = 5;  // Padding around route bbox to allow for exploration
+
+export interface BathymetryGrid {
+    south: number;
+    north: number;
+    west: number;
+    east: number;
+    latStep: number;   // degrees per row
+    lonStep: number;   // degrees per col
+    rows: number;
+    cols: number;
+    data: Float32Array; // depth values (negative = underwater)
+}
+
+/**
+ * Preload bathymetry for a route bounding box via the gebco-depth edge function.
+ */
+export async function preloadBathymetry(
+    origin: { lat: number; lon: number },
+    destination: { lat: number; lon: number },
+): Promise<BathymetryGrid | null> {
+    // Calculate bounding box with padding
+    const south = Math.max(-90, Math.min(origin.lat, destination.lat) - PADDING_DEG);
+    const north = Math.min(90, Math.max(origin.lat, destination.lat) + PADDING_DEG);
+    const west = Math.min(origin.lon, destination.lon) - PADDING_DEG;
+    const east = Math.max(origin.lon, destination.lon) + PADDING_DEG;
+
+    console.info(`[BathyCache] Preloading ${south.toFixed(1)}–${north.toFixed(1)}°N, ${west.toFixed(1)}–${east.toFixed(1)}°E`);
+    const t0 = performance.now();
+
+    try {
+        const supabaseUrl = getSupabaseUrl();
+        const supabaseKey = getSupabaseKey();
+        const url = `${supabaseUrl}/functions/v1/gebco-depth`;
+
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+            },
+            body: JSON.stringify({
+                bbox: {
+                    south: parseFloat(south.toFixed(4)),
+                    north: parseFloat(north.toFixed(4)),
+                    west: parseFloat(west.toFixed(4)),
+                    east: parseFloat(east.toFixed(4)),
+                    stride: GRID_STRIDE,
+                },
+            }),
+            signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!resp.ok) {
+            console.warn(`[BathyCache] Edge function returned ${resp.status}`);
+            return null;
+        }
+
+        const data = await resp.json();
+
+        // The edge function returns: { grid: { table: { columnNames, rows } }, elapsed_ms }
+        const table = data?.grid?.table;
+        if (!table?.rows?.length) {
+            console.warn('[BathyCache] Empty response from edge function');
+            return null;
+        }
+
+        // Parse the rows to build a grid
+        const colNames = table.columnNames as string[];
+        const latIdx = colNames.indexOf('latitude');
+        const lonIdx = colNames.indexOf('longitude');
+        const zIdx = colNames.indexOf('altitude');
+
+        if (latIdx < 0 || lonIdx < 0 || zIdx < 0) {
+            console.warn('[BathyCache] Missing columns:', colNames);
+            return null;
+        }
+
+        const rows = table.rows as (number | null)[][];
+
+        // Extract unique lat/lon values to determine grid dimensions
+        const lats = new Set<number>();
+        const lons = new Set<number>();
+        for (const row of rows) {
+            if (row[latIdx] != null) lats.add(row[latIdx] as number);
+            if (row[lonIdx] != null) lons.add(row[lonIdx] as number);
+        }
+
+        const sortedLats = [...lats].sort((a, b) => a - b);
+        const sortedLons = [...lons].sort((a, b) => a - b);
+
+        if (sortedLats.length < 2 || sortedLons.length < 2) {
+            console.warn('[BathyCache] Insufficient grid dimensions');
+            return null;
+        }
+
+        const gridRows = sortedLats.length;
+        const gridCols = sortedLons.length;
+        const latStep = (sortedLats[sortedLats.length - 1] - sortedLats[0]) / (gridRows - 1);
+        const lonStep = (sortedLons[sortedLons.length - 1] - sortedLons[0]) / (gridCols - 1);
+
+        const gridData = new Float32Array(gridRows * gridCols);
+        gridData.fill(NaN);
+
+        // Map lat/lon to grid indices
+        const latMap = new Map<number, number>();
+        sortedLats.forEach((v, i) => latMap.set(v, i));
+        const lonMap = new Map<number, number>();
+        sortedLons.forEach((v, i) => lonMap.set(v, i));
+
+        for (const row of rows) {
+            const lat = row[latIdx] as number;
+            const lon = row[lonIdx] as number;
+            const z = row[zIdx];
+            const ri = latMap.get(lat);
+            const ci = lonMap.get(lon);
+            if (ri != null && ci != null) {
+                gridData[ri * gridCols + ci] = z != null ? z : NaN;
+            }
+        }
+
+        const grid: BathymetryGrid = {
+            south: sortedLats[0],
+            north: sortedLats[sortedLats.length - 1],
+            west: sortedLons[0],
+            east: sortedLons[sortedLons.length - 1],
+            latStep,
+            lonStep,
+            rows: gridRows,
+            cols: gridCols,
+            data: gridData,
+        };
+
+        const dt = Math.round(performance.now() - t0);
+        console.info(`[BathyCache] ✓ Loaded ${gridRows}×${gridCols} grid (${rows.length} points) in ${dt}ms`);
+
+        return grid;
+    } catch (err) {
+        console.warn('[BathyCache] Failed to preload:', err);
+        return null;
+    }
+}
+
+/**
+ * Fast local depth lookup from a preloaded bathymetry grid.
+ * Returns depth in meters (negative = underwater, positive = land).
+ */
+export function getDepthFromCache(grid: BathymetryGrid, lat: number, lon: number): number | null {
+    if (lat < grid.south || lat > grid.north || lon < grid.west || lon > grid.east) {
+        return null;
+    }
+
+    const ri = Math.round((lat - grid.south) / grid.latStep);
+    const ci = Math.round((lon - grid.west) / grid.lonStep);
+
+    if (ri < 0 || ri >= grid.rows || ci < 0 || ci >= grid.cols) {
+        return null;
+    }
+
+    const val = grid.data[ri * grid.cols + ci];
+    return isNaN(val) ? null : val;
+}
+
+/**
+ * Check if a point is on land using the cached bathymetry grid.
+ */
+export function isLand(grid: BathymetryGrid, lat: number, lon: number): boolean {
+    const depth = getDepthFromCache(grid, lat, lon);
+    if (depth === null) return false; // Unknown — assume water
+    return depth >= 0;
+}

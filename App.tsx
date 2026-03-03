@@ -73,7 +73,7 @@ const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
-    const { currentView, setPage, isOffline, transitionDirection } = useUI();
+    const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew';
 
     // 2. APP LOGIC / CONTROLLER
@@ -378,6 +378,18 @@ const App: React.FC = () => {
                                 onLocationSelect={handleMapTargetSelect}
                             />
                         </Suspense>
+                        {/* Back chevron — middle-left of screen */}
+                        <div className="absolute z-[601] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                            <button
+                                onClick={() => setPage(previousView === 'route' ? 'route' : 'dashboard')}
+                                aria-label="Back"
+                                className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
+                            >
+                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 )}
 

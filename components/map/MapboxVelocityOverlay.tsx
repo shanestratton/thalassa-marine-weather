@@ -34,14 +34,14 @@ interface MapboxVelocityOverlayProps {
     visible: boolean;
 }
 
-// Beaufort-inspired marine color scale (Light → Severe)
+// Speed-based wind particle scale — steel blue → amber → coral
 const WIND_COLORS = [
-    '#3498db', // 0-10 kts: Calm/Light (Blue)
-    '#2ecc71', // 10-15 kts: Moderate (Green)
-    '#f1c40f', // 15-20 kts: Fresh (Yellow)
-    '#e67e22', // 20-25 kts: Strong (Orange)
-    '#e74c3c', // 25-35 kts: Near Gale/Gale (Red)
-    '#8e44ad', // 35+ kts: Severe (Purple)
+    '#8ca5c7', // 0-10 kts: Calm (steel blue)
+    '#a8b08c', // 10-15 kts: Moderate (muted sage)
+    '#d9bf80', // 15-20 kts: Fresh (warm amber)
+    '#d9a060', // 20-25 kts: Strong (deep amber)
+    '#cc6650', // 25-35 kts: Near Gale (burnt orange)
+    '#e05a50', // 35+ kts: Severe (coral red)
 ];
 
 // ── Helper: Create velocity layer ─────────────────────────────
@@ -65,23 +65,23 @@ function createVelocityLayer(data: any[]): L.Layer {
 const HEATMAP_SOURCE = 'wind-heatmap-src';
 const HEATMAP_LAYER = 'wind-heatmap-layer';
 
-/** Beaufort color stops: [maxKts, r, g, b] */
+/** Monochrome color stops: [maxKts, r, g, b] */
 const BEAUFORT_STOPS: [number, number, number, number][] = [
-    [5, 52, 152, 219],     // calm — blue
-    [10, 46, 204, 113],    // light — green
-    [15, 241, 196, 15],    // moderate — yellow
-    [20, 230, 126, 34],    // fresh — orange
-    [25, 231, 76, 60],     // strong — red
-    [30, 192, 57, 43],     // gale — dark red
-    [40, 142, 68, 173],    // storm — purple
-    [999, 100, 30, 120],   // violent — deep purple
+    [5, 15, 18, 23],       // calm — near-black
+    [10, 30, 33, 40],      // light — dark slate
+    [15, 50, 53, 60],      // moderate — mid slate
+    [20, 75, 78, 84],      // fresh — grey
+    [25, 107, 107, 110],   // strong — light grey
+    [30, 140, 102, 76],    // gale — muted amber
+    [40, 166, 76, 71],     // storm — muted coral
+    [999, 178, 64, 76],    // violent — warm red
 ];
 
 function ktsToColor(kts: number): [number, number, number] {
     for (const [max, r, g, b] of BEAUFORT_STOPS) {
         if (kts <= max) return [r, g, b];
     }
-    return [100, 30, 120];
+    return [178, 64, 76];
 }
 
 function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
@@ -113,7 +113,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             imgData.data[px] = r;
             imgData.data[px + 1] = g;
             imgData.data[px + 2] = b;
-            imgData.data[px + 3] = 140;
+            imgData.data[px + 3] = 40;
         }
     }
     ctx.putImageData(imgData, 0, 0);
@@ -163,7 +163,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
         });
         map.addLayer({
             id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
         });
 
         // Right: -180° → (east - 360)
@@ -175,7 +175,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
         });
         map.addLayer({
             id: rLyr, type: 'raster', source: rSrc,
-            paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
         });
 
 
@@ -207,7 +207,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             });
             map.addLayer({
                 id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-                paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
             });
         }
 
@@ -224,7 +224,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             });
             map.addLayer({
                 id: rLyr, type: 'raster', source: rSrc,
-                paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
             });
         }
 
@@ -238,7 +238,7 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
         });
         map.addLayer({
             id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.30, 'raster-fade-duration': 300 }
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
         });
 
     }
@@ -397,23 +397,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [visible, mapboxMap]);
 
-    // ── Heat map layer (synchronous, decoupled from async Leaflet setup) ──
-    useEffect(() => {
-        if (!mapboxMap || !visible || !windData) {
-            return;
-        }
-        try {
-            injectHeatMap(mapboxMap, windData);
-            // Verify layers were created
-            const hasMain = !!mapboxMap.getLayer(HEATMAP_LAYER);
-            const hasRight = !!mapboxMap.getLayer(HEATMAP_LAYER + '_r');
-        } catch (err) {
-            console.error('[HeatMap] Injection failed:', err);
-        }
-        return () => { removeHeatMap(mapboxMap); };
-    }, [mapboxMap, visible, windData]);
+    // ── Heat map layer DISABLED — clean dark map with particles only ──
+    // useEffect(() => {
+    //     if (!mapboxMap || !visible || !windData) return;
+    //     try { injectHeatMap(mapboxMap, windData); } catch (err) { console.error('[HeatMap]', err); }
+    //     return () => { removeHeatMap(mapboxMap); };
+    // }, [mapboxMap, visible, windData]);
 
-    // ── Hide particles at low zoom (heatmap stays visible at all zooms) ──
+    // ── Zoom-based particle visibility (heatmap disabled) ──
     useEffect(() => {
         if (!mapboxMap || !visible) return;
         const MIN_PARTICLE_ZOOM = 4;
@@ -421,22 +412,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const onZoom = () => {
             const z = mapboxMap.getZoom();
             const showParticles = z >= MIN_PARTICLE_ZOOM;
-
-            // Toggle Leaflet particle overlay div (hide at low zoom — too chaotic)
             if (overlayRef.current) {
                 overlayRef.current.style.display = showParticles ? '' : 'none';
-            }
-
-            // Heatmap always visible — ensure it's injected
-            if (windData && !mapboxMap.getSource(HEATMAP_SOURCE)) {
-                try { injectHeatMap(mapboxMap, windData); } catch (_) { /* ok */ }
             }
         };
 
         mapboxMap.on('zoom', onZoom);
-        onZoom(); // Apply immediately
+        onZoom();
         return () => { mapboxMap.off('zoom', onZoom); };
-    }, [mapboxMap, visible, windData]);
+    }, [mapboxMap, visible]);
 
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {

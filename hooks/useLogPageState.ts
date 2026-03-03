@@ -9,10 +9,11 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
+import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
 import { supabase } from '../services/supabase';
 import { BgGeoManager } from '../services/BgGeoManager';
-import { ShipLogEntry } from '../types';
+
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { exportToCSV, sharePDF } from '../utils/logExport';
@@ -311,7 +312,7 @@ export function useLogPageState() {
                     if (mounted) await loadData();
                 }, 1500);
             } catch (e) {
-            console.warn('[useLogPageState]', e);
+                console.warn('[useLogPageState]', e);
                 /* Init or load failure — stop spinner to show empty state */
                 if (mounted) dispatch({ type: 'DONE_LOADING' });
             } finally {
@@ -394,18 +395,18 @@ export function useLogPageState() {
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking().then(() => loadData()).catch((error: unknown) => {
             dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-            alert(getErrorMessage(error) || 'Failed to start tracking');
+            toast.error(getErrorMessage(error) || 'Failed to start tracking');
         });
-    }, [state.entries, loadData]);
+    }, [state.entries, loadData, toast]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
         // Instant UI response — dispatch first, service call is fire-and-forget
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking().then(() => loadData()).catch((error: unknown) => {
             dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-            alert(getErrorMessage(error) || 'Failed to start tracking');
+            toast.error(getErrorMessage(error) || 'Failed to start tracking');
         });
-    }, [loadData]);
+    }, [loadData, toast]);
 
     const continueLastVoyage = useCallback(async () => {
         // Instant UI response — dispatch first, service call is fire-and-forget
@@ -413,9 +414,9 @@ export function useLogPageState() {
         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
         ShipLogService.startTracking(false, state.lastVoyageId || undefined).then(() => loadData()).catch((error: unknown) => {
             dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-            alert(getErrorMessage(error) || 'Failed to continue tracking');
+            toast.error(getErrorMessage(error) || 'Failed to continue tracking');
         });
-    }, [state.lastVoyageId, loadData]);
+    }, [state.lastVoyageId, loadData, toast]);
 
     const handlePauseTracking = useCallback(async () => {
         await ShipLogService.pauseTracking();
@@ -447,16 +448,43 @@ export function useLogPageState() {
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
 
-    const handleDeleteEntry = useCallback(async (entryId: string) => {
-        if (confirm('Delete this entry?')) {
-            const success = await ShipLogService.deleteEntry(entryId);
-            if (success) {
-                dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.id !== entryId) });
-            } else {
+    // ── Soft-delete with undo ──
+    const [deletedEntry, setDeletedEntry] = useState<ShipLogEntry | null>(null);
+    const deleteEntryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleDeleteEntry = useCallback((entryId: string) => {
+        const entry = state.entries.find(e => e.id === entryId);
+        if (!entry) return;
+
+        // Remove from UI immediately
+        dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.id !== entryId) });
+        setDeletedEntry(entry);
+
+        // Schedule actual delete after 5s
+        if (deleteEntryTimerRef.current) clearTimeout(deleteEntryTimerRef.current);
+        deleteEntryTimerRef.current = setTimeout(async () => {
+            try {
+                const success = await ShipLogService.deleteEntry(entryId);
+                if (!success) {
+                    toast.error('Failed to delete entry');
+                    dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
+                }
+            } catch (e) {
                 toast.error('Failed to delete entry');
+                dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
             }
+            setDeletedEntry(null);
+        }, 5000);
+    }, [state.entries, toast]);
+
+    const handleUndoDeleteEntry = useCallback(() => {
+        if (deleteEntryTimerRef.current) clearTimeout(deleteEntryTimerRef.current);
+        if (deletedEntry) {
+            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, deletedEntry] });
+            toast.success('Entry restored');
         }
-    }, [toast]);
+        setDeletedEntry(null);
+    }, [deletedEntry, toast]);
 
     const handleEditEntry = useCallback((entry: ShipLogEntry) => {
         dispatch({ type: 'SET_EDIT_ENTRY', entry });
@@ -480,6 +508,12 @@ export function useLogPageState() {
         dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId });
     }, []);
 
+    // Track shared voyage warning state for ConfirmDialog in UI
+    const [showSharedVoyageWarning, setShowSharedVoyageWarning] = useState<{
+        voyageId: string;
+        trackInfo: string;
+    } | null>(null);
+
     const handleConfirmDeleteVoyage = useCallback(async () => {
         if (!state.deleteVoyageId) return;
         const voyageId = state.deleteVoyageId;
@@ -491,32 +525,45 @@ export function useLogPageState() {
                 const trackInfo = sharedTracks.map(t =>
                     `"${t.title}" (${t.download_count || 0} downloads)`
                 ).join(', ');
-                const shouldDeleteShared = confirm(
-                    `⚠️ This voyage has been shared to the community as ${trackInfo}.\n\n` +
-                    `Deleting this voyage will also remove it from the community.\n\n` +
-                    `Continue?`
-                );
-                if (!shouldDeleteShared) {
-                    dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
-                    return;
-                }
-                // Delete the community share(s) first
-                await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
+                // Show custom confirm dialog instead of native confirm()
+                setShowSharedVoyageWarning({ voyageId, trackInfo });
+                return; // Wait for user to confirm via UI
             }
         } catch (e) {
-            console.warn('[useLogPageState]', e);
-            // Shared track check failed — proceed with local delete anyway
+            console.warn('[useLogPageState] shared track check failed:', e);
         }
+
+        // No shared tracks — proceed directly
+        await executeVoyageDelete(voyageId);
+    }, [state.deleteVoyageId]);
+
+    const executeVoyageDelete = useCallback(async (voyageId: string) => {
+        // Delete community shares if any
+        try {
+            await TrackSharingService.deleteSharedTracksByVoyageId(voyageId);
+        } catch (e) { /* ok — may not exist */ }
 
         const success = await ShipLogService.deleteVoyage(voyageId);
         if (success) {
             dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== voyageId) });
-            reloadCareerData(); // Refresh career totals immediately
+            reloadCareerData();
         } else {
             toast.error('Failed to delete voyage');
         }
         dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
-    }, [state.deleteVoyageId, toast, reloadCareerData]);
+        setShowSharedVoyageWarning(null);
+    }, [toast, reloadCareerData]);
+
+    const confirmDeleteSharedVoyage = useCallback(() => {
+        if (showSharedVoyageWarning) {
+            executeVoyageDelete(showSharedVoyageWarning.voyageId);
+        }
+    }, [showSharedVoyageWarning, executeVoyageDelete]);
+
+    const cancelDeleteSharedVoyage = useCallback(() => {
+        dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId: null });
+        setShowSharedVoyageWarning(null);
+    }, []);
 
     // ── Export / Share ───────────────────────────────────────────────────────
 
@@ -746,6 +793,8 @@ export function useLogPageState() {
 
         // Entry CRUD
         handleDeleteEntry,
+        handleUndoDeleteEntry,
+        deletedEntry,
         handleEditEntry,
         handleSaveEdit,
         loadData,
@@ -754,6 +803,9 @@ export function useLogPageState() {
         toggleVoyage,
         handleDeleteVoyageRequest,
         handleConfirmDeleteVoyage,
+        showSharedVoyageWarning,
+        confirmDeleteSharedVoyage,
+        cancelDeleteSharedVoyage,
 
         // Export / share
         handleExportCSV,

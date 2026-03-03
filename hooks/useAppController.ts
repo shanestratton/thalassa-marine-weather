@@ -129,7 +129,7 @@ export const useAppController = () => {
     };
 
     const handleLocate = () => {
-        if (isOffline) { alert("GPS requires network."); return; }
+        if (isOffline) { toast.error("GPS requires network."); return; }
         setQuery("Locating...");
         navigator.geolocation.getCurrentPosition(async (pos) => {
             const { latitude, longitude } = pos.coords;
@@ -192,7 +192,7 @@ export const useAppController = () => {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
             } catch (e) {
-            console.warn('[useAppController]', e);
+                console.warn('[useAppController]', e);
                 // Geocode failed — fall through
             }
         }

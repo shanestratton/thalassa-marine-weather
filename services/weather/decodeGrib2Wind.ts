@@ -142,25 +142,32 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                 // Octets 31-34: Ni (columns) and 35-38: Nj (rows)
                 width = view.getUint32(pos + 30, false);
                 height = view.getUint32(pos + 34, false);
-                // Octets 47-50: La1, 51-54: Lo1 (microdegrees) — these parse correctly
-                lat1 = view.getInt32(pos + 46, false) / 1e6;
-                lon1 = view.getInt32(pos + 50, false) / 1e6;
 
-                // La2/Lo2 byte offsets are unreliable in some GRIB2 encoders.
-                // Strategy: try multiple offsets, then fall back to inferring from grid dims.
-                let la2Raw = view.getInt32(pos + 55, false) / 1e6;
-                let lo2Raw = view.getInt32(pos + 59, false) / 1e6;
+                // GRIB2 lat/lon uses sign-magnitude encoding:
+                // Bit 31 = sign (1 = negative), bits 0-30 = magnitude in microdegrees
+                const readSignMag = (byteOff: number): number => {
+                    const raw = view.getUint32(byteOff, false);
+                    const sign = (raw & 0x80000000) ? -1 : 1;
+                    const mag = raw & 0x7FFFFFFF;
+                    return sign * mag / 1e6;
+                };
+
+                // Octets 47-50: La1, 51-54: Lo1 (microdegrees)
+                lat1 = readSignMag(pos + 46);
+                lon1 = readSignMag(pos + 50);
+
+                // La2/Lo2 — try standard offsets first
+                let la2Raw = readSignMag(pos + 55);
+                let lo2Raw = readSignMag(pos + 59);
 
                 // Try +1 byte offset if standard fails
                 if (Math.abs(la2Raw) > 90.001) {
-                    la2Raw = view.getInt32(pos + 56, false) / 1e6;
-                    lo2Raw = view.getInt32(pos + 60, false) / 1e6;
+                    la2Raw = readSignMag(pos + 56);
+                    lo2Raw = readSignMag(pos + 60);
                 }
 
                 // Infer grid bounds from La1 + dimensions if La2/Lo2 still look wrong.
-                // For a regular lat/lon grid: spacing = total_span / (N - 1)
                 const la2Valid = Math.abs(la2Raw) <= 90.001;
-                // For Lo2: GFS uses 0..359° (width=360), expect Lo2 near 359°
                 const lo2Valid = lo2Raw > 0 && lo2Raw <= 360.001;
 
                 if (la2Valid && lo2Valid) {
@@ -174,6 +181,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                     lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
                 }
 
+                console.debug(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
                 break;
             }
 

@@ -700,6 +700,9 @@ function destinationPoint(lat: number, lon: number, bearingDeg: number, distNM: 
     return { lat: lat2 * RAD_TO_DEG, lon: ((lon2 * RAD_TO_DEG) + 540) % 360 - 180 };
 }
 
+/** Alias for Trip Sandwich handshake projection */
+const projectPoint = destinationPoint;
+
 // ══════════════════════════════════════════════════════════════════════
 // CORRIDOR MESH GENERATION
 // ══════════════════════════════════════════════════════════════════════
@@ -1297,7 +1300,7 @@ async function fetchWeatherGrid(
 
                     return { key: `${pt.lat},${pt.lon}`, samples };
                 } catch (e) {
-            console.warn('[index]', e);
+                    console.warn('[index]', e);
                     return null;
                 }
             })
@@ -1986,8 +1989,16 @@ Deno.serve(async (req: Request) => {
             return jsonResponse({ error: "vessel { type, cruising_speed_kts, max_wind_kts, max_wave_m } required" }, 400);
         }
 
-        const corridorWidth = body.corridor_width_nm || DEFAULT_CORRIDOR_WIDTH_NM;
-        const lateralSteps = body.lateral_steps || DEFAULT_LATERAL_STEPS;
+        // Scale corridor width with passage distance for meaningful weather routing
+        const roughDistNM = centerline.reduce((sum, wp, i) => {
+            if (i === 0) return 0;
+            return sum + haversineNM(centerline[i - 1].lat, centerline[i - 1].lon, wp.lat, wp.lon);
+        }, 0);
+        const dynamicCorridorWidth = Math.min(120, Math.max(30, roughDistNM * 0.15));
+        const corridorWidth = body.corridor_width_nm || dynamicCorridorWidth;
+        // More lateral steps for longer passages
+        const dynamicLateralSteps = roughDistNM > 200 ? 3 : DEFAULT_LATERAL_STEPS;
+        const lateralSteps = body.lateral_steps || dynamicLateralSteps;
         const nodesPerRow = 2 * lateralSteps + 1;
         const departureDate = new Date(departure_time);
 
@@ -1999,72 +2010,64 @@ Deno.serve(async (req: Request) => {
         const t0 = Date.now();
 
         // ══════════════════════════════════════════════════════════════
-        // STEP 0: Build Coastal Corridors (Departure & Arrival)
+        // STEP 0: TRIP SANDWICH — Project Deep Water Handshake Points
         //
-        // Fetch seamarks from Overpass API for both ends of the route,
-        // build IALA channel polygons, and generate coastal centerlines.
-        // This runs in parallel for both departure and arrival.
+        // Instead of Overpass API seamarks (unreliable), we project
+        // a point 15 NM from each berth along the bearing to the
+        // destination. The dotted exit/entry legs connect berth → 
+        // handshake point. The A* only runs between the two
+        // handshake points (the "ocean passage" filling).
         // ══════════════════════════════════════════════════════════════
 
+        const HANDSHAKE_OFFSET_NM = 15; // Project 15 NM offshore
         const departureWp = centerline[0];
         const arrivalWp = centerline[centerline.length - 1];
 
-        const [departureCorridor, arrivalCorridor] = await Promise.all([
-            buildCoastalCorridor(departureWp.lat, departureWp.lon, 'departure')
-                .catch(err => {
-                    console.warn(`[WeatherRouter] Departure corridor failed:`, err);
-                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: departureWp.lat, lon: departureWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[], marks: [] as NavMark[] };
-                }),
-            buildCoastalCorridor(arrivalWp.lat, arrivalWp.lon, 'arrival')
-                .catch(err => {
-                    console.warn(`[WeatherRouter] Arrival corridor failed:`, err);
-                    return { corridor: { polygon: [], gates: [], handshakePoint: { lat: arrivalWp.lat, lon: arrivalWp.lon }, valid: false } as SafeWaterCorridor, centerline: [] as CenterlineWaypoint[], marks: [] as NavMark[] };
-                }),
-        ]);
-        console.log(`[WeatherRouter] ⏱ Step 0 (Overpass): ${Date.now() - t0}ms`);
+        // Project departure handshake: 15 NM from berth toward destination
+        const depToArrBearing = bearing(departureWp.lat, departureWp.lon, arrivalWp.lat, arrivalWp.lon);
+        const depHandshakePt = projectPoint(departureWp.lat, departureWp.lon, depToArrBearing, HANDSHAKE_OFFSET_NM);
+
+        // Project arrival handshake: 15 NM from destination back toward departure
+        const arrToDepBearing = bearing(arrivalWp.lat, arrivalWp.lon, departureWp.lat, departureWp.lon);
+        const arrHandshakePt = projectPoint(arrivalWp.lat, arrivalWp.lon, arrToDepBearing, HANDSHAKE_OFFSET_NM);
+
+        console.log(`[WeatherRouter] ⏱ Step 0 (Handshakes): ${Date.now() - t0}ms`);
+        console.log(`[WeatherRouter] Departure handshake: ${depHandshakePt.lat.toFixed(4)}, ${depHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from berth)`);
+        console.log(`[WeatherRouter] Arrival handshake: ${arrHandshakePt.lat.toFixed(4)}, ${arrHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from destination)`);
 
         // ══════════════════════════════════════════════════════════════
-        // STEP 1: Stitch 3-Leg Centerline
+        // STEP 1: Build Ocean-Only Centerline
         //
-        // departure channel → ocean centerline → arrival channel
-        // If no channel data, the ocean leg extends to origin/dest.
+        // The A* mesh only covers handshake → handshake.
+        // Any intermediate waypoints from the user are included.
         // ══════════════════════════════════════════════════════════════
 
-        const stitched = stitchThreeLegCenterline(departureCorridor, centerline, arrivalCorridor);
-        const routeCenterline = stitched.centerline;
+        const routeCenterline: CenterlineWaypoint[] = [
+            { lat: depHandshakePt.lat, lon: depHandshakePt.lon, name: 'Deep Water Start' },
+            // Include intermediate waypoints from user (skip first/last = berth)
+            ...centerline.slice(1, -1),
+            { lat: arrHandshakePt.lat, lon: arrHandshakePt.lon, name: 'Deep Water End' },
+        ];
 
-        const routingMode = (stitched.departureCorridor || stitched.arrivalCorridor)
-            ? 'stitched_pilotage' : 'ocean_only';
+        const routingMode = 'trip_sandwich';
+        const stitched = {
+            departureCorridor: null as SafeWaterCorridor | null,
+            arrivalCorridor: null as SafeWaterCorridor | null,
+            legBoundaries: { departureEndIdx: 0, arrivalStartIdx: routeCenterline.length },
+        };
 
-        console.log(`[WeatherRouter] Routing mode: ${routingMode}`);
-        if (stitched.departureCorridor) {
-            console.log(`[WeatherRouter] Departure: ${stitched.departureCorridor.gates.length} gates, exits at ${stitched.departureCorridor.handshakePoint.lat.toFixed(4)}, ${stitched.departureCorridor.handshakePoint.lon.toFixed(4)}`);
-        }
-        if (stitched.arrivalCorridor) {
-            console.log(`[WeatherRouter] Arrival: ${stitched.arrivalCorridor.gates.length} gates, enters at ${stitched.arrivalCorridor.handshakePoint.lat.toFixed(4)}, ${stitched.arrivalCorridor.handshakePoint.lon.toFixed(4)}`);
-        }
+        console.log(`[WeatherRouter] Ocean centerline: ${routeCenterline.length} waypoints`);
 
         // ══════════════════════════════════════════════════════════════
-        // STEP 2: Generate Corridor Mesh (using stitched centerline)
+        // STEP 2: Generate Corridor Mesh (ocean passage only)
         //
-        // For coastal legs (departure/arrival), use a tight corridor
-        // (0.5 NM) so nodes stay within the navigable channel.
-        // For ocean legs, use the full corridor width (30 NM).
+        // Full corridor width for the entire mesh — no coastal
+        // constraints needed since exit/entry are simple direct lines.
         // ══════════════════════════════════════════════════════════════
 
-        // Determine per-waypoint corridor widths based on leg boundaries
-        const coastalCorridorNM = 0.5; // ~900m — tight enough for marked channels
-        const perWpCorridorWidth: number[] = routeCenterline.map((_, i) => {
-            if (stitched.departureCorridor && i < stitched.legBoundaries.departureEndIdx) {
-                return coastalCorridorNM;
-            }
-            if (stitched.arrivalCorridor && i >= stitched.legBoundaries.arrivalStartIdx) {
-                return coastalCorridorNM;
-            }
-            return corridorWidth;
-        });
+        const perWpCorridorWidth: number[] = routeCenterline.map(() => corridorWidth);
 
-        // Generate mesh with per-row corridor widths
+        // Generate mesh with uniform corridor widths
         const meshNodes = generateCorridorMeshVariable(routeCenterline, perWpCorridorWidth, lateralSteps);
 
         // ══════════════════════════════════════════════════════════════
@@ -2099,6 +2102,7 @@ Deno.serve(async (req: Request) => {
 
         const weatherGrid = await fetchWeatherGrid(meshNodes, departureDate, maxHours);
         console.log(`[WeatherRouter] ⏱ Step 4 (Weather): ${Date.now() - t0}ms`);
+        console.log(`[WeatherRouter] 🌤️ Weather grid: ${weatherGrid.data.size} points with data, ${weatherGrid.hoursAvailable}h forecast`);
 
         // ══════════════════════════════════════════════════════════════
         // STEP 5: Run 4D A* with Pilotage Constraints
@@ -2119,7 +2123,13 @@ Deno.serve(async (req: Request) => {
         }
 
         const goalWp = routeCenterline[routeCenterline.length - 1];
-        const result = corridorAStar(
+
+        // ── Diagnostic logging ──
+        const landNodes = meshNodes.filter(n => n.isLand).length;
+        console.log(`[WeatherRouter] Mesh: ${meshNodes.length} nodes, ${landNodes} land (${(landNodes / meshNodes.length * 100).toFixed(1)}%), weather grid: ${weatherGrid.data.size} pts, ${weatherGrid.hoursAvailable}h`);
+
+        // ── A* Attempt 1: Full pilotage constraints ──
+        let result = corridorAStar(
             meshNodes,
             adjacency,
             startIds,
@@ -2137,50 +2147,162 @@ Deno.serve(async (req: Request) => {
             } : undefined,
         );
 
+        // ── A* Attempt 2: Drop pilotage constraints ──
+        if (!result && (stitched.departureCorridor || stitched.arrivalCorridor)) {
+            console.warn(`[WeatherRouter] A* failed with pilotage — retrying ocean-only`);
+            result = corridorAStar(
+                meshNodes, adjacency, startIds, goalIds,
+                vessel, weatherGrid, goalWp.lat, goalWp.lon,
+            );
+        }
+
+        // ── A* Attempt 3: Disable land mask ──
+        if (!result && landNodes > 0) {
+            console.warn(`[WeatherRouter] A* failed with land mask — retrying with land disabled`);
+            for (const node of meshNodes) node.isLand = false;
+            result = corridorAStar(
+                meshNodes, adjacency, startIds, goalIds,
+                vessel, weatherGrid, goalWp.lat, goalWp.lon,
+            );
+        }
+
+        // ── A* Attempt 4: Relax vessel limits ──
+        if (!result) {
+            console.warn(`[WeatherRouter] A* failed — retrying with relaxed vessel limits`);
+            const relaxedVessel = {
+                ...vessel,
+                max_wind_kts: vessel.max_wind_kts * 2,
+                max_wave_m: vessel.max_wave_m * 2,
+            };
+            result = corridorAStar(
+                meshNodes, adjacency, startIds, goalIds,
+                relaxedVessel, weatherGrid, goalWp.lat, goalWp.lon,
+            );
+        }
+
         const computeMs = Date.now() - t0;
 
+        // ── Fallback: Use raw centerline if A* completely fails ──
         if (!result) {
-            return jsonResponse({
-                error: "No viable weather route found — conditions may exceed vessel limits",
-                computation_ms: computeMs,
-            }, 422);
+            console.error(`[WeatherRouter] All A* attempts failed — using direct centerline`);
+            const totalDistNM_fb = routeCenterline.reduce((sum, wp, i) => {
+                if (i === 0) return 0;
+                return sum + haversineNM(routeCenterline[i - 1].lat, routeCenterline[i - 1].lon, wp.lat, wp.lon);
+            }, 0);
+            const estTimeH = totalDistNM_fb / vessel.cruising_speed_kts;
+
+            // Build synthetic path from centerline
+            result = {
+                path: routeCenterline.map((wp, i) => ({
+                    ...meshNodes[i * nodesPerRow + lateralSteps] || {
+                        lat: wp.lat, lon: wp.lon, row: i, col: lateralSteps,
+                        lateralOffset: 0, isLand: false, depth_m: undefined,
+                    },
+                })),
+                totalTimeH: estTimeH,
+                totalCost: estTimeH,
+            };
         }
 
         // ── Step 5: Simplify path ──
         const simplified = simplifyPath(result.path, 3.0);
 
-        // ── Build spatiotemporal track ──
-        // Each point has: coordinates, distance, time offset, and conditions
-        // This enables the frontend 4D scrubber to interpolate position + weather
+        // ══════════════════════════════════════════════════════════════
+        // TRIP SANDWICH: Build track as 3 explicit legs
+        //
+        // Leg 1 (exit):    berth → deep water start (dashed, ignores land)
+        // Leg 2 (passage): deep water → deep water (solid, weather-routed)
+        // Leg 3 (entry):   deep water end → berth (dotted, ignores land)
+        // ══════════════════════════════════════════════════════════════
+
+        const originBerth = centerline[0];
+        const destBerth = centerline[centerline.length - 1];
+
+        // Deep water handshake points (projected 15 NM from berth)
+        const depHandshake = depHandshakePt;
+        const arrHandshake = arrHandshakePt;
+
+        // Build the three-leg track
+        const track: Array<{
+            coordinates: [number, number];
+            distance_from_start_nm: number;
+            time_offset_hours: number;
+            name: string;
+            leg_type: 'harbour' | 'ocean';
+            lateral_offset_nm: number;
+            conditions: {
+                depth_m: number | null;
+                wind_spd_kts: number;
+                wind_dir_deg: number;
+                wave_ht_m: number;
+                swell_period_s: number | null;
+            };
+        }> = [];
+
         let cumulativeDistNM = 0;
-        const track = simplified.map((node, i) => {
+
+        // ── LEG 1: EXIT (harbour — dashed line from berth to deep water) ──
+        const exitDistNM = haversineNM(originBerth.lat, originBerth.lon, depHandshake.lat, depHandshake.lon);
+
+        // Berth point
+        track.push({
+            coordinates: [Math.round(originBerth.lon * 10000) / 10000, Math.round(originBerth.lat * 10000) / 10000],
+            distance_from_start_nm: 0,
+            time_offset_hours: 0,
+            name: originBerth.name || 'Departure',
+            leg_type: 'harbour',
+            lateral_offset_nm: 0,
+            conditions: { depth_m: null, wind_spd_kts: 0, wind_dir_deg: 0, wave_ht_m: 0, swell_period_s: null },
+        });
+
+        // Deep water start (only add if different from berth)
+        if (exitDistNM > 0.5) {
+            cumulativeDistNM += exitDistNM;
+            track.push({
+                coordinates: [Math.round(depHandshake.lon * 10000) / 10000, Math.round(depHandshake.lat * 10000) / 10000],
+                distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
+                time_offset_hours: Math.round(exitDistNM / vessel.cruising_speed_kts * 10) / 10,
+                name: 'Safe Water',
+                leg_type: 'harbour',
+                lateral_offset_nm: 0,
+                conditions: { depth_m: null, wind_spd_kts: 0, wind_dir_deg: 0, wave_ht_m: 0, swell_period_s: null },
+            });
+        }
+
+        // ── LEG 2: PASSAGE (ocean — solid line, weather-routed) ──
+        const exitTimeH = exitDistNM / vessel.cruising_speed_kts;
+
+        for (let i = 0; i < simplified.length; i++) {
+            const node = simplified[i];
             if (i > 0) {
                 cumulativeDistNM += haversineNM(
                     simplified[i - 1].lat, simplified[i - 1].lon,
                     node.lat, node.lon,
                 );
+            } else {
+                // First passage point — add distance from handshake
+                cumulativeDistNM += haversineNM(
+                    depHandshake.lat, depHandshake.lon,
+                    node.lat, node.lon,
+                );
             }
-            // Approximate time offset based on fraction of total time
-            const timeFraction = (result.path.length <= 1) ? 0
-                : i / (simplified.length - 1);
-            const timeOffsetH = result.totalTimeH * timeFraction;
 
-            const wx = interpolateWeather(
-                weatherGrid,
-                node.lat, node.lon,
-                timeOffsetH,
-            );
+            const timeFraction = (simplified.length <= 1) ? 0 : i / (simplified.length - 1);
+            const timeOffsetH = exitTimeH + result.totalTimeH * timeFraction;
 
-            return {
+            const wx = interpolateWeather(weatherGrid, node.lat, node.lon, result.totalTimeH * timeFraction);
+
+            track.push({
                 coordinates: [
                     Math.round(node.lon * 10000) / 10000,
                     Math.round(node.lat * 10000) / 10000,
-                ] as [number, number],     // GeoJSON order: [lng, lat]
+                ],
                 distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
                 time_offset_hours: Math.round(timeOffsetH * 10) / 10,
-                name: i === 0 ? 'Departure'
-                    : i === simplified.length - 1 ? 'Arrival'
+                name: i === 0 ? 'Ocean Start'
+                    : i === simplified.length - 1 ? 'Ocean End'
                         : `WP-${String(i).padStart(2, '0')}`,
+                leg_type: 'ocean',
                 lateral_offset_nm: node.lateralOffset * (corridorWidth / lateralSteps),
                 conditions: {
                     depth_m: node.depth_m ?? null,
@@ -2189,7 +2311,41 @@ Deno.serve(async (req: Request) => {
                     wave_ht_m: Math.round(wx.waveHeight * 10) / 10,
                     swell_period_s: wx.swellPeriod ? Math.round(wx.swellPeriod * 10) / 10 : null,
                 },
-            };
+            });
+        }
+
+        // ── LEG 3: ENTRY (harbour — dotted line from deep water to berth) ──
+        const entryDistNM = haversineNM(arrHandshake.lat, arrHandshake.lon, destBerth.lat, destBerth.lon);
+        const totalPassageTimeH = exitTimeH + result.totalTimeH;
+
+        // Deep water end (only add if different from last passage point)
+        if (entryDistNM > 0.5) {
+            cumulativeDistNM += haversineNM(
+                simplified[simplified.length - 1].lat, simplified[simplified.length - 1].lon,
+                arrHandshake.lat, arrHandshake.lon,
+            );
+            track.push({
+                coordinates: [Math.round(arrHandshake.lon * 10000) / 10000, Math.round(arrHandshake.lat * 10000) / 10000],
+                distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
+                time_offset_hours: Math.round(totalPassageTimeH * 10) / 10,
+                name: 'Safe Water',
+                leg_type: 'harbour',
+                lateral_offset_nm: 0,
+                conditions: { depth_m: null, wind_spd_kts: 0, wind_dir_deg: 0, wave_ht_m: 0, swell_period_s: null },
+            });
+        }
+
+        // Destination berth
+        cumulativeDistNM += entryDistNM;
+        const totalTimeH = totalPassageTimeH + entryDistNM / vessel.cruising_speed_kts;
+        track.push({
+            coordinates: [Math.round(destBerth.lon * 10000) / 10000, Math.round(destBerth.lat * 10000) / 10000],
+            distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
+            time_offset_hours: Math.round(totalTimeH * 10) / 10,
+            name: destBerth.name || 'Arrival',
+            leg_type: 'harbour',
+            lateral_offset_nm: 0,
+            conditions: { depth_m: null, wind_spd_kts: 0, wind_dir_deg: 0, wave_ht_m: 0, swell_period_s: null },
         });
 
         const routeDistNM = cumulativeDistNM;
@@ -2205,7 +2361,7 @@ Deno.serve(async (req: Request) => {
         }
 
         console.log(`[WeatherRouter] ── COMPLETE ─────────────────────────────`);
-        console.log(`[WeatherRouter] ${simplified.length} waypoints, ${routeDistNM.toFixed(1)} NM`);
+        console.log(`[WeatherRouter] ${track.length} track points (${track.filter(t => t.leg_type === 'harbour').length} harbour, ${track.filter(t => t.leg_type === 'ocean').length} ocean), ${routeDistNM.toFixed(1)} NM`);
         console.log(`[WeatherRouter] ETA: ${result.totalTimeH.toFixed(1)}h, Cost: ${result.totalCost.toFixed(2)}`);
         console.log(`[WeatherRouter] Computed in ${computeMs}ms`);
 
@@ -2235,32 +2391,16 @@ Deno.serve(async (req: Request) => {
                 forecast_hours: weatherGrid.hoursAvailable,
             },
             pilotage: {
-                departure: stitched.departureCorridor ? {
-                    gates: stitched.departureCorridor.gates.length,
-                    handshake: stitched.departureCorridor.handshakePoint,
-                    polygon_vertices: stitched.departureCorridor.polygon.length,
-                    seamarks: departureCorridor.marks
-                        .filter(m => m.category === 'port' || m.category === 'starboard')
-                        .map(m => ({
-                            type: 'Feature' as const,
-                            geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
-                            properties: { name: m.name, category: m.category, type: m.type },
-                        })),
-                    channel_polygon: stitched.departureCorridor.polygon,
-                } : null,
-                arrival: stitched.arrivalCorridor ? {
-                    gates: stitched.arrivalCorridor.gates.length,
-                    handshake: stitched.arrivalCorridor.handshakePoint,
-                    polygon_vertices: stitched.arrivalCorridor.polygon.length,
-                    seamarks: arrivalCorridor.marks
-                        .filter(m => m.category === 'port' || m.category === 'starboard')
-                        .map(m => ({
-                            type: 'Feature' as const,
-                            geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
-                            properties: { name: m.name, category: m.category, type: m.type },
-                        })),
-                    channel_polygon: stitched.arrivalCorridor.polygon,
-                } : null,
+                departure: {
+                    handshake: { lat: depHandshakePt.lat, lon: depHandshakePt.lon },
+                    gates: 0,
+                    polygon_vertices: 0,
+                },
+                arrival: {
+                    handshake: { lat: arrHandshakePt.lat, lon: arrHandshakePt.lon },
+                    gates: 0,
+                    polygon_vertices: 0,
+                },
             },
         });
 

@@ -389,7 +389,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             .then((geojson: any) => {
                 setFetchedSeamarks(geojson);
             })
-            .catch(() => {});
+            .catch(() => { });
     }, []);
 
     // Merge prop-based seamarks with fetched ones
@@ -402,16 +402,58 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         return { type: 'FeatureCollection', features };
     }, [fetchedSeamarks, seamarkGeoJSON]);
 
-    // ── Route GeoJSON ──
-    const routeGeoJSON = useMemo(() => {
-        if (!track || track.length < 2) return null;
+    // ── Route GeoJSON — split into harbour legs (dashed) and ocean route (solid) ──
+    const { oceanRouteGeoJSON, departureHarbourGeoJSON, arrivalHarbourGeoJSON } = useMemo(() => {
+        if (!track || track.length < 2) return { oceanRouteGeoJSON: null, departureHarbourGeoJSON: null, arrivalHarbourGeoJSON: null };
+
+        // Find harbour/ocean boundaries using leg_type from route-weather
+        const hasLegTypes = track.some(t => t.leg_type);
+
+        if (!hasLegTypes) {
+            // No leg_type data (fallback track) — render full route as solid
+            return {
+                oceanRouteGeoJSON: {
+                    type: 'Feature' as const, properties: {},
+                    geometry: { type: 'LineString' as const, coordinates: track.map(t => t.coordinates) },
+                },
+                departureHarbourGeoJSON: null,
+                arrivalHarbourGeoJSON: null,
+            };
+        }
+
+        // Find transition points
+        const firstOceanIdx = track.findIndex(t => t.leg_type === 'ocean');
+        const lastOceanIdx = track.length - 1 - [...track].reverse().findIndex(t => t.leg_type === 'ocean');
+
+        // Departure harbour leg (dashed)
+        const depCoords = firstOceanIdx > 0
+            ? track.slice(0, firstOceanIdx + 1).map(t => t.coordinates)
+            : null;
+
+        // Arrival harbour leg (dashed)
+        const arrCoords = lastOceanIdx < track.length - 1
+            ? track.slice(lastOceanIdx).map(t => t.coordinates)
+            : null;
+
+        // Ocean route (solid) — from first ocean point to last ocean point
+        const oceanCoords = track.slice(
+            Math.max(0, firstOceanIdx),
+            lastOceanIdx + 1
+        ).map(t => t.coordinates);
+
         return {
-            type: 'Feature' as const,
-            properties: {},
-            geometry: {
-                type: 'LineString' as const,
-                coordinates: track.map(t => t.coordinates),
-            },
+            oceanRouteGeoJSON: oceanCoords.length >= 2 ? {
+                type: 'Feature' as const, properties: {},
+                geometry: { type: 'LineString' as const, coordinates: oceanCoords },
+            } : null,
+            departureHarbourGeoJSON: depCoords && depCoords.length >= 2 ? {
+                type: 'Feature' as const, properties: {},
+                geometry: { type: 'LineString' as const, coordinates: depCoords },
+            } : null,
+            arrivalHarbourGeoJSON: arrCoords && arrCoords.length >= 2 ? {
+                type: 'Feature' as const, properties: {},
+                geometry: { type: 'LineString' as const, coordinates: arrCoords },
+            } : null,
         };
     }, [track]);
 
@@ -452,7 +494,9 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.addLayer(windLayer as any);
+            console.info('[SpatiotemporalMap] Wind particle layer added to map');
         } catch (e) {
+            console.error('[SpatiotemporalMap] Failed to add wind layer:', e);
         }
 
         // Feed initial wind data from WindStore (if available)
@@ -461,14 +505,14 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         // Seamarks now rendered via React <Source>/<Layer> JSX (not imperatively)
     }, []);
 
-    // Feed wind data from WindStore
     const feedWindData = useCallback(() => {
         const layer = windLayerRef.current;
-        if (!layer) return;
+        if (!layer) { return; }
 
         const { grid } = WindStore.getState();
-        if (!grid) return;
+        if (!grid) { return; }
 
+        console.info(`[SpatiotemporalMap] Feeding wind data: ${grid.width}×${grid.height} to layer at hour=${currentTimeHours}`);
         layer.setGrid(grid, currentTimeHours);
     }, [currentTimeHours]);
 
@@ -520,124 +564,47 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             attributionControl={false}
         >
 
-            {/* ═══ CHANNEL POLYGON (pilotage corridor) ═══ */}
-            {channelPolygonGeoJSON && (
-                <Source id="channel-corridor" type="geojson" data={channelPolygonGeoJSON}>
-                    <Layer
-                        id="channel-fill"
-                        type="fill"
-                        paint={{
-                            'fill-color': '#ffaa00',
-                            'fill-opacity': 0.06,
-                        }}
-                    />
-                    <Layer
-                        id="channel-border"
-                        type="line"
-                        paint={{
-                            'line-color': '#ffaa00',
-                            'line-width': 1.5,
-                            'line-opacity': 0.4,
-                            'line-dasharray': [2, 3],
-                        }}
-                    />
+
+            {/* Corridor polygons removed — Trip Sandwich uses simple direct lines */}
+
+
+            {/* ═══ HARBOUR STITCHING LEGS (dashed sky-blue) ═══ */}
+            {departureHarbourGeoJSON && (
+                <Source id="departure-harbour" type="geojson" data={departureHarbourGeoJSON}>
+                    <Layer id="dep-harbour-glow" type="line" paint={{
+                        'line-color': '#87CEEB',
+                        'line-width': 4,
+                        'line-blur': 3,
+                        'line-opacity': 0.25,
+                    }} />
+                    <Layer id="dep-harbour-line" type="line" paint={{
+                        'line-color': '#87CEEB',
+                        'line-width': 1.5,
+                        'line-opacity': 0.7,
+                        'line-dasharray': [3, 4],
+                    }} />
+                </Source>
+            )}
+            {arrivalHarbourGeoJSON && (
+                <Source id="arrival-harbour" type="geojson" data={arrivalHarbourGeoJSON}>
+                    <Layer id="arr-harbour-glow" type="line" paint={{
+                        'line-color': '#87CEEB',
+                        'line-width': 4,
+                        'line-blur': 3,
+                        'line-opacity': 0.25,
+                    }} />
+                    <Layer id="arr-harbour-line" type="line" paint={{
+                        'line-color': '#87CEEB',
+                        'line-width': 1.5,
+                        'line-opacity': 0.7,
+                        'line-dasharray': [3, 4],
+                    }} />
                 </Source>
             )}
 
-            {/* ═══ SEAMARK MARKERS (from Supabase + pilotage) ═══ */}
-            {mergedSeamarks && (
-                <Source id="all-seamarks" type="geojson" data={mergedSeamarks}>
-                    {/* Outer glow (bioluminescent blur) */}
-                    <Layer
-                        id="seamarks-glow"
-                        type="circle"
-                        minzoom={8}
-                        paint={{
-                            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 8, 16, 16],
-                            'circle-blur': 0.8,
-                            'circle-opacity': 0.6,
-                            'circle-color': [
-                                'match', ['get', '_class'],
-                                'port', '#ff1744',
-                                'starboard', '#00e676',
-                                'cardinal_n', '#ffd600',
-                                'cardinal_s', '#ffd600',
-                                'cardinal_e', '#ffd600',
-                                'cardinal_w', '#ffd600',
-                                'cardinal', '#ffd600',
-                                'danger', '#ff6d00',
-                                'safe_water', '#ff1744',
-                                'light', '#ffffff',
-                                'special', '#ffab00',
-                                'mooring', '#40c4ff',
-                                'anchorage', '#40c4ff',
-                                '#888888',
-                            ],
-                        }}
-                    />
-                    {/* Core crisp dot */}
-                    <Layer
-                        id="seamarks-core"
-                        type="circle"
-                        minzoom={8}
-                        paint={{
-                            'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 12, 4, 16, 8],
-                            'circle-blur': 0.1,
-                            'circle-opacity': 0.9,
-                            'circle-color': [
-                                'match', ['get', '_class'],
-                                'port', '#ff1744',
-                                'starboard', '#00e676',
-                                'cardinal_n', '#ffd600',
-                                'cardinal_s', '#ffd600',
-                                'cardinal_e', '#ffd600',
-                                'cardinal_w', '#ffd600',
-                                'cardinal', '#ffd600',
-                                'danger', '#ff6d00',
-                                'safe_water', '#ff1744',
-                                'light', '#ffffff',
-                                'special', '#ffab00',
-                                'mooring', '#40c4ff',
-                                'anchorage', '#40c4ff',
-                                '#888888',
-                            ],
-                            'circle-stroke-width': 1,
-                            'circle-stroke-color': '#000000',
-                            'circle-stroke-opacity': 0.5,
-                        }}
-                    />
-                </Source>
-            )}
-
-            {/* ═══ CORRIDOR POLYGON (behind route) ═══ */}
-            {corridorGeoJSON && (
-                <Source id="corridor-area" type="geojson" data={corridorGeoJSON}>
-                    {/* Corridor fill */}
-                    <Layer
-                        id="corridor-fill"
-                        type="fill"
-                        paint={{
-                            'fill-color': '#00f0ff',
-                            'fill-opacity': 0.04,
-                        }}
-                    />
-                    {/* Corridor border */}
-                    <Layer
-                        id="corridor-border"
-                        type="line"
-                        paint={{
-                            'line-color': '#00f0ff',
-                            'line-width': 1,
-                            'line-opacity': 0.15,
-                            'line-dasharray': [4, 4],
-                        }}
-                    />
-                </Source>
-            )}
-
-            {/* ═══ ROUTE LAYERS ═══ */}
-            {routeGeoJSON && (
-                <Source id="passage-route" type="geojson" data={routeGeoJSON}>
+            {/* ═══ OCEAN ROUTE (solid glowing line) ═══ */}
+            {oceanRouteGeoJSON && (
+                <Source id="passage-route" type="geojson" data={oceanRouteGeoJSON}>
                     {/* Layer 1: Outer Halo (the glow) */}
                     <Layer
                         id="route-halo"
@@ -675,17 +642,29 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                 </Source>
             )}
 
-            {/* ═══ WAYPOINT MARKERS — Only Departure + Arrival ═══ */}
-            {track && track.length > 0 && [0, track.length - 1].map((i) => (
+            {/* ═══ WAYPOINT MARKERS — Departure + Arrival ═══ */}
+            {track && track.length > 0 && [
                 <Marker
-                    key={`wp-${i}`}
-                    longitude={track[i].coordinates[0]}
-                    latitude={track[i].coordinates[1]}
+                    key="wp-dep"
+                    longitude={track[0].coordinates[0]}
+                    latitude={track[0].coordinates[1]}
+                    anchor="top"
+                >
+                    <div style={{ transform: 'translateX(20px)' }}>
+                        <WaypointBadge point={track[0]} index={0} total={track.length} />
+                    </div>
+                </Marker>,
+                <Marker
+                    key="wp-arr"
+                    longitude={track[track.length - 1].coordinates[0]}
+                    latitude={track[track.length - 1].coordinates[1]}
                     anchor="bottom"
                 >
-                    <WaypointBadge point={track[i]} index={i} total={track.length} />
-                </Marker>
-            ))}
+                    <div style={{ transform: 'translateX(20px)' }}>
+                        <WaypointBadge point={track[track.length - 1]} index={track.length - 1} total={track.length} />
+                    </div>
+                </Marker>,
+            ]}
 
             {/* ═══ GHOST SHIP ═══ */}
             {ghostShip && (

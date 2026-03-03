@@ -83,8 +83,8 @@ export const useWeatherOverlay = (
         }
 
         // Map Events for Engine Sync
-        const handleMoveStart = () => engineRef.current?.setFastMode(false);
-        const handleZoomStart = () => engineRef.current?.setFastMode(true);
+        const handleMoveStart = () => { engineRef.current?.setFastMode(false); engineRef.current?.wake(); };
+        const handleZoomStart = () => { engineRef.current?.setFastMode(true); engineRef.current?.wake(); };
         const handleZoomEnd = () => {
             engineRef.current?.setFastMode(false);
             engineRef.current?.sync();
@@ -94,6 +94,7 @@ export const useWeatherOverlay = (
         const handleMove = () => {
             if (moveFrame) cancelAnimationFrame(moveFrame);
             moveFrame = requestAnimationFrame(() => engineRef.current?.sync());
+            engineRef.current?.wake();
         };
 
         // Optimization: Use ResizeObserver instead of window.resize
