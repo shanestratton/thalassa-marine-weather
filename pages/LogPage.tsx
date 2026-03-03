@@ -131,7 +131,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     latitude: wp.lat,
                     longitude: wp.lon,
                     entryType: idx === 0 ? 'manual' : 'waypoint',
-                    source: 'planned_passage',
+                    source: 'planned_route',
                     waypointName: wp.id === 'DEP' ? departure.name
                         : wp.id === 'ARR' ? arrival.name
                             : wp.id,

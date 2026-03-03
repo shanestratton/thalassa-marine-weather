@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { generateDiaryPDF } from '../utils/diaryExport';
 import { AnchorWatchService } from '../services/AnchorWatchService';
@@ -800,13 +801,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 </div>
 
                 {/* Compose body — flex column fills viewport, no scroll */}
-                <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-hidden">
+                <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-auto no-scrollbar">
                     {/* Title */}
                     <input
                         type="text"
                         placeholder="Entry title (optional)"
                         value={title}
                         onChange={e => setTitle(e.target.value)}
+                        onFocus={scrollInputAboveKeyboard}
                         className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                     />
 
@@ -859,6 +861,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 placeholder="Location name (e.g. Moreton Bay, Anchor in 4m)"
                                 value={locationName}
                                 onChange={e => setLocationName(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
                                 className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                             />
                         </div>
@@ -937,6 +940,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             placeholder={"What's happening out there, skipper?\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                             value={body}
                             onChange={e => setBody(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             className="flex-1 min-h-0 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                         />
 
@@ -974,6 +978,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 type="text"
                                 value={weatherSummary}
                                 onChange={e => setWeatherSummary(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
                                 className="flex-1 bg-transparent text-xs text-amber-200/90 font-medium outline-none placeholder-amber-600"
                                 placeholder="Weather conditions"
                             />

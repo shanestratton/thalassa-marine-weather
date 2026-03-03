@@ -257,6 +257,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             }
 
             saveVoyagePlan(enhancedPlan);
+
+            // ── Background: pre-compute isochrone so the map route is ready ──
+            if (enhancedPlan.originCoordinates && enhancedPlan.destinationCoordinates) {
+                import('../services/IsochronePrecomputeCache').then(({ precomputeIsochrone }) => {
+                    precomputeIsochrone(
+                        enhancedPlan.originCoordinates!,
+                        enhancedPlan.destinationCoordinates!,
+                        departureDate || new Date().toISOString(),
+                    );
+                }).catch(() => { /* Non-critical */ });
+            }
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');
         } finally {

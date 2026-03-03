@@ -61,6 +61,8 @@ const MAX_PHOTO_SIZE = 1200;
 class DiaryServiceClass {
 
     private _syncInProgress = false;
+    private _lastRefreshTime = 0;
+    private _refreshPromise: Promise<void> | null = null;
 
     constructor() {
         // Auto-sync when connectivity resumes
@@ -92,8 +94,12 @@ class DiaryServiceClass {
         ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, limit);
 
-        // Background refresh from Supabase (non-blocking)
-        this._refreshFromServer(limit);
+        // Background refresh from Supabase (non-blocking) — but throttle to max once per 5s
+        // to prevent stale overwrites during rapid create/read cycles
+        const now = Date.now();
+        if (now - this._lastRefreshTime > 5000) {
+            this._refreshFromServer(limit);
+        }
 
         return merged;
     }
@@ -159,7 +165,9 @@ class DiaryServiceClass {
         this._addPending(localEntry);
 
         // Try to sync immediately if online — await so we can return the synced entry
-        if (navigator.onLine && supabase) {
+        // NOTE: navigator.onLine is unreliable on iOS/Capacitor — use our connectivity probe
+        const isOnline = supabase ? await this._checkConnectivity() : false;
+        if (isOnline && supabase) {
             await this.syncPending();
 
             // If sync succeeded, the entry is no longer in the pending queue
@@ -331,7 +339,8 @@ class DiaryServiceClass {
 
             console.log(`[Diary] Syncing ${pending.length} pending entries…`);
 
-            // Try getUser first, fall back to getSession (Capacitor can have stale user cache)
+            // Try getUser first, fall back to getSession, then try refreshSession
+            // (Capacitor can have stale user cache / expired JWT)
             let userId: string | undefined;
             const userResp = await supabase.auth.getUser();
             userId = userResp.data.user?.id;
@@ -340,7 +349,20 @@ class DiaryServiceClass {
                 userId = sessionResp.data.session?.user?.id;
             }
             if (!userId) {
-                console.warn('[Diary] No authenticated user — skipping sync (will retry in 30s)');
+                // Last resort: force a token refresh — handles expired JWT edge case
+                console.warn('[Diary] Auth stale — attempting token refresh...');
+                try {
+                    const refreshResp = await supabase.auth.refreshSession();
+                    userId = refreshResp.data.session?.user?.id;
+                    if (userId) {
+                        console.log('[Diary] Token refresh succeeded — resuming sync');
+                    }
+                } catch (refreshErr) {
+                    console.warn('[Diary] Token refresh failed:', refreshErr);
+                }
+            }
+            if (!userId) {
+                console.warn('[Diary] No authenticated user after all attempts — skipping sync (will retry in 30s)');
                 return;
             }
 
@@ -479,7 +501,16 @@ class DiaryServiceClass {
     }
 
     private async _refreshFromServer(limit: number): Promise<void> {
-        if (!supabase || !navigator.onLine) return;
+        // Deduplicate concurrent calls — reuse in-flight promise
+        if (this._refreshPromise) return this._refreshPromise;
+        this._refreshPromise = this._doRefreshFromServer(limit);
+        try { await this._refreshPromise; } finally { this._refreshPromise = null; }
+    }
+
+    private async _doRefreshFromServer(limit: number): Promise<void> {
+        // NOTE: Don't gate on navigator.onLine — it's unreliable on Capacitor.
+        // Let the fetch fail gracefully in the try/catch below instead.
+        if (!supabase) return;
         try {
             const user = (await supabase.auth.getUser()).data.user;
             if (!user) return;
@@ -491,8 +522,26 @@ class DiaryServiceClass {
                 .order('created_at', { ascending: false })
                 .limit(limit);
 
-            if (data && data.length > 0) {
-                this._saveCachedEntries(data as DiaryEntry[]);
+            this._lastRefreshTime = Date.now();
+
+            if (data) {
+                // IMPORTANT: Always save whatever the server returns (even empty).
+                // This ensures deleted entries are properly removed from the cache.
+                // But we must ALSO preserve any still-pending entries so they don't
+                // vanish from the UI while waiting for sync.
+                const pending = this._getPendingEntries();
+                if (pending.length > 0) {
+                    // Merge: server data + pending entries (pending wins on collision)
+                    const serverIds = new Set((data as DiaryEntry[]).map(e => e.id));
+                    const pendingNotOnServer = pending.filter(e => !serverIds.has(e.id));
+                    const merged = [
+                        ...pendingNotOnServer,
+                        ...(data as DiaryEntry[]),
+                    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                    this._saveCachedEntries(merged);
+                } else {
+                    this._saveCachedEntries(data as DiaryEntry[]);
+                }
             }
         } catch (e) { console.error('[Diary] Server refresh failed:', e); }
     }

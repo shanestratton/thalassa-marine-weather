@@ -478,7 +478,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             vLayer.addTo(lMap);
             velocityLayerRef.current = vLayer;
 
-            // ── Sync Leaflet viewport to Mapbox (frame-perfect) ─────
+            // ── Sync Leaflet viewport to Mapbox ─────────────────
+            // PERF: Sync on moveend + throttled move instead of every render frame.
+            // The old approach (on('render', sync)) created a 60fps feedback loop
+            // because Leaflet.setView() triggers Mapbox repaint → fires render → repeat.
+            let syncThrottleTimer: ReturnType<typeof setTimeout> | null = null;
             const syncViewport = () => {
                 if (!leafletMapRef.current || !mapboxMap) return;
                 try {
@@ -487,13 +491,21 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
                 } catch (_) { /* velocity canvas not ready yet */ }
             };
+            const throttledSync = () => {
+                if (syncThrottleTimer) return;
+                syncThrottleTimer = setTimeout(() => {
+                    syncThrottleTimer = null;
+                    syncViewport();
+                }, 100); // max 10fps sync during pan/zoom
+            };
 
             const onResize = () => {
                 leafletMapRef.current?.invalidateSize();
                 syncViewport();
             };
 
-            mapboxMap.on('render', syncViewport);
+            mapboxMap.on('moveend', syncViewport);
+            mapboxMap.on('move', throttledSync);
             mapboxMap.on('resize', onResize);
             syncRef.current = syncViewport;
             resizeRef.current = onResize;
@@ -510,7 +522,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             cancelled = true;
 
             try {
-                if (syncRef.current) mapboxMap.off('render', syncRef.current);
+                if (syncRef.current) {
+                    mapboxMap.off('moveend', syncRef.current);
+                    mapboxMap.off('move', syncRef.current); // throttledSync captures same ref
+                }
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
             } catch (_) { /* ok */ }
             syncRef.current = null;

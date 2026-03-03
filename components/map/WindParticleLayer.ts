@@ -251,6 +251,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     // Trail buffer
     private trailData: Float32Array;
     private _debugFrame = 0;
+    private _lastRenderTime = 0;
     private particleAges: Int32Array;
 
     // ── Timeline: all timesteps stored as CPU arrays ──
@@ -916,6 +917,16 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private _renderLogCount = 0;
 
     render(gl: WebGLRenderingContext, matrixOrOptions: any): void {
+        // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
+        // Wind particles don't need 60fps; this cuts GPU load by ~75%.
+        const now = performance.now();
+        if (now - this._lastRenderTime < 66) {
+            // Schedule another frame but don't draw this one
+            this.map?.triggerRepaint();
+            return;
+        }
+        this._lastRenderTime = now;
+
         if (!this.program || !this.particleBuffer || !matrixOrOptions) {
             if (this._renderLogCount < 3) {
                 console.warn(`[WindGL] render bail: program=${!!this.program} buf=${!!this.particleBuffer} arg=${!!matrixOrOptions} timeline=${this.windTimeline.length}`);

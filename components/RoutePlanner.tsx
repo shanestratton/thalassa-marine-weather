@@ -11,6 +11,7 @@ import { VoyageResults } from './VoyageResults';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { t } from '../theme';
 import { useUI } from '../context/UIContext';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 
 
@@ -84,7 +85,10 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     }, []);
 
     return (
-        <div className="relative flex-1 h-full bg-slate-950 overflow-hidden flex flex-col">
+        <div
+            className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col transition-all duration-300"
+            style={keyboardHeight > 0 ? { height: `calc(100vh - ${keyboardHeight}px)`, maxHeight: `calc(100vh - ${keyboardHeight}px)` } : { height: '100vh' }}
+        >
 
 
 
@@ -276,6 +280,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     <MapPinIcon className="w-4 h-4" />
                                 </div>
                                 <input type="text" value={origin} onChange={e => setOrigin(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="Type port name or tap map…"
                                     aria-label="Departure port or location"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
@@ -297,6 +302,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     <MapPinIcon className="w-4 h-4" />
                                 </div>
                                 <input type="text" value={destination} onChange={e => setDestination(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="Type destination or tap map…"
                                     aria-label="Destination port or location"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
@@ -314,6 +320,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     <RouteIcon className="w-4 h-4" />
                                 </div>
                                 <input type="text" value={via} onChange={e => setVia(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="Via waypoint (optional)"
                                     aria-label="Via waypoint"
                                     className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-20 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner" />
@@ -339,6 +346,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </div>
                                     <input type="date" min={minDate} value={departureDate}
                                         onChange={(e) => { const d = e.target.value; if (!minDate || d >= minDate) setDepartureDate(d); }}
+                                        onFocus={scrollInputAboveKeyboard}
                                         aria-label="Departure date"
                                         className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }} />
@@ -349,6 +357,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </div>
                                     <input type="time" value={departureTime}
                                         onChange={(e) => setDepartureTime(e.target.value)}
+                                        onFocus={scrollInputAboveKeyboard}
                                         aria-label="Departure time"
                                         className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-emerald-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                                         style={{ WebkitAppearance: 'none' }} />
