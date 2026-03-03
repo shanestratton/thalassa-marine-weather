@@ -331,9 +331,16 @@ class DiaryServiceClass {
 
             console.log(`[Diary] Syncing ${pending.length} pending entries…`);
 
-            const user = (await supabase.auth.getUser()).data.user;
-            if (!user) {
-                console.warn('[Diary] No authenticated user — skipping sync');
+            // Try getUser first, fall back to getSession (Capacitor can have stale user cache)
+            let userId: string | undefined;
+            const userResp = await supabase.auth.getUser();
+            userId = userResp.data.user?.id;
+            if (!userId) {
+                const sessionResp = await supabase.auth.getSession();
+                userId = sessionResp.data.session?.user?.id;
+            }
+            if (!userId) {
+                console.warn('[Diary] No authenticated user — skipping sync (will retry in 30s)');
                 return;
             }
 
@@ -364,7 +371,7 @@ class DiaryServiceClass {
                     const { data, error } = await supabase
                         .from(TABLE)
                         .insert({
-                            user_id: user.id,
+                            user_id: userId,
                             title: entry.title,
                             body: entry.body,
                             mood: entry.mood,
@@ -429,10 +436,11 @@ class DiaryServiceClass {
                 method: 'HEAD',
                 signal: AbortSignal.timeout(5000),
             });
-            return res.ok || res.status === 401; // 401 = reachable but auth required — still online
+            return res.ok || res.status === 401 || res.status === 403; // reachable
         } catch (e) {
-            console.warn('[Diary] Connectivity check failed:', e);
-            return false;
+            // HEAD can fail due to CORS on iOS/Capacitor — be optimistic and try anyway
+            console.warn('[Diary] Connectivity probe failed (proceeding optimistically):', e);
+            return true;
         }
     }
 
