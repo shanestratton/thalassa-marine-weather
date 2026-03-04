@@ -97,12 +97,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
     const checkedCount = Object.values(checklistState).filter(Boolean).length;
 
     return (
-        <div className="max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700 pb-12 flex-1 flex flex-col">
+        <div className="max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700 pb-12 flex-1 flex flex-col gap-3">
 
             {/* ═══════════════════════════════════════════════════════════════════
                 VOYAGE OVERVIEW CARD — Always visible hero card (not collapsible)
                 ═══════════════════════════════════════════════════════════════════ */}
-            <div className="w-full bg-[#0f172a] border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col mb-4">
+            <div className="w-full bg-[#0f172a] border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col">
                 {/* Background Decorations */}
                 <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
@@ -115,16 +115,19 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         <span className="text-[11px] text-gray-500 font-mono mt-1">{fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}</span>
                     </div>
 
-                    {/* Connecting Route Line */}
-                    <div className="flex flex-col items-center justify-center shrink-0 gap-1 py-2 min-w-[80px] md:min-w-[160px]">
-                        <span className="text-[11px] font-bold text-sky-400">{voyagePlan.distanceApprox}</span>
-                        <div className="w-full h-0.5 bg-gradient-to-r from-gray-700 via-sky-500 to-gray-700 relative">
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-1 bg-[#0f172a] border border-sky-500 rounded-full">
-                                <BoatIcon className="w-3 h-3 md:w-4 md:h-4 text-white" />
+                    {/* Nautical Route Connector */}
+                    <div className="flex flex-col items-center justify-center shrink-0 gap-0.5 py-2 min-w-[80px] md:min-w-[140px]">
+                        <div className="w-full flex items-center gap-0">
+                            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-sky-500/40 to-sky-500/60" />
+                            <div className="p-1.5 bg-sky-500/10 border border-sky-500/30 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.15)]">
+                                {vessel?.type === 'power'
+                                    ? <PowerBoatIcon className="w-3.5 h-3.5 text-sky-400" />
+                                    : <SailBoatIcon className="w-3.5 h-3.5 text-sky-400" />
+                                }
                             </div>
+                            <div className="h-px flex-1 bg-gradient-to-r from-sky-500/60 via-sky-500/40 to-transparent" />
                         </div>
-                        <span className="text-[11px] text-gray-500 uppercase tracking-widest">{vessel?.type.toUpperCase()}</span>
-                        <span className="text-[11px] text-gray-400 font-medium">{voyagePlan.departureDate}</span>
+                        <span className="text-[10px] text-sky-400/70 font-bold uppercase tracking-[0.15em] mt-0.5">{voyagePlan.departureDate}</span>
                     </div>
 
                     {/* Destination — Right */}
@@ -198,20 +201,34 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </div>
                 </div>
             </div>
+            {/* LIABILITY DISCLAIMER — Right under the passage plan card */}
+            <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg backdrop-blur-sm">
+                <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
+                    <AlertTriangleIcon className="w-5 h-5" />
+                </div>
+                <div>
+                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Aid to Navigation Only</h4>
+                    <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
+                        This passage plan is generated using automated weather models and AI analysis. It is intended as a navigational aid only and does not replace proper seamanship, official charts, or local knowledge.
+                        <span className="block mt-1.5 text-amber-100/90 font-bold">
+                            The Master/Skipper is solely responsible for the safety of the vessel, crew, and all souls on board. All navigation decisions remain the exclusive responsibility of the person in command.
+                        </span>
+                    </p>
+                </div>
+            </div>
+
             {/* ═══ ROUTE STRATEGY — Why this route? ═══ */}
             {voyagePlan.routeReasoning && (
-                <div className="px-6 md:px-8 pb-2">
-                    <div className="bg-sky-500/5 border border-sky-500/15 rounded-xl px-4 py-3">
-                        <div className="flex items-start gap-2.5">
-                            <div className="p-1 bg-sky-500/10 rounded-lg mt-0.5 shrink-0">
-                                <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
-                                <p className="text-xs text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
-                            </div>
+                <div className="w-full bg-sky-500/5 border border-sky-500/15 rounded-2xl px-5 py-4">
+                    <div className="flex items-start gap-2.5">
+                        <div className="p-1.5 bg-sky-500/10 rounded-lg mt-0.5 shrink-0">
+                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-1">Route Strategy</h4>
+                            <p className="text-sm text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
                         </div>
                     </div>
                 </div>
@@ -233,8 +250,9 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 >
                     {voyagePlan.bestDepartureWindow ? (
                         <div className="flex flex-col md:flex-row gap-6 items-center">
-                            <div className="shrink-0 flex flex-col items-center md:items-start gap-2 min-w-[200px]">
+                            <div className="shrink-0 flex flex-col items-center md:items-start gap-1 min-w-[200px]">
                                 <div className="text-2xl md:text-3xl font-bold text-white tracking-tight text-center md:text-left">{voyagePlan.bestDepartureWindow.timeRange}</div>
+                                {voyagePlan.departureDate && <div className="text-xs text-sky-400/70 font-bold uppercase tracking-wider text-center md:text-left">{voyagePlan.departureDate}</div>}
                             </div>
                             <div className="h-px w-full md:w-px md:h-16 bg-white/10 shrink-0"></div>
                             <div className="flex-1">
@@ -726,42 +744,14 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     </div>
                 </AccordionSection>
 
-                {/* INTERACTIVE CHART BUTTON — Not an accordion */}
-                <button
-                    onClick={() => setIsMapOpen(true)}
-                    aria-label="Open Interactive Chart"
-                    className="w-full h-[100px] bg-slate-800 border border-white/10 rounded-2xl overflow-hidden relative group cursor-pointer shadow-xl transition-all hover:border-sky-500/30 flex items-center justify-between px-6 md:px-10"
-                >
-                    <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=2074&fm=jpg&fit=crop')] bg-cover bg-center opacity-30 group-hover:opacity-40 group-hover:scale-105 transition-all duration-700"></div>
-                    <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/40 to-slate-900/10"></div>
-
-                    <div className="relative z-10 flex flex-col items-start gap-1">
-                        <h3 className="text-lg md:text-xl font-bold text-white shadow-black drop-shadow-md">Interactive Chart</h3>
-                        <p className="text-xs text-sky-300 font-medium uppercase tracking-widest shadow-black drop-shadow-md">
-                            {isShortTrip ? 'View Detailed Route & Waypoints' : 'View Full Passage Plan & Waypoints'}
-                        </p>
-                    </div>
-
-                    <div className="relative z-10 bg-sky-500/90 p-3.5 rounded-full text-white shadow-lg group-hover:scale-110 transition-transform group-hover:bg-sky-500 border border-white/20">
-                        <MapIcon className="w-5 h-5" />
-                    </div>
-                </button>
-
                 {/* EXPORT & SAVE BUTTONS */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                     <button
                         onClick={() => printPassageBrief({ voyagePlan, vessel })}
                         className="bg-gradient-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
                     >
                         <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">Export PDF</span>
-                    </button>
-                    <button
-                        onClick={() => downloadRouteGPX(voyagePlan)}
-                        className="bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 border border-emerald-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-emerald-500/20 hover:to-emerald-600/20 transition-all"
-                    >
-                        <RouteIcon className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-widest text-center">Export GPX</span>
+                        <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">Export Passage Brief</span>
                     </button>
                     <button
                         onClick={async () => {
@@ -795,21 +785,6 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 </div>
             </div >
 
-            {/* LIABILITY DISCLAIMER */}
-            < div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg backdrop-blur-sm mt-4" >
-                <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
-                    <AlertTriangleIcon className="w-5 h-5" />
-                </div>
-                <div>
-                    <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">Warning: Not For Navigation</h4>
-                    <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
-                        This automated voyage plan is generated by AI using weather model data. It does not account for real-time hazards, Notices to Mariners, or local regulations.
-                        <span className="block mt-1 text-amber-100 opacity-60">
-                            The captain is solely responsible for the safety of the vessel and crew. Do not rely on this tool for critical navigation decisions. Always verify with official charts.
-                        </span>
-                    </p>
-                </div>
-            </div >
 
         </div >
     );

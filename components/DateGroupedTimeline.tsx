@@ -335,7 +335,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isE
                             )}
                             {entry.waveHeight != null && (
                                 <span>
-                                    Seas <span className="text-white font-bold">{(entry.waveHeight ?? 0).toFixed(1)}m</span>
+                                    Seas <span className="text-white font-bold">{((entry.waveHeight ?? 0) / 3.28084).toFixed(1)}m</span>
                                     {entry.seaState !== undefined && ` (${getSeaStateDescription(entry.seaState)})`}
                                 </span>
                             )}

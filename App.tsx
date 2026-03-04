@@ -64,7 +64,7 @@ const MapHub = lazyRetry(() => import('./components/map/MapHub').then(m => ({ de
 const OnboardingWizard = lazyRetry(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = lazyRetry(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
 const AnchorWatchPage = lazyRetry(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
-const ChatPage = lazyRetry(() => import('./components/ChatHub').then(module => ({ default: module.ChatHub })));
+const ChatPage = lazyRetry(() => import('./components/ChatPage').then(module => ({ default: module.ChatPage })));
 const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
 const CrewPage = lazyRetry(() => import('./components/CrewManagement').then(m => ({ default: m.CrewManagement })));

@@ -8,7 +8,7 @@ import {
     CloudIcon
 } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
-import { checkStormglassStatus, isStormglassKeyPresent } from '../services/weather/keys';
+import { checkStormglassStatus, isStormglassKeyPresent, getOpenMeteoKey } from '../services/weather/keys';
 import { AuthModal } from './AuthModal';
 import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';
@@ -33,8 +33,8 @@ const isMapboxConfigured = () => {
 }
 
 const isOpenMeteoConfigured = () => {
-    const envKey = process.env?.OPEN_METEO_API_KEY || (import.meta.env && import.meta.env.VITE_OPEN_METEO_API_KEY);
-    return envKey && envKey.length > 5;
+    const key = getOpenMeteoKey();
+    return key && key.length > 5;
 }
 
 const getKeyPreview = (keyName: 'GEMINI' | 'STORMGLASS' | 'MAPBOX') => {
@@ -457,7 +457,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     <StatusRow label="Gemini AI" isConnected={isGeminiConfigured()} details={isGeminiConfigured() ? 'Via Edge Function' : 'Not configured'} />
                                     <StatusRow label="Mapbox" isConnected={isMapboxConfigured()} details={getKeyPreview('MAPBOX')} />
                                     <StatusRow label="Supabase" isConnected={isSupabaseConfigured()} details={isSupabaseConfigured() ? 'Connected' : 'Not configured'} />
-                                    <StatusRow label="Open-Meteo" isConnected={!!isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Configured' : 'FREE MODE'} />
+                                    <StatusRow label="Open-Meteo" isConnected={!!isOpenMeteoConfigured()} details={isOpenMeteoConfigured() ? 'Commercial API' : 'FREE MODE'} />
                                 </div>
                             </Section>
 

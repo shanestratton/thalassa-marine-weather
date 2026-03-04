@@ -15,8 +15,8 @@ const getSupabaseUrl = (): string =>
 const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
 
-const GRID_STRIDE = 15; // 15 arcminutes = 0.25° per cell
-const PADDING_DEG = 5;  // Padding around route bbox to allow for exploration
+const GRID_STRIDE = 6;  // 6 arcminutes = 0.1° per cell (catches narrow islands like Fraser)
+const BASE_PADDING_DEG = 3;  // Minimum padding around route bbox
 
 export interface BathymetryGrid {
     south: number;
@@ -36,12 +36,18 @@ export interface BathymetryGrid {
 export async function preloadBathymetry(
     origin: { lat: number; lon: number },
     destination: { lat: number; lon: number },
+    strideOverride?: number,
 ): Promise<BathymetryGrid | null> {
-    // Calculate bounding box with padding
-    const south = Math.max(-90, Math.min(origin.lat, destination.lat) - PADDING_DEG);
-    const north = Math.min(90, Math.max(origin.lat, destination.lat) + PADDING_DEG);
-    const west = Math.min(origin.lon, destination.lon) - PADDING_DEG;
-    const east = Math.max(origin.lon, destination.lon) + PADDING_DEG;
+    // Scale padding with route distance — ultra-long routes need room to navigate around coastlines
+    const latSpan = Math.abs(origin.lat - destination.lat);
+    const lonSpan = Math.abs(origin.lon - destination.lon);
+    const routeSpanDeg = Math.max(latSpan, lonSpan);
+    const paddingDeg = Math.min(10, BASE_PADDING_DEG + routeSpanDeg * 0.2);
+
+    const south = Math.max(-90, Math.min(origin.lat, destination.lat) - paddingDeg);
+    const north = Math.min(90, Math.max(origin.lat, destination.lat) + paddingDeg);
+    const west = Math.min(origin.lon, destination.lon) - paddingDeg;
+    const east = Math.max(origin.lon, destination.lon) + paddingDeg;
 
     console.info(`[BathyCache] Preloading ${south.toFixed(1)}–${north.toFixed(1)}°N, ${west.toFixed(1)}–${east.toFixed(1)}°E`);
     const t0 = performance.now();
@@ -63,7 +69,7 @@ export async function preloadBathymetry(
                     north: parseFloat(north.toFixed(4)),
                     west: parseFloat(west.toFixed(4)),
                     east: parseFloat(east.toFixed(4)),
-                    stride: GRID_STRIDE,
+                    stride: strideOverride ?? GRID_STRIDE,
                 },
             }),
             signal: AbortSignal.timeout(30_000),

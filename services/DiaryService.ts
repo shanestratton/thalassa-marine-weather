@@ -101,7 +101,9 @@ class DiaryServiceClass {
             this._refreshFromServer(limit);
         }
 
-        return merged;
+        // Strip _offline flag — background sync handles persistence transparently.
+        // Showing PENDING badges confuses users when sync is slow or auth is stale.
+        return merged.map(e => ({ ...e, _offline: false }));
     }
 
     async getEntry(id: string): Promise<DiaryEntry | null> {
@@ -164,33 +166,14 @@ class DiaryServiceClass {
         // Save to pending queue immediately (survives app crash)
         this._addPending(localEntry);
 
-        // Try to sync immediately if online — await so we can return the synced entry
-        // NOTE: navigator.onLine is unreliable on iOS/Capacitor — use our connectivity probe
-        const isOnline = supabase ? await this._checkConnectivity() : false;
-        if (isOnline && supabase) {
-            await this.syncPending();
+        // Try to sync immediately — fire and forget, don't block the UI
+        // Always return with _offline: false since the background sync handles persistence
+        this.syncPending();
 
-            // If sync succeeded, the entry is no longer in the pending queue
-            const stillPending = this._getPendingEntries().some(e => e.id === localEntry.id);
-            if (!stillPending) {
-                // Entry was synced — return server version from cache (without _offline flag)
-                const cached = this._getCachedEntries();
-                // Match by created_at + title since the server assigns a new UUID
-                const serverEntry = cached.find(e =>
-                    e.created_at === localEntry.created_at && e.title === localEntry.title
-                );
-                if (serverEntry) {
-                    return { ...serverEntry, _offline: false };
-                }
-                // Fallback: return local entry with _offline cleared
-                return { ...localEntry, _offline: false };
-            }
-        } else {
-            // Fire and forget — will sync later
-            this.syncPending();
-        }
-
-        return localEntry;
+        // Return entry without _offline flag — avoids persistent PENDING badge in UI.
+        // The entry is in the pending queue (localStorage) so it won't be lost.
+        // Background sync will upload it; if it fails, the periodic 30s retry catches it.
+        return { ...localEntry, _offline: false };
     }
 
     // ── Update ─────────────────────────────────────────────────

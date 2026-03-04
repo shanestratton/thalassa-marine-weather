@@ -223,8 +223,9 @@ function isSegmentNavigable(
     lat1: number, lon1: number,
     lat2: number, lon2: number,
     stepDistanceNM?: number,
+    landOnly?: boolean,
 ): boolean {
-    const SAMPLE_SPACING_NM = 4;
+    const SAMPLE_SPACING_NM = 2;
     const segDist = stepDistanceNM && stepDistanceNM > 0
         ? stepDistanceNM
         : haversineNm(lat1, lon1, lat2, lon2);
@@ -246,7 +247,7 @@ function isSegmentNavigable(
         const depth = getDepthFromCache(grid, midLat, midLon);
         if (depth !== null) {
             if (depth >= 0) return false;                       // Land
-            if (depth > REEF_REJECTION_DEPTH_M) return false;   // Shallow hazard
+            if (!landOnly && depth > REEF_REJECTION_DEPTH_M) return false;   // Shallow hazard
         }
     }
     return true;
@@ -287,9 +288,14 @@ export async function computeIsochrones(
 
     const totalDistNM = haversineNm(origin.lat, origin.lon, destination.lat, destination.lon);
 
+    // Dynamic maxHours: scale with distance so ultra-long routes have enough steps
+    // At motoring speed, minimum hours = dist / speed. Multiply by 2.5 for indirect paths.
+    const minHoursForRoute = Math.ceil((totalDistNM / cfg.motoringSpeed) * 2.5);
+    const effectiveMaxHours = Math.max(cfg.maxHours, Math.min(minHoursForRoute, 2160)); // cap at 90 days
+
     // Arrival threshold — scale with step size so we can't skip over it
-    // At 6h steps × 5kt motoring = 30 NM per step; half that = 15 NM circle
-    const ARRIVAL_THRESHOLD_NM = Math.max(2, cfg.timeStepHours * cfg.motoringSpeed * 0.5);
+    // At 6h steps × 5kt motoring = 30 NM per step; 80% of that = 24 NM circle
+    const ARRIVAL_THRESHOLD_NM = Math.max(5, cfg.timeStepHours * cfg.motoringSpeed * 0.8);
 
     const isochrones: Isochrone[] = [];
 
@@ -313,7 +319,15 @@ export async function computeIsochrones(
     let arrivalNode: IsochroneNode | null = null;
     let arrivalIsochroneIdx = -1;
 
-    const maxSteps = Math.ceil(cfg.maxHours / cfg.timeStepHours);
+    const maxSteps = Math.ceil(effectiveMaxHours / cfg.timeStepHours);
+
+    // ── Stall detection: relax depth filtering when wavefront is trapped ──
+    let bestDistanceSoFar = totalDistNM;
+    let stepsWithoutProgress = 0;
+    let depthFilterDisabled = false; // Latches true once stalled — never resets
+    let allBathyDisabled = false;     // Tier 2: disables ALL bathy checks (land teleport)
+    const STALL_THRESHOLD_STEPS = 10;  // After 10 steps without 5+ NM improvement, relax filters
+    const STALL_PROGRESS_NM = 5;       // Minimum improvement to reset stall counter
 
     // Expand wavefronts
     for (let step = 1; step <= maxSteps; step++) {
@@ -325,8 +339,8 @@ export async function computeIsochrones(
             break;
         }
 
-        // ── Yield to main thread every 5 steps + emit progress ──
-        if (step % 5 === 0) {
+        // ── Yield to main thread every 2 steps + emit progress ──
+        if (step % 2 === 0) {
             let closestNM = totalDistNM;
             for (const n of currentFront) {
                 const d = haversineNm(n.lat, n.lon, destination.lat, destination.lon);
@@ -334,7 +348,13 @@ export async function computeIsochrones(
             }
             try {
                 window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', {
-                    detail: { step, maxSteps, timeHours, closestNM: Math.round(closestNM), elapsed: Math.round(performance.now() - wallClockStart) },
+                    detail: {
+                        step, maxSteps, timeHours,
+                        closestNM: Math.round(closestNM),
+                        totalDistNM: Math.round(totalDistNM),
+                        frontSize: currentFront.length,
+                        elapsed: Math.round(performance.now() - wallClockStart),
+                    },
                 }));
             } catch (_) { /* SSR safety */ }
             await new Promise(r => setTimeout(r, 0));
@@ -357,7 +377,9 @@ export async function computeIsochrones(
             // the inner loop eliminates 36x redundant lookups and transcendental math!
 
             const wind = windField.getWind(parent.lat, parent.lon, timeHours - cfg.timeStepHours);
-            if (!wind) continue; // If no wind data for this time/place, node dies
+            // If no wind data (node outside grid), fall back to motoring for all bearings.
+            // This keeps the wavefront alive through data gaps (critical for long passages).
+            const hasWind = wind !== null && wind.speed >= 0;
 
             // Parent trig constants for inlined projectPosition
             const lat1Rad = toRad(parent.lat);
@@ -366,20 +388,31 @@ export async function computeIsochrones(
             const cosLat1 = Math.cos(lat1Rad);
 
             // Bracket TWS once and get a fast closure for TWA lookup
-            const getSpeedForTwa = createPolarSpeedLookup(polar, wind.speed);
+            const getSpeedForTwa = hasWind ? createPolarSpeedLookup(polar, wind!.speed) : null;
 
             // Fan out in multiple bearings relative to this node's destination bearing
             for (let b = cfg.minBearingDeg; b <= cfg.maxBearingDeg; b += (360 / cfg.bearingCount)) {
                 const absoluteBearing = (nodeToDest + b + 360) % 360;
 
-                const twa = calcTWA(absoluteBearing, wind.direction);
                 let boatSpeed: number;
+                let twa: number;
+                let tws: number;
 
-                if (wind.speed < cfg.minWindSpeed) {
+                if (!hasWind) {
+                    // No wind data — motor at constant speed in all directions
                     boatSpeed = cfg.motoringSpeed;
+                    twa = 0;
+                    tws = 0;
                 } else {
-                    boatSpeed = getSpeedForTwa(twa);
-                    if (boatSpeed < 0.5) continue; // Skip dead upwind
+                    twa = calcTWA(absoluteBearing, wind!.direction);
+                    tws = wind!.speed;
+
+                    if (tws < cfg.minWindSpeed) {
+                        boatSpeed = cfg.motoringSpeed;
+                    } else {
+                        boatSpeed = getSpeedForTwa!(twa);
+                        if (boatSpeed < 0.5) continue; // Skip dead upwind
+                    }
                 }
 
                 // Inlined projectPosition (reusing sinLat1, cosLat1)
@@ -408,7 +441,7 @@ export async function computeIsochrones(
                     timeHours,
                     bearing: absoluteBearing,
                     speed: boatSpeed,
-                    tws: wind.speed,
+                    tws,
                     twa,
                     parentIndex: nodeIdx,
                     distance: parent.distance + distanceStep,
@@ -421,15 +454,37 @@ export async function computeIsochrones(
 
         if (candidates.length === 0) break;
 
-        // ── OPTIMISED: Cheap endpoint filter → prune → expensive segment filter ──
-        // Step A: Quick endpoint-only filter (no segment walks)
+        // ── Update stall detection ──
+        const closestThisStep = candidates.reduce((min, c) => Math.min(min, c.distToDest), Infinity);
+        if (closestThisStep < bestDistanceSoFar - STALL_PROGRESS_NM) {
+            bestDistanceSoFar = closestThisStep;
+            stepsWithoutProgress = 0;
+        } else {
+            stepsWithoutProgress++;
+        }
+        // Tier 1: After 10 stalled steps, disable reef rejection (keep land check)
+        if (!depthFilterDisabled && stepsWithoutProgress >= STALL_THRESHOLD_STEPS) {
+            depthFilterDisabled = true;
+            console.info(`[Isochrone] Stall T1 at step ${step} — disabling reef filter (best: ${Math.round(bestDistanceSoFar)} NM)`);
+        }
+        // Tier 2: After 30 stalled steps, disable ALL bathy checks (land teleport)
+        // This lets the wavefront escape geographically enclosed harbors.
+        // pushRouteOffshore() will fix any land clips in the final route.
+        if (!allBathyDisabled && stepsWithoutProgress >= 30) {
+            allBathyDisabled = true;
+            console.info(`[Isochrone] Stall T2 at step ${step} — disabling ALL bathy checks (land teleport, best: ${Math.round(bestDistanceSoFar)} NM)`);
+        }
+
+        // When allBathyDisabled: skip ALL filtering to let wavefront escape
+        // When depthFilterDisabled: still block actual land, just skip reef rejection
         let endpointValid = candidates;
-        if (cfg.useDepthPenalty && bathyGrid) {
+        if (cfg.useDepthPenalty && bathyGrid && !allBathyDisabled) {
             endpointValid = candidates.filter(({ node }) => {
                 if (isLand(bathyGrid, node.lat, node.lon)) return false;
                 const depth = getDepthFromCache(bathyGrid, node.lat, node.lon);
                 node.depth_m = depth;
-                if (depth !== null && depth > REEF_REJECTION_DEPTH_M) return false;
+                // Only reject shallow water when depth filter is active
+                if (!depthFilterDisabled && depth !== null && depth > REEF_REJECTION_DEPTH_M) return false;
                 return true;
             });
             if (endpointValid.length === 0) endpointValid = candidates;
@@ -456,13 +511,17 @@ export async function computeIsochrones(
         // Check for arrival FIRST (before pruning)
         let arrivedThisStep = false;
         const nonArrivalCandidates: { node: IsochroneNode; distToDest: number }[] = [];
+        let closestArrivalCandidate: { node: IsochroneNode; distToDest: number } | null = null;
         for (const entry of endpointValid) {
             if (entry.distToDest <= ARRIVAL_THRESHOLD_NM) {
-                // Check that the final approach segment doesn't cross land
-                if (bathyGrid && entry.node.parentIndex !== null && entry.node.parentIndex < currentFront.length) {
-                    const parent = currentFront[entry.node.parentIndex];
-                    if (segmentCrossesLand(bathyGrid, parent.lat, parent.lon, destination.lat, destination.lon)) {
-                        nonArrivalCandidates.push(entry); // clips land — keep searching
+                // Check that the approach from candidate to destination doesn't cross land
+                if (bathyGrid) {
+                    if (segmentCrossesLand(bathyGrid, entry.node.lat, entry.node.lon, destination.lat, destination.lon)) {
+                        // Track closest land-blocked candidate as fallback
+                        if (!closestArrivalCandidate || entry.distToDest < closestArrivalCandidate.distToDest) {
+                            closestArrivalCandidate = entry;
+                        }
+                        nonArrivalCandidates.push(entry);
                         continue;
                     }
                 }
@@ -473,6 +532,13 @@ export async function computeIsochrones(
             }
             nonArrivalCandidates.push(entry);
         }
+        // Fallback: if all arrival candidates clip land (coastal destination), accept the closest
+        if (!arrivedThisStep && closestArrivalCandidate) {
+            console.info(`[Isochrone] Arrival fallback: accepting candidate at ${closestArrivalCandidate.distToDest.toFixed(1)} NM (land-clipped but close enough)`);
+            arrivalNode = { ...closestArrivalCandidate.node, lat: destination.lat, lon: destination.lon };
+            arrivalIsochroneIdx = step;
+            arrivedThisStep = true;
+        }
 
         if (arrivedThisStep) {
             isochrones.push({ timeHours, nodes: [arrivalNode!] });
@@ -482,8 +548,10 @@ export async function computeIsochrones(
         if (nonArrivalCandidates.length === 0) break;
 
         // Step B: Prune into sectors FIRST (cheap — only uses endpoint coords)
+        // When allBathyDisabled, use exploration mode: keep farthest-traveled nodes
+        // instead of closest-to-destination, so wavefront expands to open water
         const prunedWithFallbacks = pruneWavefrontWithFallbacks(
-            nonArrivalCandidates, origin, destination, cfg.bearingCount,
+            nonArrivalCandidates, origin, destination, cfg.bearingCount, allBathyDisabled,
         );
 
         // Step C: For each sector winner, run the expensive segment check.
@@ -491,7 +559,7 @@ export async function computeIsochrones(
         // GRACEFUL DEGRADATION: if ALL candidates in a sector cross land,
         // keep the best one anyway — prevents sector starvation over many steps.
         const finalFront: IsochroneNode[] = [];
-        if (cfg.useDepthPenalty && bathyGrid) {
+        if (cfg.useDepthPenalty && bathyGrid && !allBathyDisabled) {
             for (const sectorCandidates of prunedWithFallbacks) {
                 let found = false;
                 for (const node of sectorCandidates) {
@@ -499,7 +567,7 @@ export async function computeIsochrones(
                     if (parentIdx !== null && parentIdx < currentFront.length) {
                         const parent = currentFront[parentIdx];
                         const stepDist = node.distance - parent.distance;
-                        if (!isSegmentNavigable(bathyGrid, parent.lat, parent.lon, node.lat, node.lon, stepDist)) {
+                        if (!isSegmentNavigable(bathyGrid, parent.lat, parent.lon, node.lat, node.lon, stepDist, depthFilterDisabled)) {
                             continue; // crosses land/shallow — try next candidate
                         }
                     }
@@ -544,7 +612,36 @@ export async function computeIsochrones(
     const route = backtrack(isochrones, arrivalIsochroneIdx, arrivalNode);
 
     // ── Smooth the route: remove zig-zag waypoints ──
-    const smoothed = smoothRoute(route, bathyGrid);
+    let smoothed = smoothRoute(route, bathyGrid);
+
+    // ── Push land-clipped segments offshore ──
+    if (bathyGrid) {
+        smoothed = pushRouteOffshore(smoothed, bathyGrid);
+        // Second DP pass (fixed 30NM tolerance) to clean up zigzags from pushRouteOffshore
+        // Use a small fixed tolerance — not the dynamic one that scales up to 200NM
+        const CLEANUP_TOL_NM = 60;
+        if (smoothed.length > 3) {
+            const keep2 = new Array(smoothed.length).fill(false);
+            keep2[0] = true;
+            keep2[smoothed.length - 1] = true;
+            const dpClean = (pts: IsochroneNode[], s: number, e: number): void => {
+                if (e - s < 2) return;
+                const A = pts[s], B = pts[e], ab = haversineNm(A.lat, A.lon, B.lat, B.lon);
+                let mx = 0, mi = s;
+                for (let i = s + 1; i < e; i++) {
+                    const P = pts[i], ap = haversineNm(A.lat, A.lon, P.lat, P.lon), bp = haversineNm(B.lat, B.lon, P.lat, P.lon);
+                    const ss = (ab + ap + bp) / 2;
+                    const ct = ab > 0.01 ? (2 * Math.sqrt(Math.max(0, ss * (ss - ab) * (ss - ap) * (ss - bp)))) / ab : ap;
+                    if (ct > mx) { mx = ct; mi = i; }
+                }
+                if (mx > CLEANUP_TOL_NM) { keep2[mi] = true; dpClean(pts, s, mi); dpClean(pts, mi, e); }
+            };
+            dpClean(smoothed, 0, smoothed.length - 1);
+            smoothed = smoothed.filter((_, i) => keep2[i]);
+        }
+        // Final offshore push to fix land clips created by the cleanup DP
+        smoothed = pushRouteOffshore(smoothed, bathyGrid);
+    }
 
     const arrivalTimeMs = depTime.getTime() + arrivalNode.timeHours * 3600000;
 
@@ -594,11 +691,12 @@ function pruneWavefrontWithFallbacks(
     origin: { lat: number; lon: number },
     destination: { lat: number; lon: number },
     sectorCount: number,
+    explorationMode?: boolean,
 ): IsochroneNode[][] {
     const sectorSize = 360 / sectorCount;
-    // Each sector holds up to 3 candidates, sorted by distance-to-dest
+    // Each sector holds up to 3 candidates, sorted by ranking metric
     const MAX_PER_SECTOR = 3;
-    const sectors: { node: IsochroneNode; dist: number }[][] = new Array(sectorCount);
+    const sectors: { node: IsochroneNode; rank: number }[][] = new Array(sectorCount);
     for (let i = 0; i < sectorCount; i++) sectors[i] = [];
 
     for (const { node, distToDest } of entries) {
@@ -606,16 +704,20 @@ function pruneWavefrontWithFallbacks(
         const sectorIdx = Math.floor(bearing / sectorSize) % sectorCount;
         const bucket = sectors[sectorIdx];
 
+        // In exploration mode: rank by NEGATIVE distance from origin (most explored = best)
+        // In normal mode: rank by distance to destination (closest = best)
+        const rankValue = explorationMode ? -node.distance : distToDest;
+
         if (bucket.length < MAX_PER_SECTOR) {
-            bucket.push({ node, dist: distToDest });
+            bucket.push({ node, rank: rankValue });
             // Keep sorted (insertion sort — max 3 items)
-            for (let j = bucket.length - 1; j > 0 && bucket[j].dist < bucket[j - 1].dist; j--) {
+            for (let j = bucket.length - 1; j > 0 && bucket[j].rank < bucket[j - 1].rank; j--) {
                 [bucket[j], bucket[j - 1]] = [bucket[j - 1], bucket[j]];
             }
-        } else if (distToDest < bucket[MAX_PER_SECTOR - 1].dist) {
+        } else if (rankValue < bucket[MAX_PER_SECTOR - 1].rank) {
             // Better than the worst in the bucket — replace it
-            bucket[MAX_PER_SECTOR - 1] = { node, dist: distToDest };
-            for (let j = MAX_PER_SECTOR - 1; j > 0 && bucket[j].dist < bucket[j - 1].dist; j--) {
+            bucket[MAX_PER_SECTOR - 1] = { node, rank: rankValue };
+            for (let j = MAX_PER_SECTOR - 1; j > 0 && bucket[j].rank < bucket[j - 1].rank; j--) {
                 [bucket[j], bucket[j - 1]] = [bucket[j - 1], bucket[j]];
             }
         }
@@ -657,52 +759,128 @@ function backtrack(
 // ── Route Smoothing ──────────────────────────────────────────────
 
 /**
- * Remove zig-zag waypoints from the backtracked route.
+ * Simplify the route using the Douglas-Peucker algorithm.
  *
- * For consecutive waypoints A → B → C, if the bearing change at B
- * is > 120° (sharp turn), remove B — UNLESS skipping B would create
- * a segment A→C that crosses land (this preserves capes/headlands).
- * Iterates until stable. Always preserves the first and last waypoints.
+ * Removes waypoints that are within TOLERANCE_NM of the simplified line,
+ * eliminating zigzag noise while preserving the overall route shape.
+ * Always preserves the first and last waypoints.
+ * pushRouteOffshore() handles any land clips created by simplification.
  */
-function smoothRoute(route: IsochroneNode[], bathyGrid?: BathymetryGrid | null): IsochroneNode[] {
+function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null): IsochroneNode[] {
     if (route.length <= 3) return route;
 
-    let changed = true;
-    let result = [...route];
+    // Dynamic tolerance: longer routes need more aggressive simplification
+    // pushRouteOffshore() re-adds clean offshore arcs where DP creates land clips
+    const minTol = 20, maxTol = 200;
+    const t = Math.min(1, Math.max(0, (route.length - 20) / 80)); // 0 at 20 pts, 1 at 100 pts
+    const TOLERANCE_NM = minTol + t * (maxTol - minTol);
 
-    while (changed) {
-        changed = false;
-        const smoothed: IsochroneNode[] = [result[0]];
+    // Douglas-Peucker recursive simplification
+    function dpSimplify(points: IsochroneNode[], start: number, end: number, keep: boolean[]): void {
+        if (end - start < 2) return;
 
-        for (let i = 1; i < result.length - 1; i++) {
-            const prev = smoothed[smoothed.length - 1];
-            const curr = result[i];
-            const next = result[i + 1];
+        const A = points[start];
+        const B = points[end];
+        const abDist = haversineNm(A.lat, A.lon, B.lat, B.lon);
 
-            const bearingIn = initialBearing(prev.lat, prev.lon, curr.lat, curr.lon);
-            const bearingOut = initialBearing(curr.lat, curr.lon, next.lat, next.lon);
+        let maxDist = 0;
+        let maxIdx = start;
 
-            // Calculate turn angle (0 = straight, 180 = U-turn)
-            let turnAngle = Math.abs(bearingOut - bearingIn);
-            if (turnAngle > 180) turnAngle = 360 - turnAngle;
-
-            // Remove waypoints with very sharp turns (> 120°)
-            // BUT only if the resulting A→C segment doesn't cross land
-            if (turnAngle > 120) {
-                if (bathyGrid && segmentCrossesLand(bathyGrid, prev.lat, prev.lon, next.lat, next.lon)) {
-                    // Skipping this waypoint would cut through land — keep it
-                    smoothed.push(curr);
-                } else {
-                    changed = true;
-                    continue; // Skip this waypoint
-                }
+        for (let i = start + 1; i < end; i++) {
+            const P = points[i];
+            // Cross-track distance from P to line A→B using triangle area
+            const apDist = haversineNm(A.lat, A.lon, P.lat, P.lon);
+            const bpDist = haversineNm(B.lat, B.lon, P.lat, P.lon);
+            let crossTrack: number;
+            if (abDist < 0.01) {
+                crossTrack = apDist; // A and B are same point
             } else {
-                smoothed.push(curr);
+                const s = (abDist + apDist + bpDist) / 2;
+                const areaSq = s * (s - abDist) * (s - apDist) * (s - bpDist);
+                crossTrack = (2 * Math.sqrt(Math.max(0, areaSq))) / abDist;
+            }
+            if (crossTrack > maxDist) {
+                maxDist = crossTrack;
+                maxIdx = i;
             }
         }
 
-        smoothed.push(result[result.length - 1]);
-        result = smoothed;
+        if (maxDist > TOLERANCE_NM) {
+            keep[maxIdx] = true;
+            dpSimplify(points, start, maxIdx, keep);
+            dpSimplify(points, maxIdx, end, keep);
+        }
+    }
+
+    const keep = new Array(route.length).fill(false);
+    keep[0] = true;
+    keep[route.length - 1] = true;
+    dpSimplify(route, 0, route.length - 1, keep);
+
+    return route.filter((_, i) => keep[i]);
+}
+
+/**
+ * Post-process: push segments that clip land offshore.
+ *
+ * For each segment A→B, if it crosses land, insert an intermediate waypoint
+ * at the midpoint pushed perpendicular to the segment bearing (towards open water).
+ * Iterates up to 3 passes to handle multiple clips.
+ */
+function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): IsochroneNode[] {
+    const PUSH_NM = 50; // How far to push the midpoint offshore
+    const MAX_PASSES = 8;
+    let result = [...route];
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+        const fixed: IsochroneNode[] = [result[0]];
+        let didFix = false;
+
+        for (let i = 0; i < result.length - 1; i++) {
+            const a = result[i];
+            const b = result[i + 1];
+
+            if (!isSegmentNavigable(grid, a.lat, a.lon, b.lat, b.lon)) {
+                // This segment clips land — insert a midpoint pushed offshore
+                const midLat = (a.lat + b.lat) / 2;
+                const midLon = (a.lon + b.lon) / 2;
+                const segBearing = initialBearing(a.lat, a.lon, b.lat, b.lon);
+
+                // Try pushing perpendicular left and right; pick the one in deeper water
+                const leftBearing = (segBearing - 90 + 360) % 360;
+                const rightBearing = (segBearing + 90) % 360;
+                const leftPt = projectPosition(midLat, midLon, leftBearing, PUSH_NM);
+                const rightPt = projectPosition(midLat, midLon, rightBearing, PUSH_NM);
+
+                const leftDepth = getDepthFromCache(grid, leftPt.lat, leftPt.lon);
+                const rightDepth = getDepthFromCache(grid, rightPt.lat, rightPt.lon);
+
+                // Pick the side with deeper water (more negative = deeper)
+                const useLeft = (leftDepth ?? 0) < (rightDepth ?? 0);
+                const offshore = useLeft ? leftPt : rightPt;
+
+                // Only insert if the offshore point is actually in water
+                if (!isLand(grid, offshore.lat, offshore.lon)) {
+                    const insertNode: IsochroneNode = {
+                        lat: offshore.lat,
+                        lon: offshore.lon,
+                        timeHours: (a.timeHours + b.timeHours) / 2,
+                        bearing: segBearing,
+                        speed: (a.speed + b.speed) / 2,
+                        tws: (a.tws + b.tws) / 2,
+                        twa: (a.twa + b.twa) / 2,
+                        parentIndex: null,
+                        distance: a.distance + haversineNm(a.lat, a.lon, offshore.lat, offshore.lon),
+                    };
+                    fixed.push(insertNode);
+                    didFix = true;
+                }
+            }
+            fixed.push(b);
+        }
+
+        result = fixed;
+        if (!didFix) break;
     }
 
     return result;

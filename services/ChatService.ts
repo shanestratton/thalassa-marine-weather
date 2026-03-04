@@ -88,14 +88,14 @@ interface QueuedMessage {
 
 // --- PRE-SEEDED CHANNELS ---
 export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
-    { name: 'First Mates', description: 'Sailor dating — find your first mate ❤️', region: null, icon: '💕', is_global: true },
+    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true },
     { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true },
     { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true },
     { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true },
-    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true },
+    { name: 'First Mates', description: 'Sailor dating — find your first mate ❤️', region: null, icon: '💕', is_global: true },
     { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true },
+    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true },
     { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true },
-    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true },
 ];
 
 // --- SERVICE ---
