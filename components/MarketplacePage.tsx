@@ -23,7 +23,6 @@ import {
 } from '../services/MarketplaceService';
 import { ChatService } from '../services/ChatService';
 import { BgGeoManager } from '../services/BgGeoManager';
-import { CheckoutModal } from './marketplace/CheckoutModal';
 import { t } from '../theme';
 
 // --- HELPERS ---
@@ -216,7 +215,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                     </div>
                                 )}
                                 <div className="flex flex-col">
-                                    <span className="text-xs font-semibold text-white/80">{listing.seller_name || 'Sailor'}</span>
+                                    <span className="text-xs font-semibold text-white/80">{(listing.seller_name || 'Sailor').split(' ')[0]}</span>
                                     {listing.seller_vessel && (
                                         <span className="text-[11px] text-white/60 flex items-center gap-0.5">
                                             ⛵ {listing.seller_vessel}
@@ -248,7 +247,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                     onClick={() => onMessageSeller(listing)}
                                     className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
                                 >
-                                    🛒 Buy
+                                    💬 Message
                                 </button>
                             )}
                         </div>
@@ -571,7 +570,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
     const [showCreate, setShowCreate] = useState(false);
     const [newListingIds, setNewListingIds] = useState<Set<string>>(new Set());
     const [userId, setUserId] = useState<string | null>(null);
-    const [checkoutListing, setCheckoutListing] = useState<MarketplaceListing | null>(null);
     const feedRef = useRef<HTMLDivElement>(null);
 
     // Initialize
@@ -622,16 +620,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
     };
 
     const handleMessageSeller = async (listing: MarketplaceListing) => {
-        // Open checkout modal instead of direct DM
-        setCheckoutListing(listing);
-    };
-
-    const handleCashDeal = async (listing: MarketplaceListing) => {
-        // Send auto-DM referencing the listing
-        const text = `Hi! I'd like to buy "${listing.title}" (${formatPrice(listing.price, listing.currency)}) with cash. When can we meet?`;
+        // Auto-DM the seller with item context and open the DM thread
+        const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
+        const text = `Hi ${sellerFirst}! I'm interested in your "${listing.title}" (${formatPrice(listing.price, listing.currency)}). Is it still available?`;
         await ChatService.sendDM(listing.seller_id, text);
         if (onOpenDM) {
-            onOpenDM(listing.seller_id, listing.seller_name || 'Seller');
+            onOpenDM(listing.seller_id, sellerFirst);
         }
     };
 
@@ -769,13 +763,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                 onCreated={handleCreated}
             />
 
-            {/* Checkout modal */}
-            <CheckoutModal
-                listing={checkoutListing}
-                isOpen={!!checkoutListing}
-                onClose={() => setCheckoutListing(null)}
-                onCashDeal={handleCashDeal}
-            />
+
         </div>
     );
 };

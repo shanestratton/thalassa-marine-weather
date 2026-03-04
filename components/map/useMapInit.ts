@@ -79,28 +79,33 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         // If setting a departure or arrival point for passage
         if (settingPoint) {
-            const name = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
-            if (settingPoint === 'departure') {
-                setDeparture({ lat, lon, name });
-            } else {
-                setArrival({ lat, lon, name });
-            }
+            const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+            // Set immediately with fallback coords name, then upgrade with reverse geocode
+            const setter = settingPoint === 'departure' ? setDeparture : setArrival;
+            setter({ lat, lon, name: fallbackName });
             setSettingPoint(null);
             LocationStore.setFromMapPin(lat, lon);
+            // Async: reverse geocode for a proper place name
+            import('../../services/weatherService').then(({ reverseGeocode }) =>
+                reverseGeocode(lat, lon).then(name => {
+                    if (name) setter({ lat, lon, name });
+                })
+            ).catch(() => { /* keep fallback name */ });
             return;
         }
 
         // If passage planner is open, auto-fill the first empty field
         if (showPassage) {
-            const name = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
-            if (!departure) {
-                setDeparture({ lat, lon, name });
-            } else if (!arrival) {
-                setArrival({ lat, lon, name });
-            } else {
-                setArrival({ lat, lon, name });
-            }
+            const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+            const setter = !departure ? setDeparture : setArrival;
+            setter({ lat, lon, name: fallbackName });
             LocationStore.setFromMapPin(lat, lon);
+            // Async: reverse geocode for a proper place name
+            import('../../services/weatherService').then(({ reverseGeocode }) =>
+                reverseGeocode(lat, lon).then(name => {
+                    if (name) setter({ lat, lon, name });
+                })
+            ).catch(() => { /* keep fallback name */ });
             return;
         }
 

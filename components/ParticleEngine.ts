@@ -35,6 +35,13 @@ export class ParticleEngine {
     private isIdle = false;
     private static IDLE_MS = 10_000; // 10 seconds of no interaction → sleep
 
+    // Duty Cycle — pulse animation to prevent phone overheating
+    // Animate for ON_MS, then freeze for OFF_MS, repeat
+    private static DUTY_ON_MS = 2000;   // 2 seconds of animation
+    private static DUTY_OFF_MS = 5000;  // 5 seconds of static freeze
+    private dutyCycleStart = 0;         // When current duty phase started
+    private dutyCycleActive = true;     // true = animating, false = frozen
+
     constructor(canvas: HTMLCanvasElement, map: L.Map, sampleVal: (lat: number, lon: number, type: string) => number | null, sampleDir: (lat: number, lon: number) => number) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { alpha: true })!;
@@ -284,6 +291,29 @@ export class ParticleEngine {
         }
 
         this.requestRef = requestAnimationFrame(this.animate);
+
+        // ── Duty Cycle: 2s ON / 5s OFF to prevent phone overheating ──
+        if (this.dutyCycleStart === 0) this.dutyCycleStart = timestamp;
+        const phaseElapsed = timestamp - this.dutyCycleStart;
+
+        if (this.dutyCycleActive) {
+            // Currently animating — check if ON period is over
+            if (phaseElapsed >= ParticleEngine.DUTY_ON_MS) {
+                this.dutyCycleActive = false;
+                this.dutyCycleStart = timestamp;
+                this.renderStaticFrame(); // Freeze with a static snapshot
+                return;
+            }
+        } else {
+            // Currently frozen — check if OFF period is over
+            if (phaseElapsed >= ParticleEngine.DUTY_OFF_MS) {
+                this.dutyCycleActive = true;
+                this.dutyCycleStart = timestamp;
+                // Fall through to resume animation
+            } else {
+                return; // Still frozen — skip all rendering
+            }
+        }
 
         const elapsed = timestamp - this.lastFrameTime;
 

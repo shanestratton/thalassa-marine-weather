@@ -599,7 +599,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                     {/* Wave */}
                                     <HUDCell
                                         label="WAVE"
-                                        value={currentEntry.waveHeight != null ? currentEntry.waveHeight.toFixed(1) : '--'}
+                                        value={currentEntry.waveHeight != null ? (currentEntry.waveHeight / 3.28084).toFixed(1) : '--'}
                                         unit="m"
                                         color="text-purple-400"
                                     />

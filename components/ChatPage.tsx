@@ -1266,7 +1266,7 @@ export const ChatPage: React.FC = () => {
                             {channels
                                 .filter(ch => ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts')
                                 .sort((a, b) => {
-                                    const priority: Record<string, number> = { 'First Mates': 0, 'Lonely Hearts': 0, 'Find Crew': 1, 'General': 2 };
+                                    const priority: Record<string, number> = { 'Marketplace': 0, 'First Mates': 0.5, 'Lonely Hearts': 0.5, 'Find Crew': 1, 'General': 2 };
                                     return (priority[a.name] ?? 99) - (priority[b.name] ?? 99);
                                 })
                                 .map((ch, i) => (

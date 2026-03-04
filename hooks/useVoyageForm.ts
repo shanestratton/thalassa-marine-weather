@@ -139,131 +139,128 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const { fetchVoyagePlan } = await import('../services/geminiService');
             const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
 
-            // ── Enhancement Pipeline (non-blocking, sequential) ──
-            // Step 1: Bathymetric routing — depth-safe waypoints
-            let enhancedPlan = result;
-            try {
-                const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
-                enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
-            } catch (bathyErr) {
-            }
+            // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
+            saveVoyagePlan(result);
+            setLoading(false);
 
-            // Step 2: Weather routing — corridor optimization with time-dependent weather
-            {
+            // ── Enhancement Pipeline (runs in background, progressively updates) ──
+            // Each step saves the enhanced plan as it completes, so the UI updates incrementally.
+            setTimeout(async () => {
+                let enhancedPlan = result;
+
+                // Step 1: Bathymetric routing — depth-safe waypoints
+                try {
+                    const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
+                    enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
+                    saveVoyagePlan(enhancedPlan);
+                } catch (_) { }
+
+                // Step 2: Weather routing — corridor optimization (depends on Step 1)
                 try {
                     const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                     enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
-                } catch (wxErr) {
-                }
-            }
+                    saveVoyagePlan(enhancedPlan);
+                } catch (_) { }
 
-            // Step 3: GEBCO depth enhancement — tag route segments with seabed depth
-            {
-                try {
-                    const { enhanceRouteWithDepth } = await import('../services/WeatherRoutingService');
-                    const { computeRoute: computeRt } = await import('../services/WeatherRoutingService');
+                // Steps 3 & 4 can run in parallel (both read from enhancedPlan, write to separate fields)
+                const step3 = (async () => {
+                    try {
+                        const { enhanceRouteWithDepth } = await import('../services/WeatherRoutingService');
+                        const { computeRoute: computeRt } = await import('../services/WeatherRoutingService');
 
-                    // Build waypoints from the enhanced plan for depth analysis
-                    const depthWaypoints = [];
-                    if (enhancedPlan.originCoordinates) {
-                        depthWaypoints.push({
-                            id: 'dep', lat: enhancedPlan.originCoordinates.lat,
-                            lon: enhancedPlan.originCoordinates.lon, name: enhancedPlan.origin || 'Departure',
-                        });
-                    }
-                    for (const wp of (enhancedPlan.waypoints || [])) {
-                        if (wp.coordinates) {
+                        const depthWaypoints = [];
+                        if (enhancedPlan.originCoordinates) {
                             depthWaypoints.push({
-                                id: wp.name || 'wp', lat: wp.coordinates.lat,
-                                lon: wp.coordinates.lon, name: wp.name || 'WP',
+                                id: 'dep', lat: enhancedPlan.originCoordinates.lat,
+                                lon: enhancedPlan.originCoordinates.lon, name: enhancedPlan.origin || 'Departure',
                             });
                         }
-                    }
-                    if (enhancedPlan.destinationCoordinates) {
-                        depthWaypoints.push({
-                            id: 'arr', lat: enhancedPlan.destinationCoordinates.lat,
-                            lon: enhancedPlan.destinationCoordinates.lon, name: enhancedPlan.destination || 'Arrival',
-                        });
-                    }
+                        for (const wp of (enhancedPlan.waypoints || [])) {
+                            if (wp.coordinates) {
+                                depthWaypoints.push({
+                                    id: wp.name || 'wp', lat: wp.coordinates.lat,
+                                    lon: wp.coordinates.lon, name: wp.name || 'WP',
+                                });
+                            }
+                        }
+                        if (enhancedPlan.destinationCoordinates) {
+                            depthWaypoints.push({
+                                id: 'arr', lat: enhancedPlan.destinationCoordinates.lat,
+                                lon: enhancedPlan.destinationCoordinates.lon, name: enhancedPlan.destination || 'Arrival',
+                            });
+                        }
 
-                    if (depthWaypoints.length >= 2) {
-                        const routeAnalysis = computeRt(depthWaypoints, {
-                            speed: vessel.cruisingSpeed || 6,
-                            vesselDraft: vessel.draft || 2.5,
-                        });
-                        const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, vessel.draft || 2.5);
+                        if (depthWaypoints.length >= 2) {
+                            const routeAnalysis = computeRt(depthWaypoints, {
+                                speed: vessel.cruisingSpeed || 6,
+                                vesselDraft: vessel.draft || 2.5,
+                            });
+                            const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, vessel.draft || 2.5);
+                            (enhancedPlan as any).__depthSummary = {
+                                minDepth: depthEnhanced.minDepth,
+                                shallowSegments: depthEnhanced.shallowSegments,
+                                totalSegments: depthEnhanced.segments.length,
+                                segments: depthEnhanced.segments.map(s => ({
+                                    depth_m: s.depth_m,
+                                    safety: s.depthSafety,
+                                    costMultiplier: s.depthCostMultiplier,
+                                })),
+                            };
+                        }
+                    } catch (_) { }
+                })();
 
-                        // Stash depth summary on the plan for the UI
-                        (enhancedPlan as any).__depthSummary = {
-                            minDepth: depthEnhanced.minDepth,
-                            shallowSegments: depthEnhanced.shallowSegments,
-                            totalSegments: depthEnhanced.segments.length,
-                            segments: depthEnhanced.segments.map(s => ({
-                                depth_m: s.depth_m,
-                                safety: s.depthSafety,
-                                costMultiplier: s.depthCostMultiplier,
-                            })),
-                        };
-                    }
-                } catch (depthErr) {
-                    // Non-critical — depth enhancement is additive
-                }
-            }
+                const step4 = (async () => {
+                    try {
+                        const { queryMultiModel, recommendModels } = await import('../services/weather/MultiModelWeatherService');
 
-            // Step 4: Multi-model weather comparison for offshore confidence
-            {
-                try {
-                    const { queryMultiModel, recommendModels } = await import('../services/weather/MultiModelWeatherService');
-
-                    // Build waypoints for the comparison
-                    const comparisonPoints: { lat: number; lon: number; name?: string }[] = [];
-                    if (enhancedPlan.originCoordinates) {
-                        comparisonPoints.push({
-                            lat: enhancedPlan.originCoordinates.lat,
-                            lon: enhancedPlan.originCoordinates.lon,
-                            name: enhancedPlan.origin,
-                        });
-                    }
-                    for (const wp of (enhancedPlan.waypoints || [])) {
-                        if (wp.coordinates) {
+                        const comparisonPoints: { lat: number; lon: number; name?: string }[] = [];
+                        if (enhancedPlan.originCoordinates) {
                             comparisonPoints.push({
-                                lat: wp.coordinates.lat,
-                                lon: wp.coordinates.lon,
-                                name: wp.name,
+                                lat: enhancedPlan.originCoordinates.lat,
+                                lon: enhancedPlan.originCoordinates.lon,
+                                name: enhancedPlan.origin,
                             });
                         }
-                    }
-                    if (enhancedPlan.destinationCoordinates) {
-                        comparisonPoints.push({
-                            lat: enhancedPlan.destinationCoordinates.lat,
-                            lon: enhancedPlan.destinationCoordinates.lon,
-                            name: enhancedPlan.destination,
-                        });
-                    }
-
-                    if (comparisonPoints.length >= 2) {
-                        // Auto-detect best models for the region
-                        const midpoint = comparisonPoints[Math.floor(comparisonPoints.length / 2)];
-                        const modelIds = recommendModels(midpoint.lat, midpoint.lon);
-
-                        const multiModelResult = await queryMultiModel(comparisonPoints, modelIds);
-                        if (multiModelResult) {
-                            (enhancedPlan as any).__multiModelComparison = multiModelResult;
+                        for (const wp of (enhancedPlan.waypoints || [])) {
+                            if (wp.coordinates) {
+                                comparisonPoints.push({
+                                    lat: wp.coordinates.lat,
+                                    lon: wp.coordinates.lon,
+                                    name: wp.name,
+                                });
+                            }
                         }
-                    }
-                } catch (multiErr) {
-                    // Non-critical — multi-model is advisory
-                }
-            }
+                        if (enhancedPlan.destinationCoordinates) {
+                            comparisonPoints.push({
+                                lat: enhancedPlan.destinationCoordinates.lat,
+                                lon: enhancedPlan.destinationCoordinates.lon,
+                                name: enhancedPlan.destination,
+                            });
+                        }
 
-            saveVoyagePlan(enhancedPlan);
+                        if (comparisonPoints.length >= 2) {
+                            const midpoint = comparisonPoints[Math.floor(comparisonPoints.length / 2)];
+                            const modelIds = recommendModels(midpoint.lat, midpoint.lon);
+                            const multiModelResult = await queryMultiModel(comparisonPoints, modelIds);
+                            if (multiModelResult) {
+                                (enhancedPlan as any).__multiModelComparison = multiModelResult;
+                            }
+                        }
+                    } catch (_) { }
+                })();
+
+                // Wait for both parallel steps, then save final enhanced plan
+                await Promise.allSettled([step3, step4]);
+                saveVoyagePlan({ ...enhancedPlan });
+            }, 50);
 
             // ── Background: pre-compute isochrone so the map route is ready ──
-            if (enhancedPlan.originCoordinates && enhancedPlan.destinationCoordinates) {
+            if (result.originCoordinates && result.destinationCoordinates) {
                 import('../services/IsochronePrecomputeCache').then(({ precomputeIsochrone }) => {
                     precomputeIsochrone(
-                        enhancedPlan.originCoordinates!,
-                        enhancedPlan.destinationCoordinates!,
+                        result.originCoordinates!,
+                        result.destinationCoordinates!,
                         departureDate || new Date().toISOString(),
                     );
                 }).catch(() => { /* Non-critical */ });

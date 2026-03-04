@@ -65,15 +65,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     const { settings } = useSettings();
     const { setPage } = useUI();
     const [passageToast, setPassageToast] = useState<string | null>(null);
-    const [isoProgress, setIsoProgress] = useState<{ step: number; closestNM: number } | null>(null);
+    const [isoProgress, setIsoProgress] = useState<{ step: number; closestNM: number; totalDistNM?: number; elapsed?: number; frontSize?: number; phase?: string } | null>(null);
 
     // Listen for isochrone progress + completion events
     useEffect(() => {
         const onProgress = (e: Event) => {
             const d = (e as CustomEvent).detail;
-            if (d) setIsoProgress({ step: d.step, closestNM: d.closestNM });
+            console.info('[MapHub] Isochrone progress:', d);
+            if (d) setIsoProgress({ step: d.step, closestNM: d.closestNM, totalDistNM: d.totalDistNM, elapsed: d.elapsed, frontSize: d.frontSize, phase: d.phase });
         };
-        const onComplete = () => setIsoProgress(null);
+        const onComplete = () => { console.info('[MapHub] Isochrone complete — clearing progress'); setIsoProgress(null); };
         window.addEventListener('thalassa:isochrone-progress', onProgress);
         window.addEventListener('thalassa:isochrone-complete', onComplete);
         return () => {
@@ -197,15 +198,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     <p className="text-[10px] text-gray-500 truncate">
                                         {!passage.departure ? 'Tap map to set Departure' :
                                             !passage.arrival ? 'Tap map to set Arrival' :
-                                                passage.routeAnalysis ? `${passage.routeAnalysis.totalDistance.toFixed(0)} NM • ${passage.routeAnalysis.estimatedDuration.toFixed(0)}h` :
-                                                    'Computing route…'}
+                                                isoProgress
+                                                    ? isoProgress.phase === 'loading-wind' ? '⏳ Loading wind data…'
+                                                        : isoProgress.phase === 'loading-bathy' ? '⏳ Loading depth data…'
+                                                            : `⏳ Routing… ${isoProgress.closestNM} NM to go${isoProgress.totalDistNM ? ` / ${isoProgress.totalDistNM} NM` : ''} • ${((isoProgress.elapsed ?? 0) / 1000).toFixed(0)}s`
+                                                    : passage.routeAnalysis ? `${passage.routeAnalysis.totalDistance.toFixed(0)} NM • ${passage.routeAnalysis.estimatedDuration.toFixed(0)}h`
+                                                        : 'Computing route…'}
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => {
                                     passage.setShowPassage(false);
-                                    passage.clearRoute();
                                     triggerHaptic('light');
                                 }}
                                 className="p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
@@ -232,12 +236,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         {passage.routeAnalysis && passage.departure && passage.arrival && (
                             <div className="mt-1.5 pt-1.5 border-t border-white/5">
                                 {/* Computing indicator */}
-                                {!passage.isoResultRef.current && (
+                                {isoProgress && (
                                     <div className="flex items-center gap-1.5 mb-1.5 text-[9px] text-amber-400/70">
                                         <div className="w-2 h-2 border border-amber-400/60 border-t-transparent rounded-full animate-spin" />
-                                        {isoProgress
-                                            ? `Computing weather route… step ${isoProgress.step}, ${isoProgress.closestNM} NM to go`
-                                            : 'Computing weather route…'}
+                                        {isoProgress.phase === 'loading-wind' ? 'Loading wind data…'
+                                            : isoProgress.phase === 'loading-bathy' ? 'Loading depth data…'
+                                                : `Routing… ${isoProgress.closestNM} NM to go${isoProgress.totalDistNM ? ` / ${isoProgress.totalDistNM} NM` : ''} • ${((isoProgress.elapsed ?? 0) / 1000).toFixed(0)}s`}
                                     </div>
                                 )}
                                 <div className="flex gap-2">
