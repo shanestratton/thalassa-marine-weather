@@ -154,14 +154,14 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 stagger-cascade">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('compass');
                         }}
-                        className={`bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
+                        className={`stagger-item bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
                     >
                         <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                             <svg className={`w-4 h-4 ${anchorAccent.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -178,7 +178,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             triggerHaptic('light');
                             onNavigate('details');
                         }}
-                        className="bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                        className="stagger-item bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
                     >
                         <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                             <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -200,7 +200,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">Ship&apos;s Office</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-3 stagger-cascade">
                     {officeCards.map(card => {
                         const disabled = card.id === 'passage' && isObserver;
                         return (
@@ -211,7 +211,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                                     triggerHaptic('light');
                                     onNavigate(card.page);
                                 }}
-                                className={`bg-gradient-to-br ${disabled ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : `${card.accentBg}`} border rounded-xl p-3 text-left group ${disabled ? '' : 'hover:scale-[1.03]'} transition-all active:scale-[0.97]`}
+                                className={`stagger-item bg-gradient-to-br ${disabled ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : `${card.accentBg}`} border rounded-xl p-3 text-left group ${disabled ? '' : 'hover:scale-[1.03]'} transition-all active:scale-[0.97]`}
                             >
                                 <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
                                     <div className={`${card.accentColor}`}>{card.icon}</div>
