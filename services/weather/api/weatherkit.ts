@@ -213,6 +213,7 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
             waveHeight: 0, // WeatherKit doesn't provide — StormGlass fills this
             condition: mapCondition(d.conditionCode || ''),
             precipitation: d.precipitationAmount ?? undefined,
+            precipChance: d.precipitationChance != null ? Math.round(d.precipitationChance * 100) : undefined,
             cloudCover: fractionToPercent(d.daytimeForecast?.cloudCover) ?? undefined,
             uvIndex: d.maxUvIndex ?? undefined,
             sunrise: d.sunrise ? roundToNearestMinute(d.sunrise) : undefined,

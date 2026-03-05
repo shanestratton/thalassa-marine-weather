@@ -57,6 +57,7 @@ export interface CardDisplayValues {
     vis: number | string;
     humidity: number | string;
     precip: number | string;
+    precipUnit?: string; // 'mm' for live, '%' for forecast
     dewPoint: number | string;
     highTemp: number | string;
     lowTemp: number | string;

@@ -375,13 +375,26 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         ? convertTemp(data.waterTemperature, units.temp) : '--';
     const humidityVal = safeRound(data.humidity);
 
-    // Rain chance from WeatherKit hourly precipChance
-    const rainChance = (() => {
-        if (!hourly?.length) return safeRound(data.precipitation);
-        const now = Date.now();
-        const currentHour = hourly.find(h => Math.abs(new Date(h.time).getTime() - now) < 90 * 60_000);
-        return currentHour?.precipChance !== undefined ? currentHour.precipChance : safeRound(data.precipitation);
-    })();
+    // Rain: live = daily mm total, forecast = precipChance %
+    const rainValue = useMemo(() => {
+        if (isLive && hourly?.length) {
+            // Sum today's hourly precipitation amounts for daily total (mm)
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const todayTotal = hourly
+                .filter(h => new Date(h.time).toLocaleDateString('en-CA') === todayStr)
+                .reduce((sum, h) => sum + (h.precipitation ?? 0), 0);
+            return todayTotal > 0 ? parseFloat(todayTotal.toFixed(1)) : 0;
+        }
+        if (!isLive && hourly?.length) {
+            // Forecast: find closest hourly slot and use precipChance
+            const now = Date.now();
+            const currentHour = hourly.find(h => Math.abs(new Date(h.time).getTime() - now) < 90 * 60_000);
+            if (currentHour?.precipChance !== undefined) return currentHour.precipChance;
+        }
+        // Fallback to raw precipitation value
+        return safeRound(data.precipitation);
+    }, [isLive, hourly, data.precipitation]);
+    const rainUnit = isLive ? (units.temp === 'F' ? 'in' : 'mm') : '%';
 
     const isOffshore = locationType === 'offshore';
 
@@ -505,8 +518,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 <InstrumentCell
                     label="RAIN"
                     icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
-                    value={rainChance}
-                    unit="%"
+                    value={rainValue}
+                    unit={rainUnit}
                 />
             </div>
 
