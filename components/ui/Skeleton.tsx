@@ -97,3 +97,39 @@ export const DashboardSkeleton: React.FC = () => (
         <Skeleton className="h-48 w-full rounded-xl" /> {/* Tide graph */}
     </div>
 );
+
+// Chat channel list skeleton
+export const SkeletonChannelList: React.FC = () => (
+    <div className="px-4 py-3 space-y-2 animate-in fade-in duration-300">
+        <Skeleton className="h-2.5 w-20 mb-3" />
+        {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.03]">
+                <Skeleton className="w-11 h-11 !rounded-xl" />
+                <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-3 w-2/3" />
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
+// Logbook voyage list skeleton
+export const SkeletonVoyageList: React.FC = () => (
+    <div className="px-3 space-y-3 animate-in fade-in duration-300">
+        {[0, 1, 2].map(i => (
+            <div key={i} className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 space-y-3">
+                <div className="flex justify-between">
+                    <Skeleton className="h-3 w-2/5" />
+                    <Skeleton className="h-5 w-16" />
+                </div>
+                <Skeleton className="h-5 w-3/4" />
+                <div className="grid grid-cols-4 gap-2">
+                    {[0, 1, 2, 3].map(j => (
+                        <Skeleton key={j} className="h-8" />
+                    ))}
+                </div>
+            </div>
+        ))}
+    </div>
+);

@@ -29,6 +29,7 @@ import { moderateMessage } from '../services/ContentModerationService';
 import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
 import { ChannelList } from './chat/ChannelList';
+import { SkeletonChannelList } from './ui/Skeleton';
 
 // --- PIN / TRACK MESSAGE PARSING ---
 const PIN_PREFIX = '📍PIN:';
@@ -1099,12 +1100,11 @@ export const ChatPage: React.FC = () => {
             {/* ═══════════════════ CONTENT ═══════════════════ */}
             <div className="flex-1 overflow-y-auto overscroll-contain">
                 {loading && (
-                    <div className="flex flex-col items-center justify-center py-20 gap-3">
-                        <div className="relative">
-                            <div className="w-8 h-8 border-2 border-sky-500/30 rounded-full" />
-                            <div className="absolute inset-0 w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                    <div className="pb-24">
+                        <SkeletonChannelList />
+                        <div className="flex justify-center pt-2">
+                            <span className="text-xs text-white/40">{loadingStatus}</span>
                         </div>
-                        <span className="text-xs text-white/60">{loadingStatus}</span>
                     </div>
                 )}
                 {/* ══════ FIRST MATES ══════ */}

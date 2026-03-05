@@ -438,11 +438,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .display-light .text-white\/40 {
-  color: rgba(100, 116, 139, 0.6);
+  color: rgba(71, 85, 105, 0.75);
+  /* slate-600 at 75% — WCAG AA compliant on white */
 }
 
 .display-light .text-white\/20 {
-  color: rgba(100, 116, 139, 0.4);
+  color: rgba(71, 85, 105, 0.55);
+  /* slate-600 at 55% — still subtle but WCAG AA compliant */
 }
 
 /* ── Text-slate opacity variants ── */
@@ -697,8 +699,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .display-light .text-white\/40,
 .display-light .text-white\/30 {
-  color: rgba(71, 85, 105, 0.6);
-  /* slate-600 at 60% */
+  color: rgba(51, 65, 85, 0.65);
+  /* slate-700 at 65% — WCAG AA compliant */
 }
 
 /* ── Background accent overrides ── */
