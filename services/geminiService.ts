@@ -229,13 +229,13 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
         if (data && data.lat && data.lon) return data;
         throw new Error("No coords");
     } catch (e) {
-            console.warn('[gemini]', e);
+        console.warn('[gemini]', e);
         /* AI geo-lookup failed — return slight coord offset as safe fallback */
         return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.045 };
     }
 };
 
-export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: VesselDimensionUnits, generalUnits?: UnitPreferences, via?: string, weatherContext?: Record<string, unknown>): Promise<VoyagePlan> => {
+export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: VesselDimensionUnits, generalUnits?: UnitPreferences, via?: string, weatherContext?: Record<string, unknown>, userLocation?: { lat: number; lon: number }): Promise<VoyagePlan> => {
     if (!isGeminiConfigured()) throw new Error("Gemini AI unavailable");
     try {
         const length = vessel?.length || 30;
@@ -248,8 +248,29 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
         }
         const today = new Date().toISOString().split('T')[0];
 
+        // ── Proximity-based disambiguation context ──
+        let disambiguationCtx = '';
+        if (userLocation) {
+            const latDir = userLocation.lat >= 0 ? 'N' : 'S';
+            const lonDir = userLocation.lon >= 0 ? 'E' : 'W';
+            disambiguationCtx = `
+USER'S CURRENT GPS POSITION: ${Math.abs(userLocation.lat).toFixed(2)}°${latDir}, ${Math.abs(userLocation.lon).toFixed(2)}°${lonDir}
+DISAMBIGUATION RULES (CRITICAL):
+- When resolving AMBIGUOUS place names, ALWAYS prefer the port/marina geographically CLOSEST to the user's current position.
+- Common maritime abbreviations that are ambiguous:
+  • "NC" near Oceania/Pacific = New Caledonia (Nouvelle-Calédonie), NOT North Carolina (USA)
+  • "NC" near US East Coast = North Carolina, NOT New Caledonia
+  • "NZ" = New Zealand
+  • "NSW" = New South Wales, Australia
+  • "WA" near Australia = Western Australia, NOT Washington State (USA)
+  • "QLD" = Queensland, Australia
+- ALWAYS resolve to the interpretation that is geographically closest to the user's position.
+- Include the full country name in your response (e.g. "Port Moselle, New Caledonia" not "Port Moselle, NC").
+`;
+        }
+
         const prompt = `Act as a professional Master Mariner. Plan a marine voyage for a ${length}ft ${type} vessel named "${name}" from "${origin}" to "${destination}" via "${via || 'direct'}" departing ${departureDate}.
-        ${contextString}
+        ${contextString}${disambiguationCtx}
         CRITICAL INSTRUCTIONS:
         1. COORDINATES: If the origin or destination contains GPS coordinates in parentheses like "Port Name (-22.2765, 166.4377)", you MUST use those EXACT coordinates for originCoordinates/destinationCoordinates. Do NOT substitute with city-center or generic port coordinates.
         2. GEOCODING ACCURACY: You MUST resolve origin and destination to their SPECIFIC suburb/marina/harbour coordinates. For Australian locations:
@@ -384,7 +405,7 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
                             data.destination = `Destination ${coordStr}`;
                         }
                     } catch (e) {
-            console.warn('[gemini]', e);
+                        console.warn('[gemini]', e);
                         data.destination = `Destination ${coordStr}`;
                     }
                 } else {
@@ -419,6 +440,37 @@ export const fetchVoyagePlan = async (origin: string, destination: string, vesse
             const maxWave = Math.max(...data.waypoints.map((wp: { waveHeight?: number }) => wp.waveHeight ?? 0));
             if (maxWind > 0) data.suitability.maxWindEncountered = maxWind;
             if (maxWave > 0) data.suitability.maxWaveEncountered = maxWave;
+        }
+
+        // ── Country Qualifier: append full country name to origin/destination ──
+        // Prevents ambiguous abbreviations like "NC" (New Caledonia vs North Carolina)
+        if (data.destinationCoordinates) {
+            try {
+                const { reverseGeocode } = await import('./weatherService');
+                const destName = await reverseGeocode(data.destinationCoordinates.lat, data.destinationCoordinates.lon);
+                if (destName && data.destination) {
+                    // Extract country from reverse geocode result (usually last part after comma)
+                    const parts = destName.split(',').map((p: string) => p.trim());
+                    const country = parts.length >= 2 ? parts[parts.length - 1] : null;
+                    // Only append if the destination doesn't already contain the country
+                    if (country && !data.destination.toLowerCase().includes(country.toLowerCase())) {
+                        data.destination = `${data.destination}, ${country}`;
+                    }
+                }
+            } catch { /* Non-critical — keep original name */ }
+        }
+        if (data.originCoordinates) {
+            try {
+                const { reverseGeocode } = await import('./weatherService');
+                const origName = await reverseGeocode(data.originCoordinates.lat, data.originCoordinates.lon);
+                if (origName && data.origin) {
+                    const parts = origName.split(',').map((p: string) => p.trim());
+                    const country = parts.length >= 2 ? parts[parts.length - 1] : null;
+                    if (country && !data.origin.toLowerCase().includes(country.toLowerCase())) {
+                        data.origin = `${data.origin}, ${country}`;
+                    }
+                }
+            } catch { /* Non-critical — keep original name */ }
         }
 
         return data;
@@ -556,7 +608,7 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         }
         return data;
     } catch (e) {
-            console.warn('[gemini]', e);
+        console.warn('[gemini]', e);
         /* AI analysis unavailable — return static safety defaults */
         return {
             strategy: "Analysis unavailable due to network or quota limits.",

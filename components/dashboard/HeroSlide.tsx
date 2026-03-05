@@ -181,7 +181,7 @@ const HeroSlideComponent = ({
     const [tick, setTick] = useState(0);
     useEffect(() => {
         if (index !== 0) return; // Optimization: Only tick for Live card
-        const timer = setInterval(() => setTick(t => t + 1), 30000); // 30s check
+        const timer = setInterval(() => { if (!document.hidden) setTick(t => t + 1); }, 30000); // 30s check
         return () => clearInterval(timer);
     }, [index]);
 

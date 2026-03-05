@@ -31,6 +31,7 @@ export const GpsTrackingIndicator: React.FC = () => {
     // Poll tracking status every 1 second so it reacts quickly to mode changes
     useEffect(() => {
         const id = setInterval(() => {
+            if (document.hidden) return; // Battery: skip when backgrounded
             const s = ShipLogService.getTrackingStatus();
             setStatus(s);
 

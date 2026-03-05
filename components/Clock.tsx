@@ -14,7 +14,7 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
 
     useEffect(() => {
         // Sync to the second
-        const timer = setInterval(() => setTime(new Date()), 1000);
+        const timer = setInterval(() => { if (!document.hidden) setTime(new Date()); }, 1000);
         return () => clearInterval(timer);
     }, []);
 
@@ -26,11 +26,11 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
         if (timeZone) {
             timeZoneOption = timeZone;
         } else if (utcOffset !== undefined) {
-             const nowUTC = time.getTime();
-             const nowOffset = time.getTimezoneOffset() * 60000; // Local offset in ms
-             const utcTime = nowUTC + nowOffset; // Pure UTC
-             targetDate = new Date(utcTime + (utcOffset * 3600 * 1000));
-             timeZoneOption = 'UTC'; // We shifted the time manually, so treat as UTC for formatting
+            const nowUTC = time.getTime();
+            const nowOffset = time.getTimezoneOffset() * 60000; // Local offset in ms
+            const utcTime = nowUTC + nowOffset; // Pure UTC
+            targetDate = new Date(utcTime + (utcOffset * 3600 * 1000));
+            timeZoneOption = 'UTC'; // We shifted the time manually, so treat as UTC for formatting
         }
 
         const options: Intl.DateTimeFormatOptions = { timeZone: timeZoneOption };
@@ -41,32 +41,32 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
             options.day = 'numeric';
             return targetDate.toLocaleDateString('en-US', options);
         }
-        
+
         if (format === 'datetime') {
             return targetDate.toLocaleString('en-US', options);
         }
 
         if (format === 'full') {
             // "14:32 • Friday, August 24"
-            const timeStr = targetDate.toLocaleTimeString('en-US', { 
-                ...options, 
-                hour: 'numeric', 
-                minute: '2-digit', 
-                hour12: false 
+            const timeStr = targetDate.toLocaleTimeString('en-US', {
+                ...options,
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: false
             });
-            const dateStr = targetDate.toLocaleDateString('en-US', { 
-                ...options, 
-                weekday: 'long', 
-                month: 'long', 
-                day: 'numeric' 
+            const dateStr = targetDate.toLocaleDateString('en-US', {
+                ...options,
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric'
             });
             return `${timeStr} • ${dateStr}`;
         }
 
         // Default 'time'
-        return targetDate.toLocaleTimeString('en-US', { 
-            ...options, 
-            hour: 'numeric', 
+        return targetDate.toLocaleTimeString('en-US', {
+            ...options,
+            hour: 'numeric',
             minute: '2-digit',
             hour12: false
         });

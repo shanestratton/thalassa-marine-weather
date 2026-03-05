@@ -115,12 +115,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
             try {
-                const { ts, data: cachedData } = JSON.parse(cached) as { ts: number; data: MinutelyRain[] };
+                const { ts, data: cachedData, summary: cachedSummary } = JSON.parse(cached) as { ts: number; data: MinutelyRain[]; summary?: string };
                 if (Date.now() - ts < 5 * 60 * 1000 && cachedData.length > 0) {
                     setMinutelyRain(cachedData);
+                    if (cachedSummary) setRainSummary(cachedSummary);
                     setRainStatus('loaded');
                     // Still set up the refresh timer below, but skip initial fetch
                     const rainTimer = setInterval(() => {
+                        if (document.hidden) return; // Battery: skip when backgrounded
                         if (!navigator.onLine || cancelled) return;
                         fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
                             if (!cancelled && rain.length > 0) {
@@ -162,6 +164,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
         // Live refresh every 5 minutes (WeatherKit has internal caching)
         const rainTimer = setInterval(() => {
+            if (document.hidden) return; // Battery: skip when backgrounded
             if (!navigator.onLine) return;
             fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
                 if (!cancelled) {

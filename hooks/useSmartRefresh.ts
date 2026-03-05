@@ -88,6 +88,7 @@ export const useSmartRefresh = ({
     // MONITOR LOOP (Ticks every 10s)
     useEffect(() => {
         const checkInterval = setInterval(() => {
+            if (document.hidden) return; // Battery: skip when backgrounded
             if (!navigator.onLine) return;
 
             // Safety check: specific override for really old data (2 hours)

@@ -53,6 +53,19 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackIndex, setPlaybackIndex] = useState(0);
     const [showHUD, setShowHUD] = useState(false);
+    const [activeWaypoint, setActiveWaypoint] = useState<{
+        name: string;
+        notes?: string;
+        timestamp: string;
+        lat?: number;
+        lon?: number;
+        speedKts?: number;
+        courseDeg?: number;
+        distanceNM?: number;
+        windSpeed?: number;
+        windDir?: string;
+    } | null>(null);
+    const waypointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const vesselMarkerRef = useRef<L.Marker | null>(null);
     const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const trailLayerRef = useRef<L.LayerGroup | null>(null);
@@ -75,6 +88,41 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         sortedEntriesRef.current = sorted;
         return sorted;
     }, [entries]);
+
+    // Pre-build interpolated animation frames for smooth playback
+    // Each frame is { lat, lon, entryIndex } — entryIndex maps back to sortedEntries
+    const animFramesRef = useRef<{ lat: number; lon: number; entryIndex: number }[]>([]);
+    useMemo(() => {
+        const sorted = sortedEntriesRef.current;
+        const frames: { lat: number; lon: number; entryIndex: number }[] = [];
+        if (sorted.length === 0) { animFramesRef.current = frames; return; }
+
+        for (let i = 0; i < sorted.length; i++) {
+            const cur = sorted[i];
+            frames.push({ lat: cur.latitude!, lon: cur.longitude!, entryIndex: i });
+
+            if (i < sorted.length - 1) {
+                const nxt = sorted[i + 1];
+                const dlat = nxt.latitude! - cur.latitude!;
+                const dlon = nxt.longitude! - cur.longitude!;
+                const dist = Math.sqrt(dlat * dlat + dlon * dlon); // degrees
+                // If gap > ~500m (0.005°), insert intermediate frames (~300m steps)
+                const STEP = 0.003; // ~300m per frame
+                if (dist > STEP * 1.5) {
+                    const steps = Math.min(Math.ceil(dist / STEP), 200); // cap at 200 intermediate frames
+                    for (let s = 1; s < steps; s++) {
+                        const t = s / steps;
+                        frames.push({
+                            lat: cur.latitude! + dlat * t,
+                            lon: cur.longitude! + dlon * t,
+                            entryIndex: i, // still belongs to segment starting at entry i
+                        });
+                    }
+                }
+            }
+        }
+        animFramesRef.current = frames;
+    }, [sortedEntries]);
 
     // Create map ONCE when opened
     useEffect(() => {
@@ -273,8 +321,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             iconSize: [24, 24], iconAnchor: [12, 12], className: ''
         });
         L.marker([sorted[0].latitude!, sorted[0].longitude!], { icon: startIcon })
-            .addTo(layerGroup)
-            .bindPopup(`<div style="font-size:12px"><strong style="color:#34d399">START</strong><br/>${new Date(sorted[0].timestamp).toLocaleString()}<br/>${sorted[0].positionFormatted || ''}</div>`);
+            .addTo(layerGroup);
 
         // End marker
         const endIcon = L.divIcon({
@@ -283,8 +330,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         });
         const lastEntry = sorted[sorted.length - 1];
         L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon })
-            .addTo(layerGroup)
-            .bindPopup(`<div style="font-size:12px"><strong style="color:#ef4444">END</strong><br/>${new Date(lastEntry.timestamp).toLocaleString()}<br/>${lastEntry.positionFormatted || ''}</div>`);
+            .addTo(layerGroup);
 
         // Waypoint markers
         sorted.filter(e => e.entryType === 'waypoint').forEach(entry => {
@@ -293,8 +339,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 iconSize: [16, 16], iconAnchor: [8, 8], className: ''
             });
             L.marker([entry.latitude!, entry.longitude!], { icon: wpIcon })
-                .addTo(layerGroup)
-                .bindPopup(`<div style="font-size:12px"><strong style="color:#f59e0b">${entry.waypointName || 'Waypoint'}</strong><br/>${new Date(entry.timestamp).toLocaleString()}<br/>${entry.notes || ''}</div>`);
+                .addTo(layerGroup);
         });
 
         // GPS dots
@@ -338,7 +383,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         return () => clearTimeout(timer);
     }, [isOpen, updateTrackLayers]);
 
-    // ── Playback engine ──
+    // ── Playback engine (uses interpolated frames) ──
     const moveVesselTo = useCallback((index: number) => {
         const sorted = sortedEntriesRef.current;
         if (!sorted.length || index < 0 || index >= sorted.length) return;
@@ -348,54 +393,73 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         const map = mapInstanceRef.current;
         if (!marker || !map) return;
 
-        // Ensure marker is on map
-        if (!map.hasLayer(marker)) {
-            marker.addTo(map);
-        }
-
+        if (!map.hasLayer(marker)) marker.addTo(map);
         marker.setLatLng([entry.latitude!, entry.longitude!]);
 
-        // Update scrubber visuals directly (no React re-render during drag)
         const pct = sorted.length > 1 ? (index / (sorted.length - 1)) * 100 : 0;
         if (thumbRef.current) thumbRef.current.style.left = `${pct}%`;
         if (fillRef.current) fillRef.current.style.width = `${pct}%`;
+    }, []);
+
+    // Move vessel to an interpolated frame position (no scrubber update)
+    const moveVesselToFrame = useCallback((frame: { lat: number; lon: number }) => {
+        const marker = vesselMarkerRef.current;
+        const map = mapInstanceRef.current;
+        if (!marker || !map) return;
+        if (!map.hasLayer(marker)) marker.addTo(map);
+        marker.setLatLng([frame.lat, frame.lon]);
     }, []);
 
     // Play/pause
     const togglePlayback = useCallback(() => {
         setIsPlaying(prev => {
             if (!prev) {
-                // Start playing — show the HUD
                 setShowHUD(true);
+                const frames = animFramesRef.current;
                 const sorted = sortedEntriesRef.current;
-                if (!sorted.length) return false;
+                if (!frames.length || !sorted.length) return false;
 
-                // If at end, restart
-                let startIdx = playbackIndex;
-                if (startIdx >= sorted.length - 1) {
-                    startIdx = 0;
+                // Determine starting frame index from current playbackIndex
+                let startFrameIdx = 0;
+                if (playbackIndex >= sorted.length - 1) {
+                    startFrameIdx = 0;
                     setPlaybackIndex(0);
+                } else {
+                    // Find the frame that corresponds to the current entry
+                    startFrameIdx = frames.findIndex(f => f.entryIndex >= playbackIndex);
+                    if (startFrameIdx < 0) startFrameIdx = 0;
                 }
 
+                let frameIdx = startFrameIdx;
                 const interval = setInterval(() => {
-                    setPlaybackIndex(idx => {
-                        const next = idx + 1;
-                        if (next >= sorted.length) {
-                            clearInterval(interval);
-                            playIntervalRef.current = null;
-                            setIsPlaying(false);
-                            return idx;
-                        }
-                        moveVesselTo(next);
-                        return next;
+                    frameIdx++;
+                    if (frameIdx >= frames.length) {
+                        clearInterval(interval);
+                        playIntervalRef.current = null;
+                        setIsPlaying(false);
+                        setPlaybackIndex(sorted.length - 1);
+                        moveVesselTo(sorted.length - 1);
+                        return;
+                    }
+                    const frame = frames[frameIdx];
+                    moveVesselToFrame(frame);
+
+                    // Update scrubber position smoothly
+                    const pct = (frameIdx / (frames.length - 1)) * 100;
+                    if (thumbRef.current) thumbRef.current.style.left = `${pct}%`;
+                    if (fillRef.current) fillRef.current.style.width = `${pct}%`;
+
+                    // Update playbackIndex when we cross into a new entry
+                    setPlaybackIndex(prev => {
+                        if (frame.entryIndex !== prev) return frame.entryIndex;
+                        return prev;
                     });
-                }, 80); // ~12.5 fps for smooth animation
+                }, 50); // ~20fps — smooth and enjoyable
 
                 playIntervalRef.current = interval;
-                moveVesselTo(startIdx);
+                moveVesselToFrame(frames[startFrameIdx]);
                 return true;
             } else {
-                // Pause
                 if (playIntervalRef.current) {
                     clearInterval(playIntervalRef.current);
                     playIntervalRef.current = null;
@@ -403,12 +467,39 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 return false;
             }
         });
-    }, [playbackIndex, moveVesselTo]);
+    }, [playbackIndex, moveVesselTo, moveVesselToFrame]);
+
+    // Detect waypoint crossing during playback
+    useEffect(() => {
+        if (!showHUD) return;
+        const entry = sortedEntriesRef.current[playbackIndex];
+        if (!entry) return;
+
+        if (entry.entryType === 'waypoint') {
+            // Clear any existing timer
+            if (waypointTimerRef.current) clearTimeout(waypointTimerRef.current);
+            setActiveWaypoint({
+                name: entry.waypointName || 'Waypoint',
+                notes: entry.notes || undefined,
+                timestamp: new Date(entry.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+                lat: entry.latitude,
+                lon: entry.longitude,
+                speedKts: entry.speedKts,
+                courseDeg: entry.courseDeg,
+                distanceNM: entry.cumulativeDistanceNM,
+                windSpeed: entry.windSpeed,
+                windDir: entry.windDirection,
+            });
+            // Auto-dismiss after 6 seconds (more time for extra info)
+            waypointTimerRef.current = setTimeout(() => setActiveWaypoint(null), 6000);
+        }
+    }, [playbackIndex, showHUD]);
 
     // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+            if (waypointTimerRef.current) clearTimeout(waypointTimerRef.current);
         };
     }, []);
 
@@ -493,24 +584,28 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const elapsedLabel = (() => {
         if (!currentEntry || !sortedEntries[0]) return '';
         const ms = new Date(currentEntry.timestamp).getTime() - new Date(sortedEntries[0].timestamp).getTime();
-        const hrs = Math.floor(ms / 3600000);
+        const days = Math.floor(ms / 86400000);
+        const hrs = Math.floor((ms % 86400000) / 3600000);
         const mins = Math.floor((ms % 3600000) / 60000);
+        if (days > 0) return `${days}d ${hrs}h`;
         return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
     })();
 
     return (
         <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden">
-            {/* Title overlay — top left */}
-            <div className="absolute top-0 left-0 right-0 z-[1001] px-4" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
-                <div>
-                    <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">Voyage Track</h2>
-                    <div className="text-[10px] text-white/60 flex gap-3 mt-0.5 font-medium">
-                        <span>{totalDistance} NM</span>
-                        <span>{sortedEntries.length} pts</span>
-                        <span>{waypointCount} wpts</span>
+            {/* Title overlay — top left (hidden during playback HUD) */}
+            {!showHUD && (
+                <div className="absolute top-0 left-0 right-0 z-[1001] px-4" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+                    <div>
+                        <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">Voyage Track</h2>
+                        <div className="text-[10px] text-white/60 flex gap-3 mt-0.5 font-medium">
+                            <span>{totalDistance} NM</span>
+                            <span>{sortedEntries.length} pts</span>
+                            <span>{waypointCount} wpts</span>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Back chevron — middle-left of screen */}
             <div className="absolute z-[1001] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
@@ -595,7 +690,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
                             {/* Second row — only if data exists */}
                             {(currentEntry.waveHeight != null || currentEntry.pressure != null || currentEntry.waterTemp != null || currentEntry.visibility != null || currentEntry.seaState != null) && (
-                                <div className="grid grid-cols-5 gap-1 mt-1 pt-1 border-t border-white/5">
+                                <div className="grid grid-cols-6 gap-1 mt-1 pt-1 border-t border-white/5">
                                     {/* Wave */}
                                     <HUDCell
                                         label="WAVE"
@@ -626,7 +721,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                     <HUDCell
                                         label="SEA"
                                         value={currentEntry.seaState != null ? currentEntry.seaState.toString() : '--'}
-                                        unit={currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : ''}
+                                        color="text-purple-400"
+                                    />
+                                    {/* Beaufort */}
+                                    <HUDCell
+                                        label="BFT"
+                                        value={currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : '--'}
                                         color="text-purple-400"
                                     />
                                 </div>
@@ -639,6 +739,68 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                 </div>
                             )}
                         </div>
+
+                        {/* ═══ WAYPOINT BANNER — persists when crossing a waypoint ═══ */}
+                        {activeWaypoint && (
+                            <div
+                                className="mt-2 bg-amber-500/15 backdrop-blur-xl rounded-xl border border-amber-500/30 p-3 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300"
+                                style={{ boxShadow: '0 4px 20px rgba(245,158,11,0.2)' }}
+                            >
+                                <div className="flex items-start gap-2">
+                                    <span className="text-base mt-0.5">📍</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-amber-300 uppercase tracking-wider">{activeWaypoint.name}</span>
+                                            <span className="text-[10px] text-amber-400/60 font-mono">{activeWaypoint.timestamp}</span>
+                                        </div>
+
+                                        {/* Coordinates */}
+                                        {activeWaypoint.lat != null && activeWaypoint.lon != null && (
+                                            <p className="text-[11px] text-amber-200/80 font-mono mt-1">
+                                                {Math.abs(activeWaypoint.lat).toFixed(4)}°{activeWaypoint.lat >= 0 ? 'N' : 'S'}{' '}
+                                                {Math.abs(activeWaypoint.lon).toFixed(4)}°{activeWaypoint.lon >= 0 ? 'E' : 'W'}
+                                            </p>
+                                        )}
+
+                                        {/* Stat pills */}
+                                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {activeWaypoint.speedKts != null && activeWaypoint.speedKts > 0 && (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                    ⛵ {activeWaypoint.speedKts.toFixed(1)} kts
+                                                </span>
+                                            )}
+                                            {activeWaypoint.courseDeg != null && (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                    🧭 {activeWaypoint.courseDeg}°
+                                                </span>
+                                            )}
+                                            {activeWaypoint.distanceNM != null && activeWaypoint.distanceNM > 0 && (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                    📟 {activeWaypoint.distanceNM.toFixed(1)} NM
+                                                </span>
+                                            )}
+                                            {activeWaypoint.windSpeed != null && activeWaypoint.windSpeed > 0 && (
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-[10px] font-bold text-sky-200">
+                                                    🌬️ {activeWaypoint.windSpeed} kts {activeWaypoint.windDir || ''}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {activeWaypoint.notes && (
+                                            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">{activeWaypoint.notes}</p>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={() => setActiveWaypoint(null)}
+                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-amber-300/60 hover:text-white transition-colors shrink-0"
+                                    >
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

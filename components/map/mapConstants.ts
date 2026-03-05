@@ -28,11 +28,28 @@ export interface MapHubProps {
 
 export type WeatherLayer = 'none' | 'rain' | 'wind' | 'temperature' | 'clouds' | 'pressure' | 'sea' | 'satellite' | 'velocity';
 
-// ── Free tile sources (no API key required) ──
+// ── Tile sources ──
+function getOwmKey(): string {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OWM_API_KEY) {
+        return (import.meta as any).env.VITE_OWM_API_KEY;
+    }
+    return '';
+}
+
 export const STATIC_TILES: Record<string, string> = {
     sea: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
     satellite: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
 };
+
+/** Get tile URL for a layer — includes dynamic OWM-keyed layers */
+export function getTileUrl(layer: string): string | undefined {
+    if (STATIC_TILES[layer]) return STATIC_TILES[layer];
+    const owmKey = getOwmKey();
+    if (!owmKey) return undefined;
+    if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
+    if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
+    return undefined;
+}
 
 // Wind speed → monochrome color (matches GLSL palette in WindGLEngine)
 export function getWindColor(kts: number): string {

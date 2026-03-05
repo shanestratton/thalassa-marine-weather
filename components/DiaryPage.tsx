@@ -126,7 +126,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             setLoading(false);
         });
         // Periodically refresh to clear PENDING badges after background sync
-        const interval = setInterval(refreshEntries, 8000);
+        const interval = setInterval(() => { if (!document.hidden) refreshEntries(); }, 8000);
         return () => clearInterval(interval);
     }, [refreshEntries]);
 
@@ -179,7 +179,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             if (c.windGust != null && c.windGust > (c.windSpeed || 0) + 2) wind += ` G${Math.round(c.windGust)}`;
             parts.push(wind.trim());
         }
-        if (c.waveHeight != null && c.waveHeight > 0) parts.push(`Waves ${c.waveHeight.toFixed(1)}m`);
+        if (c.waveHeight != null && c.waveHeight > 0) {
+            // waveHeight is stored in feet internally (converted from m by transformers.ts)
+            // Convert back to meters for display
+            const waveM = c.waveHeight / 3.28084;
+            parts.push(`Waves ${waveM.toFixed(1)}m`);
+        }
         else if (c.description) parts.push(c.description);
         return parts.join(' · ');
     }, [weatherData]);
@@ -258,9 +263,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 const blob = new Blob(audioChunksRef.current, { type: recordedMime });
                 if (blob.size > 0) {
                     const url = await DiaryService.uploadAudio(blob);
-                    setAudioUrl(url);
+                    // Store URL for saving with entry (but don't show preview)
+                    if (url) setAudioUrl(url);
 
-                    // Auto-transcribe voice memo to text
+                    // Auto-transcribe voice memo to text silently
                     if (url) {
                         setTranscribing(true);
                         const text = await DiaryService.transcribeAudio(url, recordedMime);
@@ -783,19 +789,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="flex items-center gap-3">
                         <button onClick={() => { setShowCompose(false); setEditingId(null); }} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
                             <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1">
                             <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">{isEditing ? 'Edit Entry' : 'New Entry'}</h1>
                         </div>
-                        <button
-                            onClick={handleSave}
-                            disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
-                            className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm rounded-xl transition-colors"
-                        >
-                            {saving ? 'Saving…' : isEditing ? 'Update' : 'Save'}
-                        </button>
                         <OfflineBadge />
                     </div>
                 </div>
@@ -809,6 +808,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         value={title}
                         onChange={e => setTitle(e.target.value)}
                         onFocus={scrollInputAboveKeyboard}
+                        autoFocus
                         className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                     />
 
@@ -867,7 +867,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </div>
                     </div>
 
-                    {/* ═══ VOICE TO TEXT ═══ */}
+                    {/* ═══ VOICE TO TEXT + POLISH ═══ */}
                     <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice to Text</span>
@@ -909,57 +909,55 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     Tap stop — your words will appear in the text box below
                                 </p>
                             </div>
-                        ) : audioUrl ? (
-                            /* Recorded audio preview */
-                            <AudioWidget url={audioUrl} allowTranscribe={true} allowRemove={true} />
                         ) : (
-                            /* Record button */
-                            <button
-                                onClick={startRecording}
-                                className="w-full bg-white/[0.03] border border-white/5 rounded-xl p-4 flex items-center gap-3 hover:bg-emerald-500/5 hover:border-emerald-500/15 transition-all active:scale-[0.98] group"
-                            >
-                                <div className="p-2.5 bg-emerald-500/15 rounded-full group-hover:bg-emerald-500/25 transition-colors">
-                                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                            /* Record button + Polish button — side by side */
+                            <div className="flex gap-2 items-stretch">
+                                <button
+                                    onClick={startRecording}
+                                    className="flex-1 bg-white/[0.03] border border-white/5 rounded-xl p-4 flex items-center gap-3 hover:bg-emerald-500/5 hover:border-emerald-500/15 transition-all active:scale-[0.98] group"
+                                >
+                                    <div className="p-2.5 bg-emerald-500/15 rounded-full group-hover:bg-emerald-500/25 transition-colors">
+                                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                                        </svg>
+                                    </div>
+                                    <div className="text-left flex-1">
+                                        <p className="text-sm font-bold text-white">Record Voice to Text</p>
+                                        <p className="text-[11px] text-gray-500">Speak — your words fill the entry below</p>
+                                    </div>
+                                    <svg className="w-4 h-4 text-gray-500 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                     </svg>
-                                </div>
-                                <div className="text-left flex-1">
-                                    <p className="text-sm font-bold text-white">Record Voice to Text</p>
-                                    <p className="text-[11px] text-gray-500">Speak — your words fill the entry below</p>
-                                </div>
-                                <svg className="w-4 h-4 text-gray-500 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                </svg>
-                            </button>
+                                </button>
+
+                                {/* Polish with Gemini — matches record button height */}
+                                <button
+                                    onClick={handlePolish}
+                                    disabled={polishing || body.trim().length < 10}
+                                    className={`shrink-0 self-stretch w-16 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-90 ${polishing
+                                        ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
+                                        : body.trim().length >= 10
+                                            ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
+                                            : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
+                                        }`}
+                                    title={polishing ? 'Polishing…' : body.trim().length >= 10 ? 'Polish with Gemini' : 'Type more to enable AI polish'}
+                                >
+                                    <span className="text-xl">{polishing ? '⏳' : '✨'}</span>
+                                    <span className="text-[8px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">Polish</span>
+                                </button>
+                            </div>
                         )}
                     </div>
 
-                    {/* Body text + AI Polish button side-by-side */}
-                    <div className="flex-1 flex gap-2 min-h-0">
+                    {/* Body text */}
+                    <div className="flex-1 min-h-0">
                         <textarea
                             placeholder={"What's happening out there, skipper?\nDescribe the conditions, the crew mood, the sunset over the bow…"}
                             value={body}
                             onChange={e => setBody(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
-                            className="flex-1 min-h-0 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                            className="w-full h-full min-h-0 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                         />
-
-                        {/* AI Polish — compact vertical button beside textarea */}
-                        <div className="shrink-0 flex flex-col gap-2 justify-end">
-                            <button
-                                onClick={handlePolish}
-                                disabled={polishing || body.trim().length < 10}
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 ${polishing
-                                    ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
-                                    : body.trim().length >= 10
-                                        ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
-                                        : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
-                                    }`}
-                                title={polishing ? 'Polishing…' : body.trim().length >= 10 ? 'Polish with Gemini' : 'Type more to enable AI polish'}
-                            >
-                                <span className="text-lg">{polishing ? '⏳' : '✨'}</span>
-                            </button>
-                        </div>
                     </div>
 
                     {/* Transcribing indicator */}
@@ -970,20 +968,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         </div>
                     )}
 
-                    {/* Weather Snapshot */}
-                    {weatherSummary && (
-                        <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/15 rounded-xl">
-                            <span className="text-sm">🌤</span>
-                            <input
-                                type="text"
-                                value={weatherSummary}
-                                onChange={e => setWeatherSummary(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
-                                className="flex-1 bg-transparent text-xs text-amber-200/90 font-medium outline-none placeholder-amber-600"
-                                placeholder="Weather conditions"
-                            />
-                        </div>
-                    )}
+                    {/* Weather snapshot is auto-captured on save but not shown during compose */}
 
                     {/* Photos */}
                     <div className="shrink-0">
@@ -1020,6 +1005,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 </button>
                             ))}
                         </div>
+                    </div>
+                </div>
+
+                {/* ═══ SAVE + CANCEL — fixed at bottom ═══ */}
+                <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => { setShowCompose(false); setEditingId(null); }}
+                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98]"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
+                            className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm transition-colors active:scale-[0.98]"
+                        >
+                            {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}
+                        </button>
                     </div>
                 </div>
 

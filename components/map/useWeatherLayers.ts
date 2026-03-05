@@ -15,7 +15,7 @@ import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { useLocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
-import { type WeatherLayer, STATIC_TILES, getWindColor } from './mapConstants';
+import { type WeatherLayer, STATIC_TILES, getTileUrl, getWindColor } from './mapConstants';
 
 /**
  * useWeatherLayers — all weather overlay state + side effects.
@@ -462,16 +462,18 @@ export function useWeatherLayers(
             map.on('moveend', onFlyEnd);
         }
 
-        // Temperature/clouds — no tile source currently
-        if (activeLayer === 'temperature' || activeLayer === 'clouds') return;
-
-        // Static tile layers
-        const tileUrl = STATIC_TILES[activeLayer];
+        // Static and dynamic tile layers (sea, satellite, temperature, clouds)
+        const tileUrl = getTileUrl(activeLayer);
         if (tileUrl) {
             map.addSource('weather-tiles', { type: 'raster', tiles: [tileUrl], tileSize: 256 });
             map.addLayer({
                 id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
-                paint: { 'raster-opacity': activeLayer === 'satellite' ? 0.8 : 1.0 },
+                paint: {
+                    'raster-opacity': activeLayer === 'satellite' ? 0.8
+                        : activeLayer === 'temperature' ? 0.65
+                            : activeLayer === 'clouds' ? 0.6
+                                : 1.0,
+                },
             }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
         }
     }, [activeLayer, mapReady, updateIsobars]);
@@ -503,13 +505,16 @@ export function useWeatherLayers(
 }
 
 /**
- * useEmbeddedRain — Rain radar overlay for embedded map mode.
+ * useEmbeddedRain — Rain radar overlay that runs independently of activeLayer.
+ * Works in both embedded mode and full map mode (background rain under velocity particles).
  */
 export function useEmbeddedRain(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
     embedded: boolean,
     mapReady: boolean,
+    backgroundRain: boolean = false,
 ) {
+    const enabled = embedded || backgroundRain;
     const embeddedRainFrames = useRef<{ path: string; time: number }[]>([]);
     const embRainNowIdx = useRef(0);
     const [embRainIdx, setEmbRainIdx] = useState(-1);
@@ -518,7 +523,7 @@ export function useEmbeddedRain(
 
     // Load rain frames
     useEffect(() => {
-        if (!embedded || !mapReady || !mapRef.current) return;
+        if (!enabled || !mapReady || !mapRef.current) return;
         const delayTimer = setTimeout(() => {
             (async () => {
                 try {
@@ -534,7 +539,7 @@ export function useEmbeddedRain(
                     setEmbRainIdx(nowIdx);
                 } catch (err) { }
             })();
-        }, 1200);
+        }, embedded ? 1200 : 800);
         return () => {
             clearTimeout(delayTimer);
             try {
@@ -543,11 +548,11 @@ export function useEmbeddedRain(
                 if (mx?.getSource('embedded-rain')) mx.removeSource('embedded-rain');
             } catch (_) { }
         };
-    }, [embedded, mapReady]);
+    }, [enabled, mapReady]);
 
     // Swap rain tile on frame change
     useEffect(() => {
-        if (!embedded || !mapRef.current) return;
+        if (!enabled || !mapRef.current) return;
         const m = mapRef.current;
         const frames = embeddedRainFrames.current;
         if (!frames.length || embRainIdx < 0 || embRainIdx >= frames.length) return;
@@ -562,9 +567,9 @@ export function useEmbeddedRain(
         });
         m.addLayer({
             id: 'embedded-rain', type: 'raster', source: 'embedded-rain',
-            paint: { 'raster-opacity': 0.75, 'raster-contrast': 0.3, 'raster-brightness-min': 0.1 },
+            paint: { 'raster-opacity': embedded ? 0.75 : 0.55, 'raster-contrast': 0.3, 'raster-brightness-min': 0.1 },
         });
-    }, [embedded, embRainIdx]);
+    }, [enabled, embRainIdx]);
 
     // Auto-play
     useEffect(() => {

@@ -36,30 +36,45 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
 
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
+
+    // Use refs for values read during rapid touch events to avoid stale closures
     const startX = useRef(0);
+    const isDraggingRef = useRef(false);
+    const offsetRef = useRef(0);
 
     const onTouchStart = useCallback((e: React.TouchEvent) => {
         startX.current = e.touches[0].clientX;
+        isDraggingRef.current = true;
         setIsSwiping(true);
     }, []);
 
     const onTouchMove = useCallback((e: React.TouchEvent) => {
-        if (!isSwiping) return;
+        if (!isDraggingRef.current) return;
         const diff = startX.current - e.touches[0].clientX;
-        setSwipeOffset(Math.max(0, Math.min(diff, max)));
-    }, [isSwiping, max]);
+        const clamped = Math.max(0, Math.min(diff, max));
+        offsetRef.current = clamped;
+        setSwipeOffset(clamped);
+    }, [max]);
 
     const onTouchEnd = useCallback(() => {
+        if (!isDraggingRef.current) return;
+        isDraggingRef.current = false;
         setIsSwiping(false);
-        if (swipeOffset >= threshold) {
+        const final = offsetRef.current;
+        if (final >= threshold) {
             setSwipeOffset(threshold);
+            offsetRef.current = threshold;
             onSwipeComplete?.();
         } else {
             setSwipeOffset(0);
+            offsetRef.current = 0;
         }
-    }, [swipeOffset, threshold, onSwipeComplete]);
+    }, [threshold, onSwipeComplete]);
 
-    const resetSwipe = useCallback(() => setSwipeOffset(0), []);
+    const resetSwipe = useCallback(() => {
+        setSwipeOffset(0);
+        offsetRef.current = 0;
+    }, []);
 
     return {
         swipeOffset,
