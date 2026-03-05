@@ -496,9 +496,16 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         sunset={activeDayData?.sunset || current?.sunset}
                                         moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
                                         dashboardMode={userSettings.dashboardMode || 'full'}
-                                        onToggleDashboardMode={() => updateSettings({
-                                            dashboardMode: userSettings.dashboardMode === 'essential' ? 'full' : 'essential'
-                                        })}
+                                        onToggleDashboardMode={() => {
+                                            const goingEssential = userSettings.dashboardMode !== 'essential';
+                                            updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
+                                            if (goingEssential) {
+                                                // Reset to live so map/widgets show current data
+                                                setActiveDay(0);
+                                                setActiveHour(0);
+                                                setActiveDayData(null);
+                                            }
+                                        }}
                                     />
                                 </div>
                             </div>
@@ -518,7 +525,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     timeZone={data.timeZone}
                                     sources={safeActive.sources}
                                     isExpanded={isExpanded}
-                                    onToggleExpand={isInland ? undefined : () => updateSettings({ dashboardMode: isExpanded ? 'essential' : 'full' })}
+                                    onToggleExpand={isInland ? undefined : () => {
+                                        const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
+                                        updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
+                                        if (goingEssential) {
+                                            setActiveDay(0);
+                                            setActiveHour(0);
+                                            setActiveDayData(null);
+                                        }
+                                    }}
                                 />
                             </div>
 
