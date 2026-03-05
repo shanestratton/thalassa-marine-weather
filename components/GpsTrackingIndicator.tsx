@@ -13,7 +13,7 @@
  *   Red pulse   — no movement detected (position unchanged / deduped)
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShipLogService } from '../services/ShipLogService';
 
 /** Convert milliseconds to a human-readable short label */
@@ -25,8 +25,7 @@ function formatIntervalLabel(ms: number): string {
 
 export const GpsTrackingIndicator: React.FC = () => {
     const [status, setStatus] = useState(() => ShipLogService.getTrackingStatus());
-    const [isStationary, setIsStationary] = useState(false);
-    const lastCheckRef = useRef<number | undefined>(undefined);
+    const [isMoving, setIsMoving] = useState(false);
 
     // Poll tracking status every 1 second so it reacts quickly to mode changes
     useEffect(() => {
@@ -35,11 +34,10 @@ export const GpsTrackingIndicator: React.FC = () => {
             const s = ShipLogService.getTrackingStatus();
             setStatus(s);
 
-            // Detect motion state from dedup events
-            if (s.lastCheckTime && s.lastCheckTime !== lastCheckRef.current) {
-                lastCheckRef.current = s.lastCheckTime;
-                setIsStationary(!!s.lastCheckDeduped);
-            }
+            // Use GPS speed (SOG) for reliable motion detection
+            // SOG > 0.5 kts = moving, otherwise stationary
+            const nav = ShipLogService.getGpsNavData();
+            setIsMoving(nav.sogKts !== null && nav.sogKts > 0.5);
         }, 1000);
         return () => clearInterval(id);
     }, []);
@@ -56,24 +54,18 @@ export const GpsTrackingIndicator: React.FC = () => {
 
     // GPS health dot (inner solid dot)
     const healthDotColor = gpsStatus === 'locked'
-        ? (isStationary ? 'bg-red-400' : 'bg-emerald-400')
+        ? (isMoving ? 'bg-emerald-400' : 'bg-red-400')
         : gpsStatus === 'stale'
             ? 'bg-amber-400'
             : 'bg-red-500';
 
-    // Badge background
-    const bgColor = status.isRapidMode
-        ? 'bg-red-500/90 border-red-400/40'
-        : isStationary
-            ? 'bg-slate-700/90 border-slate-500/30'
-            : 'bg-emerald-600/90 border-emerald-400/30';
+    // Badge background — green when moving, slate when stationary, red border in rapid mode
+    const bgColor = isMoving
+        ? (status.isRapidMode ? 'bg-emerald-600/90 border-red-400/40' : 'bg-emerald-600/90 border-emerald-400/30')
+        : (status.isRapidMode ? 'bg-slate-700/90 border-red-400/40' : 'bg-slate-700/90 border-slate-500/30');
 
     // Pulse ring color: green = moving, red = stationary
-    const pulseColor = status.isRapidMode
-        ? 'bg-red-500'
-        : isStationary
-            ? 'bg-red-400'
-            : 'bg-emerald-500';
+    const pulseColor = isMoving ? 'bg-emerald-500' : 'bg-red-400';
 
     return (
         <div className="pointer-events-none">
