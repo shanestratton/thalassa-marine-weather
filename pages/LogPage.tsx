@@ -74,6 +74,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         toggleVoyage,
         handleDeleteVoyageRequest,
         handleConfirmDeleteVoyage,
+        deletedVoyage,
+        handleUndoDeleteVoyage,
         showSharedVoyageWarning,
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,
@@ -1222,6 +1224,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 isOpen={!!deletedEntry}
                 message={`Entry deleted`}
                 onUndo={handleUndoDeleteEntry}
+                onDismiss={() => { }}
+                duration={5000}
+            />
+            {/* Undo toast for voyage deletion */}
+            <UndoToast
+                isOpen={!!deletedVoyage}
+                message={`Voyage deleted`}
+                onUndo={handleUndoDeleteVoyage}
                 onDismiss={() => { }}
                 duration={5000}
             />

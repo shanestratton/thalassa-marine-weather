@@ -504,9 +504,48 @@ export function useLogPageState() {
         dispatch({ type: 'TOGGLE_VOYAGE', voyageId });
     }, []);
 
-    const handleDeleteVoyageRequest = useCallback((voyageId: string) => {
-        dispatch({ type: 'REQUEST_DELETE_VOYAGE', voyageId });
-    }, []);
+    // ── Soft-delete voyage with undo ──
+    const [deletedVoyage, setDeletedVoyage] = useState<{
+        voyageId: string;
+        entries: ShipLogEntry[];
+    } | null>(null);
+    const deleteVoyageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleDeleteVoyageRequest = useCallback(async (voyageId: string) => {
+        // Check for shared tracks first — those need a confirmation
+        try {
+            const sharedTracks = await TrackSharingService.getSharedTracksByVoyageId(voyageId);
+            if (sharedTracks.length > 0) {
+                const trackInfo = sharedTracks.map(t =>
+                    `"${t.title}" (${t.download_count || 0} downloads)`
+                ).join(', ');
+                setShowSharedVoyageWarning({ voyageId, trackInfo });
+                return;
+            }
+        } catch (e) {
+            console.warn('[useLogPageState] shared track check failed:', e);
+        }
+
+        // Soft-delete: remove from UI, schedule actual delete after 5s
+        const voyageEntries = state.entries.filter(e => e.voyageId === voyageId);
+        dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== voyageId) });
+        setDeletedVoyage({ voyageId, entries: voyageEntries });
+
+        if (deleteVoyageTimerRef.current) clearTimeout(deleteVoyageTimerRef.current);
+        deleteVoyageTimerRef.current = setTimeout(async () => {
+            await executeVoyageDelete(voyageId);
+            setDeletedVoyage(null);
+        }, 5000);
+    }, [state.entries]);
+
+    const handleUndoDeleteVoyage = useCallback(() => {
+        if (deleteVoyageTimerRef.current) clearTimeout(deleteVoyageTimerRef.current);
+        if (deletedVoyage) {
+            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, ...deletedVoyage.entries] });
+            toast.success('Voyage restored');
+        }
+        setDeletedVoyage(null);
+    }, [deletedVoyage, toast]);
 
     // Track shared voyage warning state for ConfirmDialog in UI
     const [showSharedVoyageWarning, setShowSharedVoyageWarning] = useState<{
@@ -803,6 +842,8 @@ export function useLogPageState() {
         toggleVoyage,
         handleDeleteVoyageRequest,
         handleConfirmDeleteVoyage,
+        deletedVoyage,
+        handleUndoDeleteVoyage,
         showSharedVoyageWarning,
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,
