@@ -28,6 +28,7 @@ import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
 import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
+import { ChannelList } from './chat/ChannelList';
 
 // --- PIN / TRACK MESSAGE PARSING ---
 const PIN_PREFIX = '📍PIN:';
@@ -1244,84 +1245,23 @@ export const ChatPage: React.FC = () => {
                 )}
 
                 {/* ══════ CHANNEL LIST ══════ */}
-                {view === 'channels' && !loading && (() => {
-                    // Client-side icon overrides — fix duplicate wave icon and compass icon
-                    const ICON_OVERRIDES: Record<string, string> = {
-                        'SOLAS': '🛟',
-                        'Safety': '🛟',
-                        'Find Crew': '👥',
-                        'Lonely Hearts': '💕',
-                    };
-                    const NAME_OVERRIDES: Record<string, string> = {
-                        'Lonely Hearts': 'First Mates',
-                    };
-                    const getChannelIcon = (ch: { name: string; icon: string }) =>
-                        ICON_OVERRIDES[ch.name] ?? ch.icon;
-                    const getChannelName = (ch: { name: string }) =>
-                        NAME_OVERRIDES[ch.name] ?? ch.name;
-
-                    return (
-                        <div className="px-4 py-3 pb-24 space-y-1.5">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
-                            {channels
-                                .filter(ch => ch.name !== 'First Mates' && ch.name !== 'Lonely Hearts')
-                                .sort((a, b) => {
-                                    const priority: Record<string, number> = { 'Marketplace': 0, 'First Mates': 0.5, 'Lonely Hearts': 0.5, 'Find Crew': 1, 'General': 2 };
-                                    return (priority[a.name] ?? 99) - (priority[b.name] ?? 99);
-                                })
-                                .map((ch, i) => (
-                                    <button
-                                        key={ch.id}
-                                        onClick={() => openChannel(ch)}
-                                        className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98]"
-                                        style={{ animationDelay: `${i * 40}ms` }}
-                                    >
-                                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                                            {getChannelIcon(ch)}
-                                        </div>
-                                        <div className="text-left flex-1 min-w-0">
-                                            <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">{getChannelName(ch)}</p>
-                                            <p className="text-sm text-white/60 truncate mt-0.5">{ch.description}</p>
-                                        </div>
-                                        <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                                            <span className="text-white/15 group-hover:text-white/60 text-xs transition-colors">›</span>
-                                        </div>
-                                    </button>
-                                ))}
-
-                            {/* Mod: Propose channel */}
-                            {isMod && (
-                                <div className="mt-4">
-                                    {!showProposalForm ? (
-                                        <button
-                                            onClick={() => setShowProposalForm(true)}
-                                            className="w-full p-3 rounded-2xl border border-dashed border-white/[0.06] hover:border-sky-500/20 hover:bg-sky-500/[0.03] text-center transition-all duration-200 active:scale-[0.98]"
-                                        >
-                                            <span className="text-[11px] text-white/25">➕ Propose a new channel</span>
-                                        </button>
-                                    ) : (
-                                        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 fade-slide-down">
-                                            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-sky-400/50">📋 Channel Proposal</p>
-                                            <p className="text-[11px] text-white/25">Submitted to admins for approval</p>
-                                            <div className="flex gap-2">
-                                                <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏝️" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-center text-lg" maxLength={2} />
-                                                <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
-                                            </div>
-                                            <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
-                                            <div className="flex gap-2">
-                                                <button onClick={() => setShowProposalForm(false)} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/60 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                                                <button onClick={handleProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
-                                                    {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                        </div>
-                    );
-                })()}
+                {view === 'channels' && !loading && (
+                    <ChannelList
+                        channels={channels}
+                        onOpenChannel={openChannel}
+                        isMod={isMod}
+                        showProposalForm={showProposalForm}
+                        setShowProposalForm={setShowProposalForm}
+                        proposalIcon={proposalIcon}
+                        setProposalIcon={setProposalIcon}
+                        proposalName={proposalName}
+                        setProposalName={setProposalName}
+                        proposalDesc={proposalDesc}
+                        setProposalDesc={setProposalDesc}
+                        proposalSent={proposalSent}
+                        onProposeChannel={handleProposeChannel}
+                    />
+                )}
 
                 {/* ══════ MESSAGE VIEW ══════ */}
                 {view === 'messages' && !loading && (
