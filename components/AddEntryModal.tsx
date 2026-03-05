@@ -109,7 +109,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="add-entry-title" ref={focusTrapRef}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="add-entry-title" ref={focusTrapRef}>
             <div className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 {/* Header with Watch Info */}
                 <div className="flex justify-between items-start mb-4">

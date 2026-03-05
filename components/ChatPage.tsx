@@ -946,7 +946,7 @@ export const ChatPage: React.FC = () => {
                 <div className="mx-4 mt-3 fade-slide-down">
                     <div className="relative p-4 rounded-2xl overflow-hidden">
                         {/* Glassmorphism bg */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-sky-500/10 backdrop-blur-xl border border-sky-400/20 rounded-2xl" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-sky-500/10 border border-sky-400/20 rounded-2xl" />
                         <div className="relative flex items-start justify-between">
                             <div>
                                 <p className="text-sm font-bold text-sky-300 mb-1.5">Welcome aboard, sailor! ⛵</p>
@@ -1208,7 +1208,7 @@ export const ChatPage: React.FC = () => {
                     style={{
                         background: trackImportStatus!.startsWith('✅') ? 'rgba(6,78,59,0.95)' : 'rgba(127,29,29,0.95)',
                         borderColor: trackImportStatus!.startsWith('✅') ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
-                        backdropFilter: 'blur(12px)',
+                        
                     }}>
                     <p className={`text-sm font-bold ${trackImportStatus!.startsWith('✅') ? 'text-emerald-300' : 'text-red-300'}`}>
                         {trackImportStatus}

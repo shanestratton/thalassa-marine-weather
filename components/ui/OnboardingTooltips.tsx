@@ -93,7 +93,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
             onClick={handleSkip}
         >
             <div
-                className="relative max-w-sm w-full bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl shadow-black/40 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500"
+                className="relative max-w-sm w-full bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-4 duration-500"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Step dots */}

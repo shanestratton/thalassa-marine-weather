@@ -114,7 +114,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
     return (
         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
             {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
-            <div className={`col-span-3 rounded-2xl p-0 backdrop-blur-md flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
+            <div className={`col-span-3 rounded-2xl p-0 flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
                 ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
                 : 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
                 } `}>

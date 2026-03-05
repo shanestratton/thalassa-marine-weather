@@ -29,7 +29,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
 
     return (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="upgrade-title" ref={focusTrapRef}>
-            <div className="absolute inset-0 bg-black/90 backdrop-blur-md transition-opacity" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
             <div className={`modal-panel-enter relative bg-slate-900 w-full max-w-lg rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}>
 

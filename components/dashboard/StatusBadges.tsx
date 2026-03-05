@@ -285,7 +285,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(({
             {/* Data Source Info Modal — portalled to document root to escape z-index stacking */}
             {showInfoModal && createPortal(
                 <div
-                    className="fixed inset-0 z-[9999] flex items-start justify-center modal-backdrop-enter bg-black/60 backdrop-blur-md"
+                    className="fixed inset-0 z-[9999] flex items-start justify-center modal-backdrop-enter bg-black/60"
                     onClick={() => setShowInfoModal(false)}
                     role="dialog"
                     aria-modal="true"
@@ -293,11 +293,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(({
                     style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)', paddingTop: 'calc(env(safe-area-inset-top) + 60px)' }}
                 >
                     <div
-                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl max-h-[85dvh] overflow-y-auto mx-4"
+                        className="modal-panel-enter w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[85dvh] overflow-y-auto mx-4"
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 backdrop-blur-xl z-10">
+                        <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10">
                             <div className="flex items-center gap-2">
                                 <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
                                 <h2 className="text-base font-bold text-white tracking-tight">Data Sources</h2>

@@ -144,10 +144,6 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({
         <div
             className={`fixed inset-0 z-[9999] flex flex-col transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0'
                 } bg-slate-950`}
-            style={{
-                backdropFilter: 'blur(40px)',
-                WebkitBackdropFilter: 'blur(40px)',
-            }}
         >
             {/* Header with back chevron — matches PageHeader style */}
             <div className="flex items-center gap-3 px-4 pt-safe-top" style={{ paddingTop: 'calc(env(safe-area-inset-top, 20px) + 12px)' }}>

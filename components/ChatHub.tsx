@@ -125,7 +125,7 @@ export const ChatHub: React.FC = () => {
                 <div className="bg-white/[0.06] rounded-2xl p-1 flex relative overflow-hidden border border-white/[0.08]">
                     {/* Sliding indicator */}
                     <div
-                        className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl bg-white/[0.12] backdrop-blur-sm transition-transform duration-300 ease-out border border-white/[0.08]"
+                        className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl bg-white/[0.12] transition-transform duration-300 ease-out border border-white/[0.08]"
                         style={{
                             transform: activeTab === 'community' ? 'translateX(4px)' : 'translateX(calc(100% + 4px))',
                         }}

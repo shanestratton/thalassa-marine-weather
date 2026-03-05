@@ -76,7 +76,7 @@ export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({
     return (
         <button
             onClick={onNavigate}
-            className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${config.bg} border backdrop-blur-md shadow-lg transition-all active:scale-95`}
+            className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${config.bg} border shadow-lg transition-all active:scale-95`}
             aria-label={`Anchor watch: ${config.text}. Tap to view.`}
         >
             {/* Pulse ring */}

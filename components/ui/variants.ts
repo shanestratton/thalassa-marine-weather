@@ -47,7 +47,7 @@ export type BadgeProps = VariantProps<typeof badge>;
 // ═══════════════════════════════════════════════
 
 export const card = cva(
-    'border backdrop-blur-xl shadow-lg',
+    'border shadow-lg',
     {
         variants: {
             variant: {

@@ -124,7 +124,7 @@ export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
     // ── Error badge ────────────────────────────────────────────
     if (error && visible) {
         return (
-            <div className="absolute bottom-28 left-4 z-[900] bg-red-900/80 backdrop-blur text-white text-xs px-3 py-2 rounded-lg border border-red-500/30">
+            <div className="absolute bottom-28 left-4 z-[900] bg-red-900/80 text-white text-xs px-3 py-2 rounded-lg border border-red-500/30">
                 ⚠ Wind data unavailable
             </div>
         );

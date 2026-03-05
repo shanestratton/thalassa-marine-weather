@@ -566,7 +566,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 /* ORIGINAL MODE (Boxed Labels) */
                 <div className="absolute top-0 left-0 right-0 z-20 flex justify-between items-start pointer-events-none">
                     {/* Current Status Box */}
-                    <div className="bg-slate-900/80 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-start pointer-events-auto">
+                    <div className="bg-slate-900/80 rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-start pointer-events-auto">
                         <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
                             Current Tide Level
                         </span>
@@ -579,7 +579,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
                     {/* Next Event Box */}
                     {nextEvent && (
-                        <div className="bg-slate-900/80 backdrop-blur-md rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-end pointer-events-auto">
+                        <div className="bg-slate-900/80 rounded-xl p-2.5 border border-white/10 shadow-xl flex flex-col items-end pointer-events-auto">
                             <span className="text-[11px] text-gray-400 uppercase font-bold tracking-widest mb-0.5 flex items-center gap-1">
                                 Next {nextEvent.type === 'High' ? 'High' : 'Low'}
                             </span>

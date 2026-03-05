@@ -420,7 +420,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
     return (
         <div
-            className="w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl"
+            className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl"
             role="region"
             aria-label="Weather metrics dashboard"
         >
@@ -530,7 +530,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             {/* Compass Overlay Modal */}
             {showCompass && (
                 <div
-                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 animate-in fade-in duration-200"
                     onClick={() => setShowCompass(false)}
                 >
                     <div

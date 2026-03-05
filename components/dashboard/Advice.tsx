@@ -51,7 +51,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(({ advice, i
     return (
         <Card className="bg-slate-900 p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
             {!isPro && (
-                <div className="absolute inset-0 z-20 backdrop-blur-md bg-slate-900/60 flex items-center justify-center">
+                <div className="absolute inset-0 z-20 bg-slate-900/60 flex items-center justify-center">
                     <button onClick={onUpgrade} className={`bg-gradient-to-r from-sky-500 to-sky-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`} aria-label="Upgrade">
                         <DiamondIcon className="w-5 h-5" />
                         Unlock Digital Captain's Log
@@ -132,7 +132,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(({ advice, i
                 </div>
 
                 {/* RIGHT: SIDEBAR */}
-                <div className="w-full md:w-72 bg-black/20 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col backdrop-blur-md">
+                <div className="w-full md:w-72 bg-black/20 border-t md:border-t-0 md:border-l border-white/5 p-6 flex flex-col">
                     <div className="flex items-center gap-2 mb-6">
                         <div className="h-1 w-4 bg-amber-400 rounded-full"></div>
                         <h4 className="text-sm font-bold uppercase tracking-widest text-gray-300">Skipper's Locker</h4>

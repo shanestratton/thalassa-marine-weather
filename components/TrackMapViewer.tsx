@@ -627,7 +627,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 {/* ═══ FLOATING WEATHER HUD ═══ */}
                 {showHUD && currentEntry && (
                     <div className="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
-                        <div className="bg-slate-900/90 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
+                        <div className="bg-slate-900/90 rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
                             style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
                         >
                             {/* Top row: Time, Date, Elapsed */}
@@ -743,7 +743,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         {/* ═══ WAYPOINT BANNER — persists when crossing a waypoint ═══ */}
                         {activeWaypoint && (
                             <div
-                                className="mt-2 bg-amber-500/15 backdrop-blur-xl rounded-xl border border-amber-500/30 p-3 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300"
+                                className="mt-2 bg-amber-500/15 rounded-xl border border-amber-500/30 p-3 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300"
                                 style={{ boxShadow: '0 4px 20px rgba(245,158,11,0.2)' }}
                             >
                                 <div className="flex items-start gap-2">
@@ -805,7 +805,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 )}
 
                 {/* Legend dots — bottom of map */}
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 backdrop-blur-md rounded-lg px-3 py-1.5">
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5">
                     <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
                         <span className="text-[9px] text-slate-400">Start</span>
@@ -827,7 +827,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
             <div
-                className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
+                className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
                 style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
             >
                 <style>{`

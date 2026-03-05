@@ -116,8 +116,8 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
                 gap: 10,
                 minWidth: 260,
                 maxWidth: 380,
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
+                
+                
                 boxShadow: colors.glow,
                 pointerEvents: 'auto',
             }}

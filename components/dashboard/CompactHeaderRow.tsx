@@ -53,7 +53,7 @@ export const CompactHeaderRow = ({
                 className={`${hasWarnings
                     ? 'bg-red-500 hover:bg-red-600 border-red-400/50'
                     : 'bg-emerald-500/10 border-emerald-500/20'
-                    } transition-colors border rounded-xl px-3 h-[40px] flex items-center gap-2 backdrop-blur-md shadow-lg cursor-pointer group flex-1`}
+                    } transition-colors border rounded-xl px-3 h-[40px] flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>
@@ -77,7 +77,7 @@ export const CompactHeaderRow = ({
 
 
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon */}
-            <div className={`bg-slate-800/60 ${t.border.default} rounded-xl px-3 h-[40px] flex items-center gap-3 backdrop-blur-md flex-shrink-0`} role="status" aria-label="Celestial data">
+            <div className={`bg-slate-800/60 ${t.border.default} rounded-xl px-3 h-[40px] flex items-center gap-3 flex-shrink-0`} role="status" aria-label="Celestial data">
                 {/* Sunrise */}
                 {sunrise && (
                     <div className="flex items-center gap-1.5">

@@ -199,13 +199,13 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
             {/* ADVANCED POLAR INPUT — Overlay Card        */}
             {/* ═══════════════════════════════════════════ */}
             {showAdvancedInput && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={() => setShowAdvancedInput(false)}>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70" onClick={() => setShowAdvancedInput(false)}>
                     <div
                         className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-white/10 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 backdrop-blur-xl rounded-t-2xl">
+                        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-white/10 bg-slate-900/95 rounded-t-2xl">
                             <div className="flex items-center gap-2">
                                 <div className="w-1 h-4 rounded-full bg-sky-500" />
                                 <span className="text-sm font-bold text-white uppercase tracking-wider">Advanced Polar Input</span>

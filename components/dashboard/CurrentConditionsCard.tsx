@@ -42,7 +42,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
     const visUnit = units.visibility || 'nm';
 
     return (
-        <div className="w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl transition-all duration-300">
+        <div className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl transition-all duration-300">
             {/* Animation keyframes */}
             <style>{`@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:.15}}@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}`}</style>
             {/* Single row: 5 key metrics — clean, minimal, no redundancy with header */}

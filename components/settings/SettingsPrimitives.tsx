@@ -11,7 +11,7 @@ export const Section = React.memo(({ title, children }: { title: string, childre
             <div className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50"></div>
             {title}
         </h3>
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl backdrop-blur-sm overflow-hidden shadow-lg shadow-black/10">
+        <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden shadow-lg shadow-black/10">
             {children}
         </div>
     </div>

@@ -1038,7 +1038,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Export progress overlay */}
             {exportProgress && (
-                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center z-50 gap-4">
+                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-50 gap-4">
                     <div className="w-10 h-10 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
                     <p className="text-sm font-bold text-white">{exportProgress}</p>
                 </div>

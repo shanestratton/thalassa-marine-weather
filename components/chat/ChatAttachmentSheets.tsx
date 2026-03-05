@@ -22,7 +22,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(({
     reportingMsg, reportSent, reportReason, setReportReason, onSubmit, onClose,
 }) => (
     <div className="absolute inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-black/60" />
         <div className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down" onClick={e => e.stopPropagation()}>
             {reportSent ? (
                 <div className="text-center py-6">
@@ -237,8 +237,8 @@ export interface TrackDisclaimerModalProps {
 }
 
 export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.memo(({ track, onImport, onClose }) => (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={onClose}>
-        <div className="w-full max-w-sm bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-6" onClick={onClose}>
+        <div className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3">
                 <div className="flex items-center gap-2 mb-3">
                     <span className="text-amber-400 text-lg">⚠️</span>

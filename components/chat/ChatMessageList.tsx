@@ -193,7 +193,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                         >
                                                             <img src={getStaticMapUrl(pin.lat, pin.lng)} alt="Pin location" className="w-full h-[140px] object-cover" loading="lazy" />
                                                             {/* Source badge */}
-                                                            <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm ${isLoc ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/20' :
+                                                            <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${isLoc ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/20' :
                                                                 isPoi ? 'bg-purple-500/20 text-purple-300 border border-purple-400/20' :
                                                                     'bg-white/10 text-white/50 border border-white/10'
                                                                 }`}>
@@ -270,7 +270,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
 
                                         {/* Mod menu */}
                                         {showModMenu === msg.id && isMod && (
-                                            <div className="mt-2 p-2.5 rounded-xl bg-slate-800/90 backdrop-blur-xl border border-white/[0.08] space-y-1 fade-slide-down shadow-2xl">
+                                            <div className="mt-2 p-2.5 rounded-xl bg-slate-800/90 border border-white/[0.08] space-y-1 fade-slide-down shadow-2xl">
                                                 <button onClick={() => onDeleteMessage(msg.id)} className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
                                                     🗑 Delete message
                                                 </button>

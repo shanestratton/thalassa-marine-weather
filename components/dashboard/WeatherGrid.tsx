@@ -109,7 +109,7 @@ export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | n
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-3">
             <div className={`relative overflow-hidden rounded-xl border ${config.border} ${config.bg} transition-all duration-500 group shadow-lg min-h-[72px] flex items-center`}>
-                <div className="pl-4 pr-5 py-2 border-r border-white/10 flex items-center gap-3 relative z-20 bg-slate-900/20 backdrop-blur-sm h-full shrink-0">
+                <div className="pl-4 pr-5 py-2 border-r border-white/10 flex items-center gap-3 relative z-20 bg-slate-900/20 h-full shrink-0">
                     <div className="relative w-12 h-12 flex items-center justify-center">
                         <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 36 36">
                             <path className="text-black/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />

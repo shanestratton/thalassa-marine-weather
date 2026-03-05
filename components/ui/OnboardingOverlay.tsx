@@ -72,7 +72,7 @@ export const OnboardingOverlay: React.FC = () => {
     const isLast = current === slides.length - 1;
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-xl p-6">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-300">
                 {/* Card */}
                 <div className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
