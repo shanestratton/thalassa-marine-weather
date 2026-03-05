@@ -86,8 +86,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
     return (
         <div
-            className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col transition-all duration-300"
-            style={keyboardHeight > 0 ? { height: `calc(100vh - ${keyboardHeight}px)`, maxHeight: `calc(100vh - ${keyboardHeight}px)` } : { height: '100vh' }}
+            className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col"
         >
 
 
@@ -269,10 +268,10 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 </div>
             ) : (
                 /* EMPTY STATE — rigid single-screen, no scroll */
-                <div ref={scrollContainerRef} className="flex-1 min-h-0 flex flex-col overflow-auto no-scrollbar" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
+                <div ref={scrollContainerRef} className="flex-1 min-h-0 flex flex-col overflow-hidden" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
 
-                    {/* ─── TOP: Form inputs anchored to top ─── */}
-                    <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4">
+                    {/* ─── TOP: Form inputs — scrollable if needed ─── */}
+                    <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4 overflow-y-auto flex-1 min-h-0">
                         <div className={`max-w-xl mx-auto w-full space-y-3 ${ROUTING_DISABLED ? 'opacity-40 pointer-events-none' : ''}`}>
                             {/* Origin */}
                             <div className="relative group">
@@ -491,8 +490,6 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         )}
                     </form>
 
-                    {/* ─── FLEXIBLE SPACER — absorbs all remaining height ─── */}
-                    <div className="flex-grow" />
 
                     {/* ─── BOTTOM: CTA pinned, exact 8px above nav bar ─── */}
                     <div className="shrink-0 px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
