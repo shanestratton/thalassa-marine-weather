@@ -48,7 +48,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="edit-entry-title" ref={focusTrapRef}>
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="edit-entry-title" ref={focusTrapRef}>
             <div className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4">

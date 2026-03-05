@@ -47,7 +47,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
 
     if (!activeAlerts || activeAlerts.length === 0) {
         return (
-            <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-3 backdrop-blur-md mb-2">
+            <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-3 mb-2">
                 <div className="p-1.5 bg-emerald-500/20 rounded-full">
                     <CheckIcon className="w-4 h-4 text-emerald-400" />
                 </div>

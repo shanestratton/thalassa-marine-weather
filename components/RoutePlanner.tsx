@@ -169,7 +169,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 <div className="flex-1 min-h-0 overflow-auto">
                     <div className="relative w-full max-w-[1600px] mx-auto pb-36 md:pb-40 px-2 md:px-6 flex flex-col font-sans">
                         {/* Form header for results view */}
-                        <div className="relative z-40 pt-4 pb-4 px-2 md:px-2 bg-slate-900/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
+                        <div className="relative z-40 pt-4 pb-4 px-2 md:px-2 bg-slate-900/95 border-b border-white/5 shadow-2xl mb-8">
                             <div className="max-w-7xl mx-auto space-y-4">
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-3">
@@ -243,7 +243,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
                         {error && (
                             <div className="max-w-4xl mx-auto mb-8 w-full animate-in fade-in slide-in-from-top-4">
-                                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
+                                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200">
                                     <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
                                     <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
                                 </div>
@@ -469,7 +469,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         {/* Loading overlay */}
                         {loading && (
                             <div className="flex justify-center py-3 animate-in fade-in z-50">
-                                <div className="flex items-center gap-3 px-6 py-3 bg-slate-900/90 backdrop-blur-md border border-sky-500/30 rounded-full shadow-[0_0_25px_rgba(14,165,233,0.15)]">
+                                <div className="flex items-center gap-3 px-6 py-3 bg-slate-900/90 border border-sky-500/30 rounded-full shadow-[0_0_25px_rgba(14,165,233,0.15)]">
                                     <span className="text-xs text-sky-300 font-mono tracking-wide">{LOADING_PHASES[loadingStep]}</span>
                                     <div className="flex gap-1">
                                         <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
@@ -482,7 +482,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
                         {error && (
                             <div className="max-w-xl mx-auto mt-2 w-full animate-in fade-in slide-in-from-top-4">
-                                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200 backdrop-blur-md">
+                                <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-center gap-4 text-red-200">
                                     <div className="p-2 bg-red-500/20 rounded-full"><BugIcon className="w-5 h-5" /></div>
                                     <div><h4 className="font-bold text-sm uppercase">Calculation Error</h4><p className="text-xs opacity-80">{error}</p></div>
                                 </div>

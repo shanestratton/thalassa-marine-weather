@@ -153,7 +153,7 @@ export const LayerFABMenu: React.FC<{
     <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
         <button
             onClick={() => { setShowLayerMenu(!showLayerMenu); triggerHaptic('light'); }}
-            className={`backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
+            className={`border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
         >
             <svg className={`text-white ${embedded ? 'w-3.5 h-3.5' : 'w-5 h-5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
@@ -167,7 +167,7 @@ export const LayerFABMenu: React.FC<{
                     const lon = center?.lon ?? location.lon;
                     mapRef.current?.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
                 }}
-                className="w-8 h-8 rounded-xl backdrop-blur-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90"
+                className="w-8 h-8 rounded-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90"
                 aria-label="Recenter map"
             >
                 <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -178,7 +178,7 @@ export const LayerFABMenu: React.FC<{
         )}
 
         {showLayerMenu && (
-            <div className="bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
                 {([
                     { key: 'none', label: 'None', icon: '🗺️' },
                     { key: 'rain', label: 'Rain', icon: '🌧️' },

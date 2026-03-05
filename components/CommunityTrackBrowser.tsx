@@ -201,7 +201,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     return (
         <div className="fixed inset-0 z-50 flex flex-col bg-slate-950" role="dialog" aria-modal="true" aria-label="Community track browser">
             {/* Header */}
-            <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
+            <div className="shrink-0 bg-slate-900/90 border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                         <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

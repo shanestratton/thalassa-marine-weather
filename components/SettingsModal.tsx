@@ -307,7 +307,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             <div className={`flex-1 flex flex-col h-full bg-transparent overflow-hidden ${activeTab === null ? 'hidden md:flex' : ''}`}>
                 {/* Mobile: Section header with X close button */}
                 {activeTab !== null && (
-                    <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 backdrop-blur-xl border-b border-white/5">
+                    <div className="md:hidden flex items-center gap-3 px-5 pt-6 pb-3 sticky top-0 z-20 bg-slate-950/90 border-b border-white/5">
                         <button
                             onClick={() => setActiveTab(null)}
                             className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"

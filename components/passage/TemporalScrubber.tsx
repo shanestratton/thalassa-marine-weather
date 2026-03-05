@@ -176,8 +176,8 @@ const TemporalScrubber: React.FC<TemporalScrubberProps> = memo(({
             <div
                 style={{
                     background: 'rgba(15, 23, 42, 0.9)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
+                    
+                    
                     border: '1px solid rgba(255, 255, 255, 0.08)',
                     borderRadius: 16,
                     padding: '10px 16px',

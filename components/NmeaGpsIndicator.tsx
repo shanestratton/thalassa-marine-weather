@@ -86,7 +86,7 @@ export const NmeaGpsIndicator: React.FC = () => {
 
     return (
         <div className="pointer-events-none">
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full justify-center ${badgeBg} border backdrop-blur-md shadow-lg`}>
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full justify-center ${badgeBg} border shadow-lg`}>
                 {/* Pulse ring */}
                 <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`} />

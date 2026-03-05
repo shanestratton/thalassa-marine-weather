@@ -66,8 +66,8 @@ interface CommandDeckProps {
 
 const OVERLAY_CARD_STYLE: React.CSSProperties = {
     background: 'rgba(15, 23, 42, 0.85)',
-    backdropFilter: 'blur(20px) saturate(1.2)',
-    WebkitBackdropFilter: 'blur(20px) saturate(1.2)',
+    
+    
     border: '1px solid rgba(255, 255, 255, 0.08)',
     borderRadius: 16,
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
@@ -491,8 +491,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                     borderRadius: '50%',
                                     border: '1px solid rgba(255,255,255,0.15)',
                                     background: 'rgba(15, 23, 42, 0.85)',
-                                    backdropFilter: 'blur(20px)',
-                                    WebkitBackdropFilter: 'blur(20px)',
+                                    
+                                    
                                     color: '#94a3b8',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     cursor: 'pointer',
@@ -527,8 +527,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 borderRadius: '50%',
                                 border: `1px solid ${logbookState === 'saved' ? 'rgba(52,211,153,0.4)' : logbookState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)'}`,
                                 background: logbookState === 'saved' ? 'rgba(6,78,59,0.6)' : logbookState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(15, 23, 42, 0.85)',
-                                backdropFilter: 'blur(20px)',
-                                WebkitBackdropFilter: 'blur(20px)',
+                                
+                                
                                 color: logbookState === 'saved' ? '#34d399' : logbookState === 'error' ? '#ef4444' : '#a78bfa',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 cursor: logbookState === 'saving' ? 'wait' : 'pointer',
@@ -566,8 +566,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 borderRadius: '50%',
                                 border: `1px solid ${saveState === 'saved' ? 'rgba(52,211,153,0.4)' : saveState === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.15)'}`,
                                 background: saveState === 'saved' ? 'rgba(6,78,59,0.6)' : saveState === 'error' ? 'rgba(127,29,29,0.6)' : 'rgba(15, 23, 42, 0.85)',
-                                backdropFilter: 'blur(20px)',
-                                WebkitBackdropFilter: 'blur(20px)',
+                                
+                                
                                 color: saveState === 'saved' ? '#34d399' : saveState === 'error' ? '#ef4444' : '#94a3b8',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 cursor: saveState === 'saving' ? 'wait' : 'pointer',
@@ -617,8 +617,8 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             border: '1px solid rgba(255, 255, 255, 0.08)',
                             borderBottom: hudCollapsed ? undefined : 'none',
                             background: 'rgba(15, 23, 42, 0.85)',
-                            backdropFilter: 'blur(20px)',
-                            WebkitBackdropFilter: 'blur(20px)',
+                            
+                            
                             color: '#64748b',
                             cursor: 'pointer',
                             fontFamily: FONT.ui,

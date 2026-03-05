@@ -29,7 +29,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
 }) => (
     <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={onClose}>
         {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-black/60" />
 
         {/* Sheet */}
         <div

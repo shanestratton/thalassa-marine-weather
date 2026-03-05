@@ -570,7 +570,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
     return (
         <div
-            className={`absolute ${isSmallContainer ? 'top-2 left-2' : 'top-14 left-4'} z-[600] flex items-center gap-2 px-3 py-1.5 rounded-xl backdrop-blur-xl border shadow-lg text-[11px] font-bold`}
+            className={`absolute ${isSmallContainer ? 'top-2 left-2' : 'top-14 left-4'} z-[600] flex items-center gap-2 px-3 py-1.5 rounded-xl border shadow-lg text-[11px] font-bold`}
             style={{
                 background: isOffline ? 'rgba(30, 30, 30, 0.85)' : 'rgba(15, 23, 42, 0.85)',
                 borderColor: isOffline ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.1)',

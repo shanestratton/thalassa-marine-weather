@@ -116,7 +116,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(({ data, i
                 <div className="mx-2 mb-2 md:mx-0">
                     {/* Glass Panel */}
                     <div
-                        className="bg-slate-900/95 backdrop-blur-xl ${t.border.default} rounded-[2rem] shadow-2xl overflow-hidden ring-1 ring-white/10 relative"
+                        className="bg-slate-900/95 ${t.border.default} rounded-[2rem] shadow-2xl overflow-hidden ring-1 ring-white/10 relative"
                     >
 
                         {/* DRAG HANDLE AREA - Expanded touch target */}

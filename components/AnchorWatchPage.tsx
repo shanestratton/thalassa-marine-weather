@@ -901,7 +901,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* ── Context Strip — weather + safety ── */}
-                        <div className="flex items-center gap-2 bg-slate-800/30 backdrop-blur border border-white/[0.04] rounded-xl px-3 py-2">
+                        <div className="flex items-center gap-2 bg-slate-800/30 border border-white/[0.04] rounded-xl px-3 py-2">
                             {/* Weather left */}
                             <button
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
@@ -1003,11 +1003,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {/* ══ Sound Check Confirmation Modal ══ */}
                 {showSoundCheck && createPortal(
                     <div
-                        className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+                        className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6"
                         onClick={() => setShowSoundCheck(false)}
                     >
                         <div
-                            className="w-full max-w-sm bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+                            className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Header */}
@@ -1079,12 +1079,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {/* Shore Watch Modal — rendered via portal to bypass PullToRefresh transform */}
                 {showShoreModal && createPortal(
                     <div
-                        className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex flex-col items-center"
+                        className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
                         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 108px)' }}
                         onClick={() => setShowShoreModal(false)}
                     >
                         <div
-                            className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl"
+                            className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl"
                             onClick={e => e.stopPropagation()}
                         >
                             {/* Modal Header */}
@@ -1179,7 +1179,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
         return (
             <div className="h-full bg-slate-950 flex flex-col">
                 {/* Header — glassmorphism */}
-                <div className="bg-gradient-to-r from-slate-900/80 via-slate-950/90 to-slate-900/80 backdrop-blur-xl border-b border-white/[0.06] px-4 py-3">
+                <div className="bg-gradient-to-r from-slate-900/80 via-slate-950/90 to-slate-900/80 border-b border-white/[0.06] px-4 py-3">
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-lg font-black text-white flex items-center gap-2">
@@ -1195,7 +1195,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         </div>
                         <button
                             onClick={handleStopWatch}
-                            className="px-3 py-1.5 bg-red-500/[0.08] backdrop-blur border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
+                            className="px-3 py-1.5 bg-red-500/[0.08] border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
                             aria-label="Stop Watch">
                             Leave
                         </button>
@@ -1204,7 +1204,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
                 {/* Vessel Disconnection Banner */}
                 {!syncState?.peerConnected && (
-                    <div className="shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 bg-red-500/[0.08] backdrop-blur border border-red-500/25 rounded-xl">
+                    <div className="shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 bg-red-500/[0.08] border border-red-500/25 rounded-xl">
                         <span className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
                         <span className="text-sm text-red-400 font-bold flex-1">
                             ⚠️ Vessel connection lost
@@ -1269,19 +1269,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
                             {/* Data cards — glassmorphism */}
                             <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
-                                <div className="bg-slate-800/50 backdrop-blur rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className="text-sm text-slate-400 uppercase tracking-wider">Swing Radius</div>
                                     <div className="text-lg font-bold text-white">{formatDistance(shoreData.swingRadius)}</div>
                                 </div>
-                                <div className="bg-slate-800/50 backdrop-blur rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className="text-sm text-slate-400 uppercase tracking-wider">Rode</div>
                                     <div className="text-lg font-bold text-amber-400">{shoreData.config.rodeLength}m</div>
                                 </div>
-                                <div className="bg-slate-800/50 backdrop-blur rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className="text-sm text-slate-400 uppercase tracking-wider">Depth</div>
                                     <div className="text-lg font-bold text-sky-400">{shoreData.config.waterDepth}m</div>
                                 </div>
-                                <div className="bg-slate-800/50 backdrop-blur rounded-xl p-3 text-center border border-white/[0.04]">
+                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className="text-sm text-slate-400 uppercase tracking-wider">Last Update</div>
                                     <div className="text-lg font-bold text-white">
                                         {new Date(shoreData.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1327,7 +1327,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
             {/* Action Buttons — glassmorphism pills */}
             <div className="shrink-0 px-3 py-1.5 flex gap-2">
                 {syncState?.connected ? (
-                    <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl">
+                    <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl">
                         <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />
                         <span className="text-sm text-sky-400 font-mono font-bold tracking-wider">{syncState.sessionCode}</span>
                         <span className="text-sm text-slate-400 uppercase">sharing</span>
@@ -1335,14 +1335,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 ) : (
                     <button
                         onClick={handleCreateSession}
-                        className="flex-1 py-3 bg-sky-500/[0.08] backdrop-blur border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
+                        className="flex-1 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
                         aria-label="Create Sessi">
                         📱 Shore Share
                     </button>
                 )}
                 <button
                     onClick={handleStopWatch}
-                    className={`flex-1 py-3 bg-red-500/[0.08] backdrop-blur border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`}
+                    className={`flex-1 py-3 bg-red-500/[0.08] border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`}
                     aria-label="Stop Watch">
                     ⏏ Weigh Anchor
                 </button>
@@ -1350,7 +1350,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
             {/* Shore Disconnection Banner — visible when shore device drops */}
             {syncState?.connected && !syncState.peerConnected && syncState.sessionCode && (
-                <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] backdrop-blur border border-amber-500/25 rounded-xl animate-pulse">
+                <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] border border-amber-500/25 rounded-xl animate-pulse">
                     <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
                     <span className="text-xs text-amber-400 font-bold flex-1">
                         ⚠️ Shore device disconnected
@@ -1387,37 +1387,37 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 {/* Stats Grid — 2×3 */}
                 <div className="shrink-0 px-2.5 pb-1.5">
                     <div className="grid grid-cols-3 gap-1.5">
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className={t.typography.labelSm}>GPS</div>
                             <div className={`text-sm font-black font-mono ${(snapshot?.gpsAccuracy ?? 99) < 10 ? 'text-emerald-400' : (snapshot?.gpsAccuracy ?? 99) < 20 ? 'text-amber-400' : 'text-red-400'}`}>
                                 ±{snapshot?.gpsAccuracy.toFixed(0) ?? '--'}m
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className={t.typography.labelSm}>Bearing</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? `${snapshot.bearingToAnchor.toFixed(0)}° ${bearingToCardinal(snapshot.bearingToAnchor)}` : `--`}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className="text-sm text-slate-400 uppercase tracking-wider">Max Drift</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? formatDistance(snapshot.maxDistanceRecorded) : `--`}
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className="text-sm text-slate-400 uppercase tracking-wider">Rode</div>
                             <div className="text-sm font-black font-mono text-amber-400">
                                 {snapshot?.config.rodeLength ?? `--`}m
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className="text-sm text-slate-400 uppercase tracking-wider">Depth</div>
                             <div className="text-sm font-black font-mono text-sky-400">
                                 {snapshot?.config.waterDepth ?? `--`}m
                             </div>
                         </div>
-                        <div className="bg-slate-800/50 backdrop-blur rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
+                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className="text-sm text-slate-400 uppercase tracking-wider">Scope</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? (snapshot.config.rodeLength / snapshot.config.waterDepth).toFixed(1) : `--`}:1

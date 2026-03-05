@@ -200,7 +200,7 @@ const App: React.FC = () => {
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}
                 {isOffline && (
-                    <div className="bg-orange-600/90 backdrop-blur-md text-white text-xs font-bold uppercase tracking-widest text-center py-2 px-4 shadow-lg flex items-center justify-center gap-2 pt-[max(0.5rem,env(safe-area-inset-top))] shrink-0">
+                    <div className="bg-orange-600/90 text-white text-xs font-bold uppercase tracking-widest text-center py-2 px-4 shadow-lg flex items-center justify-center gap-2 pt-[max(0.5rem,env(safe-area-inset-top))] shrink-0">
                         <ServerIcon className="w-4 h-4" /> OFFLINE MODE
                     </div>
                 )}
@@ -257,7 +257,7 @@ const App: React.FC = () => {
                                             value={query}
                                             readOnly
                                             placeholder="Select via Map..."
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 backdrop-blur-md border border-white/10'}`}
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 border border-white/10'}`}
                                             onClick={() => setPage('map')}
                                         />
                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
@@ -302,7 +302,7 @@ const App: React.FC = () => {
                                                 {currentView === 'dashboard' && (
                                                     <>
                                                         {error ? (
-                                                            <div className="p-8 bg-red-500/20 border border-red-500/30 backdrop-blur-md rounded-2xl text-center max-w-lg mx-auto mt-20">
+                                                            <div className="p-8 bg-red-500/20 border border-red-500/30 rounded-2xl text-center max-w-lg mx-auto mt-20">
                                                                 <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
                                                                 <p className="text-white/80">{error}</p>
                                                                 <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
@@ -422,7 +422,7 @@ const App: React.FC = () => {
                 </Suspense>
 
                 {!isMobileLandscape && (
-                    <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
+                    <div className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
                         <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
@@ -436,7 +436,7 @@ const App: React.FC = () => {
 
 
             {effectiveMode === 'night' && (
-                <div className="fixed inset-0 z-[9999] pointer-events-none touch-none" style={{ backdropFilter: 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(600%) contrast(0.8) brightness(0.8)' }}></div>
+                <div className="fixed inset-0 z-[9999] pointer-events-none touch-none bg-red-950/40 mix-blend-multiply"></div>
             )}
 
 

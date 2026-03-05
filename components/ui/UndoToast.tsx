@@ -61,7 +61,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({
             className="fixed left-4 right-4 z-[9999] animate-slide-up"
             style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
         >
-            <div className="bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl">
+            <div className="bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
                 <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0">
                         <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

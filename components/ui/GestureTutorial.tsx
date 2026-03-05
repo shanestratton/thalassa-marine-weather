@@ -83,7 +83,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
 
     return (
         <div
-            className={`fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
+            className={`fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-6 transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
                 }`}
             onClick={handleDismiss}
         >

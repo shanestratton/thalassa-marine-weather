@@ -39,7 +39,7 @@ const DefaultErrorFallback: React.FC<{
     onRetry?: () => void;
     boundaryName?: string;
 }> = ({ error, onRetry, boundaryName }) => (
-    <div className="flex flex-col items-center justify-center p-8 bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.1)] text-center min-h-[200px]">
+    <div className="flex flex-col items-center justify-center p-8 bg-slate-900/80 rounded-2xl border border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.1)] text-center min-h-[200px]">
         <div className="p-4 bg-red-500/20 rounded-full mb-4" aria-live="assertive">
             <AlertTriangleIcon className="w-8 h-8 text-red-400" />
         </div>

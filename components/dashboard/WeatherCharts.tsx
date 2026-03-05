@@ -128,7 +128,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                 <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-4">
                                     <div className="flex flex-col"><span className="text-2xl font-bold text-white">{item.time}</span><span className="text-xs text-gray-400 uppercase tracking-widest truncate max-w-[100px]">{item.condition}</span></div>
                                     <div className="flex items-center gap-4">
-                                        <div className="relative"><WeatherIcon condition={item.condition} cloudCover={cloudCover ?? undefined} className="w-10 h-10 text-sky-300" />{cloudCover !== undefined && cloudCover !== null && (<div className="absolute -top-2 -right-2 text-[11px] text-white font-bold bg-white/20 px-1.5 py-0.5 rounded-full backdrop-blur-sm">{cloudCover}%</div>)}</div>
+                                        <div className="relative"><WeatherIcon condition={item.condition} cloudCover={cloudCover ?? undefined} className="w-10 h-10 text-sky-300" />{cloudCover !== undefined && cloudCover !== null && (<div className="absolute -top-2 -right-2 text-[11px] text-white font-bold bg-white/20 px-1.5 py-0.5 rounded-full">{cloudCover}%</div>)}</div>
                                         <div className="text-right"><p className={`text-3xl font-light ${item.isEstimated ? 'text-yellow-400' : 'text-white'}`}>{tempDisplay}°</p>{chillDisplay && (<p className="text-[11px] text-gray-400">Feels {chillDisplay}°</p>)}</div>
                                     </div>
                                 </div>
@@ -272,7 +272,7 @@ export const MapWidget = ({ onOpenMap }: { onOpenMap: () => void }) => (
 
             {/* Content */}
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
-                <div className="w-16 h-16 rounded-full bg-sky-500/10 backdrop-blur-sm border border-sky-500/30 flex items-center justify-center mb-4 group-hover:bg-sky-500/20 group-hover:scale-110 transition-all duration-300 shadow-[0_0_30px_rgba(14,165,233,0.2)]">
+                <div className="w-16 h-16 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center mb-4 group-hover:bg-sky-500/20 group-hover:scale-110 transition-all duration-300 shadow-[0_0_30px_rgba(14,165,233,0.2)]">
                     <MapIcon className="w-8 h-8 text-sky-400 group-hover:text-sky-300" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-1 tracking-tight group-hover:text-sky-200 transition-colors">Interactive Weather Map</h3>

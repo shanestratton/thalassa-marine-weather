@@ -106,7 +106,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
             onClick={onClose}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <div className="absolute inset-0 bg-black/60" />
 
             {/* Content panel — data-modal-sheet prevents global keyboard dismiss on scroll */}
             <div

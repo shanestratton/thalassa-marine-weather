@@ -110,7 +110,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
 
     return (
         <div className={`mx-3 mb-3 ${isNew ? 'listing-enter' : ''}`}>
-            <div className={`relative rounded-2xl overflow-hidden border ${t.border.default} bg-white/[0.04] backdrop-blur-xl shadow-lg`}>
+            <div className={`relative rounded-2xl overflow-hidden border ${t.border.default} bg-white/[0.04] shadow-lg`}>
                 {/* Subtle gradient bg */}
                 <div className="absolute inset-0 bg-gradient-to-br from-slate-700/20 via-transparent to-slate-800/30 pointer-events-none" />
 
@@ -137,11 +137,11 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                 </div>
                             )}
                             {/* Category badge */}
-                            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
+                            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
                                 {CATEGORY_ICONS[listing.category]} {listing.category}
                             </div>
                             {/* Condition badge */}
-                            <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider backdrop-blur-md ${getConditionColor(listing.condition)}`}>
+                            <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
                                 {listing.condition}
                             </div>
                         </div>
@@ -268,7 +268,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
 
                 {/* SOLD overlay */}
                 {listing.status === 'sold' && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                         <span className="text-2xl font-black text-white/80 uppercase tracking-[0.3em] -rotate-12">SOLD</span>
                     </div>
                 )}
@@ -380,13 +380,13 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const CURRENCIES = ['AUD', 'USD', 'EUR', 'GBP', 'NZD'];
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
                 className="w-full max-w-lg bg-slate-900/98 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 backdrop-blur-xl border-b border-white/[0.06]">
+                <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06]">
                     <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/60 font-medium">Cancel</button>
                     <h2 className="text-sm font-bold text-white">List Gear for Sale</h2>
                     <button
@@ -656,7 +656,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
     return (
         <div className="flex flex-col h-full bg-slate-950">
             {/* ═══════ HEADER ═══════ */}
-            <div className="sticky top-0 z-20 bg-slate-950/95 backdrop-blur-xl border-b border-white/[0.06]">
+            <div className="sticky top-0 z-20 bg-slate-950/95 border-b border-white/[0.06]">
                 {/* Nav bar */}
                 <div className="flex items-center justify-between px-4 py-3">
                     <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-sky-400 font-medium">

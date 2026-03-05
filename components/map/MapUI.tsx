@@ -9,7 +9,7 @@ export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     if (layer === 'wind') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 backdrop-blur-md border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <WindIcon className="w-4 h-4 text-sky-400" /> Wind Speed (kts)
                 </div>
@@ -56,7 +56,7 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     }
     if (layer === 'rain') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 backdrop-blur-md border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <RainIcon className="w-4 h-4 text-sky-400" /> Precipitation
                 </div>
@@ -75,7 +75,7 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     }
     if (layer === 'global-wind') {
         return (
-            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 backdrop-blur-md border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
+            <div className="absolute bottom-32 right-6 z-[800] bg-slate-900/95 border-2 border-white/30 p-4 rounded-2xl shadow-2xl pointer-events-none select-none">
                 <div className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
                     <WindIcon className="w-4 h-4 text-sky-400" /> Global Winds
                 </div>
@@ -131,7 +131,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
     }, [waypoint.name]);
 
     return (
-        <div className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
+        <div className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-300" onClick={onClose}>
             <div
                 className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
                 onClick={(e) => e.stopPropagation()}
@@ -144,7 +144,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
                         ></div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
-                    <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/30 hover:bg-black/50 rounded-full text-white transition-colors backdrop-blur-md">
+                    <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/30 hover:bg-black/50 rounded-full text-white transition-colors">
                         <XIcon className="w-5 h-5" />
                     </button>
                     <div className="absolute bottom-4 left-6">

@@ -172,8 +172,8 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
     return (
         <div className="bio-animate-in" style={{
             background: 'rgba(15, 23, 42, 0.85)',
-            backdropFilter: 'blur(20px) saturate(1.2)',
-            WebkitBackdropFilter: 'blur(20px) saturate(1.2)',
+            
+            
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: 16,
             borderTopLeftRadius: 0,

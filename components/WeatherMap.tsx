@@ -404,7 +404,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     </div>
 
                     {!minimal && !hideLayerControls && (
-                        <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 flex shadow-xl self-start">
+                        <div className="pointer-events-auto bg-slate-900/80 border border-white/10 rounded-full p-1 flex shadow-xl self-start">
                             <button
                                 onClick={() => { setActiveLayer('wind'); setPendingSelection(null); }}
                                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
@@ -520,7 +520,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-500 shadow-lg text-[11px] font-bold text-amber-500 hover:bg-amber-500 hover:text-white transition-colors cursor-pointer">
                                     {wpObj.idx + 1}
                                 </div>
-                                <div className={`mt-1 bg-black/70 backdrop-blur-sm px-2 py-1 rounded text-[11px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                <div className={`mt-1 bg-black/70 px-2 py-1 rounded text-[11px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
                                     {wpObj.name}
                                 </div>
                             </div>
@@ -588,7 +588,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             <button
                                 onClick={handleConfirm}
                                 disabled={!pendingSelection}
-                                className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 backdrop-blur-md text-gray-500 border-white/10 cursor-not-allowed'}`}
+                                className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-500 border-white/10 cursor-not-allowed'}`}
                             >
                                 <MapPinIcon className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-500'}`} />
                                 {pendingSelection ? (confirmLabel || "Confirm Location") : "Tap Map to Select Point"}

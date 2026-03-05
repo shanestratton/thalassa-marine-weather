@@ -172,7 +172,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ EMBEDDED / BACKGROUND RAIN SCRUBBER ═══ */}
             {!isPinView && (embedded || (!embedded && weather.activeLayer === 'velocity')) && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
                 <div
-                    className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
+                    className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
                     style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
                 >
                     <style>{`
@@ -222,7 +222,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ PASSAGE MODE BANNER ═══ */}
             {passage.showPassage && !embedded && (
                 <div className="absolute top-24 left-4 right-4 z-[501] animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="bg-slate-900/85 backdrop-blur-xl border border-white/10 rounded-xl px-3 py-2 shadow-lg">
+                    <div className="bg-slate-900/85 border border-white/10 rounded-xl px-3 py-2 shadow-lg">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                                 <div className="min-w-0">
@@ -426,7 +426,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     }
                                 });
                             }}
-                            className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.windState.isGlobalMode
+                            className={`w-12 h-12 border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.windState.isGlobalMode
                                 ? 'bg-sky-600/90 border-sky-500/30'
                                 : 'bg-amber-600/90 border-amber-500/30'
                                 }`}
@@ -528,7 +528,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 }
                             }}
                             disabled={weather.isGribDownloading}
-                            className={`w-12 h-12 backdrop-blur-xl border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.isGribDownloading
+                            className={`w-12 h-12 border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.isGribDownloading
                                 ? 'bg-sky-700/90 border-sky-500/30 cursor-wait'
                                 : weather.gribError
                                     ? 'bg-red-800/90 border-red-500/30'
@@ -551,7 +551,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                     {/* GRIB Error Tooltip */}
                     {weather.gribError && weather.activeLayer === 'wind' && (
-                        <div className="max-w-[200px] bg-red-900/95 backdrop-blur-xl border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
+                        <div className="max-w-[200px] bg-red-900/95 border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
                             <p className="text-[11px] font-bold text-red-300 leading-tight">{weather.gribError}</p>
                         </div>
                     )}
@@ -572,7 +572,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 onLocationSelect?.(latitude, longitude);
                             });
                         }}
-                        className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                        className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                     >
                         <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <circle cx="12" cy="12" r="3" />
@@ -588,7 +588,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             }
                             triggerHaptic('light');
                         }}
-                        className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                        className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                     >
                         <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -616,7 +616,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ WIND TIMELINE SCRUBBER ═══ */}
             {!isPinView && weather.activeLayer === 'wind' && weather.windReady && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                    <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { weather.setWindPlaying(!weather.windPlaying); triggerHaptic('light'); }}
                             className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
@@ -668,7 +668,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ RAIN TIMELINE SCRUBBER ═══ */}
             {!isPinView && weather.activeLayer === 'rain' && weather.rainFrameCount > 1 && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                    <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
                             onClick={() => { weather.setRainPlaying(!weather.rainPlaying); triggerHaptic('light'); }}
                             className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 shrink-0 active:scale-90 transition-transform"

@@ -470,8 +470,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                 {/* ── Background Update Blur Overlay ── */}
                 {props.isRefreshing && (
-                    <div className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none"
-                        style={{ backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+                    <div className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none bg-black/40"
                     >
                         <div className="bg-black/50 rounded-2xl px-5 py-3 flex items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
                             <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />

@@ -1038,7 +1038,7 @@ const HeroSlideComponent = ({
 
 
                                         {/* Tide Graph Card — 2/3 of space */}
-                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
                                             {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
                                                 <div className={`absolute inset-0 bg-gradient-to-br ${isGolden ? 'from-amber-500/[0.10] via-amber-300/[0.04] to-amber-500/[0.06]' : isCardDay ? 'from-sky-500/[0.06] via-transparent to-sky-500/[0.04]' : 'from-sky-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
@@ -1072,7 +1072,7 @@ const HeroSlideComponent = ({
                                 ) : tidesExpectedButMissing && !showMapInstead ? (
                                     /* COASTAL BUT TIDES UNAVAILABLE — graceful degradation */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] backdrop-blur-xl ${isGolden ? 'border-amber-400/[0.12]' : isCardDay ? 'border-white/[0.06]' : 'border-sky-300/[0.06]'}`}>
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] ${isGolden ? 'border-amber-400/[0.12]' : isCardDay ? 'border-white/[0.06]' : 'border-sky-300/[0.06]'}`}>
                                             <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
                                                     <span className="text-lg">🌊</span>
@@ -1087,7 +1087,7 @@ const HeroSlideComponent = ({
                                 ) : (
                                     /* INLAND / OFFSHORE LAYOUT — 3×2 instrument panel matching HeroWidgets */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        <div className="relative flex-[2] min-h-0 w-full rounded-xl overflow-hidden backdrop-blur-md bg-white/[0.08] border border-white/[0.15] shadow-2xl flex flex-col">
+                                        <div className="relative flex-[2] min-h-0 w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl flex flex-col">
                                             {(() => {
                                                 const OFFSHORE_WIDGETS = [
                                                     { id: 'waterTemperature', label: 'WATER', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },

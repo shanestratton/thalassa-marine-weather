@@ -680,7 +680,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             {/* ═══ CONTEXT MENU BOTTOM SHEET ═══ */}
             {contextItem && createPortal(
                 <div className="fixed inset-0 z-[999] flex items-center justify-center px-3" onClick={() => setContextItem(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+                    <div className="absolute inset-0 bg-black/60" />
                     <div
                         className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto"
                         style={{ maxHeight: 'calc(100dvh - 12rem)' }}

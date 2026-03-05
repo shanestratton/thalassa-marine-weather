@@ -36,7 +36,7 @@ export const IOSInstallPrompt = () => {
 
     return (
         <div className="fixed bottom-6 left-4 right-4 z-[100] animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className={`modal-panel-enter bg-slate-900/90 backdrop-blur-xl ${t.border.default} rounded-2xl p-4 shadow-2xl relative`}>
+            <div className={`modal-panel-enter bg-slate-900/90 ${t.border.default} rounded-2xl p-4 shadow-2xl relative`}>
                 <button onClick={handleDismiss} className="absolute top-2 right-2 p-2 text-gray-400 hover:text-white transition-colors" aria-label="Dismiss"><XIcon className="w-4 h-4" /></button>
                 <div className="flex gap-4">
                     <div className="w-12 h-12 bg-sky-500 rounded-xl flex items-center justify-center shadow-lg shrink-0">

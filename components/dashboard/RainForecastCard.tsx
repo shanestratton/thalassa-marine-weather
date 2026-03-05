@@ -239,7 +239,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
             onClick={onClose}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+            <div className="absolute inset-0 bg-black/80" />
 
             {/* Modal */}
             <div

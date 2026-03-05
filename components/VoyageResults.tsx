@@ -201,7 +201,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 </div>
             </div>
             {/* LIABILITY DISCLAIMER — Right under the passage plan card */}
-            <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg backdrop-blur-sm">
+            <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg">
                 <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
                     <AlertTriangleIcon className="w-5 h-5" />
                 </div>

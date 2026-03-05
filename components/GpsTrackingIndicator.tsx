@@ -69,7 +69,7 @@ export const GpsTrackingIndicator: React.FC = () => {
 
     return (
         <div className="pointer-events-none">
-            <div className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${bgColor} border backdrop-blur-md shadow-lg transition-colors duration-500`}>
+            <div className={`relative flex items-center gap-1 px-2 py-1 rounded-full justify-center ${bgColor} border shadow-lg transition-colors duration-500`}>
                 {/* Pulse ring — green when moving, red when stationary */}
                 <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`} />
