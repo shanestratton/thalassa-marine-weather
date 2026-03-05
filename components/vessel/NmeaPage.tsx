@@ -129,32 +129,34 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
                     <h3 className="shrink-0 text-label text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 min-h-0 overflow-hidden" style={{ gridAutoRows: '1fr' }}>
-                        {instruments.map(inst => (
-                            <button
-                                key={inst.id}
-                                onClick={() => openGauge(inst.id, inst.metric)}
-                                className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col justify-center min-h-0
-                                           active:bg-white/[0.08] active:scale-[0.97] transition-all cursor-pointer text-left"
-                            >
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-base">{inst.icon}</span>
-                                    <span className="text-label text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
-                                </div>
-                                <NmeaValue
-                                    metric={inst.metric}
-                                    unit={inst.unit}
-                                    decimals={inst.unit === '°' || inst.unit === 'rpm' ? 0 : 1}
-                                    className="text-xl font-black"
-                                />
-                                {/* Subtle chevron hint */}
-                                <div className="mt-auto pt-1 flex justify-end opacity-20">
-                                    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                    </svg>
-                                </div>
-                            </button>
-                        ))}
+                    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            {instruments.map(inst => (
+                                <button
+                                    key={inst.id}
+                                    onClick={() => openGauge(inst.id, inst.metric)}
+                                    className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col justify-between min-h-[90px]
+                                               active:bg-white/[0.08] active:scale-[0.97] transition-all cursor-pointer text-left"
+                                >
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-base">{inst.icon}</span>
+                                        <span className="text-label text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
+                                    </div>
+                                    <NmeaValue
+                                        metric={inst.metric}
+                                        unit={inst.unit}
+                                        decimals={inst.unit === '°' || inst.unit === 'rpm' ? 0 : 1}
+                                        className="text-xl font-black"
+                                    />
+                                    {/* Subtle chevron hint */}
+                                    <div className="mt-1 flex justify-end opacity-20">
+                                        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                        </svg>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
