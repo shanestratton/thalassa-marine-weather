@@ -1,7 +1,6 @@
 
 import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useWeather } from './context/WeatherContext';
-import { AnchorWatchService } from './services/AnchorWatchService';
 import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
@@ -9,8 +8,7 @@ import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, WindIcon, GearIcon, MapIcon, ShipWheelIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
-import { ForecastSheet } from './components/ForecastSheet';
-import { IOSInstallPrompt } from './components/IOSInstallPrompt';
+const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then(m => ({ default: m.ForecastSheet })));
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
@@ -22,7 +20,6 @@ import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
-import { OnboardingOverlay } from './components/ui/OnboardingOverlay';
 
 
 
@@ -69,6 +66,8 @@ const ChatPage = lazyRetry(() => import('./components/ChatPage').then(module => 
 const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
 const CrewPage = lazyRetry(() => import('./components/CrewManagement').then(m => ({ default: m.CrewManagement })));
+const IOSInstallPrompt = React.lazy(() => import('./components/IOSInstallPrompt').then(m => ({ default: m.IOSInstallPrompt })));
+const OnboardingOverlay = React.lazy(() => import('./components/ui/OnboardingOverlay').then(m => ({ default: m.OnboardingOverlay })));
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -93,7 +92,7 @@ const App: React.FC = () => {
     // Early restore: re-establish anchor watch GPS + geofence on app boot,
     // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
     useEffect(() => {
-        AnchorWatchService.restoreWatchState().catch(() => { /* Non-critical */ });
+        import('./services/AnchorWatchService').then(m => m.AnchorWatchService.restoreWatchState()).catch(() => { /* Non-critical */ });
     }, []);
 
     // Initialize local-first database and start background sync engine.
@@ -182,7 +181,7 @@ const App: React.FC = () => {
                 <UpgradeModal isOpen={isUpgradeOpen} onClose={() => setIsUpgradeOpen(false)} onUpgrade={togglePro} />
             </Suspense>
 
-            <IOSInstallPrompt />
+            <Suspense fallback={null}><IOSInstallPrompt /></Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* BACKGROUND */}
@@ -196,7 +195,7 @@ const App: React.FC = () => {
             )}
 
             {loading && <ProcessOverlay message={loadingMessage} />}
-            <OnboardingOverlay />
+            <Suspense fallback={null}><OnboardingOverlay /></Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}
@@ -333,36 +332,38 @@ const App: React.FC = () => {
                                                     </>
                                                 )}
 
-                                                {currentView === 'voyage' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} />}
+                                                {currentView === 'voyage' && <ErrorBoundary boundaryName="VoyagePlanner"><VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} /></ErrorBoundary>}
 
                                                 {currentView === 'settings' && (
-                                                    <SettingsView
-                                                        settings={settings}
-                                                        onSave={updateSettings}
-                                                        onLocationSelect={handleFavoriteSelect}
-                                                    />
+                                                    <ErrorBoundary boundaryName="Settings">
+                                                        <SettingsView
+                                                            settings={settings}
+                                                            onSave={updateSettings}
+                                                            onLocationSelect={handleFavoriteSelect}
+                                                        />
+                                                    </ErrorBoundary>
                                                 )}
 
-                                                {currentView === 'warnings' && <WarningDetails alerts={weatherData?.alerts || []} />}
+                                                {currentView === 'warnings' && <ErrorBoundary boundaryName="Warnings"><WarningDetails alerts={weatherData?.alerts || []} /></ErrorBoundary>}
 
-                                                {currentView === 'chat' && <ChatPage />}
+                                                {currentView === 'chat' && <ErrorBoundary boundaryName="Chat"><ChatPage /></ErrorBoundary>}
 
-                                                {currentView === 'vessel' && <VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} />}
+                                                {currentView === 'vessel' && <ErrorBoundary boundaryName="VesselHub"><VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} /></ErrorBoundary>}
 
                                                 {/* Vessel sub-pages — full-screen push on all devices */}
                                                 {isVesselView && currentView !== 'vessel' && (
                                                     <>
-                                                        {currentView === 'details' && <LogPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'compass' && <AnchorWatchPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'inventory' && <InventoryPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'maintenance' && <MaintenancePage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'polars' && <PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} />}
-                                                        {currentView === 'nmea' && <NmeaGatewayPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'equipment' && <EquipmentPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'documents' && <DocumentsPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'diary' && <DiaryPage onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'route' && <VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} />}
-                                                        {currentView === 'crew' && <CrewPage onBack={() => setPage('vessel')} />}
+                                                        {currentView === 'details' && <ErrorBoundary boundaryName="LogPage"><LogPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'compass' && <ErrorBoundary boundaryName="AnchorWatch"><AnchorWatchPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'inventory' && <ErrorBoundary boundaryName="Inventory"><InventoryPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'maintenance' && <ErrorBoundary boundaryName="Maintenance"><MaintenancePage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'polars' && <ErrorBoundary boundaryName="Polars"><PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} /></ErrorBoundary>}
+                                                        {currentView === 'nmea' && <ErrorBoundary boundaryName="NmeaGateway"><NmeaGatewayPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'equipment' && <ErrorBoundary boundaryName="Equipment"><EquipmentPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'documents' && <ErrorBoundary boundaryName="Documents"><DocumentsPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'diary' && <ErrorBoundary boundaryName="Diary"><DiaryPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'route' && <ErrorBoundary boundaryName="RoutePlanner"><VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'crew' && <ErrorBoundary boundaryName="Crew"><CrewPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
                                                     </>
                                                 )}
                                             </div>
@@ -374,17 +375,24 @@ const App: React.FC = () => {
                     </PullToRefresh>
                 ) : (
                     <div className="flex-grow w-full relative bg-slate-900 overflow-hidden">
-                        <Suspense fallback={<div className="flex items-center justify-center h-full text-white"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div></div>}>
-                            <MapHub
-                                mapboxToken={settings.mapboxToken}
-                                homePort={settings.defaultLocation}
-                                onLocationSelect={handleMapTargetSelect}
-                            />
-                        </Suspense>
+                        <ErrorBoundary boundaryName="MapView">
+                            <Suspense fallback={<div className="flex items-center justify-center h-full text-white"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div></div>}>
+                                <MapHub
+                                    mapboxToken={settings.mapboxToken}
+                                    homePort={settings.defaultLocation}
+                                    onLocationSelect={handleMapTargetSelect}
+                                />
+                            </Suspense>
+                        </ErrorBoundary>
                         {/* Back chevron — middle-left of screen */}
                         <div className="absolute z-[601] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                             <button
-                                onClick={() => setPage(previousView === 'route' ? 'route' : 'dashboard')}
+                                onClick={() => {
+                                    // Clear pin-view state when leaving map
+                                    delete (window as any).__thalassaPinView;
+                                    // Go back to wherever we came from
+                                    setPage(previousView || 'dashboard');
+                                }}
                                 aria-label="Back"
                                 className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
                             >
@@ -398,18 +406,20 @@ const App: React.FC = () => {
 
                 {/* BOTTOM FADE removed — was obscuring Start Tracking button on Log page */}
 
-                <ForecastSheet
-                    data={sheetData}
-                    isLoading={false}
-                    units={settings.units}
-                    isOpen={sheetOpen}
-                    onClose={() => setSheetOpen(false)}
-                    onViewFull={() => {
-                        setSheetOpen(false);
-                        setPage('dashboard');
-                        if (sheetData) fetchWeather(sheetData.locationName);
-                    }}
-                />
+                <Suspense fallback={null}>
+                    <ForecastSheet
+                        data={sheetData}
+                        isLoading={false}
+                        units={settings.units}
+                        isOpen={sheetOpen}
+                        onClose={() => setSheetOpen(false)}
+                        onViewFull={() => {
+                            setSheetOpen(false);
+                            setPage('dashboard');
+                            if (sheetData) fetchWeather(sheetData.locationName);
+                        }}
+                    />
+                </Suspense>
 
                 {!isMobileLandscape && (
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>

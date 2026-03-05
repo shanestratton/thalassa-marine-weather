@@ -8,7 +8,7 @@
  * Uses jsPDF for generation + @capacitor/share for native share sheet.
  * Falls back to browser download on web.
  */
-import jsPDF from 'jspdf';
+import type jsPDF from 'jspdf';
 import { MaintenanceService, calculateStatus, sortByUrgency } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 
@@ -180,6 +180,7 @@ function generateServiceHistoryHtml(
 async function generateAndSharePdf(html: string, filename: string): Promise<void> {
     const safeName = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
 
+    const { default: jsPDF } = await import('jspdf');
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',

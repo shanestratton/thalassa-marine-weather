@@ -1111,7 +1111,12 @@ body,
 /* ── Tablet / iPad Chart-Plotter Optimizations (768px+) ── */
 @media screen and (min-width: 768px) {
 
-  /* Larger tap targets for chart plotter */
+  /* Reset fluid font for tablets — prevent oversizing */
+  html {
+    font-size: 16px;
+  }
+
+  /* Larger tap targets for chart plotter / older iPads */
   .tablet-touch {
     min-height: 56px;
     min-width: 56px;
@@ -1140,6 +1145,65 @@ body,
   /* Larger text for chart plotter readability */
   .tablet-text-lg {
     font-size: 1.125rem;
+  }
+
+  /* ── Chat optimizations for wider screens ── */
+  /* Wider message bubbles to use available space */
+  .msg-enter {
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Bigger compose bar inputs for fat-finger sailing gloves */
+  input[type="text"],
+  textarea {
+    min-height: 48px;
+    font-size: 16px;
+    /* prevents iOS zoom on focus */
+  }
+
+  /* Channel list cards — more breathing room */
+  button[class*="rounded-2xl"][class*="p-3"] {
+    padding: 1rem 1.25rem;
+  }
+
+  /* Scrollable areas — visible scrollbars for precision */
+  .overflow-y-auto {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  }
+}
+
+/* ── Older iPad / low-power GPU — reduce animation cost ── */
+@media screen and (min-width: 768px) and (max-width: 1024px) {
+
+  /* Reduce backdrop-blur intensity (expensive on older A-series chips) */
+  .backdrop-blur-sm,
+  .backdrop-blur-xl {
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+
+  /* Simpler box-shadows to reduce GPU compositing */
+  .shadow-2xl {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .shadow-lg {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* ── iPad landscape — two-pane-ready widths ── */
+@media screen and (min-width: 1024px) {
+  .tablet-wide {
+    max-width: 1200px;
+  }
+
+  /* Center chat content for very wide screens */
+  .msg-enter {
+    max-width: 800px;
   }
 }
 
@@ -1360,6 +1424,65 @@ body,
 
 .stagger-cascade>.stagger-item {
   animation: cardCascade 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Chat View Transitions ──
+   Applied to content wrapper — smooth entrance when switching views */
+@keyframes chatViewEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.chat-view-enter {
+  animation: chatViewEnter 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Empty State Animations ── */
+@keyframes emptyStateBob {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes emptyStateRipple {
+
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.15);
+  }
+
+  70% {
+    box-shadow: 0 0 0 20px rgba(56, 189, 248, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+
+.empty-bob {
+  animation: emptyStateBob 3s ease-in-out infinite;
+}
+
+.empty-ripple {
+  animation: emptyStateRipple 2s ease-out infinite;
+}
+
+/* ── Staggered entrance for chat items ── */
+.chat-view-enter .msg-enter {
+  animation-delay: calc(var(--i, 0) * 40ms);
 }
 
 .stagger-cascade>.stagger-item:nth-child(1) {

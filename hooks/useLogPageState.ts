@@ -16,7 +16,6 @@ import { BgGeoManager } from '../services/BgGeoManager';
 
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
-import { exportToCSV, sharePDF } from '../utils/logExport';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
@@ -450,7 +449,6 @@ export function useLogPageState() {
 
     // ── Soft-delete with undo ──
     const [deletedEntry, setDeletedEntry] = useState<ShipLogEntry | null>(null);
-    const deleteEntryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const deletingEntryRef = useRef(false);
     const entriesRef = useRef(state.entries);
     entriesRef.current = state.entries;
@@ -469,27 +467,27 @@ export function useLogPageState() {
         // Remove from UI immediately
         dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.id !== entryId) });
         setDeletedEntry(entry);
+    }, []);
 
-        // Schedule actual delete after 5s
-        if (deleteEntryTimerRef.current) clearTimeout(deleteEntryTimerRef.current);
-        deleteEntryTimerRef.current = setTimeout(async () => {
-            try {
-                const success = await ShipLogService.deleteEntry(entryId);
-                if (!success) {
-                    toast.error('Failed to delete entry');
-                    dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
-                }
-            } catch (e) {
+    // Called by UndoToast after 5s — performs the actual API delete
+    const handleDismissDeleteEntry = useCallback(async () => {
+        if (!deletedEntry) return;
+        const entry = deletedEntry;
+        setDeletedEntry(null);
+        deletingEntryRef.current = false;
+        try {
+            const success = await ShipLogService.deleteEntry(entry.id);
+            if (!success) {
                 toast.error('Failed to delete entry');
                 dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
             }
-            setDeletedEntry(null);
-            deletingEntryRef.current = false;
-        }, 5000);
-    }, [toast]);
+        } catch (e) {
+            toast.error('Failed to delete entry');
+            dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
+        }
+    }, [deletedEntry, toast]);
 
     const handleUndoDeleteEntry = useCallback(() => {
-        if (deleteEntryTimerRef.current) clearTimeout(deleteEntryTimerRef.current);
         if (deletedEntry) {
             dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, deletedEntry] });
             toast.success('Entry restored');
@@ -521,7 +519,6 @@ export function useLogPageState() {
         voyageId: string;
         entries: ShipLogEntry[];
     } | null>(null);
-    const deleteVoyageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleDeleteVoyageRequest = useCallback(async (voyageId: string) => {
         // Check for shared tracks first — those need a confirmation
@@ -538,20 +535,21 @@ export function useLogPageState() {
             console.warn('[useLogPageState] shared track check failed:', e);
         }
 
-        // Soft-delete: remove from UI, schedule actual delete after 5s
+        // Soft-delete: remove from UI, UndoToast owns the 5s countdown
         const voyageEntries = state.entries.filter(e => e.voyageId === voyageId);
         dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.voyageId !== voyageId) });
         setDeletedVoyage({ voyageId, entries: voyageEntries });
-
-        if (deleteVoyageTimerRef.current) clearTimeout(deleteVoyageTimerRef.current);
-        deleteVoyageTimerRef.current = setTimeout(async () => {
-            await executeVoyageDelete(voyageId);
-            setDeletedVoyage(null);
-        }, 5000);
     }, [state.entries]);
 
+    // Called by UndoToast after 5s — performs the actual voyage delete
+    const handleDismissDeleteVoyage = useCallback(async () => {
+        if (!deletedVoyage) return;
+        const { voyageId } = deletedVoyage;
+        setDeletedVoyage(null);
+        await executeVoyageDelete(voyageId);
+    }, [deletedVoyage]);
+
     const handleUndoDeleteVoyage = useCallback(() => {
-        if (deleteVoyageTimerRef.current) clearTimeout(deleteVoyageTimerRef.current);
         if (deletedVoyage) {
             dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, ...deletedVoyage.entries] });
             toast.success('Voyage restored');
@@ -618,7 +616,8 @@ export function useLogPageState() {
 
     // ── Export / Share ───────────────────────────────────────────────────────
 
-    const handleExportCSV = useCallback(() => {
+    const handleExportCSV = useCallback(async () => {
+        const { exportToCSV } = await import('../utils/logExport');
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter(e => e.voyageId === state.selectedVoyageId)
             : state.entries;
@@ -630,6 +629,7 @@ export function useLogPageState() {
     }, [state.selectedVoyageId, state.entries, toast]);
 
     const handleShare = useCallback(async () => {
+        const { sharePDF } = await import('../utils/logExport');
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter(e => e.voyageId === state.selectedVoyageId)
             : state.entries;
@@ -845,6 +845,7 @@ export function useLogPageState() {
         // Entry CRUD
         handleDeleteEntry,
         handleUndoDeleteEntry,
+        handleDismissDeleteEntry,
         deletedEntry,
         handleEditEntry,
         handleSaveEdit,
@@ -856,6 +857,7 @@ export function useLogPageState() {
         handleConfirmDeleteVoyage,
         deletedVoyage,
         handleUndoDeleteVoyage,
+        handleDismissDeleteVoyage,
         showSharedVoyageWarning,
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,

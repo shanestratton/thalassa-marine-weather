@@ -13,7 +13,6 @@ import { ResourceCalculator } from './passage/ResourceCalculator';
 import { PassageTimeline } from './passage/PassageTimeline';
 import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
-import { printPassageBrief } from '../utils/pdfExport';
 import { downloadRouteGPX } from '../utils/gpxRouteExport';
 import { DepthSummaryCard } from './passage/DepthSummaryCard';
 import { ModelComparisonCard } from './passage/ModelComparisonCard';
@@ -747,7 +746,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 {/* EXPORT & SAVE BUTTONS */}
                 <div className="grid grid-cols-2 gap-3">
                     <button
-                        onClick={() => printPassageBrief({ voyagePlan, vessel })}
+                        onClick={async () => { const { printPassageBrief } = await import('../utils/pdfExport'); printPassageBrief({ voyagePlan, vessel }); }}
                         className="bg-gradient-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
                     >
                         <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />

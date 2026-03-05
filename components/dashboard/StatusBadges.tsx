@@ -1,5 +1,5 @@
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../../theme';
 import { RadioTowerIcon } from '../Icons';
@@ -84,7 +84,7 @@ const METRIC_LABELS: Record<string, string> = {
     sunset: 'Sunset',
 };
 
-export const StatusBadges: React.FC<StatusBadgesProps> = ({
+export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(({
     isLandlocked,
     locationName,
     displaySource,
@@ -103,7 +103,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
 }) => {
     const [showInfoModal, setShowInfoModal] = useState(false);
     const env = useEnvironment();
-    const { refreshData } = useWeather();
+    const { refreshData, loading, backgroundUpdating } = useWeather();
+    const isSyncing = loading || backgroundUpdating;
     const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
 
     const shortenSourceName = (name: string): string => {
@@ -252,13 +253,31 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                         </span>
                     </div>
 
-                    {/* Timer Badge — tappable to refresh when overdue/stale */}
+                    {/* Timer Badge — tappable to force refresh, shows live sync state */}
                     <button
                         onClick={() => refreshData()}
                         aria-label="Refresh weather data"
-                        className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${timerBadgeColor} bg-black/40 flex items-center gap-1 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[78px]`}
+                        className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider bg-black/40 flex items-center gap-1 justify-center cursor-pointer active:scale-[0.95] transition-all min-w-[78px] ${isSyncing
+                            ? 'bg-sky-500/30 text-sky-200 border-sky-400/40 animate-pulse'
+                            : timerBadgeColor
+                            }`}
                     >
-                        {nextUpdate ? <Countdown targetTime={nextUpdate} /> : "LIVE"}
+                        {isSyncing ? (
+                            <>
+                                <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                                <span>Syncing</span>
+                            </>
+                        ) : (
+                            <>
+                                <svg className="w-3 h-3 opacity-50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                                </svg>
+                                {nextUpdate ? <Countdown targetTime={nextUpdate} /> : "LIVE"}
+                            </>
+                        )}
                     </button>
                 </div>
             </div>
@@ -444,4 +463,4 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                 , document.body)}
         </>
     );
-};
+});

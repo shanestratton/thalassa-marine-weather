@@ -42,7 +42,7 @@ interface MaintenanceHubProps {
 /** Map period triggers to their interval in days */
 const PERIOD_DAYS: Partial<Record<MaintenanceTriggerType, number>> = {
     daily: 1,
-    weekly: 7,
+    quarterly: 90,
     monthly: 30,
     bi_annual: 182,
     annual: 365,
@@ -69,7 +69,7 @@ interface SwipeableTaskCardProps {
 const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
     task, categories, lightColors, triggerLabels, onTap, onDelete,
 }) => {
-    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
     const light = lightColors[task.status];
     const catConfig = categories.find(c => c.id === task.category);
 
@@ -96,7 +96,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                             : 'border-l-gray-500'
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                {...handlers}
+                ref={ref}
             >
                 {/* Category badge — top of card */}
                 <div className="flex items-center gap-1.5 mb-1.5">
@@ -188,6 +188,22 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         try {
             setLoading(true);
             const data = await MaintenanceService.getTasks();
+
+            // Auto-seed defaults for first-time users
+            if (data.length === 0 && !localStorage.getItem('thalassa_maintenance_seeded')) {
+                try {
+                    await MaintenanceService.seedDefaults();
+                    localStorage.setItem('thalassa_maintenance_seeded', '1');
+                    const seeded = await MaintenanceService.getTasks();
+                    setTasks(seeded);
+                    toast.success('40 suggested tasks added — customise to suit your vessel');
+                    return;
+                } catch (seedErr) {
+                    console.warn('[MaintenanceHub] seed failed:', seedErr);
+                    // Proceed with empty list — user can add manually
+                }
+            }
+
             setTasks(data);
         } catch (e) {
             console.error('Failed to load tasks:', e);
@@ -359,7 +375,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }, [engineHours]);
 
     const [deletedTask, setDeletedTask] = useState<MaintenanceTask | null>(null);
-    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Soft-delete with undo ──
     const handleDeleteTask = useCallback((taskId: string) => {
@@ -370,23 +385,23 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setTasks(prev => prev.filter(t => t.id !== taskId));
         setSheetTask(null);
         setDeletedTask(task);
-
-        // Schedule actual delete after 5s
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-        deleteTimerRef.current = setTimeout(async () => {
-            try {
-                await MaintenanceService.deleteTask(taskId);
-            } catch (e) {
-                console.warn('[MaintenanceHub] delete failed:', e);
-                toast.error('Failed to delete task');
-                setTasks(prev => [...prev, task]);
-            }
-            setDeletedTask(null);
-        }, 5000);
     }, [tasks]);
 
+    // Called by UndoToast after 5s — performs the actual API delete
+    const handleDismissDelete = useCallback(async () => {
+        if (!deletedTask) return;
+        const task = deletedTask;
+        setDeletedTask(null);
+        try {
+            await MaintenanceService.deleteTask(task.id);
+        } catch (e) {
+            console.warn('[MaintenanceHub] delete failed:', e);
+            toast.error('Failed to delete task');
+            setTasks(prev => [...prev, task]);
+        }
+    }, [deletedTask]);
+
     const handleUndoDelete = useCallback(() => {
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
         if (deletedTask) {
             setTasks(prev => [...prev, deletedTask]);
             toast.success('Task restored');
@@ -755,7 +770,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 isOpen={!!deletedTask}
                 message={`"${deletedTask?.title}" deleted`}
                 onUndo={handleUndoDelete}
-                onDismiss={() => setDeletedTask(null)}
+                onDismiss={handleDismissDelete}
             />
         </div >
     );

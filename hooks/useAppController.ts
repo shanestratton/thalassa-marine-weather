@@ -6,6 +6,7 @@ import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
+import { GpsService } from '../services/GpsService';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: "https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop",
@@ -131,8 +132,13 @@ export const useAppController = () => {
     const handleLocate = () => {
         if (isOffline) { toast.error("GPS requires network."); return; }
         setQuery("Locating...");
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-            const { latitude, longitude } = pos.coords;
+        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 15 }).then(async (pos) => {
+            if (!pos) {
+                showToast("GPS Error: Unable to get position");
+                setQuery("");
+                return;
+            }
+            const { latitude, longitude } = pos;
             const coordStr = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
             let searchTarget = coordStr;
             try {
@@ -140,15 +146,10 @@ export const useAppController = () => {
                 if (name) searchTarget = name;
             } catch (e) {
                 // Silently ignored — non-critical failure
-
             }
             setQuery(searchTarget);
             setPage('dashboard');
-            // FIX: Use selectLocation with coords for persistence & precision
             selectLocation(searchTarget, { lat: latitude, lon: longitude });
-        }, (err) => {
-            showToast("GPS Error: " + err.message);
-            setQuery("");
         });
     };
 

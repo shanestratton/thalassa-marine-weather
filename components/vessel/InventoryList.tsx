@@ -44,7 +44,7 @@ interface SwipeableInventoryCardProps {
 }
 
 const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, isExpanded, onTap, onDelete, onEdit, onQuantityAdjust }) => {
-    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
 
     const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
     const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
@@ -72,7 +72,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg border ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                {...handlers}
+                ref={ref}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Main row */}
@@ -233,7 +233,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
     const [deletedItem, setDeletedItem] = useState<InventoryItem | null>(null);
-    const deleteTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Soft-delete with undo ──
     const handleDelete = (id: string) => {
@@ -244,24 +243,24 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setItems(prev => prev.filter(i => i.id !== id));
         setExpandedId(null);
         setDeletedItem(item);
+    };
 
-        // Schedule actual delete after 5s
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-        deleteTimerRef.current = setTimeout(async () => {
-            try {
-                await InventoryService.delete(id);
-            } catch (e) {
-                console.warn('[InventoryList] delete failed:', e);
-                toast.error('Failed to delete item');
-                // Restore item on failure
-                setItems(prev => [...prev, item]);
-            }
-            setDeletedItem(null);
-        }, 5000);
+    // Called by UndoToast after 5s — performs the actual API delete
+    const handleDismissDelete = async () => {
+        if (!deletedItem) return;
+        const item = deletedItem;
+        setDeletedItem(null);
+        try {
+            await InventoryService.delete(item.id);
+        } catch (e) {
+            console.warn('[InventoryList] delete failed:', e);
+            toast.error('Failed to delete item');
+            // Restore item on failure
+            setItems(prev => [...prev, item]);
+        }
     };
 
     const handleUndoDelete = () => {
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
         if (deletedItem) {
             setItems(prev => [...prev, deletedItem]);
             toast.success('Item restored');
@@ -538,7 +537,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 isOpen={!!deletedItem}
                 message={`"${deletedItem?.item_name}" deleted`}
                 onUndo={handleUndoDelete}
-                onDismiss={() => setDeletedItem(null)}
+                onDismiss={handleDismissDelete}
             />
         </div>
     );

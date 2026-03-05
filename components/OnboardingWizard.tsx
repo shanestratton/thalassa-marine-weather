@@ -6,6 +6,7 @@ import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, Compa
 import { reverseGeocode } from '../services/weatherService';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
+import { GpsService } from '../services/GpsService';
 import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
@@ -84,28 +85,24 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     const handleLocate = () => {
         setIsLocating(true);
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const { latitude, longitude } = position.coords;
-                // Save coordinates for map centering
-                setTempLocation({ lat: latitude, lon: longitude, name: "Current Location" });
-                try {
-                    const niceName = await reverseGeocode(latitude, longitude);
-                    const finalName = niceName || `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-                    setHomePort(finalName);
-                    // Update temp location name once resolved
-                    setTempLocation({ lat: latitude, lon: longitude, name: finalName });
-                } catch (e) {
-                    setHomePort(`WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`);
-                }
-                setIsLocating(false);
-            }, () => {
+        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(async (pos) => {
+            if (!pos) {
                 setIsLocating(false);
                 toast.error("Could not access location. Please enter manually.");
-            });
-        } else {
+                return;
+            }
+            const { latitude, longitude } = pos;
+            setTempLocation({ lat: latitude, lon: longitude, name: "Current Location" });
+            try {
+                const niceName = await reverseGeocode(latitude, longitude);
+                const finalName = niceName || `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+                setHomePort(finalName);
+                setTempLocation({ lat: latitude, lon: longitude, name: finalName });
+            } catch (e) {
+                setHomePort(`WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`);
+            }
             setIsLocating(false);
-        }
+        });
     };
 
     // UPDATE: Instant feedback + async resolution

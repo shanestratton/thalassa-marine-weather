@@ -14,8 +14,8 @@ export const CATEGORIES: { id: MaintenanceCategory; label: string; icon: string 
 
 export const TRIGGER_LABELS: Record<MaintenanceTriggerType, string> = {
     engine_hours: '⚙️ Engine Hours',
-    daily: '📅 Daily',
-    weekly: '📅 Weekly',
+    daily: '📅 Pre-Trip',
+    quarterly: '📅 Quarterly',
     monthly: '📅 Monthly',
     bi_annual: '📅 Bi-Annual',
     annual: '📅 Annual',

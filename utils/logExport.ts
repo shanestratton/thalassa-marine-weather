@@ -4,7 +4,7 @@
  */
 
 import { ShipLogEntry, VesselProfile, VesselDimensionUnits, UnitPreferences } from '../types';
-import { jsPDF } from 'jspdf';
+import type { jsPDF as JsPDFType } from 'jspdf';
 import { convertMetersTo } from './units';
 
 // Vessel data interface for PDF export
@@ -498,7 +498,7 @@ export async function sharePDF(
  * Draw an angled compass rose watermark on the page
  * Positioned coming in from the bottom-left at an angle
  */
-function drawCompassRoseWatermark(pdf: jsPDF, pageWidth: number, pageHeight: number): void {
+function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight: number): void {
     const centerX = 35;  // Coming in from left
     const centerY = pageHeight - 40;  // Near bottom
     const radius = 28;
@@ -698,7 +698,8 @@ function thinEntriesForPDF(entries: ShipLogEntry[]): ShipLogEntry[] {
 /**
  * Generate the Deck Log PDF using jsPDF
  */
-async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, vesselData?: VesselData): Promise<jsPDF> {
+async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, vesselData?: VesselData): Promise<JsPDFType> {
+    const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',

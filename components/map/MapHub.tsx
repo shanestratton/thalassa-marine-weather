@@ -28,6 +28,7 @@ import { triggerHaptic } from '../../utils/system';
 import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passageGpxExport';
 import { shareGPXFile } from '../../services/gpxService';
 import { WindDataController } from '../../services/weather/WindDataController';
+import { GpsService } from '../../services/GpsService';
 import { WindParticleLayer } from './WindParticleLayer';
 
 import { type MapHubProps, MAP_ANIMATIONS_CSS } from './mapConstants';
@@ -58,6 +59,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     pickerMode = false,
     pickerLabel,
 }) => {
+    // ── Pin View Mode (from chat pin tap) ──
+    const pinView = (window as any).__thalassaPinView as { lat: number; lng: number } | undefined;
+    const isPinView = !!pinView;
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -122,6 +126,34 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const embRain = useEmbeddedRain(mapRef, embedded, mapReady, !embedded);
 
+    // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
+    useEffect(() => {
+        if (!isPinView || !pinView || !mapReady || !mapRef.current) return;
+        const map = mapRef.current;
+
+        // Remove any existing pin
+        if (pinMarkerRef.current) pinMarkerRef.current.remove();
+
+        // Create visual pin marker
+        const el = document.createElement('div');
+        el.className = 'mapbox-pin-marker';
+        el.innerHTML = `
+            <div style="
+                width: 32px; height: 32px; background: linear-gradient(135deg, #f59e0b, #ef4444);
+                border: 3px solid #fff; border-radius: 50% 50% 50% 0;
+                transform: rotate(-45deg); box-shadow: 0 4px 16px rgba(245,158,11,0.5);
+                animation: pinBounce 0.4s ease-out;
+            "></div>
+        `;
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+            .setLngLat([pinView.lng, pinView.lat])
+            .addTo(map);
+        pinMarkerRef.current = marker;
+
+        // Fly to the pin
+        map.flyTo({ center: [pinView.lng, pinView.lat], zoom: 14, duration: 1200 });
+    }, [isPinView, mapReady]);
+
     // ── Render ──
     return (
         <div className="w-full h-full relative">
@@ -132,13 +164,13 @@ export const MapHub: React.FC<MapHubProps> = ({
             <style>{MAP_ANIMATIONS_CSS}</style>
 
             {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-            <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} />
+            {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} />}
 
             {/* ═══ WIND SPEED LEGEND ═══ */}
-            {(weather.activeLayer === 'velocity' || weather.activeLayer === 'wind') && <WindSpeedLegend />}
+            {!isPinView && (weather.activeLayer === 'velocity' || weather.activeLayer === 'wind') && <WindSpeedLegend />}
 
             {/* ═══ EMBEDDED / BACKGROUND RAIN SCRUBBER ═══ */}
-            {(embedded || (!embedded && weather.activeLayer === 'velocity')) && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
+            {!isPinView && (embedded || (!embedded && weather.activeLayer === 'velocity')) && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
                 <div
                     className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
                     style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
@@ -185,7 +217,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ LAYER LEGEND STRIP ═══ */}
-            <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />
+            {!isPinView && <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />}
 
             {/* ═══ PASSAGE MODE BANNER ═══ */}
             {passage.showPassage && !embedded && (
@@ -359,7 +391,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ LAYER FAB MENU ═══ */}
-            {!passage.showPassage && !embedded && (
+            {!passage.showPassage && !embedded && !isPinView && (
                 <LayerFABMenu
                     activeLayer={weather.activeLayer}
                     showLayerMenu={weather.showLayerMenu}
@@ -374,7 +406,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ ACTION FABS ═══ */}
-            {!embedded && !passage.showPassage && (
+            {!embedded && !passage.showPassage && !isPinView && (
                 <div className="absolute bottom-44 right-4 z-[500] flex flex-col gap-2">
 
                     {/* Wind Mode Toggle */}
@@ -528,21 +560,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <button
                         onClick={() => {
                             triggerHaptic('medium');
-                            if (!navigator.geolocation) return;
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => {
-                                    const { latitude, longitude } = pos.coords;
-                                    const map = mapRef.current;
-                                    if (map) {
-                                        map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
-                                        dropPin(map, latitude, longitude);
-                                    }
-                                    LocationStore.setFromGPS(latitude, longitude);
-                                    onLocationSelect?.(latitude, longitude);
-                                },
-                                (err) => void err,
-                                { enableHighAccuracy: true, timeout: 10000 }
-                            );
+                            GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
+                                if (!pos) return;
+                                const { latitude, longitude } = pos;
+                                const map = mapRef.current;
+                                if (map) {
+                                    map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
+                                    dropPin(map, latitude, longitude);
+                                }
+                                LocationStore.setFromGPS(latitude, longitude);
+                                onLocationSelect?.(latitude, longitude);
+                            });
                         }}
                         className="w-12 h-12 bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                     >
@@ -571,7 +599,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ SYNOPTIC TIMELINE SCRUBBER ═══ */}
-            {weather.activeLayer === 'pressure' && (
+            {!isPinView && weather.activeLayer === 'pressure' && (
                 <SynopticScrubber
                     forecastHour={weather.forecastHour}
                     totalFrames={weather.totalFrames}
@@ -586,7 +614,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ WIND TIMELINE SCRUBBER ═══ */}
-            {weather.activeLayer === 'wind' && weather.windReady && (
+            {!isPinView && weather.activeLayer === 'wind' && weather.windReady && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
@@ -638,7 +666,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ RAIN TIMELINE SCRUBBER ═══ */}
-            {weather.activeLayer === 'rain' && weather.rainFrameCount > 1 && (
+            {!isPinView && weather.activeLayer === 'rain' && weather.rainFrameCount > 1 && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button

@@ -92,9 +92,7 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
             'vendor-leaflet': ['leaflet'],
-            'vendor-pdf': ['html2canvas', 'jspdf'],
             'vendor-supabase': ['@supabase/supabase-js'],
-            'vendor-motion': ['framer-motion'],
             'vendor-capacitor': ['@capacitor/preferences', '@capacitor/share', '@capacitor/filesystem', '@capacitor/app'],
             'vendor-react': ['react', 'react-dom'],
           }

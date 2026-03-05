@@ -66,3 +66,41 @@ export const clearCache = (locationName?: string) => {
         // Simple: just leave it, LRU is browser managed.
     }
 };
+
+/** Result wrapper that includes staleness metadata */
+export interface StaleResult {
+    data: MarineWeatherReport;
+    stale: boolean;
+    ageMinutes: number;
+}
+
+/**
+ * Offline-aware cache retrieval.
+ * Returns cached data regardless of TTL when the device is offline (!navigator.onLine).
+ * Returns null only if there is no cached data at all.
+ * The `stale` flag lets consumers show a "last updated X min ago" indicator.
+ */
+export const getFromCacheOffline = (locationName: string): StaleResult | null => {
+    try {
+        const key = CACHE_KEY_PREFIX + locationName.replace(/\s+/g, '_').toLowerCase();
+        const raw = localStorage.getItem(key);
+        if (!raw) {
+            // Try the generic last_report fallback
+            const fallback = localStorage.getItem('last_marine_report');
+            if (!fallback) return null;
+            const data: MarineWeatherReport = JSON.parse(fallback);
+            return { data, stale: true, ageMinutes: -1 }; // Unknown age
+        }
+
+        const entry: CacheEntry = JSON.parse(raw);
+        const ageMinutes = (Date.now() - entry.timestamp) / 60000;
+        const isPrecision = entry.model && entry.model.includes('stormglass');
+        const maxAge = isPrecision ? 60 : 30;
+        const stale = ageMinutes >= maxAge;
+
+        return { data: entry.data, stale, ageMinutes: Math.round(ageMinutes) };
+    } catch (e) {
+        return null;
+    }
+};
+

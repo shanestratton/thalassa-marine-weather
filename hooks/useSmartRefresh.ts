@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { MarineWeatherReport, UserSettings } from '../types';
+import { GpsService } from '../services/GpsService';
 
 interface UseSmartRefreshProps {
     weatherData: MarineWeatherReport | null;
@@ -111,21 +112,16 @@ export const useSmartRefresh = ({
 
 
                 // RE-GEOLOCATE CHECK
-                if (isTrackingCurrentLocation.current && navigator.geolocation) {
+                if (isTrackingCurrentLocation.current) {
 
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            const { latitude, longitude } = pos.coords;
-                            // Update Location AND Data
-                            fetchWeather("Current Location", true, { lat: latitude, lon: longitude });
-                        },
-                        (err) => {
-
+                    GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
+                        if (pos) {
+                            fetchWeather("Current Location", true, { lat: pos.latitude, lon: pos.longitude });
+                        } else {
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             if (loc) fetchWeather(loc, false);
-                        },
-                        { timeout: 10000, enableHighAccuracy: true }
-                    );
+                        }
+                    });
                 } else {
                     // Static Refresh (Data Only)
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;

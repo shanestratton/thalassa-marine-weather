@@ -66,6 +66,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // Entry CRUD
         handleDeleteEntry,
         handleUndoDeleteEntry,
+        handleDismissDeleteEntry,
         deletedEntry,
         handleEditEntry,
         handleSaveEdit,
@@ -76,6 +77,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         handleConfirmDeleteVoyage,
         deletedVoyage,
         handleUndoDeleteVoyage,
+        handleDismissDeleteVoyage,
         showSharedVoyageWarning,
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,
@@ -1224,7 +1226,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 isOpen={!!deletedEntry}
                 message={`Entry deleted`}
                 onUndo={handleUndoDeleteEntry}
-                onDismiss={() => { }}
+                onDismiss={handleDismissDeleteEntry}
                 duration={5000}
             />
             {/* Undo toast for voyage deletion */}
@@ -1232,7 +1234,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 isOpen={!!deletedVoyage}
                 message={`Voyage deleted`}
                 onUndo={handleUndoDeleteVoyage}
-                onDismiss={() => { }}
+                onDismiss={handleDismissDeleteVoyage}
                 duration={5000}
             />
 

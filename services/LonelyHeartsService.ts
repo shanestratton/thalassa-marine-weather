@@ -42,6 +42,7 @@ export interface CrewProfile {
     available_to: string | null;
     bio: string | null;
     photo_url: string | null;
+    photos: string[];
     created_at: string;
     updated_at: string;
 }
@@ -67,6 +68,7 @@ export interface CrewCard {
     available_from: string | null;
     available_to: string | null;
     bio: string | null;
+    photos: string[];
 }
 
 // ═══════════════════════════════════════════════════
@@ -137,7 +139,7 @@ export const SKILL_OPTIONS = [
     '🧰 Maintenance', '🎣 Provisioning', '📐 Passage Planning',
 ];
 
-export const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
+export const GENDER_OPTIONS = ['Male', 'Female'];
 
 export const AGE_RANGES = ['18-25', '26-35', '36-45', '46-55', '56-65', '65+'];
 
@@ -151,8 +153,8 @@ export const EXPERIENCE_LEVELS = [
 ];
 
 export const LISTING_TYPES: { key: ListingType; label: string; icon: string }[] = [
-    { key: 'seeking_crew', label: 'Want Crew', icon: '🚢' },
-    { key: 'seeking_berth', label: 'I am Crew', icon: '🙋' },
+    { key: 'seeking_crew', label: 'A Captain', icon: '⚓' },
+    { key: 'seeking_berth', label: 'Crew', icon: '🧭' },
 ];
 
 export const INTEREST_OPTIONS = [
@@ -176,6 +178,7 @@ export interface CrewSearchFilters {
     experience?: string;
     region?: string;
     gender?: string;
+    age_ranges?: string[];
 }
 
 // ═══════════════════════════════════════════════════
@@ -225,6 +228,7 @@ class LonelyHeartsServiceClass {
             available_to: data.available_to || null,
             bio: data.bio || null,
             photo_url: data.photo_url || null,
+            photos: data.photos || [],
             created_at: data.created_at,
             updated_at: data.updated_at,
         };
@@ -279,6 +283,18 @@ class LonelyHeartsServiceClass {
     /** Remove crew photo */
     async removeCrewPhoto(): Promise<boolean> {
         return this.updateCrewProfile({ photo_url: null });
+    }
+
+    /** Delete entire crew profile (remove listing from board) */
+    async deleteCrewProfile(): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+
+        const { error } = await supabase
+            .from(CREW_PROFILES_TABLE)
+            .delete()
+            .eq('user_id', this.currentUserId);
+
+        return !error;
     }
 
     // ─── DATING PROFILES (Lonely Hearts) ────────────
@@ -444,6 +460,7 @@ class LonelyHeartsServiceClass {
             if (filters.experience && card.sailing_experience !== filters.experience) continue;
             if (filters.region && card.sailing_region && !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase())) continue;
             if (filters.gender && card.gender !== filters.gender) continue;
+            if (filters.age_ranges && filters.age_ranges.length > 0 && !filters.age_ranges.includes(card.age_range || '')) continue;
 
             cards.push(card);
         }
@@ -486,6 +503,7 @@ class LonelyHeartsServiceClass {
             available_from: cp.available_from || null,
             available_to: cp.available_to || null,
             bio: cp.bio || null,
+            photos: cp.photos || cp.dating_photos || [],
         };
     }
 

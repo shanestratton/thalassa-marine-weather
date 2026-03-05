@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { differenceInMinutes, saveToCache, getFromCache, clearCache } from '../services/weather/cache';
+import { differenceInMinutes, saveToCache, getFromCache, clearCache, getFromCacheOffline } from '../services/weather/cache';
 import { MarineWeatherReport } from '../types';
 
 // --- differenceInMinutes ---
@@ -86,7 +86,7 @@ describe('saveToCache / getFromCache', () => {
         saveToCache('Sydney', report);
 
         // Manually age the cache
-        const key = 'marine_weather_cache_v7_sydney';
+        const key = 'marine_weather_cache_v8_sydney';
         const raw = localStorage.getItem(key);
         if (raw) {
             const entry = JSON.parse(raw);
@@ -102,7 +102,7 @@ describe('saveToCache / getFromCache', () => {
         saveToCache('Perth', report);
 
         // Age to 45 minutes
-        const key = 'marine_weather_cache_v7_perth';
+        const key = 'marine_weather_cache_v8_perth';
         const raw = localStorage.getItem(key);
         if (raw) {
             const entry = JSON.parse(raw);
@@ -131,5 +131,44 @@ describe('clearCache', () => {
 
         clearCache('Darwin');
         expect(getFromCache('Darwin')).toBeNull();
+    });
+});
+
+describe('getFromCacheOffline', () => {
+    beforeEach(() => {
+        localStorage.clear();
+    });
+
+    it('returns fresh data with stale=false', () => {
+        const report = makeReport('open_meteo');
+        saveToCache('Melbourne', report);
+
+        const result = getFromCacheOffline('Melbourne');
+        expect(result).not.toBeNull();
+        expect(result?.stale).toBe(false);
+        expect(result?.data.locationName).toBe('Brisbane');
+    });
+
+    it('returns expired data with stale=true', () => {
+        const report = makeReport('open_meteo');
+        saveToCache('Hobart', report);
+
+        // Age to 45 minutes (past 30min OpenMeteo TTL)
+        const key = 'marine_weather_cache_v8_hobart';
+        const raw = localStorage.getItem(key);
+        if (raw) {
+            const entry = JSON.parse(raw);
+            entry.timestamp = Date.now() - 45 * 60 * 1000;
+            localStorage.setItem(key, JSON.stringify(entry));
+        }
+
+        const result = getFromCacheOffline('Hobart');
+        expect(result).not.toBeNull();
+        expect(result?.stale).toBe(true);
+        expect(result?.ageMinutes).toBe(45);
+    });
+
+    it('returns null for unknown locations', () => {
+        expect(getFromCacheOffline('Narnia')).toBeNull();
     });
 });

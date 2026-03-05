@@ -65,13 +65,30 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 2. DATA API - Network First, then Cache
-  if (url.hostname.includes('open-meteo.com') || url.hostname.includes('stormglass.io')) {
+  // Covers weather APIs (StormGlass, Open-Meteo) AND Supabase edge functions
+  // (WeatherKit, tides, wind grid). Network first so we always get fresh data,
+  // but we cache responses so users see last-known data when offline.
+  if (url.hostname.includes('open-meteo.com') ||
+    url.hostname.includes('stormglass.io') ||
+    (url.hostname.includes('supabase.co') && url.pathname.includes('/functions/v1/'))) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone();
-            caches.open(DATA_CACHE).then(cache => cache.put(event.request, clone));
+            caches.open(DATA_CACHE).then(cache => {
+              cache.put(event.request, clone);
+              // Prune data cache to max 50 entries (prevent unbounded growth)
+              cache.keys().then(keys => {
+                if (keys.length > 50) {
+                  // Remove oldest entries (first in = oldest)
+                  const excess = keys.length - 50;
+                  for (let i = 0; i < excess; i++) {
+                    cache.delete(keys[i]);
+                  }
+                }
+              });
+            });
           }
           return response;
         })

@@ -60,10 +60,11 @@ function setupChainedQuery(data: unknown[] | null, error: unknown = null) {
         select: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue({ data, error }),
+        range: vi.fn().mockResolvedValue({ data, error }),
         delete: vi.fn().mockReturnThis(),
         insert: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
-        or: vi.fn().mockResolvedValue({ error }),
+        or: vi.fn().mockReturnThis(),
     };
     mockFrom.mockReturnValue(chain);
     return chain;

@@ -26,93 +26,26 @@ import { ShipLogEntry } from '../types';
 import { importGPXToEntries } from '../services/gpxService';
 import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
+import { GpsService } from '../services/GpsService';
 import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
 import { ChannelList } from './chat/ChannelList';
+import { ChatMessageList } from './chat/ChatMessageList';
+import { ChatComposer } from './chat/ChatComposer';
+import { ChatProfileView } from './chat/ChatProfileView';
+import { ChatHeader } from './chat/ChatHeader';
+import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
+import { ReportModal, PinDropSheet, PoiPickerSheet, TrackPickerSheet, TrackDisclaimerModal } from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList } from './ui/Skeleton';
 
-// --- PIN / TRACK MESSAGE PARSING ---
-const PIN_PREFIX = '📍PIN:';
-const TRACK_PREFIX = '🗺️TRACK:';
-
-function parsePinMessage(msg: string): { lat: number; lng: number; caption: string } | null {
-    if (!msg.startsWith(PIN_PREFIX)) return null;
-    const rest = msg.slice(PIN_PREFIX.length);
-    const [coords, ...captionParts] = rest.split('|');
-    const [latStr, lngStr] = coords.split(',');
-    const lat = parseFloat(latStr);
-    const lng = parseFloat(lngStr);
-    if (isNaN(lat) || isNaN(lng)) return null;
-    return { lat, lng, caption: captionParts.join('|').trim() };
-}
-
-function parseTrackMessage(msg: string): { trackId: string; title: string } | null {
-    if (!msg.startsWith(TRACK_PREFIX)) return null;
-    const rest = msg.slice(TRACK_PREFIX.length);
-    const [trackId, ...titleParts] = rest.split('|');
-    return { trackId: trackId.trim(), title: titleParts.join('|').trim() || 'Shared Track' };
-}
-
-function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h = 180): string {
-    const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-    if (token && token.length > 10) {
-        return `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/static/pin-l+ff4466(${lng},${lat})/${lng},${lat},${zoom},0/${w}x${h}@2x?access_token=${token}&logo=false&attribution=false`;
-    }
-    // Fallback to OSM static tile
-    return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=${zoom}&size=${w}x${h}&markers=${lat},${lng},ol-marker`;
-}
+import {
+    getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
+    parsePinMessage, parseTrackMessage, CREW_RANKS,
+    PIN_PREFIX, TRACK_PREFIX,
+} from './chat/chatUtils';
 
 // --- TYPES ---
 type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'lonely_hearts' | 'find_crew' | 'marketplace';
-
-// --- AVATAR COLOR SYSTEM ---
-const AVATAR_GRADIENTS = [
-    'from-sky-400 to-sky-600',
-    'from-emerald-400 to-emerald-600',
-    'from-purple-400 to-purple-600',
-    'from-red-400 to-red-600',
-    'from-amber-400 to-amber-600',
-    'from-sky-400 to-sky-600',
-    'from-fuchsia-400 to-purple-600',
-    'from-lime-400 to-emerald-600',
-    'from-amber-400 to-red-600',
-    'from-sky-400 to-sky-700',
-];
-
-const getAvatarGradient = (userId: string): string => {
-    let hash = 0;
-    for (let i = 0; i < userId.length; i++) {
-        hash = ((hash << 5) - hash) + userId.charCodeAt(i);
-        hash |= 0;
-    }
-    return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-};
-
-// --- HELPERS ---
-const timeAgo = (dateStr: string): string => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(dateStr).toLocaleDateString();
-};
-
-const CREW_RANKS: { min: number; badge: string; title: string }[] = [
-    { min: 200, badge: '👑', title: 'Fleet Admiral' },
-    { min: 100, badge: '🏆', title: 'Captain' },
-    { min: 50, badge: '⭐', title: 'First Mate' },
-    { min: 20, badge: '🎖️', title: 'Bosun' },
-    { min: 5, badge: '⚓', title: 'Able Seaman' },
-    { min: 0, badge: '🚢', title: 'Deckhand' },
-];
-
-const getCrewRank = (helpful: number) => {
-    return CREW_RANKS.find(r => helpful >= r.min) || CREW_RANKS[CREW_RANKS.length - 1];
-};
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';
@@ -503,20 +436,14 @@ export const ChatPage: React.FC = () => {
         setPinCaption('');
         // Start at current GPS if available
         setPinLoading(true);
-        import('@capacitor/geolocation').then(({ Geolocation }) => {
-            Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
-                .then(pos => {
-                    setPinLat(pos.coords.latitude);
-                    setPinLng(pos.coords.longitude);
-                })
-                .catch(() => {
-                    setPinLat(-27.4698);
-                    setPinLng(153.0251);
-                })
-                .finally(() => setPinLoading(false));
-        }).catch(() => {
-            setPinLat(-27.4698);
-            setPinLng(153.0251);
+        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 }).then((pos) => {
+            if (pos) {
+                setPinLat(pos.latitude);
+                setPinLng(pos.longitude);
+            } else {
+                setPinLat(-27.4698);
+                setPinLng(153.0251);
+            }
             setPinLoading(false);
         });
     };
@@ -590,7 +517,7 @@ export const ChatPage: React.FC = () => {
     // Send POI (reuses the same pin format)
     const sendPoi = async () => {
         if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|${pinCaption.trim() || 'Point of interest'}`;
+        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[POI] ${pinCaption.trim() || 'Point of interest'}`;
         setShowPoiSheet(false);
         setPinCaption('');
 
@@ -753,7 +680,7 @@ export const ChatPage: React.FC = () => {
 
     const sendPin = async () => {
         if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|${pinCaption.trim() || 'Dropped a pin'}`;
+        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[LOC] ${pinCaption.trim() || 'My Location'}`;
         setShowPinSheet(false);
         setPinCaption('');
 
@@ -933,6 +860,26 @@ export const ChatPage: React.FC = () => {
         setShowModMenu(null);
     }, []);
 
+    const handleBlockUserPlatform = useCallback(async (userId: string, name: string) => {
+        const confirmed = window.confirm(`🚫 Block ${name} from the platform?\n\nThis will permanently prevent them from sending messages.`);
+        if (!confirmed) return;
+        const ok = await ChatService.blockUserPlatform(userId);
+        if (ok) {
+            window.alert(`${name} has been blocked from the platform.`);
+        }
+        setShowModMenu(null);
+    }, []);
+
+    const handleMakeAdmin = useCallback(async (userId: string, name: string) => {
+        const confirmed = window.confirm(`👑 Make ${name} an Admin?\n\nAdmins can delete posts, pin messages, mute users, and create channels.`);
+        if (!confirmed) return;
+        const ok = await ChatService.setRole(userId, 'admin');
+        if (ok) {
+            window.alert(`${name} is now an Admin.`);
+        }
+        setShowModMenu(null);
+    }, []);
+
     const handleMarkHelpful = useCallback(async (msgId: string) => {
         // Prevent multiple likes per user per message
         if (likedMessages.has(msgId)) return;
@@ -963,6 +910,8 @@ export const ChatPage: React.FC = () => {
     };
 
     const isMod = ChatService.isMod();
+    const isAdmin = ChatService.isAdmin();
+    const isModerator = ChatService.isModerator();
     const isMuted = ChatService.isMuted();
     const mutedUntil = ChatService.getMutedUntil();
 
@@ -977,77 +926,20 @@ export const ChatPage: React.FC = () => {
         >
 
             {/* ═══════════════════ HEADER ═══════════════════ */}
-            <div className={t.header.bar}>
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        {view !== 'channels' && (
-                            <button
-                                onClick={goBack}
-                                className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
-                            >
-                                <span className="text-sky-400 text-sm">‹</span>
-                            </button>
-                        )}
-                        {view === 'channels' ? (
-                            <span className={t.typography.pageTitle}>Crew Talk</span>
-                        ) : (
-                            <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
-                                {view === 'messages' && (activeChannel ? `${activeChannel.icon} ${activeChannel.name}` : 'Channel')}
-                                {view === 'dm_inbox' && '✉️ Messages'}
-                                {view === 'dm_thread' && `${dmPartner?.name || 'DM'}`}
-                                {view === 'profile' && '⚓ Sailor Profile'}
-                                {view === 'lonely_hearts' && <><span className="text-[#FF7F50]">♥</span> First Mates</>}
-                                {view === 'find_crew' && '👥 Find Crew'}
-                                {view === 'marketplace' && '🏪 Marketplace'}
-                            </h1>
-                        )}
-                        {view === 'messages' && activeChannel && (
-                            <p className="text-xs text-white/60 ml-1">{activeChannel.description}</p>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {view === 'channels' && (
-                            <>
-                                {/* Profile photo button */}
-                                <button
-                                    onClick={() => setView('profile')}
-                                    className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
-                                >
-                                    {myAvatarUrl ? (
-                                        <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
-                                            <span className="text-xl">⚓</span>
-                                        </div>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={openDMInbox}
-                                    className="relative w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
-                                >
-                                    <span className="text-xl">✉️</span>
-                                    {unreadDMs > 0 && (
-                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-gradient-to-r from-red-500 to-red-500 rounded-full text-[11px] font-bold flex items-center justify-center px-1 shadow-lg shadow-red-500/30">
-                                            {unreadDMs > 9 ? '9+' : unreadDMs}
-                                        </span>
-                                    )}
-                                </button>
-                            </>
-                        )}
-                        {view === 'messages' && (
-                            <span className="text-xs text-white/60 tabular-nums">{messages.length} msgs</span>
-                        )}
-                        {view === 'dm_thread' && dmPartner && (
-                            <button
-                                onClick={() => setShowBlockConfirm(true)}
-                                className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
-                            >
-                                {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
+            <ChatHeader
+                view={view}
+                activeChannel={activeChannel}
+                dmPartnerName={dmPartner?.name}
+                myAvatarUrl={myAvatarUrl}
+                unreadDMs={unreadDMs}
+                messageCount={messages.length}
+                isUserBlocked={isUserBlocked}
+                hasDMPartner={!!dmPartner}
+                onGoBack={goBack}
+                onOpenProfile={() => setView('profile')}
+                onOpenDMInbox={openDMInbox}
+                onToggleBlock={() => setShowBlockConfirm(true)}
+            />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}
             {isFirstVisit && view === 'channels' && (
@@ -1098,7 +990,7 @@ export const ChatPage: React.FC = () => {
             )}
 
             {/* ═══════════════════ CONTENT ═══════════════════ */}
-            <div className="flex-1 overflow-y-auto overscroll-contain">
+            <div key={view} className="flex-1 overflow-y-auto overscroll-contain chat-view-enter">
                 {loading && (
                     <div className="pb-24">
                         <SkeletonChannelList />
@@ -1135,113 +1027,21 @@ export const ChatPage: React.FC = () => {
 
                 {/* ══════ FULL-PAGE PROFILE ══════ */}
                 {view === 'profile' && !loading && (
-                    <div className="flex-1 flex flex-col px-5 py-4 gap-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 11rem)' }}>
-                        {/* Avatar section */}
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-purple-400/20 shadow-lg shadow-purple-500/10">
-                                {myAvatarUrl ? (
-                                    <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center">
-                                        <span className="text-4xl opacity-40">🧑‍✈️</span>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    disabled={!!uploadProgress}
-                                    className="text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
-                                >
-                                    {myAvatarUrl ? '🔄 Change Photo' : '📷 Upload Photo'}
-                                </button>
-                                {myAvatarUrl && (
-                                    <button
-                                        onClick={handleRemovePhoto}
-                                        className="text-sm text-white/25 hover:text-red-400 transition-colors"
-                                    >
-                                        Remove
-                                    </button>
-                                )}
-                            </div>
-                            <p className="text-xs text-white/60">JPEG/PNG • Max 2MB • AI-moderated 🍺</p>
-                        </div>
-
-                        {/* Upload progress */}
-                        {uploadProgress && (
-                            <div className="p-3.5 rounded-2xl bg-sky-500/[0.06] border border-sky-500/10">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-sm text-sky-400">{uploadProgress}</span>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Upload error */}
-                        {uploadError && (
-                            <div className="p-3.5 rounded-2xl bg-red-500/[0.06] border border-red-500/10">
-                                <p className="text-sm text-red-400">❌ {uploadError}</p>
-                            </div>
-                        )}
-
-                        {/* Display Name */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">Display Name</label>
-                            <input
-                                value={profileDisplayName}
-                                onChange={e => setProfileDisplayName(e.target.value)}
-                                placeholder="Captain Jack"
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
-                                maxLength={30}
-                            />
-                            <p className="text-xs text-white/60 mt-1.5 px-1">This is how you appear in chat</p>
-                        </div>
-
-                        {/* Vessel Name */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">⛵ Vessel Name</label>
-                            <input
-                                value={profileVesselName}
-                                onChange={e => setProfileVesselName(e.target.value)}
-                                placeholder={settings.vessel?.name || 'Black Pearl'}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
-                                maxLength={40}
-                            />
-                        </div>
-
-
-                        {/* Looking for Love toggle — temporarily hidden while First Mates is disabled */}
-                        {/* 
-                        <div className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/[0.04]">
-                            <div className="flex items-center gap-3">
-                                <span className="text-2xl">❤️</span>
-                                <div>
-                                    <p className="text-base font-semibold text-white/80">Looking for Love</p>
-                                    <p className="text-xs text-white/60">Show the First Mates channel</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    const newVal = !profileLookingForLove;
-                                    setProfileLookingForLove(newVal);
-                                    updateProfile({ looking_for_love: newVal });
-                                }}
-                                className={`relative w-14 h-8 rounded-full transition-colors duration-200 ${profileLookingForLove ? 'bg-gradient-to-r from-[#FF7F50] to-[#E9967A]' : 'bg-white/[0.08]'}`}
-                            >
-                                <div className={`absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-200 ${profileLookingForLove ? 'translate-x-6' : 'translate-x-0'}`} />
-                            </button>
-                        </div>
-                        */}
-
-                        {/* Save button */}
-                        <button
-                            onClick={handleSaveProfile}
-                            disabled={profileSaving}
-                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-500/20 to-sky-500/20 hover:from-purple-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"
-                        >
-                            {profileSaved ? '✓ Saved!' : profileSaving ? 'Saving...' : '💾 Save Profile'}
-                        </button>
-                    </div>
+                    <ChatProfileView
+                        myAvatarUrl={myAvatarUrl}
+                        uploadProgress={uploadProgress}
+                        uploadError={uploadError}
+                        profileDisplayName={profileDisplayName}
+                        setProfileDisplayName={setProfileDisplayName}
+                        profileVesselName={profileVesselName}
+                        setProfileVesselName={setProfileVesselName}
+                        profileSaving={profileSaving}
+                        profileSaved={profileSaved}
+                        vesselPlaceholder={settings.vessel?.name || ''}
+                        fileInputRef={fileInputRef}
+                        onSaveProfile={handleSaveProfile}
+                        onRemovePhoto={handleRemovePhoto}
+                    />
                 )}
 
                 {/* ══════ CHANNEL LIST ══════ */}
@@ -1265,731 +1065,141 @@ export const ChatPage: React.FC = () => {
 
                 {/* ══════ MESSAGE VIEW ══════ */}
                 {view === 'messages' && !loading && (
-                    <div className="flex flex-col min-h-full">
-                        {/* Pinned bar */}
-                        {pinnedMessages.length > 0 && (
-                            <div className="mx-4 mt-2 p-3 rounded-xl bg-amber-500/[0.04] border border-amber-500/[0.08] fade-slide-down">
-                                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/40 mb-1.5">📌 Pinned</p>
-                                {pinnedMessages.map(pm => (
-                                    <div key={pm.id} className="flex items-center gap-2 py-0.5">
-                                        <span className="text-base font-medium text-amber-300/70">{pm.display_name}:</span>
-                                        <span className="text-base text-white/60 truncate">{pm.message}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Messages list */}
-                        <div className="flex-1 px-4 py-3 space-y-1">
-                            {regularMessages.length === 0 && (
-                                <div className="flex-1 flex flex-col items-center justify-center py-28">
-                                    <div className="text-4xl mb-6 opacity-80">⛵</div>
-                                    <p className="text-lg font-medium text-white/60">No messages yet</p>
-                                    <p className="text-sm text-white/15 mt-2">Be the first to say ahoy!</p>
-                                </div>
-                            )}
-
-                            {regularMessages.map((msg, i) => {
-                                const isDeleted = !!msg.deleted_at;
-                                const isSelf = msg.user_id === 'self';
-                                const rank = getCrewRank(msg.helpful_count);
-
-                                return (
-                                    <div
-                                        key={msg.id}
-                                        className={`msg-enter group relative py-2 ${msg.is_question && !isDeleted ? 'question-glow bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2' : ''
-                                            }`}
-                                        style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
-                                    >
-                                        {/* Question header */}
-                                        {msg.is_question && !isDeleted && (
-                                            <div className="flex items-center gap-1.5 mb-2">
-                                                <span className="text-sm font-bold text-amber-400/80 uppercase tracking-[0.15em]">📢 Question</span>
-                                                {msg.helpful_count > 0 && (
-                                                    <span className="text-sm text-emerald-400/50 ml-auto">{msg.helpful_count} found this helpful</span>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        <div className="flex items-start gap-2.5">
-                                            {/* Avatar — photo or gradient fallback */}
-                                            <button
-                                                onClick={() => !isSelf && openDMThread(msg.user_id, msg.display_name)}
-                                                className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
-                                                title={isSelf ? undefined : `DM ${msg.display_name}`}
-                                            >
-                                                {getAvatar(msg.user_id) ? (
-                                                    <img src={getAvatar(msg.user_id)!} alt="" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <div className={`w-full h-full bg-gradient-to-br ${getAvatarGradient(msg.user_id)} flex items-center justify-center text-xs font-bold`}>
-                                                        {msg.display_name.charAt(0).toUpperCase()}
-                                                    </div>
-                                                )}
-                                            </button>
-
-                                            <div className="flex-1 min-w-0">
-                                                {/* Name row */}
-                                                <div className="flex items-center gap-1.5 mb-0.5">
-                                                    <span className={`text-base font-bold ${isSelf ? 'text-sky-400' : 'text-white/80'}`}>{msg.display_name}</span>
-                                                    {/* Rank badge */}
-                                                    <button
-                                                        className="relative"
-                                                        onMouseEnter={() => setShowRankTooltip(msg.id)}
-                                                        onMouseLeave={() => setShowRankTooltip(null)}
-                                                        onClick={() => setShowRankTooltip(showRankTooltip === msg.id ? null : msg.id)}
-                                                    >
-                                                        <span className="text-[11px]">{rank.badge}</span>
-                                                        {showRankTooltip === msg.id && (
-                                                            <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
-                                                                {rank.title} • {msg.helpful_count} helpful
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                    {/* Mod badge */}
-                                                    {isMod && msg.user_id !== 'self' && (
-                                                        <span className="text-[11px] opacity-30">🛡️</span>
-                                                    )}
-                                                    <span className="text-sm text-white/60 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
-                                                </div>
-
-                                                {/* Message body — rich cards for pins/tracks */}
-                                                {isDeleted ? (
-                                                    <p className="text-sm text-white/15 italic py-0.5">[removed by moderator]</p>
-                                                ) : (() => {
-                                                    const pin = parsePinMessage(msg.message);
-                                                    const track = parseTrackMessage(msg.message);
-                                                    if (pin) {
-                                                        return (
-                                                            <div className="mt-1.5 rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.02] max-w-[280px]">
-                                                                <img
-                                                                    src={getStaticMapUrl(pin.lat, pin.lng)}
-                                                                    alt="Pin location"
-                                                                    className="w-full h-[140px] object-cover"
-                                                                    loading="lazy"
-                                                                />
-                                                                <div className="px-3 py-2">
-                                                                    <p className="text-lg text-white/70 font-medium leading-snug">{pin.caption}</p>
-                                                                    <p className="text-sm text-white/25 mt-0.5 tabular-nums">
-                                                                        📍 {Math.abs(pin.lat).toFixed(4)}°{pin.lat < 0 ? 'S' : 'N'}, {Math.abs(pin.lng).toFixed(4)}°{pin.lng < 0 ? 'W' : 'E'}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    if (track) {
-                                                        const isImporting = importingTrackId === track.trackId;
-                                                        return (
-                                                            <button
-                                                                onClick={() => setShowTrackDisclaimer(track)}
-                                                                disabled={isImporting}
-                                                                className="mt-1.5 rounded-2xl overflow-hidden border border-sky-500/[0.15] bg-gradient-to-r from-sky-500/[0.06] to-sky-500/[0.04] max-w-[280px] px-3 py-2.5 text-left w-full hover:from-sky-500/[0.12] hover:to-sky-500/[0.08] transition-all active:scale-[0.98] disabled:opacity-50"
-                                                            >
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-lg">{isImporting ? '' : '🗺️'}</span>
-                                                                    {isImporting && <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin shrink-0" />}
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <p className="text-lg text-sky-300/80 font-semibold truncate">{track.title}</p>
-                                                                        <p className="text-xs text-white/25 mt-0.5">{isImporting ? 'Importing…' : 'Tap to import voyage track'}</p>
-                                                                    </div>
-                                                                    <span className="text-sky-400/30 text-sm">⬇</span>
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    }
-                                                    return <p className="text-lg text-white/70 leading-relaxed break-words">{msg.message}</p>;
-                                                })()}
-
-                                                {/* Action row */}
-                                                {!isDeleted && !isSelf && (
-                                                    <div className="flex items-center gap-3 mt-1.5 h-6 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                                                        <button
-                                                            onClick={() => handleMarkHelpful(msg.id)}
-                                                            disabled={likedMessages.has(msg.id)}
-                                                            className={`text-sm transition-colors flex items-center gap-1 active:scale-95 ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
-                                                        >
-                                                            {likedMessages.has(msg.id) ? '✅' : '👍'} Helpful{msg.helpful_count > 0 && ` (${msg.helpful_count})`}
-                                                        </button>
-                                                        <button
-                                                            onClick={() => { setReportingMsg(msg); setReportSent(false); }}
-                                                            className="text-sm text-white/10 hover:text-amber-400/60 transition-colors"
-                                                        >
-                                                            🚩 Report
-                                                        </button>
-                                                        {isMod && (
-                                                            <button
-                                                                onClick={() => setShowModMenu(showModMenu === msg.id ? null : msg.id)}
-                                                                className="text-[11px] text-white/15 hover:text-red-400/60 transition-colors"
-                                                            >
-                                                                🛡️ Mod
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {/* Mod menu */}
-                                                {showModMenu === msg.id && isMod && (
-                                                    <div className="mt-2 p-2.5 rounded-xl bg-slate-800/90 backdrop-blur-xl border border-white/[0.08] space-y-1 fade-slide-down shadow-2xl">
-                                                        <button onClick={() => handleDeleteMessage(msg.id)} className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
-                                                            🗑 Delete message
-                                                        </button>
-                                                        <button onClick={() => handlePinMessage(msg.id, msg.is_pinned)} className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
-                                                            {msg.is_pinned ? '📌 Unpin' : '📌 Pin message'}
-                                                        </button>
-                                                        <div className="h-px bg-white/[0.04] my-1" />
-                                                        <p className="text-[11px] text-white/60 px-2.5 uppercase tracking-wider">Mute {msg.display_name}</p>
-                                                        <div className="flex gap-1 px-2">
-                                                            {[{ hrs: 1, label: '1h' }, { hrs: 24, label: '24h' }, { hrs: 168, label: '7d' }].map(({ hrs, label }) => (
-                                                                <button
-                                                                    key={hrs}
-                                                                    onClick={() => handleMuteUser(msg.user_id, hrs)}
-                                                                    className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/10 transition-colors"
-                                                                >
-                                                                    {label}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            <div ref={messageEndRef} />
-                        </div>
-                    </div>
+                    <ChatMessageList
+                        messages={messages}
+                        pinnedMessages={pinnedMessages}
+                        isMod={isMod}
+                        isAdmin={isAdmin}
+                        isModerator={isModerator}
+                        likedMessages={likedMessages}
+                        showModMenu={showModMenu}
+                        showRankTooltip={showRankTooltip}
+                        importingTrackId={importingTrackId}
+                        getAvatar={getAvatar}
+                        onOpenDMThread={openDMThread}
+                        onMarkHelpful={handleMarkHelpful}
+                        onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
+                        onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
+                        onDeleteMessage={handleDeleteMessage}
+                        onPinMessage={handlePinMessage}
+                        onMuteUser={handleMuteUser}
+                        onBlockUser={handleBlockUserPlatform}
+                        onMakeAdmin={handleMakeAdmin}
+                        onSetRankTooltip={setShowRankTooltip}
+                        onShowTrackDisclaimer={setShowTrackDisclaimer}
+                        messageEndRef={messageEndRef}
+                    />
                 )}
 
                 {/* ══════ DM INBOX ══════ */}
                 {view === 'dm_inbox' && !loading && (
-                    <div className="px-4 py-3 space-y-1.5">
-                        {dmConversations.length === 0 && (
-                            <div className="text-center py-20">
-                                <div className="text-3xl mb-4 opacity-60">✉️</div>
-                                <p className="text-sm font-medium text-white/60">No conversations yet</p>
-                                <p className="text-[11px] text-white/15 mt-1.5 max-w-[200px] mx-auto">
-                                    Tap someone's avatar in a channel to start a direct message
-                                </p>
-                            </div>
-                        )}
-                        {dmConversations.map((conv, i) => (
-                            <button
-                                key={conv.user_id}
-                                onClick={() => openDMThread(conv.user_id, conv.display_name)}
-                                className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98] msg-enter"
-                                style={{ animationDelay: `${i * 50}ms` }}
-                            >
-                                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg`}>
-                                    {conv.display_name.charAt(0).toUpperCase()}
-                                </div>
-                                <div className="text-left flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-0.5">
-                                        <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
-                                        <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
-                                    </div>
-                                    <p className="text-[11px] text-white/60 truncate">{conv.last_message}</p>
-                                </div>
-                                {conv.unread_count > 0 && (
-                                    <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
-                                        {conv.unread_count}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
+                    <ChatDMInbox conversations={dmConversations} onOpenThread={openDMThread} />
                 )}
 
                 {/* ══════ DM THREAD ══════ */}
                 {view === 'dm_thread' && !loading && (
-                    <div className="flex flex-col min-h-full">
-                        <div className="flex-1 px-4 py-3 space-y-2">
-                            {dmThread.length === 0 && (
-                                <div className="text-center py-20">
-                                    <p className="text-3xl mb-3 opacity-60">👋</p>
-                                    <p className="text-sm text-white/60">Say ahoy to {dmPartner?.name}!</p>
-                                </div>
-                            )}
-                            {dmThread.map((dm, i) => {
-                                const isSelf = dm.sender_id === 'self';
-                                return (
-                                    <div
-                                        key={dm.id}
-                                        className={`flex ${isSelf ? 'justify-end' : 'justify-start'} msg-enter`}
-                                        style={{ animationDelay: `${Math.min(i * 25, 200)}ms` }}
-                                    >
-                                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${isSelf
-                                            ? 'bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/15 rounded-br-lg'
-                                            : 'bg-white/[0.04] border border-white/[0.04] rounded-bl-lg'
-                                            }`}>
-                                            <p className="text-xs text-white/70 leading-relaxed">{dm.message}</p>
-                                            <p className="text-[11px] text-white/15 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
+                    <ChatDMThread thread={dmThread} partnerName={dmPartner?.name} />
                 )}
             </div>
 
             {/* ═══════════ REPORT MODAL ═══════════ */}
             {reportingMsg && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center" onClick={() => setReportingMsg(null)}>
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down" onClick={e => e.stopPropagation()}>
-                        {reportSent ? (
-                            <div className="text-center py-6">
-                                <div className="text-4xl mb-3">✅</div>
-                                <p className="text-sm font-medium text-white/70">Report submitted</p>
-                                <p className="text-[11px] text-white/60 mt-1">Our moderators will review it shortly</p>
-                            </div>
-                        ) : (
-                            <>
-                                <p className="text-sm font-bold text-white/80 mb-1">🚩 Report Message</p>
-                                <p className="text-[11px] text-white/60 mb-4 truncate">From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"</p>
-                                <div className="space-y-1.5 mb-4">
-                                    {(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other'] as const).map(r => (
-                                        <button
-                                            key={r}
-                                            onClick={() => setReportReason(r)}
-                                            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${reportReason === r
-                                                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                                                : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
-                                                }`}
-                                        >
-                                            {r === 'spam' && '📧 Spam'}
-                                            {r === 'harassment' && '😡 Harassment'}
-                                            {r === 'hate_speech' && '🚫 Hate Speech'}
-                                            {r === 'inappropriate' && '⚠️ Inappropriate'}
-                                            {r === 'other' && '📋 Other'}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setReportingMsg(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                                    <button onClick={handleReport} className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors">Submit Report</button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
+                <ReportModal
+                    reportingMsg={reportingMsg}
+                    reportSent={reportSent}
+                    reportReason={reportReason}
+                    setReportReason={setReportReason}
+                    onSubmit={handleReport}
+                    onClose={() => setReportingMsg(null)}
+                />
             )}
 
             {/* ═══════════ DROP A PIN (static map) ═══════════ */}
             {showPinSheet && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
-                        <button
-                            onClick={() => setShowPinSheet(false)}
-                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                        >✕</button>
-                    </div>
-
-                    {pinLoading ? (
-                        <div className="flex items-center justify-center py-6">
-                            <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Recent pins */}
-                            {savedPins.length > 0 && (
-                                <div className="mb-2">
-                                    <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/25 mb-1.5">📌 Recent Pins</p>
-                                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-                                        {savedPins.map(sp => (
-                                            <button
-                                                key={sp.id}
-                                                onClick={() => {
-                                                    setPinLat(sp.latitude);
-                                                    setPinLng(sp.longitude);
-                                                    setPinCaption(sp.caption);
-                                                }}
-                                                className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-all active:scale-95"
-                                            >
-                                                <span className="text-sm">📍</span>
-                                                <div className="text-left">
-                                                    <p className="text-xs text-white/60 font-medium truncate max-w-[140px]">{sp.caption}</p>
-                                                    <p className="text-[11px] text-white/60 tabular-nums">{PinService.formatCoords(sp.latitude, sp.longitude)}</p>
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Static map preview */}
-                            <div className="w-full h-[120px] rounded-xl overflow-hidden border border-white/[0.08] mb-2">
-                                <img
-                                    src={getStaticMapUrl(pinLat, pinLng)}
-                                    alt="Pin location"
-                                    className="w-full h-full object-cover"
-                                    loading="eager"
-                                />
-                            </div>
-                            <p className="text-[11px] text-white/25 mb-2 text-center tabular-nums">
-                                📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°{pinLng < 0 ? 'W' : 'E'}
-                            </p>
-
-                            {/* Caption + send */}
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={pinCaption}
-                                    onChange={e => setPinCaption(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && sendPin()}
-                                    placeholder="What's here? (e.g. Great anchorage)"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
-                                    maxLength={120}
-                                />
-                                <button
-                                    onClick={sendPin}
-                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500/20 to-sky-500/20 hover:from-sky-500/30 hover:to-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
-                                >
-                                    📍 Drop
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </div>
+                <PinDropSheet
+                    pinLat={pinLat}
+                    pinLng={pinLng}
+                    pinCaption={pinCaption}
+                    setPinCaption={setPinCaption}
+                    setPinLat={setPinLat}
+                    setPinLng={setPinLng}
+                    pinLoading={pinLoading}
+                    savedPins={savedPins}
+                    onSendPin={sendPin}
+                    onClose={() => setShowPinSheet(false)}
+                />
             )}
 
             {/* ═══════════ SHARE POI (interactive Mapbox GL) ═══════════ */}
             {showPoiSheet && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
-                        <button
-                            onClick={() => setShowPoiSheet(false)}
-                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                        >✕</button>
-                    </div>
-
-                    {pinLoading ? (
-                        <div className="flex items-center justify-center py-6">
-                            <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Interactive Mapbox GL map */}
-                            <div
-                                ref={poiMapRef}
-                                className="w-full h-[200px] rounded-xl overflow-hidden border border-white/[0.08] mb-2"
-                            />
-                            <p className="text-[11px] text-white/25 mb-2 text-center tabular-nums">
-                                📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°{pinLng < 0 ? 'W' : 'E'}
-                                <span className="ml-2 text-white/15">• Tap or drag to set location</span>
-                            </p>
-
-                            {/* Caption + send */}
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={pinCaption}
-                                    onChange={e => setPinCaption(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && sendPoi()}
-                                    placeholder="Describe this spot..."
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
-                                    maxLength={120}
-                                />
-                                <button
-                                    onClick={sendPoi}
-                                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 hover:from-emerald-500/30 hover:to-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
-                                >
-                                    🗺️ Share
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </div>
+                <PoiPickerSheet
+                    pinLat={pinLat}
+                    pinLng={pinLng}
+                    pinCaption={pinCaption}
+                    setPinCaption={setPinCaption}
+                    pinLoading={pinLoading}
+                    poiMapRef={poiMapRef}
+                    onSendPoi={sendPoi}
+                    onClose={() => setShowPoiSheet(false)}
+                />
             )}
 
             {/* ═══════════ SHARE TRACK PICKER ═══════════ */}
             {showTrackPicker && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
-                        <button
-                            onClick={() => setShowTrackPicker(false)}
-                            className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                        >✕</button>
-                    </div>
-
-                    {trackLoadingVoyages ? (
-                        <div className="flex items-center justify-center py-8">
-                            <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                            <span className="ml-3 text-sm text-white/60">Loading voyages...</span>
-                        </div>
-                    ) : voyageList.length === 0 ? (
-                        <div className="text-center py-8">
-                            <p className="text-xl mb-2">🚫</p>
-                            <p className="text-sm text-white/60 font-medium">No voyages to share</p>
-                            <p className="text-xs text-white/60 mt-1">Record a voyage first using the Ship's Log</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2 overflow-y-auto max-h-[240px] pb-1" style={{ scrollbarWidth: 'thin' }}>
-                            {voyageList.map(v => {
-                                const start = new Date(v.startTime);
-                                const end = new Date(v.endTime);
-                                const dateStr = start.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-                                const durationHrs = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60) * 10) / 10;
-                                return (
-                                    <div
-                                        key={v.voyageId}
-                                        className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
-                                    >
-                                        <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/15 to-sky-500/15 flex items-center justify-center">
-                                            <span className="text-lg">⛵</span>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm text-white/70 font-medium truncate">{dateStr}</p>
-                                            <p className="text-[11px] text-white/60 tabular-nums">
-                                                {v.distance}nm · {v.entryCount} pts · {durationHrs}h
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => sendTrack(v)}
-                                            disabled={trackSharing}
-                                            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 hover:from-emerald-500/25 hover:to-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
-                                        >
-                                            {trackSharing ? (
-                                                <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />
-                                            ) : '⛵ Share'}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
+                <TrackPickerSheet
+                    voyageList={voyageList}
+                    trackLoadingVoyages={trackLoadingVoyages}
+                    trackSharing={trackSharing}
+                    onSendTrack={sendTrack}
+                    onClose={() => setShowTrackPicker(false)}
+                />
             )}
 
             {/* ═══════════════════ COMPOSE BAR ═══════════════════ */}
             {view === 'messages' && (
-                <div className="flex-shrink-0 relative">
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
-                    <div className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}>
-                        {/* Client filter warning */}
-                        {filterWarning && (
-                            <div className="mb-2 p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.12] fade-slide-down">
-                                <p className="text-[11px] text-amber-400/80 mb-2">⚠️ {filterWarning.warning}</p>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => { setFilterWarning(null); setMessageText(''); }}
-                                        className="flex-1 py-1.5 rounded-lg bg-white/[0.03] text-[11px] text-white/60 hover:bg-white/[0.06] transition-colors"
-                                    >
-                                        Edit message
-                                    </button>
-                                    {!filterWarning.blocked && (
-                                        <button
-                                            onClick={() => sendChannelMessage(true)}
-                                            className="flex-1 py-1.5 rounded-lg bg-amber-500/10 text-[11px] text-amber-400 hover:bg-amber-500/20 transition-colors"
-                                        >
-                                            Send anyway
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {isMuted ? (
-                            <div className="flex items-center justify-center gap-2 py-2 rounded-xl bg-red-500/[0.04] border border-red-500/[0.06]">
-                                <span className="text-[11px] text-red-400/50">🔇 Muted until {mutedUntil?.toLocaleTimeString()}</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-2">
-                                {/* ➕ Attach button */}
-                                <div className="relative">
-                                    <button
-                                        onClick={() => setShowAttachMenu(!showAttachMenu)}
-                                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all duration-200 flex-shrink-0 active:scale-90 ${showAttachMenu
-                                            ? 'bg-sky-500/15 border border-sky-500/25 rotate-45'
-                                            : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
-                                            }`}
-                                        title="Share pin or track"
-                                    >
-                                        <span className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`}>➕</span>
-                                    </button>
-
-                                    {/* Attach menu flyout */}
-                                    {showAttachMenu && (
-                                        <>
-                                            <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
-                                            <div className="absolute bottom-12 left-0 z-50 w-52 rounded-2xl bg-slate-900/98 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
-                                                <button
-                                                    onClick={openPinDrop}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left"
-                                                >
-                                                    <span className="text-lg">📍</span>
-                                                    <div>
-                                                        <p className="text-sm text-white/80 font-medium">Drop a Pin</p>
-                                                        <p className="text-[11px] text-white/60">Share your location</p>
-                                                    </div>
-                                                </button>
-                                                <div className="h-px bg-white/[0.06]" />
-                                                <button
-                                                    onClick={openPoiPicker}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left"
-                                                >
-                                                    <span className="text-lg">🗺️</span>
-                                                    <div>
-                                                        <p className="text-sm text-white/80 font-medium">Share POI</p>
-                                                        <p className="text-[11px] text-white/60">Browse & pick any spot</p>
-                                                    </div>
-                                                </button>
-                                                <div className="h-px bg-white/[0.06]" />
-                                                <button
-                                                    onClick={openTrackPicker}
-                                                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left"
-                                                >
-                                                    <span className="text-lg">⛵</span>
-                                                    <div>
-                                                        <p className="text-sm text-white/80 font-medium">Share Track</p>
-                                                        <p className="text-[11px] text-white/60">Share a voyage</p>
-                                                    </div>
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => setIsQuestion(!isQuestion)}
-                                    className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm transition-all duration-200 flex-shrink-0 active:scale-90 ${isQuestion
-                                        ? 'bg-amber-500/15 border border-amber-500/25 shadow-lg shadow-amber-500/10'
-                                        : 'bg-white/[0.03] border border-white/[0.04] hover:bg-white/[0.06]'
-                                        }`}
-                                    title="Mark as question — questions get priority"
-                                >
-                                    📢
-                                </button>
-                                <div className="flex-1 relative">
-                                    <input
-                                        ref={inputRef}
-                                        type="text"
-                                        value={messageText}
-                                        onChange={(e) => { setMessageText(e.target.value); setFilterWarning(null); }}
-                                        onKeyDown={(e) => e.key === 'Enter' && sendChannelMessage()}
-                                        placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200"
-                                    />
-                                </div>
-                                <button
-                                    onClick={() => sendChannelMessage()}
-                                    disabled={!messageText.trim()}
-                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-sky-500/20 disabled:shadow-none"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={messageText.trim() ? 'text-white' : 'text-white/15'}>
-                                        <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4z" />
-                                    </svg>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <ChatComposer
+                    messageText={messageText}
+                    setMessageText={setMessageText}
+                    isQuestion={isQuestion}
+                    setIsQuestion={setIsQuestion}
+                    filterWarning={filterWarning}
+                    setFilterWarning={setFilterWarning}
+                    isMuted={isMuted}
+                    mutedUntil={mutedUntil}
+                    showAttachMenu={showAttachMenu}
+                    setShowAttachMenu={setShowAttachMenu}
+                    keyboardOffset={keyboardOffset}
+                    inputRef={inputRef}
+                    onSend={(bypass) => sendChannelMessage(bypass)}
+                    onOpenPinDrop={openPinDrop}
+                    onOpenPoiPicker={openPoiPicker}
+                    onOpenTrackPicker={openTrackPicker}
+                />
             )}
 
             {/* DM compose */}
             {view === 'dm_thread' && (
-                <div className="flex-shrink-0 relative">
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
-                    <div className={`relative px-4 py-3 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[max(0.75rem,env(safe-area-inset-bottom))]'}`}>
-                        {/* Block confirmation dialog */}
-                        {showBlockConfirm && (
-                            <div className="mb-3 p-4 rounded-2xl bg-red-500/5 border border-red-400/15">
-                                <p className="text-sm text-white/60 mb-3">
-                                    {isUserBlocked
-                                        ? `Unblock ${dmPartner?.name}? They'll be able to DM you again.`
-                                        : `Block ${dmPartner?.name}? They won't be able to send you DMs.`
-                                    }
-                                </p>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={isUserBlocked ? handleUnblockUser : handleBlockUser}
-                                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${isUserBlocked
-                                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
-                                            : 'bg-red-500/15 text-red-300 border border-red-400/20'
-                                            }`}
-                                    >
-                                        {isUserBlocked ? '🔓 Unblock' : '🚫 Block'}
-                                    </button>
-                                    <button
-                                        onClick={() => setShowBlockConfirm(false)}
-                                        className="flex-1 py-2.5 rounded-xl bg-white/[0.04] text-white/60 text-sm font-medium border border-white/[0.06] transition-all active:scale-95"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Blocked state */}
-                        {isUserBlocked && !showBlockConfirm ? (
-                            <div className="flex items-center justify-between py-2">
-                                <p className="text-xs text-red-300/50">🚫 This user is blocked</p>
-                                <button
-                                    onClick={() => setShowBlockConfirm(true)}
-                                    className="text-xs text-white/25 hover:text-emerald-300/60 transition-colors"
-                                >
-                                    Unblock
-                                </button>
-                            </div>
-                        ) : !showBlockConfirm && (
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={dmText}
-                                    onChange={(e) => setDmText(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && sendDMMessage()}
-                                    placeholder={`Message ${dmPartner?.name || ''}...`}
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.06] transition-all duration-200"
-                                />
-                                <button
-                                    onClick={sendDMMessage}
-                                    disabled={!dmText.trim()}
-                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 disabled:from-white/[0.03] disabled:to-white/[0.03] disabled:border disabled:border-white/[0.04] flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-purple-500/20 disabled:shadow-none"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={dmText.trim() ? 'text-white' : 'text-white/15'}>
-                                        <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4z" />
-                                    </svg>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <ChatDMCompose
+                    dmText={dmText}
+                    setDmText={setDmText}
+                    partnerName={dmPartner?.name}
+                    keyboardOffset={keyboardOffset}
+                    isUserBlocked={isUserBlocked}
+                    showBlockConfirm={showBlockConfirm}
+                    setShowBlockConfirm={setShowBlockConfirm}
+                    onSendDM={sendDMMessage}
+                    onBlock={handleBlockUser}
+                    onUnblock={handleUnblockUser}
+                />
             )}
 
             {/* ═══════════ TRACK IMPORT DISCLAIMER MODAL ═══════════ */}
             {showTrackDisclaimer && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6" onClick={() => setShowTrackDisclaimer(null)}>
-                    <div className="w-full max-w-sm bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="px-5 pt-5 pb-3">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-amber-400 text-lg">⚠️</span>
-                                <h2 className="text-base font-black text-white">Navigation Disclaimer</h2>
-                            </div>
-                            <div className="bg-amber-900/20 border border-amber-500/20 rounded-xl px-3 py-2.5 mb-3">
-                                <p className="text-xs text-amber-400/80 leading-relaxed">
-                                    This track was shared by another sailor and is <span className="font-bold text-amber-300">not verified</span>. Depths vary with tide, weather, and vessel draft. <span className="font-bold text-amber-300">Not suitable for navigation.</span>
-                                </p>
-                            </div>
-                            <p className="text-xs text-white/60 leading-relaxed">
-                                It will be imported to your ship's log as a community track with an <span className="text-amber-400 font-bold">Imported</span> badge.
-                            </p>
-                        </div>
-                        <div className="px-5 pb-5 flex gap-2 pt-2">
-                            <button
-                                onClick={() => setShowTrackDisclaimer(null)}
-                                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
-                            >Cancel</button>
-                            <button
-                                onClick={() => handleImportTrack(showTrackDisclaimer!.trackId, showTrackDisclaimer!.title)}
-                                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
-                            >⬇ Import Track</button>
-                        </div>
-                    </div>
-                </div>
+                <TrackDisclaimerModal
+                    track={showTrackDisclaimer}
+                    onImport={handleImportTrack}
+                    onClose={() => setShowTrackDisclaimer(null)}
+                />
             )}
 
             {/* ═══════════ TRACK IMPORT STATUS TOAST ═══════════ */}
