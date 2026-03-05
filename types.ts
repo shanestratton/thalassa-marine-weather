@@ -417,6 +417,8 @@ export interface WeatherMetrics {
     precipLabel?: string;  // e.g. "HEAVY RAIN"
     precipValue?: string;  // e.g. "55mm"
     cape?: number | null;  // Convective Available Potential Energy (J/kg) — thunderstorm instability
+    secondarySwellHeight?: number | null; // Secondary swell height (ft) — offshore only
+    secondarySwellPeriod?: number | null; // Secondary swell period (s) — offshore only
 }
 
 export interface CalibratedSensorData extends Partial<WeatherMetrics> {
@@ -477,6 +479,8 @@ export interface HourlyForecast {
     cape?: number | null;
     dewPoint?: number | null;
     precipChance?: number; // 0-100% probability from WeatherKit
+    secondarySwellHeight?: number | null; // Secondary swell height (ft) — offshore
+    secondarySwellPeriod?: number | null; // Secondary swell period (s) — offshore
 }
 
 export interface Tide {
