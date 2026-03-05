@@ -492,7 +492,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
 
                     {/* ─── BOTTOM: CTA pinned, exact 8px above nav bar ─── */}
-                    <div className="absolute bottom-0 left-0 right-0 px-4 z-10 pointer-events-none" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                    <div className="fixed bottom-0 left-0 right-0 px-4 z-10 pointer-events-none" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
                         <div className="max-w-xl mx-auto w-full pointer-events-auto">
                             {/* Active vessel indicator */}
                             {vessel && (
