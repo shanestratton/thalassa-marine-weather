@@ -13,6 +13,7 @@ import { AuthModal } from './AuthModal';
 import { useThalassa } from '../context/ThalassaContext';
 import { isSupabaseConfigured } from '../services/supabase';
 import { isGeminiConfigured } from '../services/geminiService';
+import { GpsService } from '../services/GpsService';
 
 import { Section, Row, Toggle } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
@@ -188,15 +189,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
 
     const handleDetectLocation = () => {
         setDetectingLoc(true);
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const { latitude, longitude } = position.coords;
+        GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
+            if (pos) {
+                const { latitude, longitude } = pos;
                 let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
                 try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { console.warn('[SettingsModal] fallback to WP coords:', e); }
                 onSave({ defaultLocation: resolvedName });
-                setDetectingLoc(false);
-            }, () => setDetectingLoc(false));
-        } else { setDetectingLoc(false); }
+            }
+            setDetectingLoc(false);
+        });
     };
 
     // UPDATED STATUS ROW

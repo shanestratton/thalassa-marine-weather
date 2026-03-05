@@ -5,7 +5,7 @@ import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
 import { fetchWeatherKitFull, WeatherKitFullResponse, buildReportFromWeatherKit } from './api/weatherkit';
 import { fetchRealTides } from './api/tides';
-import { saveToCache, getFromCache } from './cache';
+import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { degreesToCardinal } from '../../utils';
 
 // --- RE-EXPORTS (Maintain API Compatibility) ---
@@ -35,7 +35,29 @@ export const fetchStormglassData = fetchStormGlassWeather;
 // All API calls fire in parallel via Promise.allSettled. No serial dependencies.
 // ═══════════════════════════════════════════════════════════════
 
+// ── Request Dedup ──
+// If an identical fetch is already in-flight, piggyback on its Promise
+// instead of firing 4 more concurrent API calls.
+// Key granularity: ~1km (2 decimal places of lat/lon).
+const _inflight = new Map<string, Promise<MarineWeatherReport>>();
+
 export const fetchWeatherByStrategy = async (
+    lat: number,
+    lon: number,
+    name: string,
+    locationType?: 'coastal' | 'offshore' | 'inland'
+): Promise<MarineWeatherReport> => {
+    const dedupKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const existing = _inflight.get(dedupKey);
+    if (existing) return existing;
+
+    const promise = _fetchWeatherByStrategyImpl(lat, lon, name, locationType);
+    _inflight.set(dedupKey, promise);
+    promise.finally(() => _inflight.delete(dedupKey));
+    return promise;
+};
+
+const _fetchWeatherByStrategyImpl = async (
     lat: number,
     lon: number,
     name: string,
@@ -115,6 +137,14 @@ export const fetchWeatherByStrategy = async (
         // Last resort — OpenMeteo only
         report = openMeteoReport;
     } else {
+        // All APIs failed — try offline cache as last resort
+        const offlineResult = getFromCacheOffline(name);
+        if (offlineResult) {
+            const staleReport = offlineResult.data;
+            staleReport._stale = true;
+            staleReport._staleAgeMinutes = offlineResult.ageMinutes;
+            return staleReport;
+        }
         throw new Error(`All weather APIs failed for ${name}`);
     }
 
@@ -281,6 +311,7 @@ export const fetchWeatherByStrategy = async (
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;
+    saveToCache(name, report);
     return report;
 };
 

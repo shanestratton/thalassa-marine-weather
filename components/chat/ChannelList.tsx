@@ -14,6 +14,7 @@ const ICON_OVERRIDES: Record<string, string> = {
 };
 const NAME_OVERRIDES: Record<string, string> = {
     'Lonely Hearts': 'First Mates',
+    'Find Crew': 'Crew Finder',
 };
 const getChannelIcon = (ch: { name: string; icon: string }) =>
     ICON_OVERRIDES[ch.name] ?? ch.icon;

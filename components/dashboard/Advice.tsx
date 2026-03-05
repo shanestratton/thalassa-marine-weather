@@ -20,7 +20,7 @@ interface AdviceWidgetProps {
     isBackgroundUpdating?: boolean; // New Prop
 }
 
-export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpgrade, isSpeaking, isBuffering, isAudioPreloading, toggleBroadcast, handleShare, uvIndex, lockerItems, isBackgroundUpdating }) => {
+export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(({ advice, isPro, onUpgrade, isSpeaking, isBuffering, isAudioPreloading, toggleBroadcast, handleShare, uvIndex, lockerItems, isBackgroundUpdating }) => {
     const UVBar = ({ value }: { value: number }) => {
         const roundedValue = Math.round(value);
         const percentage = Math.min(Math.max((roundedValue / 11) * 100, 0), 100);
@@ -156,4 +156,4 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
             </div>
         </Card>
     );
-};
+});

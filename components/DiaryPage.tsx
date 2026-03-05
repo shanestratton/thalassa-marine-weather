@@ -15,7 +15,6 @@ import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG } from '../services/Di
 import { triggerHaptic } from '../utils/system';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
-import { generateDiaryPDF } from '../utils/diaryExport';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { PageHeader } from './ui/PageHeader';
@@ -90,7 +89,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [saving, setSaving] = useState(false);
     const [polishing, setPolishing] = useState(false);
     const [deletedItem, setDeletedItem] = useState<DiaryEntry | null>(null);
-    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
 
     // Timeline selection state
@@ -424,24 +422,24 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setEntries(prev => prev.filter(e => e.id !== id));
         setSelectedEntry(null);
         setDeletedItem(item);
+    };
 
-        // Schedule actual delete after 5s
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-        deleteTimerRef.current = setTimeout(async () => {
-            try {
-                await DiaryService.deleteEntry(id);
-            } catch (e) {
-                console.warn('[DiaryPage] delete failed:', e);
-                toast.error('Failed to delete entry');
-                // Restore on failure
-                setEntries(prev => [...prev, item]);
-            }
-            setDeletedItem(null);
-        }, 5000);
+    // Called by UndoToast after 5s — performs the actual API delete
+    const handleDismissDelete = async () => {
+        if (!deletedItem) return;
+        const item = deletedItem;
+        setDeletedItem(null);
+        try {
+            await DiaryService.deleteEntry(item.id);
+        } catch (e) {
+            console.warn('[DiaryPage] delete failed:', e);
+            toast.error('Failed to delete entry');
+            // Restore on failure
+            setEntries(prev => [...prev, item]);
+        }
     };
 
     const handleUndoDelete = () => {
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
         if (deletedItem) {
             setEntries(prev => [...prev, deletedItem]);
             toast.success('Entry restored');
@@ -455,8 +453,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // ── PDF Export ───────────────────────────────────────────────
 
-    const exportDiaryPdf = useCallback((entriesToPrint: DiaryEntry[]) => {
+    const exportDiaryPdf = useCallback(async (entriesToPrint: DiaryEntry[]) => {
         setExportProgress('Preparing...');
+        const { generateDiaryPDF } = await import('../utils/diaryExport');
         generateDiaryPDF(entriesToPrint, {
             onProgress: (msg) => setExportProgress(msg),
             onSuccess: () => {
@@ -557,7 +556,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         onTap: () => void;
         onDelete: () => void;
     }> = ({ entry, onTap, onDelete }) => {
-        const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+        const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
 
@@ -580,7 +579,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 <div
                     className={`relative w-full text-left bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all ${isSwiping ? '' : 'duration-200'}`}
                     style={{ transform: `translateX(-${swipeOffset}px)` }}
-                    {...handlers}
+                    ref={ref}
                     onClick={() => { if (swipeOffset === 0) onTap(); }}
                 >
                     {entry.photos.length > 0 && (
@@ -771,7 +770,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     isOpen={!!deletedItem}
                     message={`"${deletedItem?.title}" deleted`}
                     onUndo={handleUndoDelete}
-                    onDismiss={() => setDeletedItem(null)}
+                    onDismiss={handleDismissDelete}
                     duration={5000}
                 />
             </div>
@@ -1230,7 +1229,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 isOpen={!!deletedItem}
                 message={`"${deletedItem?.title}" deleted`}
                 onUndo={handleUndoDelete}
-                onDismiss={() => setDeletedItem(null)}
+                onDismiss={handleDismissDelete}
                 duration={5000}
             />
         </div >

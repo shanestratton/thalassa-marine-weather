@@ -187,9 +187,9 @@ describe('toDbFormat / fromDbFormat', () => {
 // ---- Zone Helpers ----
 
 describe('getIntervalForZone', () => {
-    it('returns 30s for nearshore', () => {
+    it('returns 5s for nearshore', () => {
         expect(getIntervalForZone('nearshore')).toBe(NEARSHORE_INTERVAL_MS);
-        expect(getIntervalForZone('nearshore')).toBe(30_000);
+        expect(getIntervalForZone('nearshore')).toBe(5_000);
     });
 
     it('returns 2min for coastal', () => {
@@ -203,8 +203,8 @@ describe('getIntervalForZone', () => {
 
 describe('getZoneLabel', () => {
     it('returns label with interval for each zone', () => {
-        expect(getZoneLabel('nearshore')).toContain('30s');
-        expect(getZoneLabel('coastal')).toContain('2min');
-        expect(getZoneLabel('offshore')).toContain('15min');
+        expect(getZoneLabel('nearshore')).toContain('5s');
+        expect(getZoneLabel('coastal')).toContain('5s');
+        expect(getZoneLabel('offshore')).toContain('30s');
     });
 });

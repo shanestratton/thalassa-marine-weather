@@ -10,6 +10,7 @@ import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { LocationStore, useLocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
+import { GpsService } from '../../services/GpsService';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -459,27 +460,22 @@ export function useLocationDot(
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        if (!navigator.geolocation) return;
 
-        const watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-                const { latitude, longitude } = pos.coords;
-                if (!locationDotRef.current) {
-                    const el = document.createElement('div');
-                    el.className = 'loc-dot';
-                    locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                        .setLngLat([longitude, latitude])
-                        .addTo(map);
-                } else {
-                    locationDotRef.current.setLngLat([longitude, latitude]);
-                }
-            },
-            (err) => console.warn('[LocationDot] GPS error:', err.message),
-            { enableHighAccuracy: true, maximumAge: 10_000 },
-        );
+        const unsub = GpsService.watchPosition((pos) => {
+            const { latitude, longitude } = pos;
+            if (!locationDotRef.current) {
+                const el = document.createElement('div');
+                el.className = 'loc-dot';
+                locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([longitude, latitude])
+                    .addTo(map);
+            } else {
+                locationDotRef.current.setLngLat([longitude, latitude]);
+            }
+        });
 
         return () => {
-            navigator.geolocation.clearWatch(watchId);
+            unsub();
             if (locationDotRef.current) {
                 locationDotRef.current.remove();
                 locationDotRef.current = null;

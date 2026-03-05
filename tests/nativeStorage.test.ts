@@ -99,8 +99,10 @@ describe('loadLargeData', () => {
         const result = await loadLargeData('legacy_key');
         expect(result).toEqual({ migrated: true });
 
-        // Should remove from localStorage after migration
-        expect(localStorage.getItem('legacy_key')).toBeNull();
+        // NOTE: localStorage is intentionally NOT removed after migration
+        // because in browser environments Capacitor Filesystem is unavailable
+        // and localStorage IS the persistence layer.
+        expect(localStorage.getItem('legacy_key')).not.toBeNull();
     });
 
     it('rejects corrupted future data (poison pill)', async () => {

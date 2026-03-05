@@ -266,4 +266,50 @@ export class MaintenanceService {
             totalSpent,
         };
     }
+
+    // ── SEED DEFAULTS ──
+
+    /**
+     * Seed the 40 default maintenance tasks for a new user.
+     * Only call when the user has zero tasks (first-time setup).
+     */
+    static async seedDefaults(): Promise<number> {
+        const { DEFAULT_MAINTENANCE_TASKS } = await import(
+            '../components/vessel/maintenance/defaultTasks'
+        );
+
+        const { data: { user } } = await getClient().auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+
+        const now = new Date();
+        const rows = DEFAULT_MAINTENANCE_TASKS.map(t => {
+            const isEngineHours = t.trigger_type === 'engine_hours';
+            const dueDate = isEngineHours
+                ? null
+                : new Date(now.getTime() + t.interval_value * 86_400_000)
+                    .toISOString()
+                    .split('T')[0];
+            const dueHours = isEngineHours ? t.interval_value : null;
+
+            return {
+                user_id: user.id,
+                title: t.title,
+                description: t.description,
+                category: t.category,
+                trigger_type: t.trigger_type,
+                interval_value: t.interval_value,
+                next_due_date: dueDate,
+                next_due_hours: dueHours,
+                last_completed: null,
+                is_active: true,
+            };
+        });
+
+        const { error } = await getClient()
+            .from(TASKS_TABLE)
+            .insert(rows);
+
+        if (error) throw new Error(`Failed to seed defaults: ${error.message}`);
+        return rows.length;
+    }
 }

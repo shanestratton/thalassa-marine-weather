@@ -1,4 +1,4 @@
-import { jsPDF } from 'jspdf';
+import type { jsPDF as JsPDFType } from 'jspdf';
 import { VoyagePlan, VesselProfile } from '../types';
 import { fmtCoord } from './coords';
 
@@ -8,7 +8,7 @@ interface PDFExportOptions {
 }
 
 // ─── Helper: draw a compass rose watermark ───────────────────────────────────
-function drawCompassRose(pdf: jsPDF, cx: number, cy: number, r: number, opacity = 0.12): void {
+function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opacity = 0.12): void {
     const GState = (pdf as any).GState;
     if (GState) {
         pdf.setGState(new GState({ opacity }));
@@ -61,7 +61,7 @@ function drawCompassRose(pdf: jsPDF, cx: number, cy: number, r: number, opacity 
 }
 
 // ─── Helper: wrapped text ────────────────────────────────────────────────────
-function drawWrappedText(pdf: jsPDF, text: string, x: number, y: number, maxWidth: number, lineHeight: number): number {
+function drawWrappedText(pdf: JsPDFType, text: string, x: number, y: number, maxWidth: number, lineHeight: number): number {
     const lines = pdf.splitTextToSize(text, maxWidth);
     lines.forEach((line: string, i: number) => {
         pdf.text(line, x, y + i * lineHeight);
@@ -70,7 +70,7 @@ function drawWrappedText(pdf: jsPDF, text: string, x: number, y: number, maxWidt
 }
 
 // ─── Helper: section header ──────────────────────────────────────────────────
-function drawSectionHeader(pdf: jsPDF, title: string, y: number, margin: number, contentWidth: number): number {
+function drawSectionHeader(pdf: JsPDFType, title: string, y: number, margin: number, contentWidth: number): number {
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(26, 42, 58);
@@ -84,7 +84,7 @@ function drawSectionHeader(pdf: jsPDF, title: string, y: number, margin: number,
 }
 
 // ─── Helper: info box ────────────────────────────────────────────────────────
-function drawInfoBox(pdf: jsPDF, label: string, value: string, x: number, y: number, w: number, h: number): void {
+function drawInfoBox(pdf: JsPDFType, label: string, value: string, x: number, y: number, w: number, h: number): void {
     pdf.setDrawColor(200, 200, 200);
     pdf.setLineWidth(0.3);
     pdf.roundedRect(x, y, w, h, 2, 2, 'S');
@@ -101,7 +101,7 @@ function drawInfoBox(pdf: jsPDF, label: string, value: string, x: number, y: num
 }
 
 // ─── Helper: check new page ─────────────────────────────────────────────────
-function checkPage(pdf: jsPDF, y: number, needed: number, pageHeight: number, margin: number): number {
+function checkPage(pdf: JsPDFType, y: number, needed: number, pageHeight: number, margin: number): number {
     if (y + needed > pageHeight - margin) {
         pdf.addPage();
         return margin + 10;
@@ -110,7 +110,8 @@ function checkPage(pdf: jsPDF, y: number, needed: number, pageHeight: number, ma
 }
 
 // ─── Generate the passage brief PDF ─────────────────────────────────────────
-async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions): Promise<jsPDF> {
+async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions): Promise<JsPDFType> {
+    const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const W = 210, H = 297, M = 15;
     const CW = W - M * 2;

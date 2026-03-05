@@ -4,7 +4,9 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
-        const timer = setInterval(() => { if (!document.hidden) setNow(new Date()); }, 1000);
+        // PERF FIX: Clock only shows hours:minutes — no need to update every second.
+        // 60s interval eliminates 59 unnecessary re-renders per minute that were heating the phone.
+        const timer = setInterval(() => { if (!document.hidden) setNow(new Date()); }, 60_000);
         return () => clearInterval(timer);
     }, []);
 

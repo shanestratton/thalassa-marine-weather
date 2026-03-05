@@ -17,6 +17,7 @@ import React, { useState, useEffect } from 'react';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { NmeaStore } from '../services/NmeaStore';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
+import { GpsService } from '../services/GpsService';
 
 export const NmeaGpsIndicator: React.FC = () => {
     const [nmeaActive, setNmeaActive] = useState(false);
@@ -29,53 +30,15 @@ export const NmeaGpsIndicator: React.FC = () => {
     // ── Passive GPS accuracy monitor ──
     // Feeds GpsPrecision even when no voyage/anchor is active,
     // so Bluetooth GPS devices (Bad Elf, Garmin GLO) are detected immediately.
-    // Uses Capacitor Geolocation plugin first (reliable on iOS), web API fallback.
+    // Routes through GpsService → BgGeoManager (native) or web fallback.
     useEffect(() => {
-        let cancelled = false;
-        let webWatchId: number | undefined;
-        let capIntervalId: ReturnType<typeof setInterval> | undefined;
-
-        (async () => {
-            // Try Capacitor Geolocation plugin first (reliable for external GPS on iOS)
-            try {
-                const { Geolocation } = await import('@capacitor/geolocation');
-                // Poll every 3s using the native plugin
-                capIntervalId = setInterval(async () => {
-                    if (cancelled || document.hidden) return;
-                    try {
-                        const pos = await Geolocation.getCurrentPosition({
-                            enableHighAccuracy: true,
-                            timeout: 5000,
-                        });
-                        if (pos.coords.accuracy > 0) {
-                            GpsPrecision.feed(pos.coords.accuracy);
-                        }
-                    } catch { /* GPS unavailable — ignore */ }
-                }, 3000);
-                return; // Capacitor path active — skip web API
-            } catch {
-                // Not running in Capacitor — fall through to web API
+        const unsub = GpsService.watchPosition((pos) => {
+            if (document.hidden) return;
+            if (pos.accuracy > 0) {
+                GpsPrecision.feed(pos.accuracy);
             }
-
-            // Web API fallback (browser / PWA)
-            if (!navigator.geolocation || cancelled) return;
-            webWatchId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    if (document.hidden) return;
-                    if (pos.coords.accuracy > 0) {
-                        GpsPrecision.feed(pos.coords.accuracy);
-                    }
-                },
-                () => { /* GPS error — ignore silently */ },
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-            );
-        })();
-
-        return () => {
-            cancelled = true;
-            if (webWatchId !== undefined) navigator.geolocation.clearWatch(webWatchId);
-            if (capIntervalId !== undefined) clearInterval(capIntervalId);
-        };
+        });
+        return unsub;
     }, []);
 
     useEffect(() => {

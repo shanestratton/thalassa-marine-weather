@@ -4,7 +4,7 @@
  * Generates a clean, branded PDF listing all equipment grouped by category,
  * then uses Web Share API (or falls back to direct download).
  */
-import { jsPDF } from 'jspdf';
+import type { jsPDF as JsPDFType } from 'jspdf';
 import type { EquipmentItem, EquipmentCategory } from '../types';
 
 const W = 210, H = 297, M = 15;
@@ -16,7 +16,7 @@ const CATEGORY_ORDER: EquipmentCategory[] = [
 
 // ── Helpers (consistent with pdfExport.ts) ──────────────────────
 
-function drawSectionHeader(pdf: jsPDF, title: string, y: number): number {
+function drawSectionHeader(pdf: JsPDFType, title: string, y: number): number {
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(26, 42, 58);
@@ -29,7 +29,7 @@ function drawSectionHeader(pdf: jsPDF, title: string, y: number): number {
     return y + 8;
 }
 
-function checkPage(pdf: jsPDF, y: number, needed: number): number {
+function checkPage(pdf: JsPDFType, y: number, needed: number): number {
     if (y + needed > H - M) {
         pdf.addPage();
         return M + 10;
@@ -48,7 +48,7 @@ function colX(i: number): number {
     return x;
 }
 
-function drawTableHeader(pdf: jsPDF, y: number): number {
+function drawTableHeader(pdf: JsPDFType, y: number): number {
     pdf.setFillColor(26, 42, 58);
     pdf.rect(M, y, CW, 7, 'F');
     pdf.setFontSize(6.5);
@@ -58,7 +58,7 @@ function drawTableHeader(pdf: jsPDF, y: number): number {
     return y + 7;
 }
 
-function drawTableRow(pdf: jsPDF, item: EquipmentItem, y: number, fill: boolean): number {
+function drawTableRow(pdf: JsPDFType, item: EquipmentItem, y: number, fill: boolean): number {
     const rowH = 6.5;
     if (fill) { pdf.setFillColor(245, 247, 250); pdf.rect(M, y, CW, rowH, 'F'); }
     pdf.setFontSize(7.5);
@@ -107,7 +107,8 @@ function drawTableRow(pdf: jsPDF, item: EquipmentItem, y: number, fill: boolean)
 
 // ── Generate the PDF ────────────────────────────────────────────
 
-function generateEquipmentPDF(items: EquipmentItem[], vesselName?: string): jsPDF {
+async function generateEquipmentPDF(items: EquipmentItem[], vesselName?: string): Promise<JsPDFType> {
+    const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
     const currentDate = new Date().toLocaleDateString('en-AU', {
@@ -171,7 +172,7 @@ function generateEquipmentPDF(items: EquipmentItem[], vesselName?: string): jsPD
 // ── Public API (same share-or-download pattern as passage brief) ──
 
 export async function exportEquipmentPdf(items: EquipmentItem[], vesselName?: string): Promise<void> {
-    const pdf = generateEquipmentPDF(items, vesselName);
+    const pdf = await generateEquipmentPDF(items, vesselName);
     const date = new Date().toISOString().split('T')[0];
     const filename = `Equipment_Register_${date}.pdf`;
 

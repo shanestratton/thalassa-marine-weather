@@ -60,7 +60,7 @@ interface SwipeableCardProps {
 }
 
 const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onDelete, onContextMenu }) => {
-    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
 
     const warrantyActive = item.warranty_expiry
         ? new Date(item.warranty_expiry).getTime() > Date.now()
@@ -85,7 +85,7 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                {...handlers}
+                ref={ref}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Category badge — top of card */}

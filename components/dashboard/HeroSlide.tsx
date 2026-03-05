@@ -22,6 +22,7 @@ import { SourceLegend } from '../SourceLegend';
 import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WIDGET_CLASS, getSourceIndicatorColor } from './hero/HeroWidgets';
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { ShipLogService } from '../../services/ShipLogService';
+import { isGoldenHour } from '../../utils/goldenHour';
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
@@ -611,11 +612,14 @@ const HeroSlideComponent = ({
         const topWidgetId = settings.topHeroWidget || 'sunrise'; // Default
 
         if (topWidgetId === 'sunrise') {
+            const goldenNow = displayValues.sunrise && displayValues.sunset
+                ? isGoldenHour(displayValues.sunrise, displayValues.sunset)
+                : false;
             return (
                 <div className="flex flex-col h-full justify-between">
                     <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                        <SunIcon className="w-3 h-3 text-amber-400" />
-                        <span className="text-sm md:text-sm font-bold uppercase tracking-widest text-amber-200">Sun Phz</span>
+                        <SunIcon className={`w-3 h-3 ${goldenNow ? 'text-amber-300' : 'text-amber-400'}`} />
+                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${goldenNow ? 'text-amber-200' : 'text-amber-200'}`}>Sun Phz</span>
                     </div>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center justify-between">
@@ -627,6 +631,12 @@ const HeroSlideComponent = ({
                             <span className="text-sm text-purple-300 font-bold uppercase mr-1">Set</span>
                             <span className="text-base md:text-lg font-mono font-medium tracking-tight text-ivory">{displayValues.sunset}</span>
                         </div>
+                        {goldenNow && (
+                            <div className="flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/15 w-fit">
+                                <span className="text-[10px]">📸</span>
+                                <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">Golden Hour</span>
+                            </div>
+                        )}
                     </div>
                     <LocationClock timeZone={timeZone} utcOffset={utcOffset} />
                 </div>
@@ -788,8 +798,11 @@ const HeroSlideComponent = ({
 
         const isCardDay = (!isHourly && index > 0) ? true : sunPhase.isDay;
         const cardIsLive = !isHourly && index === 0;
+        const isGolden = isCardDay && cardData.sunrise && cardData.sunset
+            ? isGoldenHour(cardData.sunrise, cardData.sunset)
+            : false;
 
-        return { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime };
+        return { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime, isGolden };
     }), [slides, units, isLandlocked, index]);    // Calculate active slide data for static displays
     // Always track the actively scrolled card for header updates
     const activeSlide = slides[activeHIdx] || slides[0];
@@ -956,7 +969,7 @@ const HeroSlideComponent = ({
                         const precomputed = slideDisplayData[slideIdx];
                         // Guard against undefined precomputed data (race condition safety)
                         if (!precomputed) return null;
-                        const { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime } = precomputed;
+                        const { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime, isGolden } = precomputed;
                         // Gate chart rendering: only render Recharts for the visible day slide
                         // Off-screen day slides don't render charts (prevents width(-1) warnings)
                         // NOTE: Do NOT gate on horizontal card proximity (activeHIdx) — that causes
@@ -992,7 +1005,7 @@ const HeroSlideComponent = ({
                                 {showMapInstead ? (
                                     /* ESSENTIAL MODE MAP — only on slide 0 to avoid multiple WebGL contexts */
                                     <div className="relative w-full h-full flex flex-col">
-                                        <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
+                                        <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
                                             {slideIdx === 0 ? (
                                                 <>
                                                     <style>{`
@@ -1025,10 +1038,10 @@ const HeroSlideComponent = ({
 
 
                                         {/* Tide Graph Card — 2/3 of space */}
-                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
-                                            {/* BG Gradient */}
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] backdrop-blur-xl shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
+                                            {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
-                                                <div className={`absolute inset-0 bg-gradient-to-br ${isCardDay ? 'from-sky-500/[0.06] via-transparent to-sky-500/[0.04]' : 'from-sky-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
+                                                <div className={`absolute inset-0 bg-gradient-to-br ${isGolden ? 'from-amber-500/[0.10] via-amber-300/[0.04] to-amber-500/[0.06]' : isCardDay ? 'from-sky-500/[0.06] via-transparent to-sky-500/[0.04]' : 'from-sky-500/[0.08] via-transparent to-purple-500/[0.04]'}`} />
                                             </div>
                                             <div className="relative w-full h-full">
                                                 {shouldRenderChart ? (
@@ -1059,7 +1072,7 @@ const HeroSlideComponent = ({
                                 ) : tidesExpectedButMissing && !showMapInstead ? (
                                     /* COASTAL BUT TIDES UNAVAILABLE — graceful degradation */
                                     <div className="relative w-full h-full flex flex-col gap-2">
-                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] backdrop-blur-xl ${isCardDay ? 'border-white/[0.06]' : 'border-sky-300/[0.06]'}`}>
+                                        <div className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.03] backdrop-blur-xl ${isGolden ? 'border-amber-400/[0.12]' : isCardDay ? 'border-white/[0.06]' : 'border-sky-300/[0.06]'}`}>
                                             <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
                                                     <span className="text-lg">🌊</span>

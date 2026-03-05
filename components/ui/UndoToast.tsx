@@ -22,6 +22,10 @@ export const UndoToast: React.FC<UndoToastProps> = ({
     onDismiss,
 }) => {
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const onDismissRef = useRef(onDismiss);
+    onDismissRef.current = onDismiss;
+    const onUndoRef = useRef(onUndo);
+    onUndoRef.current = onUndo;
     const [progress, setProgress] = useState(100);
     const startRef = useRef(0);
     const frameRef = useRef<number>(0);
@@ -42,20 +46,20 @@ export const UndoToast: React.FC<UndoToastProps> = ({
         }
         startRef.current = Date.now();
         frameRef.current = requestAnimationFrame(animate);
-        timerRef.current = setTimeout(onDismiss, duration);
+        timerRef.current = setTimeout(() => onDismissRef.current(), duration);
 
         return () => {
             if (timerRef.current) clearTimeout(timerRef.current);
             if (frameRef.current) cancelAnimationFrame(frameRef.current);
         };
-    }, [isOpen, duration, onDismiss, animate]);
+    }, [isOpen, duration, animate]);
 
     if (!isOpen) return null;
 
     return (
         <div
             className="fixed left-4 right-4 z-[9999] animate-slide-up"
-            style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+            style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
         >
             <div className="bg-slate-800 border border-white/10 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-xl">
                 <div className="flex items-center justify-between gap-3">
@@ -69,7 +73,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({
                         onClick={() => {
                             if (timerRef.current) clearTimeout(timerRef.current);
                             if (frameRef.current) cancelAnimationFrame(frameRef.current);
-                            onUndo();
+                            onUndoRef.current();
                         }}
                         className="shrink-0 px-4 py-1.5 bg-amber-500/20 text-amber-400 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-500/30 active:scale-95 transition-all"
                     >

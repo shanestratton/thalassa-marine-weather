@@ -189,7 +189,7 @@ interface SwipeableDocCardProps {
 }
 
 const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit, onDelete }) => {
-    const { swipeOffset, isSwiping, resetSwipe, handlers } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
     const [actionBusy, setActionBusy] = useState<'download' | 'share' | null>(null);
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
@@ -235,7 +235,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${colors.border} rounded-2xl overflow-hidden bg-white/[0.03]`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                {...handlers}
+                ref={ref}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
                 {/* Traffic light bar */}
@@ -464,7 +464,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
     const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);
-    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleDelete = useCallback((id: string) => {
         const doc = documents.find(d => d.id === id);
@@ -473,24 +472,24 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         // Remove from UI immediately
         setDocuments(prev => prev.filter(d => d.id !== id));
         setDeletedDoc(doc);
-
-        // Schedule actual delete after 5s
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-        deleteTimerRef.current = setTimeout(async () => {
-            try {
-                await LocalDocumentService.delete(id);
-                DocumentSyncService.markDeleted(id);
-            } catch (e) {
-                console.warn('[DocumentsHub] delete failed:', e);
-                toast.error('Failed to delete document');
-                setDocuments(prev => [...prev, doc]);
-            }
-            setDeletedDoc(null);
-        }, 5000);
     }, [documents]);
 
+    // Called by UndoToast after 5s — performs the actual delete
+    const handleDismissDelete = useCallback(async () => {
+        if (!deletedDoc) return;
+        const doc = deletedDoc;
+        setDeletedDoc(null);
+        try {
+            await LocalDocumentService.delete(doc.id);
+            DocumentSyncService.markDeleted(doc.id);
+        } catch (e) {
+            console.warn('[DocumentsHub] delete failed:', e);
+            toast.error('Failed to delete document');
+            setDocuments(prev => [...prev, doc]);
+        }
+    }, [deletedDoc]);
+
     const handleUndoDelete = useCallback(() => {
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
         if (deletedDoc) {
             setDocuments(prev => [...prev, deletedDoc]);
             toast.success('Document restored');
@@ -725,7 +724,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 isOpen={!!deletedDoc}
                 message={`"${deletedDoc?.document_name}" deleted`}
                 onUndo={handleUndoDelete}
-                onDismiss={() => setDeletedDoc(null)}
+                onDismiss={handleDismissDelete}
             />
         </div >
     );

@@ -17,6 +17,7 @@ import { useWindHeatMap } from '../hooks/useWindHeatMap';
 import { WindVelocityLayer } from './map/WindVelocityLayer';
 import { OfflineTileControl } from './map/OfflineTileControl';
 import { useNavMeshOverlay } from '../hooks/useNavMeshOverlay';
+import { GpsService } from '../services/GpsService';
 
 
 
@@ -543,29 +544,21 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 {/* GPS Snap Button */}
                                 <button
                                     onClick={() => {
-                                        if ('geolocation' in navigator) {
-                                            navigator.geolocation.getCurrentPosition((pos) => {
-                                                if (mapInstance.current) {
-                                                    const { latitude, longitude } = pos.coords;
-                                                    mapInstance.current.flyTo([latitude, longitude], 12);
+                                        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
+                                            if (!pos) { toast.error("GPS Error: Unable to get position"); return; }
+                                            if (mapInstance.current) {
+                                                const { latitude, longitude } = pos;
+                                                mapInstance.current.flyTo([latitude, longitude], 12);
 
-                                                    // Trigger selection if in confirm mode
-                                                    if (isConfirmMode || onLocationSelect) {
-                                                        // If confirm mode, stage it. If instant, select it?
-                                                        // Actually logic below says:
-                                                        if (isConfirmMode) {
-                                                            setActiveLayer('buoys');
-                                                            setPendingSelection({ lat: latitude, lon: longitude, name: 'Current Location' });
-                                                            setRawTargetPos({ lat: latitude, lon: longitude });
-                                                        } else if (onLocationSelect) {
-                                                            // Just move map, user can click to confirm or maybe we auto-select?
-                                                            // The original logic didn't auto-select on GPS snap unless confirm mode.
-                                                            // Let's keep it just move map unless confirm mode.
-                                                        }
+                                                if (isConfirmMode || onLocationSelect) {
+                                                    if (isConfirmMode) {
+                                                        setActiveLayer('buoys');
+                                                        setPendingSelection({ lat: latitude, lon: longitude, name: 'Current Location' });
+                                                        setRawTargetPos({ lat: latitude, lon: longitude });
                                                     }
                                                 }
-                                            }, (err) => toast.error("GPS Error: " + err.message));
-                                        }
+                                            }
+                                        });
                                     }}
                                     className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95 mb-2"
                                     title="Snap to GPS"

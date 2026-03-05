@@ -4,14 +4,13 @@ import { MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
 // geminiService dynamically imported to avoid bundling @google/generative-ai (158KB) in main chunk
 import { fetchFastWeather, fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from '../services/weatherService';
 import { fetchWeatherKitRealtime } from '../services/weather/api/weatherkit';
-import { attemptGridSearch } from '../services/weather/api/openmeteo';
 import { isStormglassKeyPresent } from '../services/weather/keys';
 import { useSettings, DEFAULT_SETTINGS } from './SettingsContext';
 import { calculateDistance, degreesToCardinal } from '../utils';
-import { enhanceWithBeaconData } from '../services/beaconIntegration';
 import { EnvironmentService } from '../services/EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
 import { toast } from '../components/Toast';
+import { GpsService } from '../services/GpsService';
 
 import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
@@ -264,29 +263,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 
                     // Handle GPS-based "Current Location" specially
-                    if (loc === "Current Location" && navigator.geolocation) {
+                    if (loc === "Current Location") {
                         if (!hasCachedData) setLoadingMessage("Getting GPS Location...");
-                        navigator.geolocation.getCurrentPosition(
-                            (pos) => {
-                                // If we have cached data, this runs as BACKGROUND (silent) refresh
-                                // because weatherDataRef.current is already set
+                        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                            if (pos) {
                                 fetchWeather(loc, !hasCachedData, {
-                                    lat: pos.coords.latitude,
-                                    lon: pos.coords.longitude
-                                }, false, hasCachedData); // silent=true if we have cache
-                            },
-                            (error) => {
+                                    lat: pos.latitude,
+                                    lon: pos.longitude
+                                }, false, hasCachedData);
+                            } else {
                                 if (!hasCachedData) {
                                     setError("Unable to get GPS location. Please select a location.");
                                     setLoading(false);
                                 }
-                            },
-                            {
-                                enableHighAccuracy: true,
-                                timeout: 10000,
-                                maximumAge: 60000
                             }
-                        );
+                        });
                     } else {
                         // Named location
                         setLoading(false);
@@ -409,28 +400,14 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (location === "Current Location") {
                     setLoadingMessage("Getting GPS Location...");
 
-                    // Try to get GPS coordinates
-                    if (navigator.geolocation) {
-                        return new Promise<void>((resolve) => {
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => {
-                                    // Success - retry fetch with coords
-                                    fetchWeather(location, force, {
-                                        lat: pos.coords.latitude,
-                                        lon: pos.coords.longitude
-                                    }, showOverlay, silent);
-                                    resolve();
-                                },
-                                (error) => {
-                                    setError("Unable to get GPS location. Please select a location or enable location services.");
-                                    setLoading(false);
-                                    resolve();
-                                },
-                                { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-                            );
-                        });
+                    const pos = await GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 15 });
+                    if (pos) {
+                        return fetchWeather(location, force, {
+                            lat: pos.latitude,
+                            lon: pos.longitude
+                        }, showOverlay, silent);
                     } else {
-                        setError("Location services not available. Please select a location.");
+                        setError("Unable to get GPS location. Please select a location or enable location services.");
                         setLoading(false);
                         return;
                     }
@@ -730,17 +707,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setNextUpdate(tempNext);
 
                 // INTELLIGENT GPS vs SELECTED MODE
-                if (locationMode === 'gps' && navigator.geolocation) {
-                    // GPS Mode: Get fresh coordinates
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => fetchWeather("Current Location", true, { lat: pos.coords.latitude, lon: pos.coords.longitude }, false, true),
-                        (error) => {
+                if (locationMode === 'gps') {
+                    // GPS Mode: Get fresh coordinates via efficient native plugin
+                    GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then((pos) => {
+                        if (pos) {
+                            fetchWeather("Current Location", true, { lat: pos.latitude, lon: pos.longitude }, false, true);
+                        } else {
                             // Fallback to last known location
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             const coords = weatherDataRef.current?.coordinates;
                             if (loc) fetchWeather(loc, false, coords, false, true);
                         }
-                    );
+                    });
                 } else {
                     // Selected Mode: Keep location FIXED — never touch GPS, always use stored coords
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
@@ -752,7 +730,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     }
                 }
             }
-        }, 10000);
+        }, 30_000);  // PERF FIX: Was 10s — 30s reduces GPS+countdown check overhead 3x
 
         // WAKE FROM SLEEP — when iPhone/device resumes, check if nextUpdate is stale
         const handleVisibilityChange = () => {
@@ -789,7 +767,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const NAME_CHECK_NM = 0.5;    // Suburb change threshold (filter GPS jitter)
         const WEATHER_REFRESH_NM = 5;  // Full weather refresh threshold
-        const POLL_MS = 10_000;
+        const POLL_MS = 30_000;  // PERF FIX: Was 10s — GPS drift check every 30s is plenty
 
         const haversineNM = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
             const R = 3440.065; // Earth radius in nautical miles
@@ -804,13 +782,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const driftCheck = setInterval(() => {
             if (document.hidden) return; // Battery: skip GPS when backgrounded
             if (!navigator.onLine || isFetchingRef.current) return;
-            if (!navigator.geolocation) return;
 
             const current = weatherDataRef.current?.coordinates;
             if (!current) return;
 
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                const { latitude, longitude } = pos.coords;
+            GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
+                if (!pos) return;
+                const { latitude, longitude } = pos;
                 const dist = haversineNM(current.lat, current.lon, latitude, longitude);
 
                 if (dist < NAME_CHECK_NM) return; // GPS jitter — discard
@@ -838,10 +816,6 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     }
                 }
                 // else: moved but same suburb name — do nothing
-            }, () => { /* GPS error — skip silently */ }, {
-                enableHighAccuracy: false,
-                timeout: 10_000,
-                maximumAge: 15_000
             });
         }, POLL_MS);
 

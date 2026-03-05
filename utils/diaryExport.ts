@@ -4,7 +4,7 @@
  * Navy header, gold accents, compass rose watermark, A4 portrait
  */
 
-import { jsPDF } from 'jspdf';
+import type { jsPDF as JsPDFType } from 'jspdf';
 import { DiaryEntry, MOOD_CONFIG, DiaryMood } from '../services/DiaryService';
 
 const NAVY = [26, 42, 58] as const;
@@ -17,7 +17,7 @@ const LIGHT_BG = [248, 250, 252] as const;
  * Draw an angled compass rose watermark on the page
  * Same style as the logbook export
  */
-function drawCompassRoseWatermark(pdf: jsPDF, pageWidth: number, pageHeight: number): void {
+function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight: number): void {
     const centerX = 35;
     const centerY = pageHeight - 40;
     const radius = 28;
@@ -140,7 +140,7 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
             reader.readAsDataURL(blob);
         });
     } catch (e) {
-            console.warn('[diaryExport]', e);
+        console.warn('[diaryExport]', e);
         return null;
     }
 }
@@ -165,6 +165,7 @@ export async function generateDiaryPDF(
 
         callbacks?.onProgress?.('Generating PDF...');
 
+        const { jsPDF } = await import('jspdf');
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pageWidth = 210;
         const pageHeight = 297;
@@ -383,7 +384,7 @@ export async function generateDiaryPDF(
                                 pdf.setLineWidth(0.2);
                                 pdf.rect(photoX, entryY, photoSize, photoSize, 'S');
                             } catch (e) {
-            console.warn('[diaryExport]', e);
+                                console.warn('[diaryExport]', e);
                                 // Skip failed images
                             }
                             photoX += photoSize + 3;

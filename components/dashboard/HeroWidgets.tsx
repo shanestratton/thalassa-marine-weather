@@ -386,14 +386,18 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             return todayTotal > 0 ? parseFloat(todayTotal.toFixed(1)) : 0;
         }
         if (!isLive && hourly?.length) {
-            // Forecast: find closest hourly slot and use precipChance
-            const now = Date.now();
-            const currentHour = hourly.find(h => Math.abs(new Date(h.time).getTime() - now) < 90 * 60_000);
+            // BUG FIX: Use cardTime (the hour the user scrolled to), NOT Date.now()
+            // Previously this always matched "right now", so every future hour showed the same rain %.
+            const targetTime = cardTime ?? Date.now();
+            const currentHour = hourly.find(h => Math.abs(new Date(h.time).getTime() - targetTime) < 90 * 60_000);
             if (currentHour?.precipChance !== undefined) return currentHour.precipChance;
+            // If no precipChance, fall back to that hour's precipitation amount
+            if (currentHour?.precipitation !== undefined) return safeRound(currentHour.precipitation);
         }
-        // Fallback to raw precipitation value
+        // Fallback: use the active data's own precipChance or precipitation, not the live observation
+        if ((data as any).precipChance !== undefined) return (data as any).precipChance;
         return safeRound(data.precipitation);
-    }, [isLive, hourly, data.precipitation]);
+    }, [isLive, hourly, data.precipitation, (data as any).precipChance, cardTime]);
     const rainUnit = isLive ? (units.temp === 'F' ? 'in' : 'mm') : '%';
 
     const isOffshore = locationType === 'offshore';

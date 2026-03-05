@@ -1,13 +1,21 @@
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Card } from './shared/Card';
-import { GaugeIcon, DropletIcon, ThermometerIcon, CloudIcon, EyeIcon, ArrowUpIcon, ArrowDownIcon, WindIcon, RainIcon, WaveIcon, GearIcon, SunIcon, GripIcon, StarIcon, TideCurveIcon } from '../Icons';
+import { GaugeIcon, DropletIcon, ThermometerIcon, CloudIcon, EyeIcon, ArrowUpIcon, ArrowDownIcon, WindIcon, RainIcon, WaveIcon, GearIcon, SunIcon, StarIcon, TideCurveIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import { convertTemp, convertDistance, getBeaufort, convertPrecip, calculateDailyScore, getSailingConditionText, convertLength } from '../../utils';
 import { useThalassa } from '../../context/ThalassaContext';
-import { DndContext, closestCenter, useSensor, useSensors, PointerSensor, TouchSensor } from '@dnd-kit/core';
-import { arrayMove, SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+
+// ── Lazy-loaded DnD wrapper ─────────────────────────────────────
+// @dnd-kit is 185KB — only load it when the component mounts, not at app startup.
+const DndSortableGrid = React.lazy(() => import('./DndSortableGrid'));
+
+/** Fallback: plain grid while DnD chunk loads (or on older devices) */
+const PlainGrid: React.FC<{ ids: string[]; children: (id: string) => React.ReactNode }> = ({ ids, children }) => (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {ids.map(id => <div key={id}>{children(id)}</div>)}
+    </div>
+);
 
 const getBeaufortConfig = (force: number) => {
     const configs = [
@@ -92,32 +100,6 @@ const DetailTile: React.FC<DetailTileProps> = React.memo(({ label, value, unit, 
     </div>
 ));
 
-const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 50 : 1,
-        opacity: isDragging ? 0.6 : 1,
-        position: 'relative' as const,
-    };
-
-    return (
-        <div ref={setNodeRef} style={style} className="h-full relative group/tile">
-            {children}
-            <div
-                {...attributes}
-                {...listeners}
-                className="absolute top-1.5 right-1.5 p-1.5 text-white/60 hover:text-white/80 bg-black/10 hover:bg-sky-500/80 rounded-lg transition-all cursor-grab active:cursor-grabbing backdrop-blur-sm z-30 opacity-40 group-hover/tile:opacity-100 md:opacity-0 md:group-hover/tile:opacity-100"
-                title="Drag to reorder"
-            >
-                <GripIcon className="w-3 h-3" />
-            </div>
-        </div>
-    );
-};
-
 export { AlertsBanner, MetricsWidget } from './WeatherGrid_exports';
 
 export const BeaufortWidget = React.memo(({ windSpeed }: { windSpeed: number | null }) => {
@@ -165,20 +147,8 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
     const { settings, updateSettings } = useThalassa();
     const activeWidgets = settings.detailsWidgets || ['wave', 'wavePeriod', 'pressure', 'humidity', 'precip', 'dewPoint', 'cloud', 'visibility', 'chill', 'swell'];
 
-    // DnD Sensors
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } })
-    );
-
-    const handleDragEnd = (event: any) => {
-        const { active, over } = event;
-        if (active && over && active.id !== over.id) {
-            const oldIndex = activeWidgets.indexOf(active.id);
-            const newIndex = activeWidgets.indexOf(over.id);
-            const newOrder = arrayMove(activeWidgets, oldIndex, newIndex);
-            updateSettings({ detailsWidgets: newOrder });
-        }
+    const handleReorder = (newOrder: string[]) => {
+        updateSettings({ detailsWidgets: newOrder });
     };
 
     // Metric Calculations
@@ -381,17 +351,11 @@ export const DetailedMetricsWidget = ({ current, units, hourly, locationType }: 
                 <GearIcon className="w-3 h-3" /> Atmospherics
             </div>
 
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={activeWidgets} strategy={rectSortingStrategy}>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {activeWidgets.map(id => (
-                            <SortableMetricTile key={id} id={id}>
-                                {WIDGET_MAP[id] || null}
-                            </SortableMetricTile>
-                        ))}
-                    </div>
-                </SortableContext>
-            </DndContext>
+            <Suspense fallback={<PlainGrid ids={activeWidgets}>{id => WIDGET_MAP[id] || null}</PlainGrid>}>
+                <DndSortableGrid items={activeWidgets} onReorder={handleReorder}>
+                    {(id: string) => WIDGET_MAP[id] || null}
+                </DndSortableGrid>
+            </Suspense>
         </Card>
     );
 };

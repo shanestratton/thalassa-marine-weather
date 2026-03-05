@@ -9,6 +9,7 @@ import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/logger';
 import { generateSeaRoute } from '../utils/seaRoute';
+import { GpsService } from '../services/GpsService';
 
 export const LOADING_PHASES = [
     "Querying Hydrographic Data...",
@@ -293,16 +294,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const handleOriginLocation = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        if ('geolocation' in navigator) {
-            navigator.geolocation.getCurrentPosition(async (position) => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
-                const name = await reverseGeocode(lat, lon);
-                // Always embed coordinates so the routing pipeline uses the exact GPS position
-                const coordSuffix = `(${lat.toFixed(4)}, ${lon.toFixed(4)})`;
-                setOrigin(name ? `${name} ${coordSuffix}` : `WP ${coordSuffix}`);
-            });
-        }
+        GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then(async (pos) => {
+            if (!pos) return;
+            const { latitude, longitude } = pos;
+            const name = await reverseGeocode(latitude, longitude);
+            const coordSuffix = `(${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+            setOrigin(name ? `${name} ${coordSuffix}` : `WP ${coordSuffix}`);
+        });
     };
 
     const toggleCheck = (item: string) => setChecklistState(p => ({ ...p, [item]: !p[item] }));

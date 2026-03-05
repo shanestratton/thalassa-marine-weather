@@ -15,7 +15,7 @@ interface CurrentConditionsCardProps {
  * Single row of 5 key metrics — condition is already shown in the header card above,
  * so this card just provides complementary at-a-glance data.
  */
-export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
+export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React.memo(({
     data,
     units,
 }) => {
@@ -114,4 +114,4 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = ({
             </div>
         </div>
     );
-};
+});

@@ -103,12 +103,17 @@ export const SkeletonChannelList: React.FC = () => (
     <div className="px-4 py-3 space-y-2 animate-in fade-in duration-300">
         <Skeleton className="h-2.5 w-20 mb-3" />
         {[0, 1, 2, 3, 4].map(i => (
-            <div key={i} className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.03]">
+            <div
+                key={i}
+                className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.03] stagger-item"
+                style={{ animationDelay: `${i * 60}ms` }}
+            >
                 <Skeleton className="w-11 h-11 !rounded-xl" />
                 <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-4 w-1/3" />
-                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className={`h-4 ${i % 2 === 0 ? 'w-2/5' : 'w-1/3'}`} />
+                    <Skeleton className={`h-3 ${i % 2 === 0 ? 'w-3/5' : 'w-2/3'}`} />
                 </div>
+                <Skeleton className="w-6 h-6 !rounded-full" />
             </div>
         ))}
     </div>

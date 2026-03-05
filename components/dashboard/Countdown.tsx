@@ -23,11 +23,11 @@ export const Countdown = ({ targetTime }: { targetTime: number | null }) => {
                     setTimeLeft("Updating...");
                 }
             } else {
-                const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                const secs = Math.floor((diff % (1000 * 60)) / 1000);
-                setTimeLeft(`${mins}:${secs.toString().padStart(2, '0')} `);
+                const mins = Math.ceil(diff / (1000 * 60));
+                // PERF FIX: minute-precision instead of second-precision.
+                setTimeLeft(mins <= 1 ? '<1m' : `${mins}m`);
             }
-        }, 1000);
+        }, 10_000);  // PERF FIX: Was 1000ms — 1 setState/second causing phone heating
         return () => clearInterval(interval);
     }, [targetTime]);
 

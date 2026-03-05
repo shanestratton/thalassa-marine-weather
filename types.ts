@@ -262,7 +262,7 @@ export interface InventoryItem {
 export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine' | 'Repair';
 
 /** Maintenance trigger types */
-export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'weekly' | 'monthly' | 'bi_annual' | 'annual';
+export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'quarterly' | 'monthly' | 'bi_annual' | 'annual';
 
 /** Maintenance task (The Engine) */
 export interface MaintenanceTask {
@@ -554,6 +554,9 @@ export interface MarineWeatherReport {
         timeOffsetHigh?: number;
         timeOffsetLow?: number;
     };
+    // Offline cache metadata — set when serving expired cached data
+    _stale?: boolean;
+    _staleAgeMinutes?: number;
 }
 
 export interface Waypoint {

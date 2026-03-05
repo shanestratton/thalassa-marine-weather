@@ -65,6 +65,7 @@ export const HeroSection = ({
     const { settings, updateSettings } = useSettings();
     const [activeIndex, setActiveIndex] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const activeIndexRef = useRef(0);
 
     // Construct rows: Index 0 is Current/Today. Index 1+ are Forecasts/Future.
     const dayRows = useMemo(() => {
@@ -121,13 +122,14 @@ export const HeroSection = ({
         const h = e.currentTarget.clientHeight;
         if (h > 0) {
             const idx = Math.round(y / h);
-            if (idx !== activeIndex) {
+            if (idx !== activeIndexRef.current) {
+                activeIndexRef.current = idx;
                 setActiveIndex(idx);
                 if (onDayChange) onDayChange(idx);
                 if (onHourChange) onHourChange(0); // Reset to first hour of new day
             }
         }
-    }, [activeIndex, onDayChange, onHourChange]);
+    }, [onDayChange, onHourChange]);
 
     // Keyboard navigation for vertical day carousel
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {

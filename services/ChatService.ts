@@ -64,6 +64,7 @@ export interface UserRole {
     user_id: string;
     role: ChatRole;
     muted_until: string | null;
+    is_blocked: boolean;
 }
 
 export interface DMConversation {
@@ -106,6 +107,7 @@ class ChatServiceClass {
     private currentUserId: string | null = null;
     private currentRole: ChatRole = 'member';
     private mutedUntil: Date | null = null;
+    private blocked: boolean = false;
     private initPromise: Promise<void> | null = null;
 
     // --- INIT ---
@@ -139,13 +141,14 @@ class ChatServiceClass {
         if (!supabase || !this.currentUserId) return;
         const { data } = await supabase
             .from(ROLES_TABLE)
-            .select('role, muted_until')
+            .select('role, muted_until, is_blocked')
             .eq('user_id', this.currentUserId)
             .single();
 
         if (data) {
             this.currentRole = data.role as ChatRole;
             this.mutedUntil = data.muted_until ? new Date(data.muted_until) : null;
+            this.blocked = data.is_blocked ?? false;
         }
     }
 
@@ -528,8 +531,11 @@ class ChatServiceClass {
     getRole(): ChatRole { return this.currentRole; }
     isMod(): boolean { return this.currentRole === 'admin' || this.currentRole === 'moderator'; }
     isAdmin(): boolean { return this.currentRole === 'admin'; }
+    isModerator(): boolean { return this.currentRole === 'moderator'; }
 
     isMuted(): boolean {
+        // Platform-blocked users can never send
+        if (this.blocked) return true;
         if (!this.mutedUntil) return false;
         if (new Date() > this.mutedUntil) {
             this.mutedUntil = null;
@@ -574,7 +580,8 @@ class ChatServiceClass {
     }
 
     async setRole(userId: string, role: ChatRole): Promise<boolean> {
-        if (!supabase || !this.isAdmin()) return false;
+        // Only moderators can promote to admin; moderator promotion is owner-only (manual)
+        if (!supabase || !this.isModerator()) return false;
 
         const { error } = await supabase
             .from(ROLES_TABLE)
@@ -582,8 +589,33 @@ class ChatServiceClass {
                 user_id: userId,
                 role,
                 muted_until: null,
+                is_blocked: false,
             }, { onConflict: 'user_id' });
 
+        return !error;
+    }
+
+    /** Moderator-only: permanently block a user from the platform */
+    async blockUserPlatform(userId: string): Promise<boolean> {
+        if (!supabase || !this.isModerator()) return false;
+        const { error } = await supabase
+            .from(ROLES_TABLE)
+            .upsert({
+                user_id: userId,
+                role: 'member',
+                is_blocked: true,
+                muted_until: null,
+            }, { onConflict: 'user_id' });
+        return !error;
+    }
+
+    /** Moderator-only: unblock a platform-blocked user */
+    async unblockUserPlatform(userId: string): Promise<boolean> {
+        if (!supabase || !this.isModerator()) return false;
+        const { error } = await supabase
+            .from(ROLES_TABLE)
+            .update({ is_blocked: false })
+            .eq('user_id', userId);
         return !error;
     }
 
@@ -591,9 +623,9 @@ class ChatServiceClass {
     // Admins: create/delete channels directly
     // Mods: propose channels → admin must approve
 
-    /** Admin-only: create a channel instantly */
+    /** Admin or Moderator: create a channel instantly */
     async createChannel(name: string, description: string, icon: string, region?: string): Promise<ChatChannel | null> {
-        if (!supabase || !this.isAdmin()) return null;
+        if (!supabase || !this.isMod()) return null;
 
         const { data, error } = await supabase
             .from(CHANNELS_TABLE)

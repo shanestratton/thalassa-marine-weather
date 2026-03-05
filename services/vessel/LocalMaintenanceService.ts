@@ -128,7 +128,7 @@ export class LocalMaintenanceService {
                 break;
             }
             case 'daily':
-            case 'weekly':
+            case 'quarterly':
             case 'monthly':
             case 'bi_annual':
             case 'annual':
