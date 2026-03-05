@@ -22,6 +22,7 @@ import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
+import { OnboardingOverlay } from './components/ui/OnboardingOverlay';
 
 
 
@@ -133,7 +134,7 @@ const App: React.FC = () => {
     // Loading State
     if (settingsLoading) {
         return (
-            <div className="flex items-center justify-center h-screen w-full bg-[#0f172a] text-sky-500 flex-col gap-4">
+            <div className="flex items-center justify-center h-screen w-full bg-slate-950 text-sky-500 flex-col gap-4">
                 <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
         );
@@ -195,6 +196,7 @@ const App: React.FC = () => {
             )}
 
             {loading && <ProcessOverlay message={loadingMessage} />}
+            <OnboardingOverlay />
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}

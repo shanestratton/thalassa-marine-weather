@@ -77,7 +77,7 @@ export const MoonVisual = ({ cloudCover, apiPhase, apiIllumination, apiPhaseValu
 
     return (
         <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 rounded-full bg-[#0f172a] border border-white/20 overflow-hidden shadow-inner">
+            <div className="relative w-12 h-12 rounded-full bg-slate-900 border border-white/20 overflow-hidden shadow-inner">
                 <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full">
                     <circle cx="50" cy="50" r="40" fill="#1e293b" />
                     <path

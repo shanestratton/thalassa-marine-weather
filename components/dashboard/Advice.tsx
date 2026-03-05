@@ -49,7 +49,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
     const showStatus = isBackgroundUpdating;
 
     return (
-        <Card className="bg-[#0f172a] p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
+        <Card className="bg-slate-900 p-0 overflow-hidden ${t.border.default} relative shadow-2xl group">
             {!isPro && (
                 <div className="absolute inset-0 z-20 backdrop-blur-md bg-slate-900/60 flex items-center justify-center">
                     <button onClick={onUpgrade} className={`bg-gradient-to-r from-sky-500 to-sky-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-sky-500/30 flex items-center gap-3 hover:scale-105 transition-transform ${t.border.default}`} aria-label="Upgrade">
@@ -142,7 +142,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = ({ advice, isPro, onUpg
 
                     {/* Updated Container with Scroll */}
                     <div className="flex-1 mt-4 overflow-y-auto custom-scrollbar min-h-[100px]">
-                        <p className="text-sm text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-[#141b29] py-1 z-10 opacity-90">Recommended Gear</p>
+                        <p className="text-sm text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-slate-900 py-1 z-10 opacity-90">Recommended Gear</p>
                         <div className="flex flex-wrap gap-2 content-start pb-2">
                             {lockerItems.map((item, idx) => (
                                 <span key={idx} className={`px-3 py-2 bg-white/5 hover:bg-white/10 text-sm font-medium text-sky-100 ${t.border.default} rounded-lg shadow-sm transition-all hover:border-sky-500/30 cursor-default flex items-center gap-1.5`}>
