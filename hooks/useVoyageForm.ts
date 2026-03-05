@@ -6,6 +6,7 @@ import { useWeather } from '../context/WeatherContext';
 import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
+import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/logger';
 import { generateSeaRoute } from '../utils/seaRoute';
 
@@ -137,7 +138,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             }
 
             const { fetchVoyagePlan } = await import('../services/geminiService');
-            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext);
+            // Pass user's current GPS position for proximity-based disambiguation
+            const userLoc = LocationStore.getState();
+            const userLocation = (userLoc.lat !== 0 || userLoc.lon !== 0) ? { lat: userLoc.lat, lon: userLoc.lon } : undefined;
+            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext, userLocation);
 
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveVoyagePlan(result);

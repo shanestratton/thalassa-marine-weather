@@ -347,7 +347,7 @@ export function useLogPageState() {
             dispatch({ type: 'SET_GPS_STATUS', status: 'none' });
             return;
         }
-        const poll = () => dispatch({ type: 'SET_GPS_STATUS', status: ShipLogService.getGpsStatus() });
+        const poll = () => { if (!document.hidden) dispatch({ type: 'SET_GPS_STATUS', status: ShipLogService.getGpsStatus() }); };
         poll();
         const id = setInterval(poll, 5000);
         return () => clearInterval(id);
@@ -366,12 +366,12 @@ export function useLogPageState() {
         const BURST_DURATION_MS = 10_000;
 
         // Start with rapid polling
-        let currentId = setInterval(() => { loadData(); }, BURST_POLL_MS);
+        let currentId = setInterval(() => { if (!document.hidden) loadData(); }, BURST_POLL_MS);
 
         // After burst period, switch to normal polling
         const burstTimeout = setTimeout(() => {
             clearInterval(currentId);
-            currentId = setInterval(() => { loadData(); }, normalPollMs);
+            currentId = setInterval(() => { if (!document.hidden) loadData(); }, normalPollMs);
         }, BURST_DURATION_MS);
 
         return () => {

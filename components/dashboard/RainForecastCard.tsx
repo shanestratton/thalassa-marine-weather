@@ -36,16 +36,13 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
 
         const maxIntensity = Math.max(...data.map(d => d.intensity), 0.1);
 
-        // If Apple's summary explicitly says "no rain/precipitation", treat as dry
-        // regardless of trace data. Also require a meaningful threshold (0.1 mm/hr)
-        // to avoid showing rain UI for negligible noise values.
-        const summaryIndicatesNoRain = rainSummary
-            ? /\bno\b/i.test(rainSummary) && /rain|precip|shower/i.test(rainSummary)
-            : false;
+        // DATA ALWAYS WINS: determine rain from actual minute-by-minute intensities.
+        // Apple's summary can lag or contradict the data (e.g. summary says "No precipitation"
+        // while minute data shows rain bars). We trust the data.
         const RAIN_THRESHOLD = 0.1; // mm/hr — ignore trace amounts below this
-        const hasRain = !summaryIndicatesNoRain && data.some(d => d.intensity >= RAIN_THRESHOLD);
+        const hasRain = data.some(d => d.intensity >= RAIN_THRESHOLD);
         const firstRainIdx = data.findIndex(d => d.intensity >= RAIN_THRESHOLD);
-        const isCurrentlyRaining = (data[0]?.intensity ?? 0) >= RAIN_THRESHOLD && !summaryIndicatesNoRain;
+        const isCurrentlyRaining = (data[0]?.intensity ?? 0) >= RAIN_THRESHOLD;
 
         // Find first dry minute after rain
         const firstDryAfterRain = isCurrentlyRaining
@@ -58,16 +55,14 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         // Total precipitation in the hour (mm)
         const totalPrecip = data.reduce((sum, d) => sum + (d.intensity / 60), 0);
 
-        // Headline logic — prefer Apple's native summary if available
+        // Headline logic — generate from data, use Apple summary only as flavour text
         let headline = '';
         let subline = '';
 
         if (!hasRain) {
+            // Only use Apple's summary when there's genuinely no rain in the data
             headline = rainSummary || 'No Rain Expected';
             subline = 'Next 60 minutes';
-        } else if (rainSummary) {
-            headline = rainSummary;
-            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
         } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
             headline = `Rain stopping in ${firstDryAfterRain} min`;
             subline = getIntensityLabel(data[0].intensity);
@@ -77,6 +72,13 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         } else if (firstRainIdx > 0) {
             headline = `Rain in ${firstRainIdx} min`;
             subline = getIntensityLabel(data[firstRainIdx].intensity);
+        } else if (rainSummary && !(/\bno\b/i.test(rainSummary) && /rain|precip/i.test(rainSummary))) {
+            // Use Apple summary only if it doesn't contradict the detected rain
+            headline = rainSummary;
+            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
+        } else {
+            headline = 'Precipitation detected';
+            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
         }
 
         const category = getIntensityCategory(maxIntensity);
@@ -115,17 +117,11 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         <>
             <button
                 onClick={openModal}
-                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className}`}
+                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${isActive
+                        ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
+                        : 'bg-slate-800/40 border border-blue-400/10'
+                    }`}
                 style={{
-                    background: isActive
-                        ? 'linear-gradient(135deg, rgba(6, 78, 115, 0.7), rgba(15, 23, 42, 0.8), rgba(8, 51, 96, 0.6))'
-                        : 'linear-gradient(135deg, rgba(30, 58, 138, 0.4), rgba(15, 23, 42, 0.5), rgba(30, 64, 175, 0.25))',
-                    border: isActive
-                        ? '1px solid rgba(34, 211, 238, 0.3)'
-                        : '1px solid rgba(96, 165, 250, 0.1)',
-                    boxShadow: isActive
-                        ? '0 0 25px -5px rgba(34, 211, 238, 0.2), inset 0 1px 0 rgba(255,255,255,0.08)'
-                        : 'none',
                     minHeight: '76px',
                 }}
             >
@@ -255,10 +251,67 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     boxShadow: '0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5)',
                 }}
             >
-                {/* Glow effects */}
+                {/* Weather-themed background imagery */}
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+                    {/* Glow effects */}
                     <div className="absolute -top-20 left-1/4 w-40 h-40 bg-sky-500/10 rounded-full blur-3xl" />
                     <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl" />
+
+                    {/* Subtle weather scene */}
+                    {!analysis.hasRain ? (
+                        /* ☀️ Clear — subtle warm glow */
+                        <>
+                            <div className="absolute top-4 right-8 w-16 h-16 rounded-full opacity-[0.06]"
+                                style={{ background: 'radial-gradient(circle, rgba(250,204,21,0.8) 0%, rgba(250,204,21,0) 70%)' }} />
+                            <svg className="absolute top-2 right-6 w-20 h-20 opacity-[0.05] text-yellow-300" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="18" fill="currentColor" />
+                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => (
+                                    <line key={angle} x1="50" y1="50" x2={50 + 30 * Math.cos(angle * Math.PI / 180)} y2={50 + 30 * Math.sin(angle * Math.PI / 180)}
+                                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                                ))}
+                            </svg>
+                        </>
+                    ) : analysis.maxIntensity < 2.5 ? (
+                        /* 🌧️ Light rain — a few subtle droplets */
+                        <svg className="absolute inset-0 w-full h-full opacity-[0.06]" viewBox="0 0 200 400">
+                            {[
+                                { x: 30, y: 60, d: 0 }, { x: 70, y: 120, d: 0.3 }, { x: 120, y: 40, d: 0.6 },
+                                { x: 160, y: 100, d: 0.15 }, { x: 50, y: 200, d: 0.45 }, { x: 140, y: 180, d: 0.7 },
+                                { x: 90, y: 280, d: 0.2 }, { x: 170, y: 250, d: 0.5 }, { x: 25, y: 320, d: 0.8 },
+                            ].map((drop, i) => (
+                                <g key={i} opacity="0.8">
+                                    <line x1={drop.x} y1={drop.y} x2={drop.x - 2} y2={drop.y + 14}
+                                        stroke="rgba(56,189,248,1)" strokeWidth="2" strokeLinecap="round">
+                                        <animate attributeName="y1" values={`${drop.y};${drop.y + 400}`} dur="3s" begin={`${drop.d}s`} repeatCount="indefinite" />
+                                        <animate attributeName="y2" values={`${drop.y + 14};${drop.y + 414}`} dur="3s" begin={`${drop.d}s`} repeatCount="indefinite" />
+                                    </line>
+                                </g>
+                            ))}
+                        </svg>
+                    ) : (
+                        /* ⛈️ Heavy rain — dense drops + cloud silhouette */
+                        <>
+                            <svg className="absolute top-0 left-0 w-full opacity-[0.06]" viewBox="0 0 300 80" preserveAspectRatio="xMidYMin slice">
+                                <path d="M-10 80 Q30 20 80 40 Q120 10 160 35 Q200 5 240 30 Q270 15 310 50 L310 80Z"
+                                    fill="rgba(148,163,184,0.8)" />
+                                <path d="M-10 80 Q40 30 90 50 Q130 20 170 45 Q210 15 250 40 Q280 25 310 55 L310 80Z"
+                                    fill="rgba(100,116,139,0.6)" />
+                            </svg>
+                            <svg className="absolute inset-0 w-full h-full opacity-[0.08]" viewBox="0 0 200 400">
+                                {Array.from({ length: 18 }, (_, i) => ({
+                                    x: 10 + (i * 11) % 190,
+                                    y: 20 + (i * 37) % 300,
+                                    d: (i * 0.15) % 1.5,
+                                })).map((drop, i) => (
+                                    <line key={i} x1={drop.x} y1={drop.y} x2={drop.x - 3} y2={drop.y + 18}
+                                        stroke="rgba(56,189,248,0.9)" strokeWidth="1.5" strokeLinecap="round">
+                                        <animate attributeName="y1" values={`${drop.y};${drop.y + 400}`} dur="2s" begin={`${drop.d}s`} repeatCount="indefinite" />
+                                        <animate attributeName="y2" values={`${drop.y + 18};${drop.y + 418}`} dur="2s" begin={`${drop.d}s`} repeatCount="indefinite" />
+                                    </line>
+                                ))}
+                            </svg>
+                        </>
+                    )}
                 </div>
 
                 <div className="relative z-10 p-5">

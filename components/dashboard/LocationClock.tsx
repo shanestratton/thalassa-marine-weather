@@ -4,7 +4,7 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
-        const timer = setInterval(() => setNow(new Date()), 1000);
+        const timer = setInterval(() => { if (!document.hidden) setNow(new Date()); }, 1000);
         return () => clearInterval(timer);
     }, []);
 

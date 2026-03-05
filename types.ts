@@ -1,6 +1,6 @@
 
 export type WeatherModel = 'best_match' | 'ecmwf_ifs04' | 'gfs_seamless' | 'icon_seamless' | 'bom_access_global' | 'gfs_global';
-export type DisplayMode = 'high-contrast' | 'night' | 'auto' | 'standard';
+export type DisplayMode = 'light' | 'dark' | 'night' | 'auto';
 export type DashboardMode = 'essential' | 'full';
 export type WeatherConditionKey = 'rain' | 'storm' | 'fog' | 'cloudy' | 'night' | 'sunny' | 'default';
 

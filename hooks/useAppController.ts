@@ -272,7 +272,7 @@ export const useAppController = () => {
             const currentHour = now.getHours();
             isNight = currentHour < 6 || currentHour >= 18;
         }
-        effectiveMode = isNight ? 'night' : 'high-contrast';
+        effectiveMode = isNight ? 'dark' : 'light';
     }
 
     return {

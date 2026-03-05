@@ -240,6 +240,469 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   transition: background-color 500ms ease, color 500ms ease, border-color 500ms ease;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   DISPLAY LIGHT MODE — Inverts the dark maritime palette to light
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Background inversions ── */
+/* Page-level backgrounds → uniform slate-200 gray */
+.display-light .bg-slate-950,
+.display-light.bg-slate-950 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(226 232 240 / var(--tw-bg-opacity));
+  /* slate-200 */
+}
+
+/* Header bar — very light gray so it sits subtly above the uniform gray */
+.display-light .bg-slate-950\/90 {
+  background-color: rgb(255 255 255 / 0.92);
+}
+
+/* Channel name and opacity text variants for chat */
+.display-light .text-white\/85 {
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.display-light .text-white\/25 {
+  color: rgba(71, 85, 105, 0.5);
+}
+
+.display-light .text-white\/15 {
+  color: rgba(100, 116, 139, 0.4);
+}
+
+.display-light .bg-slate-900,
+.display-light.bg-slate-900 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(226 232 240 / var(--tw-bg-opacity));
+  /* slate-200 */
+}
+
+.display-light .bg-slate-900\/90,
+.display-light.bg-slate-900\/90 {
+  background-color: rgb(226 232 240 / 0.9);
+}
+
+.display-light .bg-slate-900\/80,
+.display-light.bg-slate-900\/80 {
+  background-color: rgb(226 232 240 / 0.8);
+}
+
+.display-light .bg-slate-900\/70,
+.display-light.bg-slate-900\/70 {
+  background-color: rgb(226 232 240 / 0.7);
+}
+
+.display-light .bg-slate-900\/60,
+.display-light.bg-slate-900\/60 {
+  background-color: rgb(226 232 240 / 0.6);
+}
+
+.display-light .bg-slate-900\/50,
+.display-light.bg-slate-900\/50 {
+  background-color: rgb(226 232 240 / 0.5);
+}
+
+.display-light .bg-slate-800,
+.display-light.bg-slate-800 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity));
+  /* white */
+}
+
+.display-light .bg-slate-800\/50,
+.display-light.bg-slate-800\/50 {
+  background-color: rgb(255 255 255 / 0.5);
+}
+
+.display-light .bg-slate-800\/60,
+.display-light.bg-slate-800\/60 {
+  background-color: rgb(255 255 255 / 0.6);
+}
+
+.display-light .bg-slate-800\/40,
+.display-light.bg-slate-800\/40 {
+  background-color: rgb(255 255 255 / 0.4);
+}
+
+.display-light .bg-slate-700,
+.display-light.bg-slate-700 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(241 245 249 / var(--tw-bg-opacity));
+  /* slate-100 */
+}
+
+.display-light .bg-black,
+.display-light.bg-black {
+  --tw-bg-opacity: 1;
+  background-color: rgb(226 232 240 / var(--tw-bg-opacity));
+  /* slate-200 */
+}
+
+.display-light .bg-black\/30 {
+  background-color: rgb(226 232 240 / 0.3);
+}
+
+.display-light .bg-black\/40 {
+  background-color: rgb(226 232 240 / 0.5);
+}
+
+/* White/opacity backgrounds → white cards in light mode */
+.display-light .bg-white\/\[0\.03\],
+.display-light .bg-white\/\[0\.04\],
+.display-light .bg-white\/\[0\.05\] {
+  background-color: rgb(255 255 255 / 0.7);
+}
+
+.display-light .bg-white\/5 {
+  background-color: rgb(255 255 255 / 0.7);
+}
+
+.display-light .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.8);
+}
+
+.display-light .bg-white\/20 {
+  background-color: rgb(255 255 255 / 0.85);
+}
+
+/* ── Text inversions ── */
+.display-light .text-white {
+  --tw-text-opacity: 1;
+  color: rgb(15 23 42 / var(--tw-text-opacity));
+  /* slate-900 */
+}
+
+.display-light .text-gray-300,
+.display-light .text-gray-400 {
+  --tw-text-opacity: 1;
+  color: rgb(100 116 139 / var(--tw-text-opacity));
+  /* slate-500 */
+}
+
+.display-light .text-gray-500 {
+  --tw-text-opacity: 1;
+  color: rgb(71 85 105 / var(--tw-text-opacity));
+  /* slate-600 */
+}
+
+.display-light .text-gray-600 {
+  --tw-text-opacity: 1;
+  color: rgb(51 65 85 / var(--tw-text-opacity));
+  /* slate-700 */
+}
+
+.display-light .text-ivory {
+  color: #1e293b;
+  /* slate-800 */
+}
+
+.display-light .text-sky-200 {
+  --tw-text-opacity: 1;
+  color: rgb(14 165 233 / var(--tw-text-opacity));
+  /* sky-500 — more visible on light bg */
+}
+
+/* ── Border inversions ── */
+.display-light .border-white\/10,
+.display-light .border-white\/\[0\.06\],
+.display-light .border-white\/\[0\.08\] {
+  border-color: rgb(15 23 42 / 0.08);
+}
+
+.display-light .border-white\/20 {
+  border-color: rgb(15 23 42 / 0.12);
+}
+
+.display-light .border-slate-700 {
+  --tw-border-opacity: 1;
+  border-color: rgb(203 213 225 / var(--tw-border-opacity));
+  /* slate-300 */
+}
+
+.display-light .border-slate-800 {
+  --tw-border-opacity: 1;
+  border-color: rgb(226 232 240 / var(--tw-border-opacity));
+  /* slate-200 */
+}
+
+/* ── Shadow inversions ── */
+.display-light .shadow-lg,
+.display-light .shadow-2xl {
+  --tw-shadow-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Scrollbar for light mode ── */
+.display-light .custom-scrollbar {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+.display-light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.display-light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* ── Input overrides ── */
+.display-light input,
+.display-light textarea,
+.display-light select {
+  color: #1e293b;
+}
+
+.display-light input::placeholder,
+.display-light textarea::placeholder {
+  color: #94a3b8;
+}
+
+.display-light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0);
+}
+
+/* ── Focus ring for light mode ── */
+.display-light *:focus-visible {
+  outline-color: rgba(14, 165, 233, 0.7);
+}
+
+/* ── Skeleton shimmer for light mode ── */
+.display-light .skeleton-shimmer {
+  background: linear-gradient(90deg,
+      rgba(0, 0, 0, 0.04) 25%,
+      rgba(0, 0, 0, 0.08) 50%,
+      rgba(0, 0, 0, 0.04) 75%);
+  background-size: 200% 100%;
+}
+
+/* ── Light mode transition ── */
+.display-light {
+  transition: background-color 500ms ease, color 500ms ease, border-color 500ms ease;
+}
+
+/* ── Accent color darkening for light backgrounds ── */
+/* Greens — darken for visibility */
+.display-light .text-emerald-400 {
+  color: #059669;
+}
+
+/* emerald-600 */
+.display-light .text-emerald-300 {
+  color: #059669;
+}
+
+.display-light .text-emerald-200 {
+  color: #047857;
+}
+
+/* emerald-700 */
+.display-light .text-green-400 {
+  color: #16a34a;
+}
+
+/* green-600 */
+.display-light .text-green-300 {
+  color: #16a34a;
+}
+
+/* Blues — darken for visibility */
+.display-light .text-sky-400 {
+  color: #0284c7;
+}
+
+/* sky-600 */
+.display-light .text-sky-300 {
+  color: #0284c7;
+}
+
+.display-light .text-sky-200\/70 {
+  color: rgba(2, 132, 199, 0.8);
+}
+
+.display-light .text-cyan-400 {
+  color: #0891b2;
+}
+
+/* cyan-600 */
+.display-light .text-cyan-300 {
+  color: #0891b2;
+}
+
+.display-light .text-blue-400 {
+  color: #2563eb;
+}
+
+/* blue-600 */
+.display-light .text-blue-300 {
+  color: #2563eb;
+}
+
+/* Amber/Yellow — darken for visibility */
+.display-light .text-amber-400 {
+  color: #d97706;
+}
+
+/* amber-600 */
+.display-light .text-amber-300 {
+  color: #d97706;
+}
+
+.display-light .text-yellow-400 {
+  color: #ca8a04;
+}
+
+/* yellow-600 */
+
+/* Teal */
+.display-light .text-teal-400 {
+  color: #0d9488;
+}
+
+/* teal-600 */
+.display-light .text-teal-300 {
+  color: #0d9488;
+}
+
+/* Red — ensure readability */
+.display-light .text-red-400 {
+  color: #dc2626;
+}
+
+/* red-600 */
+.display-light .text-red-300 {
+  color: #dc2626;
+}
+
+/* Purple/Violet */
+.display-light .text-purple-400 {
+  color: #7c3aed;
+}
+
+/* violet-600 */
+.display-light .text-violet-400 {
+  color: #7c3aed;
+}
+
+/* ── Opacity-based text that washes out on light ── */
+.display-light .text-white\/80,
+.display-light .text-white\/70,
+.display-light .text-white\/60,
+.display-light .text-white\/50 {
+  color: rgba(30, 41, 59, 0.7);
+  /* slate-800 at 70% */
+}
+
+.display-light .text-white\/40,
+.display-light .text-white\/30 {
+  color: rgba(71, 85, 105, 0.6);
+  /* slate-600 at 60% */
+}
+
+/* ── Background accent overrides ── */
+.display-light .bg-emerald-500\/10 {
+  background-color: rgba(5, 150, 105, 0.1);
+}
+
+.display-light .bg-sky-500\/10 {
+  background-color: rgba(2, 132, 199, 0.1);
+}
+
+.display-light .bg-amber-500\/10 {
+  background-color: rgba(217, 119, 6, 0.1);
+}
+
+/* ── Border accent overrides ── */
+.display-light .border-emerald-500\/20 {
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+.display-light .border-sky-500\/20 {
+  border-color: rgba(2, 132, 199, 0.2);
+}
+
+/* ── Gradient overlay fixes — prevent dark washes on light bg ── */
+.display-light .from-slate-900\/90 {
+  --tw-gradient-from: rgb(241 245 249 / 0.9);
+}
+
+.display-light .via-slate-900\/40 {
+  --tw-gradient-via: rgb(241 245 249 / 0.4);
+}
+
+.display-light .to-slate-900\/90 {
+  --tw-gradient-to: rgb(241 245 249 / 0.9);
+}
+
+/* ── Drop shadow text — invisible on light, use text-shadow instead ── */
+.display-light .drop-shadow-lg,
+.display-light .drop-shadow-md {
+  filter: none;
+  --tw-drop-shadow: none;
+}
+
+/* ── Catch-all for inline hex bg-[#0f172a] used across 9+ components ── */
+.display-light .bg-\[\#0f172a\],
+.display-light.bg-\[\#0f172a\] {
+  background-color: rgb(226 232 240) !important;
+  /* slate-200 */
+}
+
+.display-light .bg-\[\#0f172a\]\/95 {
+  background-color: rgb(226 232 240 / 0.95) !important;
+}
+
+/* ── ChatPage custom dark blue override ── */
+.display-light .bg-\[\#050a18\] {
+  background-color: rgb(226 232 240) !important;
+  /* slate-200 */
+}
+
+/* ── Modal / overlay / form background overrides ── */
+.display-light .bg-slate-900\/95,
+.display-light.bg-slate-900\/95 {
+  background-color: rgb(255 255 255 / 0.97);
+  /* white modals float on gray */
+}
+
+.display-light .bg-black\/60 {
+  background-color: rgb(0 0 0 / 0.15);
+}
+
+.display-light .bg-black\/50 {
+  background-color: rgb(0 0 0 / 0.1);
+}
+
+.display-light .bg-slate-800\/90,
+.display-light.bg-slate-800\/90 {
+  background-color: rgb(241 245 249 / 0.9);
+}
+
+.display-light .bg-slate-700\/50 {
+  background-color: rgb(226 232 240 / 0.5);
+}
+
+/* ── Dashboard gradient overlay that creates the dark band ── */
+.display-light .from-black\/80 {
+  --tw-gradient-from: rgb(226 232 240 / 0.8);
+  /* same slate-200 */
+}
+
+.display-light .to-transparent {
+  --tw-gradient-to: transparent;
+}
+
+/* ── Emerald text (washes out on light bg) ── */
+.display-light .text-emerald-100 {
+  color: #059669;
+  /* emerald-600 */
+}
+
+/* ── bg-slate-800/60 (celestial card) ── */
+.display-light .bg-slate-800\/60 {
+  background-color: rgb(255 255 255 / 0.7);
+  /* white card */
+}
+
 /* Custom Scrollbars for Glassmorphism */
 .custom-scrollbar {
   scrollbar-width: thin;

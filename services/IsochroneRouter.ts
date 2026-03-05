@@ -825,11 +825,13 @@ function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null)
  *
  * For each segment A→B, if it crosses land, insert an intermediate waypoint
  * at the midpoint pushed perpendicular to the segment bearing (towards open water).
- * Iterates up to 3 passes to handle multiple clips.
+ * Push distance scales with segment length to avoid criss-crossing in tight corridors.
+ * Iterates up to 5 passes to handle multiple clips.
  */
 function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): IsochroneNode[] {
-    const PUSH_NM = 50; // How far to push the midpoint offshore
-    const MAX_PASSES = 8;
+    const MAX_PUSH_NM = 30; // Cap: never push farther than 30 NM
+    const MIN_PUSH_NM = 5;  // Floor: always push at least 5 NM
+    const MAX_PASSES = 5;
     let result = [...route];
 
     for (let pass = 0; pass < MAX_PASSES; pass++) {
@@ -845,12 +847,17 @@ function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): Isochr
                 const midLat = (a.lat + b.lat) / 2;
                 const midLon = (a.lon + b.lon) / 2;
                 const segBearing = initialBearing(a.lat, a.lon, b.lat, b.lon);
+                const segLen = haversineNm(a.lat, a.lon, b.lat, b.lon);
+
+                // Scale push proportionally to segment length to avoid overshooting
+                // in tight corridors. Use half the segment length, clamped.
+                const pushNM = Math.min(MAX_PUSH_NM, Math.max(MIN_PUSH_NM, segLen * 0.5));
 
                 // Try pushing perpendicular left and right; pick the one in deeper water
                 const leftBearing = (segBearing - 90 + 360) % 360;
                 const rightBearing = (segBearing + 90) % 360;
-                const leftPt = projectPosition(midLat, midLon, leftBearing, PUSH_NM);
-                const rightPt = projectPosition(midLat, midLon, rightBearing, PUSH_NM);
+                const leftPt = projectPosition(midLat, midLon, leftBearing, pushNM);
+                const rightPt = projectPosition(midLat, midLon, rightBearing, pushNM);
 
                 const leftDepth = getDepthFromCache(grid, leftPt.lat, leftPt.lon);
                 const rightDepth = getDepthFromCache(grid, rightPt.lat, rightPt.lon);
@@ -859,8 +866,11 @@ function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): Isochr
                 const useLeft = (leftDepth ?? 0) < (rightDepth ?? 0);
                 const offshore = useLeft ? leftPt : rightPt;
 
-                // Only insert if the offshore point is actually in water
-                if (!isLand(grid, offshore.lat, offshore.lon)) {
+                // Only insert if:
+                // 1. The offshore point is actually in water
+                // 2. The insert→B segment doesn't cross back over A (anti-criss-cross)
+                if (!isLand(grid, offshore.lat, offshore.lon) &&
+                    isSegmentNavigable(grid, a.lat, a.lon, offshore.lat, offshore.lon, 0, true)) {
                     const insertNode: IsochroneNode = {
                         lat: offshore.lat,
                         lon: offshore.lon,

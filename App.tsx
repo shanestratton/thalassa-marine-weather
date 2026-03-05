@@ -139,7 +139,8 @@ const App: React.FC = () => {
         );
     }
 
-    const containerClasses = effectiveMode === 'night' ? 'bg-black text-red-600' : effectiveMode === 'high-contrast' ? 'bg-black text-white' : 'bg-slate-900 text-white';
+    const isLight = effectiveMode === 'light';
+    const containerClasses = effectiveMode === 'night' ? 'bg-black text-red-600' : isLight ? 'bg-slate-200 text-slate-900' : 'bg-black text-white';
 
     // Header Title Logic
     // Show the location name as-is when it's a real place name.
@@ -167,12 +168,12 @@ const App: React.FC = () => {
         }
     }
 
-    const showBackgroundImage = effectiveMode === 'standard' && currentView !== 'settings';
+    const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
 
     return (
-        <div className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} flex flex-col`}>
+        <div className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}>
 
             {/* MODALS & OVERLAYS */}
             <Suspense fallback={null}>
@@ -190,7 +191,7 @@ const App: React.FC = () => {
                     <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
                 </div>
             ) : (
-                <div className={`absolute inset-0 z-0 ${effectiveMode === 'night' || effectiveMode === 'high-contrast' ? 'bg-black' : 'bg-[#0f172a]'}`}></div>
+                <div className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : effectiveMode === 'night' ? 'bg-black' : 'bg-slate-950'}`}></div>
             )}
 
             {loading && <ProcessOverlay message={loadingMessage} />}
@@ -211,7 +212,7 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? 'fixed top-0 left-0 right-0 z-[105] bg-black' : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
+                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-[105] ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
                         style={{ paddingBottom: isDashboard ? 0 : undefined, gap: '8px' }}
                     >
                         {/* Logo row — same style on all pages */}
@@ -286,7 +287,7 @@ const App: React.FC = () => {
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
                     <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew'}>
-                        <main className={`flex-grow relative flex flex-col bg-black ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+                        <main className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
                                     <div className="relative flex-1 overflow-hidden">
@@ -409,7 +410,7 @@ const App: React.FC = () => {
                 />
 
                 {!isMobileLandscape && (
-                    <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)] ${effectiveMode !== 'standard' ? 'bg-slate-900' : 'bg-slate-900/90'}`}>
+                    <div className={`fixed bottom-0 left-0 right-0 z-[900] backdrop-blur-xl border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
                         <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />

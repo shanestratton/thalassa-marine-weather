@@ -342,22 +342,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                     {/* ── Career Totals Strip ── */}
                     <div className="shrink-0 px-4 pb-3">
-                        <div className="rounded-2xl bg-slate-900/40 backdrop-blur-md border border-white/10 p-3">
+                        <div className="rounded-2xl bg-gradient-to-r from-sky-500/15 via-indigo-500/10 to-purple-500/15 backdrop-blur-md border border-sky-400/20 p-3">
                             <div className="flex items-center justify-center mb-2">
-                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/20 text-[11px] font-bold text-sky-400 uppercase tracking-widest">Career Totals</span>
+                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 border border-sky-400/30 text-[11px] font-bold text-sky-300 uppercase tracking-widest shadow-[0_0_8px_rgba(56,189,248,0.15)]">Career Totals</span>
                             </div>
                             <div className="grid grid-cols-3 divide-x divide-white/10">
                                 <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-white">{(careerTotals.totalDistance ?? 0).toFixed(1)}</div>
-                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">NM Sailed</div>
+                                    <div className="text-lg font-extrabold text-sky-300">{(careerTotals.totalDistance ?? 0).toFixed(1)}</div>
+                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">NM Sailed</div>
                                 </div>
                                 <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalTimeAtSeaHrs < 24 ? `${careerTotals.totalTimeAtSeaHrs}h` : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}</div>
-                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">At Sea</div>
+                                    <div className="text-lg font-extrabold text-emerald-300">{careerTotals.totalTimeAtSeaHrs < 24 ? `${careerTotals.totalTimeAtSeaHrs}h` : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}</div>
+                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">At Sea</div>
                                 </div>
                                 <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-white">{careerTotals.totalVoyages}</div>
-                                    <div className="text-[11px] text-slate-500 uppercase tracking-wider">Voyages</div>
+                                    <div className="text-lg font-extrabold text-amber-300">{careerTotals.totalVoyages}</div>
+                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">Voyages</div>
                                 </div>
                             </div>
                         </div>

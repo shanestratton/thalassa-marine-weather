@@ -705,6 +705,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // nextUpdateRef is synced via a separate useEffect below
 
         const checkInterval = setInterval(() => {
+            if (document.hidden) return; // Battery: skip when backgrounded
             if (!navigator.onLine) return;
             if (isFetchingRef.current) return; // Don't stack fetches
 
@@ -801,6 +802,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
 
         const driftCheck = setInterval(() => {
+            if (document.hidden) return; // Battery: skip GPS when backgrounded
             if (!navigator.onLine || isFetchingRef.current) return;
             if (!navigator.geolocation) return;
 
@@ -851,6 +853,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Patches current metrics without triggering full StormGlass/OpenMeteo refresh.
     useEffect(() => {
         const liveTimer = setInterval(async () => {
+            if (document.hidden) return; // Battery: skip when backgrounded
             if (!navigator.onLine) return;
             if (isFetchingRef.current) return;
 

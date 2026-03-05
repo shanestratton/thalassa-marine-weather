@@ -119,8 +119,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
-    // ── Embedded Rain ──
-    const embRain = useEmbeddedRain(mapRef, embedded, mapReady);
+    // ── Embedded Rain (also loads as background on full-map velocity mode) ──
+    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, !embedded);
 
     // ── Render ──
     return (
@@ -137,11 +137,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ WIND SPEED LEGEND ═══ */}
             {(weather.activeLayer === 'velocity' || weather.activeLayer === 'wind') && <WindSpeedLegend />}
 
-            {/* ═══ EMBEDDED RAIN SCRUBBER ═══ */}
-            {embedded && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
+            {/* ═══ EMBEDDED / BACKGROUND RAIN SCRUBBER ═══ */}
+            {(embedded || (!embedded && weather.activeLayer === 'velocity')) && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
                 <div
                     className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl backdrop-blur-xl border border-white/10 shadow-lg"
-                    style={{ bottom: 8, background: 'rgba(15, 23, 42, 0.85)' }}
+                    style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
                 >
                     <style>{`
                         .emb-rain-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
