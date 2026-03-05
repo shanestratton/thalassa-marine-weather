@@ -67,7 +67,7 @@ export const fetchStormGlassWeather = async (
 
     // QUOTA OPTIMIZATION: Request marine-only params for coastal/inland (WeatherKit handles atmo).
     // For OFFSHORE, request full atmospheric + marine since WeatherKit has no ocean station data.
-    const marineParams = 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,waterTemperature,currentSpeed,currentDirection';
+    const marineParams = 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,secondarySwellHeight,secondarySwellPeriod,waterTemperature,currentSpeed,currentDirection';
     const atmosphericParams = 'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
 
     const weatherParams = {

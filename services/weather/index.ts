@@ -160,6 +160,13 @@ export const fetchWeatherByStrategy = async (
         if (sg.currentDirection != null) {
             current.currentDirection = sg.currentDirection;
         }
+        // Secondary swell (offshore-only marine data)
+        if ((sg as any).secondarySwellHeight != null) {
+            (current as any).secondarySwellHeight = (sg as any).secondarySwellHeight;
+        }
+        if ((sg as any).secondarySwellPeriod != null) {
+            (current as any).secondarySwellPeriod = (sg as any).secondarySwellPeriod;
+        }
 
         (current as any).sources = sources;
         report.current = current;
@@ -177,6 +184,8 @@ export const fetchWeatherByStrategy = async (
                     waterTemperature: sgH.waterTemperature ?? h.waterTemperature,
                     currentSpeed: sgH.currentSpeed ?? h.currentSpeed,
                     currentDirection: sgH.currentDirection ?? h.currentDirection,
+                    secondarySwellHeight: (sgH as any).secondarySwellHeight ?? (h as any).secondarySwellHeight,
+                    secondarySwellPeriod: (sgH as any).secondarySwellPeriod ?? (h as any).secondarySwellPeriod,
                 };
             });
         }
@@ -311,7 +320,7 @@ export const fetchFastWeather = async (
                     name = `Ocean Point ${latStr} ${lonStr}`;
                 }
             } catch (e) {
-            console.warn('[index]', e);
+                console.warn('[index]', e);
                 name = `Location ${lat.toFixed(2)},${lon.toFixed(2)}`;
             }
         }

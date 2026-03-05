@@ -193,6 +193,8 @@ export const mapStormGlassToReport = (
         waveHeight: parseFloat(((getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084).toFixed(1)),
         swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField) ?? 0,
         swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField) ?? 0),
+        secondarySwellHeight: (() => { const v = getVal(currentHour.secondarySwellHeight as MultiSourceField); return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null; })(),
+        secondarySwellPeriod: getVal(currentHour.secondarySwellPeriod as MultiSourceField) ?? null,
         airTemperature: temp,
         waterTemperature: getVal(currentHour.waterTemperature as MultiSourceField),
         pressure: pressure,
@@ -256,6 +258,8 @@ export const mapStormGlassToReport = (
             condition: getCondition(getVal(h.cloudCover as MultiSourceField) ?? 0, getVal(h.precipitation as MultiSourceField) ?? 0, checkIsDay(new Date(h.time), lat, lon)),
             isEstimated: false,
             swellPeriod: getVal(h.wavePeriod as MultiSourceField) ?? 0,
+            secondarySwellHeight: (() => { const v = getVal(h.secondarySwellHeight as MultiSourceField); return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null; })(),
+            secondarySwellPeriod: getVal(h.secondarySwellPeriod as MultiSourceField) ?? null,
             tideHeight: 0,
             uvIndex: (() => {
                 const uvField = h.uvIndex as MultiSourceField;

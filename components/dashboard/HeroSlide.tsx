@@ -468,7 +468,15 @@ const HeroSlideComponent = ({
             if (typeof val === 'number') return degreesToCardinal(val);
             if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
             return '--';
-        })()
+        })(),
+        secondarySwellHeight: (() => {
+            const v = (displayData as any).secondarySwellHeight;
+            return (v !== undefined && v !== null && !isNaN(v)) ? v : '--';
+        })(),
+        secondarySwellPeriod: (() => {
+            const v = (displayData as any).secondarySwellPeriod;
+            return (v !== undefined && v !== null && !isNaN(v)) ? Math.round(v) : '--';
+        })(),
     };
 
     // Score Calculation
@@ -757,6 +765,14 @@ const HeroSlideComponent = ({
             })(),
             moon: cardData.moonPhase || 'Waxing',
             cape: (cardData.cape !== undefined && cardData.cape !== null && !isNaN(cardData.cape as number)) ? Math.round(cardData.cape as number) : '--',
+            secondarySwellHeight: (() => {
+                const v = (cardData as any).secondarySwellHeight;
+                return (v !== undefined && v !== null && !isNaN(v)) ? v : '--';
+            })(),
+            secondarySwellPeriod: (() => {
+                const v = (cardData as any).secondarySwellPeriod;
+                return (v !== undefined && v !== null && !isNaN(v)) ? Math.round(v) : '--';
+            })(),
             ...(() => {
                 // SOG/COG only available on live card from GPS
                 if (!isHourly && index === 0) {
@@ -1065,8 +1081,8 @@ const HeroSlideComponent = ({
                                                     { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
                                                     { id: 'currentDirection', label: 'SET', icon: <span style={{ display: 'inline-flex', animation: 'hw-spin 8s linear infinite' }}><CompassIcon rotation={0} className="w-3 h-3" /></span>, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
                                                     { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-                                                    { id: 'humidity', label: 'HUM', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
-                                                    { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
+                                                    { id: 'secondarySwellHeight', label: 'SWELL 2', icon: <WaveIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
+                                                    { id: 'secondarySwellPeriod', label: 'PER. 2', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
                                                 ];
                                                 const INLAND_WIDGETS = [
                                                     { id: 'humidity', label: 'HUM', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
@@ -1094,6 +1110,8 @@ const HeroSlideComponent = ({
                                                         case 'currentSpeed': return cardDisplayValues.currentSpeed;
                                                         case 'currentDirection': return cardDisplayValues.currentDirection;
                                                         case 'cape': return cardDisplayValues.cape;
+                                                        case 'secondarySwellHeight': return cardDisplayValues.secondarySwellHeight;
+                                                        case 'secondarySwellPeriod': return cardDisplayValues.secondarySwellPeriod;
                                                         default: return '--';
                                                     }
                                                 };
@@ -1105,6 +1123,8 @@ const HeroSlideComponent = ({
                                                         case 'dew': return `°${units.temp || 'C'}`;
                                                         case 'waterTemperature': return `°${units.temp || 'C'}`;
                                                         case 'currentSpeed': return 'kts';
+                                                        case 'secondarySwellHeight': return 'ft';
+                                                        case 'secondarySwellPeriod': return 's';
                                                         default: return '';
                                                     }
                                                 };

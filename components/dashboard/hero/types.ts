@@ -70,6 +70,8 @@ export interface CardDisplayValues {
     cloudCover?: number | string;
     moon?: string;
     cape?: number | string;
+    secondarySwellHeight?: number | string;
+    secondarySwellPeriod?: number | string;
     sogKts?: number | string;
     cogDeg?: number | string;
 }
