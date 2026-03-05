@@ -268,7 +268,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 </div>
             ) : (
                 /* EMPTY STATE — rigid single-screen, no scroll */
-                <div ref={scrollContainerRef} className="flex-1 min-h-0 flex flex-col overflow-hidden" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
+                <div ref={scrollContainerRef} className="flex-1 min-h-0 flex flex-col overflow-hidden relative" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
 
                     {/* ─── TOP: Form inputs — scrollable if needed ─── */}
                     <form ref={formRef} onSubmit={ROUTING_DISABLED ? (e) => e.preventDefault() : handleCalculate} className="shrink-0 px-4 pt-4 overflow-y-auto flex-1 min-h-0">
@@ -492,8 +492,8 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
 
                     {/* ─── BOTTOM: CTA pinned, exact 8px above nav bar ─── */}
-                    <div className="shrink-0 px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
-                        <div className="max-w-xl mx-auto w-full">
+                    <div className="absolute bottom-0 left-0 right-0 px-4 z-10 pointer-events-none" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                        <div className="max-w-xl mx-auto w-full pointer-events-auto">
                             {/* Active vessel indicator */}
                             {vessel && (
                                 <div className="flex items-center justify-center gap-2 mb-2 opacity-60">

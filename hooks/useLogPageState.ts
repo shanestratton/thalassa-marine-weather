@@ -451,10 +451,20 @@ export function useLogPageState() {
     // ── Soft-delete with undo ──
     const [deletedEntry, setDeletedEntry] = useState<ShipLogEntry | null>(null);
     const deleteEntryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const deletingEntryRef = useRef(false);
+    const entriesRef = useRef(state.entries);
+    entriesRef.current = state.entries;
 
     const handleDeleteEntry = useCallback((entryId: string) => {
-        const entry = state.entries.find(e => e.id === entryId);
-        if (!entry) return;
+        // Guard: prevent double-fire from stale callbacks
+        if (deletingEntryRef.current) return;
+        deletingEntryRef.current = true;
+
+        const entry = entriesRef.current.find(e => e.id === entryId);
+        if (!entry) {
+            deletingEntryRef.current = false;
+            return;
+        }
 
         // Remove from UI immediately
         dispatch({ type: 'UPDATE_ENTRIES', updater: prev => prev.filter(e => e.id !== entryId) });
@@ -474,8 +484,9 @@ export function useLogPageState() {
                 dispatch({ type: 'UPDATE_ENTRIES', updater: prev => [...prev, entry] });
             }
             setDeletedEntry(null);
+            deletingEntryRef.current = false;
         }, 5000);
-    }, [state.entries, toast]);
+    }, [toast]);
 
     const handleUndoDeleteEntry = useCallback(() => {
         if (deleteEntryTimerRef.current) clearTimeout(deleteEntryTimerRef.current);
@@ -484,6 +495,7 @@ export function useLogPageState() {
             toast.success('Entry restored');
         }
         setDeletedEntry(null);
+        deletingEntryRef.current = false;
     }, [deletedEntry, toast]);
 
     const handleEditEntry = useCallback((entry: ShipLogEntry) => {
