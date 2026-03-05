@@ -434,6 +434,7 @@ export interface ForecastDay {
     waveHeight: number;
     condition: string;
     precipitation?: number;
+    precipChance?: number; // 0-100% chance of rain from WeatherKit
     cloudCover?: number;
     pressure?: number; // Added for daily average
     uvIndex?: number;

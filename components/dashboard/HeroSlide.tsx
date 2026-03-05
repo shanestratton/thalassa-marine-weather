@@ -439,7 +439,17 @@ const HeroSlideComponent = ({
         waveHeight: isLandlocked ? "0" : (hasWave ? String(convertLength(displayData.waveHeight, units.length)) : '--'),
         vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
         gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
-        precip: convertPrecip(displayData.precipitation, units.length) ?? '0',
+        precip: (() => {
+            // Live card: show daily mm total; Forecast: show precipChance %
+            if (index === 0) {
+                // Daily mm total for today
+                return convertPrecip(displayData.precipitation, units.length) ?? '0';
+            }
+            // Forecast: use precipChance from daily match or hourly data
+            const chance = (displayData as any).precipChance;
+            return chance !== undefined && chance !== null ? Math.round(chance) : 0;
+        })(),
+        precipUnit: index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
         pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
         cloudCover: (displayData.cloudCover !== null && displayData.cloudCover !== undefined) ? Math.round(displayData.cloudCover) : '--',
         uv: (displayData.uvIndex !== undefined && displayData.uvIndex !== null) ? Math.round(displayData.uvIndex) : '--',
@@ -664,6 +674,7 @@ const HeroSlideComponent = ({
                         feelsLike: h.feelsLike,
                         windSpeed: h.windSpeed,
                         waveHeight: h.waveHeight,
+                        precipChance: h.precipChance ?? matchDay?.precipChance, // Carry chance % from hourly or daily
                         highTemp: matchDay?.highTemp, // Inject Daily High
                         lowTemp: matchDay?.lowTemp,    // Inject Daily Low
                         sunrise: matchDay?.sunrise || data.sunrise, // Inherit from daily or base data
@@ -717,7 +728,15 @@ const HeroSlideComponent = ({
             waveHeight: isLandlocked ? "0" : (cardData.waveHeight !== null && cardData.waveHeight !== undefined ? String(convertLength(cardData.waveHeight, units.waveHeight)) : '--'),
             vis: (cardData.visibility && !isNaN(cardData.visibility)) ? convertDistance(cardData.visibility, units.visibility || 'nm') : '--',
             gusts: cardData.windSpeed !== null ? Math.round(convertSpeed((cardData.windGust ?? (cardData.windSpeed * 1.3)), units.speed)!) : '--',
-            precip: convertPrecip(cardData.precipitation, units.length) ?? '0',
+            precip: (() => {
+                // Live card: daily mm total; Forecast hour: precipChance %
+                if (!isHourly && index === 0) {
+                    return convertPrecip(cardData.precipitation, units.length) ?? '0';
+                }
+                const chance = (cardData as any).precipChance;
+                return chance !== undefined && chance !== null ? Math.round(chance) : 0;
+            })(),
+            precipUnit: (!isHourly && index === 0) ? (units.temp === 'F' ? 'in' : 'mm') : '%',
             pressure: (cardData.pressure && !isNaN(cardData.pressure)) ? Math.round(cardData.pressure) : '--',
             cloudCover: (cardData.cloudCover !== null && cardData.cloudCover !== undefined && !isNaN(cardData.cloudCover)) ? Math.round(cardData.cloudCover) : '--',
             uv: (cardData.uvIndex !== undefined && cardData.uvIndex !== null && !isNaN(cardData.uvIndex)) ? Math.round(cardData.uvIndex) : '--',
@@ -1081,7 +1100,7 @@ const HeroSlideComponent = ({
                                                 const getUnit = (id: string): string => {
                                                     switch (id) {
                                                         case 'humidity': return '%';
-                                                        case 'precip': return '%';
+                                                        case 'precip': return cardDisplayValues.precipUnit || '%';
                                                         case 'visibility': return units.visibility || 'nm';
                                                         case 'dew': return `°${units.temp || 'C'}`;
                                                         case 'waterTemperature': return `°${units.temp || 'C'}`;
