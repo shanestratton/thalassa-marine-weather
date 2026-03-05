@@ -130,7 +130,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
     const activeSources = useMemo(() => {
         const sourceSet = new Map<string, { source: string; sourceName: string; metrics: string[] }>();
 
-        if (sources) {
+        if (sources && Object.keys(sources).length > 0) {
             Object.entries(sources).forEach(([metricKey, ms]) => {
                 if (!ms?.source) return;
                 const key = ms.source;
@@ -139,15 +139,31 @@ export const StatusBadges: React.FC<StatusBadgesProps> = ({
                 }
                 sourceSet.get(key)!.metrics.push(metricKey);
             });
-        }
-
-        // Always show Open-Meteo as base layer (provides hourly forecasts)
-        if (!sourceSet.has('openmeteo')) {
+            // Always show Open-Meteo as base layer when we have per-metric sources
+            if (!sourceSet.has('openmeteo')) {
+                sourceSet.set('openmeteo', { source: 'openmeteo', sourceName: 'Open-Meteo', metrics: [] });
+            }
+        } else if (modelUsed) {
+            // Forecast/hourly data has no per-metric sources — derive from modelUsed tag
+            // e.g. 'wk+sg+om' → WeatherKit, StormGlass, Open-Meteo
+            const MODEL_MAP: Record<string, { source: string; sourceName: string }> = {
+                wk: { source: 'weatherkit', sourceName: 'Apple Weather' },
+                sg: { source: 'stormglass', sourceName: 'StormGlass' },
+                om: { source: 'openmeteo', sourceName: 'Open-Meteo' },
+            };
+            modelUsed.split('+').forEach(code => {
+                const mapped = MODEL_MAP[code.trim()];
+                if (mapped && !sourceSet.has(mapped.source)) {
+                    sourceSet.set(mapped.source, { ...mapped, metrics: [] });
+                }
+            });
+        } else {
+            // Ultimate fallback
             sourceSet.set('openmeteo', { source: 'openmeteo', sourceName: 'Open-Meteo', metrics: [] });
         }
 
         return Array.from(sourceSet.values());
-    }, [sources]);
+    }, [sources, modelUsed]);
 
     // Per-metric provenance list for the modal
     const metricProvenance = useMemo(() => {
