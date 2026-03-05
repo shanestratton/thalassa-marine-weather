@@ -378,7 +378,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     };
 
     return (
-        <div className="w-full h-full flex flex-col bg-[#0f172a] overflow-hidden relative touch-none overscroll-none" style={{ touchAction: 'none' }}>
+        <div className="w-full h-full flex flex-col bg-slate-950 overflow-hidden relative touch-none overscroll-none" style={{ touchAction: 'none' }}>
             <style>{`
                 .vessel-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; box-shadow: 0 0 10px #38bdf8; position: relative; z-index: 10; }
                 .vessel-pulse { position: absolute; width: 30px; height: 30px; left: -11px; top: -11px; border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 50%; animation: pulse-out 2s infinite; }

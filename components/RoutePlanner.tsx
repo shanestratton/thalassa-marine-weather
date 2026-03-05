@@ -170,7 +170,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 <div className="flex-1 min-h-0 overflow-auto">
                     <div className="relative w-full max-w-[1600px] mx-auto pb-36 md:pb-40 px-2 md:px-6 flex flex-col font-sans">
                         {/* Form header for results view */}
-                        <div className="relative z-40 pt-4 pb-4 px-2 md:px-2 bg-[#0f172a]/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
+                        <div className="relative z-40 pt-4 pb-4 px-2 md:px-2 bg-slate-900/95 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
                             <div className="max-w-7xl mx-auto space-y-4">
                                 <div className="flex justify-between items-center">
                                     <div className="flex items-center gap-3">

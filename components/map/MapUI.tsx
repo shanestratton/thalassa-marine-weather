@@ -133,7 +133,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
     return (
         <div className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
             <div
-                className="w-full max-w-md bg-[#0f172a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
+                className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="h-32 bg-slate-800 relative">

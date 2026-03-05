@@ -102,7 +102,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
             {/* ═══════════════════════════════════════════════════════════════════
                 VOYAGE OVERVIEW CARD — Always visible hero card (not collapsible)
                 ═══════════════════════════════════════════════════════════════════ */}
-            <div className="w-full bg-[#0f172a] border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col">
+            <div className="w-full bg-slate-900 border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col">
                 {/* Background Decorations */}
                 <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 

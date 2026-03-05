@@ -970,7 +970,7 @@ export const ChatPage: React.FC = () => {
     // --- RENDER ---
     return (
         <div
-            className="flex flex-col h-full bg-[#050a18] text-white overflow-hidden"
+            className="flex flex-col h-full bg-slate-950 text-white overflow-hidden"
             style={keyboardOffset > 0 ? { height: `calc(100% - ${keyboardOffset}px)`, transition: 'height 0.15s ease-out' } : undefined}
         >
 
@@ -1637,7 +1637,7 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════ DROP A PIN (static map) ═══════════ */}
             {showPinSheet && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3">
+                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
                         <button
@@ -1717,7 +1717,7 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════ SHARE POI (interactive Mapbox GL) ═══════════ */}
             {showPoiSheet && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3">
+                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
                         <button
@@ -1768,7 +1768,7 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════ SHARE TRACK PICKER ═══════════ */}
             {showTrackPicker && view === 'messages' && (
-                <div className="flex-shrink-0 border-t border-white/[0.06] bg-[#0c1425] px-4 py-3 max-h-[320px] overflow-hidden">
+                <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
                         <button

@@ -240,6 +240,23 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   transition: background-color 500ms ease, color 500ms ease, border-color 500ms ease;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ACCESSIBILITY — Global Focus Indicators
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Visible focus ring for keyboard navigation only */
+*:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  /* sky-400 */
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Suppress outline for mouse clicks */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    DISPLAY LIGHT MODE — Inverts the dark maritime palette to light
    ══════════════════════════════════════════════════════════════════ */
@@ -403,11 +420,97 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   /* sky-500 — more visible on light bg */
 }
 
+/* ── Text-white opacity variants ── */
+.display-light .text-white\/80 {
+  color: rgba(15, 23, 42, 0.8);
+}
+
+.display-light .text-white\/70 {
+  color: rgba(30, 41, 59, 0.7);
+}
+
+.display-light .text-white\/60 {
+  color: rgba(51, 65, 85, 0.7);
+}
+
+.display-light .text-white\/50 {
+  color: rgba(71, 85, 105, 0.6);
+}
+
+.display-light .text-white\/40 {
+  color: rgba(100, 116, 139, 0.6);
+}
+
+.display-light .text-white\/20 {
+  color: rgba(100, 116, 139, 0.4);
+}
+
+/* ── Text-slate opacity variants ── */
+.display-light .text-slate-300 {
+  color: #475569;
+  /* slate-600 */
+}
+
+.display-light .text-slate-400 {
+  color: #64748b;
+  /* slate-500 */
+}
+
+.display-light .text-slate-500 {
+  color: #475569;
+  /* slate-600 */
+}
+
+.display-light .text-slate-600 {
+  color: #334155;
+  /* slate-700 */
+}
+
+/* ── Placeholder text overrides ── */
+.display-light .placeholder-white\/20::placeholder,
+.display-light .placeholder-gray-500::placeholder,
+.display-light .placeholder-gray-600::placeholder,
+.display-light .placeholder-gray-700::placeholder {
+  color: #94a3b8;
+  /* slate-400 */
+}
+
+/* ── bg-black/20, bg-black/40 for segment controls ── */
+.display-light .bg-black\/20 {
+  background-color: rgb(226 232 240 / 0.5);
+}
+
+.display-light .bg-black\/40 {
+  background-color: rgb(226 232 240 / 0.5);
+}
+
 /* ── Border inversions ── */
+.display-light .border-white\/5 {
+  border-color: rgb(15 23 42 / 0.05);
+}
+
 .display-light .border-white\/10,
 .display-light .border-white\/\[0\.06\],
 .display-light .border-white\/\[0\.08\] {
   border-color: rgb(15 23 42 / 0.08);
+}
+
+.display-light .border-white\/15,
+.display-light .border-white\/\[0\.12\] {
+  border-color: rgb(15 23 42 / 0.1);
+}
+
+.display-light .border-white\/20 {
+  border-color: rgb(15 23 42 / 0.12);
+}
+
+.display-light .border-white\/30 {
+  border-color: rgb(15 23 42 / 0.15);
+}
+
+/* ── Modal backdrop ── */
+.display-light .bg-black\/90 {
+  background-color: rgb(0 0 0 / 0.3);
 }
 
 .display-light .border-white\/20 {

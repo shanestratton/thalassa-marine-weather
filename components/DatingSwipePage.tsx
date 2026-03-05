@@ -366,7 +366,7 @@ export const DatingSwipePage: React.FC<DatingSwipePageProps> = ({ onOpenDM }) =>
                                     </div>
 
                                     {/* Info — first name only */}
-                                    <div className="bg-[#0a0f1e] p-5 space-y-3">
+                                    <div className="bg-slate-950 p-5 space-y-3">
                                         <div className="flex items-center justify-between">
                                             <h3 className="text-xl font-black text-white/90">
                                                 {getDatingName(currentCard)}
