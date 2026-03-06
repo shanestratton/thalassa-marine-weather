@@ -1160,12 +1160,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         <button
                                             key={g}
                                             onClick={() => setEditGender(editGender === g ? '' : g)}
-                                            className={`flex-1 py-3 px-3 rounded-2xl text-sm font-medium transition-all ${editGender === g
-                                                ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
-                                                : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                            className={`flex-1 py-3 px-3 rounded-2xl text-center text-sm font-semibold transition-all flex flex-col items-center gap-1 ${editGender === g
+                                                ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
+                                                : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
                                                 }`}
                                         >
-                                            {g}
+                                            <span className="text-lg">{g === 'Male' ? '♂️' : '♀️'}</span>
+                                            <span className="text-xs">{g}</span>
                                         </button>
                                     ))}
                                 </div>
