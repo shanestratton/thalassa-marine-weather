@@ -62,6 +62,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         // Actions
         handleAudioBroadcast,
         shareReport,
+        staleRefresh,
         refreshInterval,
         settings
     } = useDashboardController(props.viewMode);
@@ -468,13 +469,18 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black"> {/* Flex Root */}
 
-                {/* ── Background Update Blur Overlay ── */}
-                {props.isRefreshing && (
-                    <div className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none bg-black/40"
+                {/* ── STALE DATA BLUR OVERLAY ── */}
+                {/* Triggers when data is >1hr stale (e.g. waking from overnight sleep).
+                    Blurs the entire dashboard so the punter doesn't act on outdated info. */}
+                {staleRefresh && (
+                    <div
+                        className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none transition-all duration-300"
+                        style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
                     >
-                        <div className="bg-black/50 rounded-2xl px-5 py-3 flex items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
-                            <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-xs font-bold text-white/70 uppercase tracking-widest">Updating</span>
+                        <div className="bg-black/60 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
+                            <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Data Stale</span>
+                            <span className="text-xs text-white/50">Refreshing weather data…</span>
                         </div>
                     </div>
                 )}

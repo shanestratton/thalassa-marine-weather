@@ -10,7 +10,7 @@ import { toast } from '../components/Toast';
 export const useDashboardController = (
     viewMode: 'overview' | 'details' = 'overview'
 ) => {
-    const { weatherData: data, refreshData, loading } = useWeather();
+    const { weatherData: data, refreshData, loading, staleRefresh } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
     const { isPro } = settings;
@@ -186,6 +186,7 @@ export const useDashboardController = (
         refreshData,
         handleAudioBroadcast,
         shareReport,
+        staleRefresh,
         setPage, // for 'Open Map' actions
 
         // Calculated — dynamic refresh interval based on location type & weather severity
