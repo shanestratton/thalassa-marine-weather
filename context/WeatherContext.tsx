@@ -732,19 +732,49 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         }, 30_000);  // PERF FIX: Was 10s — 30s reduces GPS+countdown check overhead 3x
 
-        // WAKE FROM SLEEP — when iPhone/device resumes, check if nextUpdate is stale
+        // WAKE FROM SLEEP — when iPhone/device resumes, check if data is stale
+        // and trigger an immediate refresh. The setInterval above is frozen while
+        // the phone sleeps, so we can't rely on it to catch multi-hour gaps.
+        const STALE_ON_WAKE_MS = 15 * 60 * 1000; // 15 minutes
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') return;
             if (isFetchingRef.current) return;
 
-            const now = Date.now();
-            const target = nextUpdateRef.current;
+            const data = weatherDataRef.current;
+            const dataAge = data?.generatedAt
+                ? Date.now() - new Date(data.generatedAt).getTime()
+                : Infinity;
 
-            // If nextUpdate is in the past, schedule an immediate refresh
-            if (target && now >= target) {
-                const wakeNext = now + 5000; // 5s grace to let the device stabilize
-                nextUpdateRef.current = wakeNext;
-                setNextUpdate(wakeNext);
+            // If data is older than 15 minutes, immediately refresh
+            if (dataAge > STALE_ON_WAKE_MS) {
+                console.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
+                // Small delay so the device has time to re-establish network
+                setTimeout(() => {
+                    if (isFetchingRef.current) return;
+                    const loc = data?.locationName || settingsRef.current.defaultLocation;
+                    if (!loc) return;
+
+                    if (locationMode === 'gps') {
+                        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                            if (pos) {
+                                fetchWeather('Current Location', true, { lat: pos.latitude, lon: pos.longitude }, false, true);
+                            } else {
+                                fetchWeather(loc, true, data?.coordinates, false, true);
+                            }
+                        });
+                    } else {
+                        fetchWeather(loc, true, data?.coordinates, false, true);
+                    }
+                }, 2000);
+            } else {
+                // Data is recent — just nudge the countdown timer if it expired while asleep
+                const now = Date.now();
+                const target = nextUpdateRef.current;
+                if (target && now >= target) {
+                    const wakeNext = now + 5000;
+                    nextUpdateRef.current = wakeNext;
+                    setNextUpdate(wakeNext);
+                }
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
