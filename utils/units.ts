@@ -83,5 +83,5 @@ export const convertPrecip = (mm: number | null | undefined, tempUnit: string) =
         if (inches < 0.01) return '<0.01"';
         return `${inches.toFixed(2)}"`;
     }
-    return `${mm.toFixed(1)}`;
+    return `${Math.round(mm)}`;
 }
