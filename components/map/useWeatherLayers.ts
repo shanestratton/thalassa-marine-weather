@@ -566,7 +566,7 @@ export function useEmbeddedRain(
             type: 'raster',
             tiles: [`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`],
             tileSize: 256,
-            maxzoom: 12,
+            maxzoom: 6,
         });
         m.addLayer({
             id: 'embedded-rain', type: 'raster', source: 'embedded-rain',
