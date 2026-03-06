@@ -186,18 +186,18 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                 const isPoi = pin.caption.startsWith('[POI]');
                                                 const cleanCaption = pin.caption.replace(/^\[(LOC|POI)\]\s*/, '');
                                                 return (
-                                                    <div className="mt-1.5 rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.02] max-w-[280px]">
+                                                    <div className={`mt-1.5 rounded-2xl overflow-hidden border ${isLoc ? 'border-emerald-500/20' : isPoi ? 'border-purple-500/20' : 'border-white/[0.08]'} bg-white/[0.02] max-w-[280px]`}>
                                                         <button
                                                             onClick={() => navigateToPin(pin.lat, pin.lng)}
                                                             className="w-full cursor-pointer hover:opacity-90 transition-opacity relative"
                                                         >
                                                             <img src={getStaticMapUrl(pin.lat, pin.lng)} alt="Pin location" className="w-full h-[140px] object-cover" loading="lazy" />
                                                             {/* Source badge */}
-                                                            <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${isLoc ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/20' :
-                                                                isPoi ? 'bg-purple-500/20 text-purple-300 border border-purple-400/20' :
-                                                                    'bg-white/10 text-white/50 border border-white/10'
+                                                            <span className={`absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider shadow-lg ${isLoc ? 'bg-emerald-900/90 text-emerald-300 border border-emerald-400/30' :
+                                                                isPoi ? 'bg-purple-900/90 text-purple-300 border border-purple-400/30' :
+                                                                    'bg-slate-900/90 text-white/60 border border-white/15'
                                                                 }`}>
-                                                                {isLoc ? '📍 My Location' : isPoi ? '🗺️ Point of Interest' : '📍 Pin'}
+                                                                {isLoc ? '📍 Live Location' : isPoi ? '🗺️ Shared Pin' : '📍 Pin'}
                                                             </span>
                                                         </button>
                                                         <div className="px-3 py-2">
@@ -214,6 +214,11 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                                     <span className="text-[10px] font-bold text-sky-300 uppercase">GPX</span>
                                                                 </button>
                                                             </div>
+                                                            {isPoi && (
+                                                                <p className="text-[10px] text-purple-400/50 mt-1.5 uppercase tracking-wider font-bold">
+                                                                    ⚠️ Shared place — not the user's location
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 );
