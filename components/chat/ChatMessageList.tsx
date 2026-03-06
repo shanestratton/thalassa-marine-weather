@@ -65,6 +65,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
     const regularMessages = messages.filter(m => !m.is_pinned);
 
     const navigateToPin = (lat: number, lng: number) => {
+        // Save current channel so ChatPage can restore on return
+        const lastChannel = localStorage.getItem('chat_last_channel');
+        if (lastChannel) sessionStorage.setItem('chat_return_to_channel', lastChannel);
         // Set pin-view flag so MapHub opens in clean mode (no weather FABs)
         (window as any).__thalassaPinView = { lat, lng };
         // Set the pin in the LocationStore so MapHub picks it up
