@@ -55,6 +55,19 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
     const [polarSource, setPolarSource] = useState<'factory' | 'smart'>(settings?.polarSource || 'factory');
     const [smartEnabled, setSmartEnabled] = useState(settings?.smartPolarsEnabled || false);
 
+    // Sync local state when settings prop changes (e.g. after onboarding)
+    useEffect(() => {
+        if (settings?.polarData) {
+            setPolarData(settings.polarData);
+        }
+        if (settings?.polarBoatModel) {
+            setBoatModel(settings.polarBoatModel);
+        }
+        if (settings?.polarSource_type) {
+            setSource(settings.polarSource_type);
+        }
+    }, [settings?.polarData, settings?.polarBoatModel, settings?.polarSource_type]);
+
     // Load smart polar data on mount
     useEffect(() => {
         loadSmartPolarData();

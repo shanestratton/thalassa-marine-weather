@@ -1128,25 +1128,47 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             />
                         </div>
 
-                        {/* Listing Type */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                                I am
-                            </label>
-                            <div className="space-y-2">
-                                {LISTING_TYPES.map(lt => (
-                                    <button
-                                        key={lt.key}
-                                        onClick={() => setEditListingType(editListingType === lt.key ? '' : lt.key)}
-                                        className={`w-full py-3.5 px-4 rounded-2xl text-left text-sm font-semibold transition-all flex items-center gap-3 ${editListingType === lt.key
-                                            ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
-                                            : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
-                                            }`}
-                                    >
-                                        <span className="text-2xl">{lt.icon}</span>
-                                        {lt.label}
-                                    </button>
-                                ))}
+                        {/* I Am + Gender — same row */}
+                        <div className="grid grid-cols-2 gap-4">
+                            {/* Listing Type */}
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
+                                    I am
+                                </label>
+                                <div className="flex gap-2">
+                                    {LISTING_TYPES.map(lt => (
+                                        <button
+                                            key={lt.key}
+                                            onClick={() => setEditListingType(editListingType === lt.key ? '' : lt.key)}
+                                            className={`flex-1 py-3 px-3 rounded-2xl text-center text-sm font-semibold transition-all flex flex-col items-center gap-1 ${editListingType === lt.key
+                                                ? 'bg-gradient-to-r from-emerald-500/20 to-sky-500/20 text-emerald-200 border border-emerald-400/25'
+                                                : 'bg-white/[0.02] text-white/60 border border-white/[0.05] hover:bg-white/[0.04]'
+                                                }`}
+                                        >
+                                            <span className="text-lg">{lt.icon}</span>
+                                            <span className="text-xs">{lt.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Gender */}
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Gender</label>
+                                <div className="flex gap-2">
+                                    {GENDER_OPTIONS.map(g => (
+                                        <button
+                                            key={g}
+                                            onClick={() => setEditGender(editGender === g ? '' : g)}
+                                            className={`flex-1 py-3 px-3 rounded-2xl text-sm font-medium transition-all ${editGender === g
+                                                ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
+                                                : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                                }`}
+                                        >
+                                            {g}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -1200,25 +1222,6 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 onChange={handlePhotoUpload}
                                 className="hidden"
                             />
-                        </div>
-
-                        {/* Gender */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Gender</label>
-                            <div className="flex flex-wrap gap-2">
-                                {GENDER_OPTIONS.map(g => (
-                                    <button
-                                        key={g}
-                                        onClick={() => setEditGender(editGender === g ? '' : g)}
-                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editGender === g
-                                            ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
-                                            : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
-                                            }`}
-                                    >
-                                        {g}
-                                    </button>
-                                ))}
-                            </div>
                         </div>
 
                         {/* Age Range */}
