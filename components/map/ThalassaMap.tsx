@@ -71,6 +71,7 @@ const OFFLINE_STYLE: StyleSpecification = {
                 'https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE',
             ],
             tileSize: 256,
+            maxzoom: 12,
             attribution: '&copy; <a href="https://www.gebco.net">GEBCO</a>',
         },
         'openseamap': {
@@ -79,6 +80,7 @@ const OFFLINE_STYLE: StyleSpecification = {
                 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
             ],
             tileSize: 256,
+            maxzoom: 18,
             attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
         },
     },
