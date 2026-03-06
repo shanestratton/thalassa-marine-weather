@@ -50,26 +50,8 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 if (l.type === 'symbol') { firstSymbolId = l.id; break; }
             }
 
-            // GEBCO Bathymetry
-            map.addSource('gebco-bathymetry', {
-                type: 'raster',
-                tiles: ['https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST_2&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE'],
-                tileSize: 256,
-                maxzoom: 7,
-            });
-            map.addLayer({
-                id: 'gebco-bathymetry-tiles',
-                type: 'raster',
-                source: 'gebco-bathymetry',
-                minzoom: 0,
-                maxzoom: 10,
-                paint: {
-                    'raster-opacity': 0.55,
-                    'raster-saturation': -0.7,
-                    'raster-brightness-max': 0.85,
-                    'raster-contrast': 0.15,
-                },
-            }, firstSymbolId);
+
+            // GEBCO Bathymetry removed — WMS now returns 'Zoom Level Not Supported' tiles
 
             // OpenSeaMap overlay
             map.addSource('openseamap', {
