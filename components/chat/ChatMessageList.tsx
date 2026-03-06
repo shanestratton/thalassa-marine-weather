@@ -194,7 +194,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                             onClick={() => navigateToPin(pin.lat, pin.lng)}
                                                             className="w-full cursor-pointer hover:opacity-90 transition-opacity relative"
                                                         >
-                                                            <img src={getStaticMapUrl(pin.lat, pin.lng)} alt="Pin location" className="w-full h-[140px] object-cover" loading="lazy" />
+                                                            <img src={getStaticMapUrl(pin.lat, pin.lng, 13, 300, 180, isLoc ? '22c55e' : 'ef4444')} alt="Pin location" className="w-full h-[140px] object-cover" loading="lazy" />
                                                             {/* Source badge */}
                                                             <span className={`absolute top-2 left-2 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider shadow-lg ${isLoc ? 'bg-emerald-900/90 text-emerald-300 border border-emerald-400/30' :
                                                                 isPoi ? 'bg-purple-900/90 text-purple-300 border border-purple-400/30' :
