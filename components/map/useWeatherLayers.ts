@@ -538,7 +538,7 @@ export function useEmbeddedRain(
                     setEmbRainCount(allFrames.length);
                     const nowIdx = Math.max(0, past.length - 1);
                     embRainNowIdx.current = nowIdx;
-                    setEmbRainIdx(0);
+                    setEmbRainIdx(nowIdx);
                 } catch (err) { }
             })();
         }, embedded ? 1200 : 800);
@@ -579,7 +579,7 @@ export function useEmbeddedRain(
         if (!embRainPlaying) return;
         const timer = setInterval(() => {
             setEmbRainIdx(prev => {
-                if (prev + 1 >= embRainCount) { setEmbRainPlaying(false); return 0; }
+                if (prev + 1 >= embRainCount) { setEmbRainPlaying(false); return embRainNowIdx.current; }
                 return prev + 1;
             });
         }, 1200);
