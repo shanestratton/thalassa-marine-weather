@@ -166,7 +166,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     type: 'raster',
                     tiles: ['https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST_2&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE'],
                     tileSize: 256,
-                    maxzoom: 12,
+                    maxzoom: 7,
                     attribution: '© GEBCO / Seabed 2030',
                 });
                 map.addLayer({
@@ -174,9 +174,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                     type: 'raster',
                     source: 'gebco-bathymetry',
                     minzoom: 0,
-                    maxzoom: 12,
+                    maxzoom: 10,
                     paint: {
-                        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.55, 10, 0.55, 11, 0.3, 11.5, 0],
+                        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.55, 6, 0.55, 7, 0.3, 8, 0],
                         'raster-saturation': -0.7,
                         'raster-brightness-max': 0.85,
                         'raster-contrast': 0.15,
