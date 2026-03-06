@@ -213,6 +213,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
     private gridBounds = { south: 0, north: 0, west: 0, east: 0 };
     private hasFloat = false;
     private pendingGrid: { grid: WindGrid; hour: number } | null = null;
+    private _onVisibilityChange: (() => void) | null = null;
 
     // GL resources
     private updateProg!: WebGLProgram;
@@ -273,6 +274,16 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             this.pendingGrid = null;
         }
 
+        // Resume rendering when the page becomes visible again.
+        // The render() method gates triggerRepaint() behind !document.hidden,
+        // so when the user backgrounds the app, the loop stops. This listener
+        // kicks it back off when they return.
+        this._onVisibilityChange = () => {
+            if (!document.hidden && this.grid) {
+                this.map.triggerRepaint();
+            }
+        };
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
     }
 
     render(gl: WebGLRenderingContext, matrix: number[]) {
@@ -335,11 +346,19 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             console.error('[WindGL] Render error:', e);
         }
 
-        // Keep animating
-        this.map.triggerRepaint();
+        // Keep animating — but ONLY if the page is visible.
+        // Without this guard, the GPU runs at 60 FPS even when the app
+        // is backgrounded or the screen is off, causing severe battery drain.
+        if (!document.hidden) {
+            this.map.triggerRepaint();
+        }
     }
 
     onRemove(_map: mapboxgl.Map, gl: WebGLRenderingContext) {
+        if (this._onVisibilityChange) {
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+            this._onVisibilityChange = null;
+        }
         [this.updateProg, this.drawProg, this.screenProg, this.fadeProg].forEach(p => gl.deleteProgram(p));
         [this.windTex, this.pState0, this.pState1, this.trail0, this.trail1].forEach(t => gl.deleteTexture(t));
         [this.quadBuf, this.idxBuf].forEach(b => gl.deleteBuffer(b));

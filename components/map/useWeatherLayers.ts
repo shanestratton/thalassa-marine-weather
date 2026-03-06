@@ -144,6 +144,11 @@ export function useWeatherLayers(
             return;
         }
         const animate = (timestamp: number) => {
+            // Skip processing when app is backgrounded — saves battery
+            if (document.hidden) {
+                playRafRef.current = requestAnimationFrame(animate);
+                return;
+            }
             if (timestamp - lastFrameTimeRef.current >= 350) {
                 lastFrameTimeRef.current = timestamp;
                 setForecastHour(prev => {
