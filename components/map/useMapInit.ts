@@ -408,7 +408,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             const detail = (e as CustomEvent).detail;
             const lat = detail?.lat ?? center?.lat ?? location.lat;
             const lon = detail?.lon ?? center?.lon ?? location.lon;
-            map.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
+            const zoom = detail?.zoom ?? initialZoom;
+            map.flyTo({ center: [lon, lat], zoom, duration: 800 });
         };
         window.addEventListener('map-recenter', handleRecenter);
 
