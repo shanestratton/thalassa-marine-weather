@@ -41,6 +41,9 @@ export interface CrewProfile {
     available_from: string | null;
     available_to: string | null;
     bio: string | null;
+    location_city: string | null;
+    location_state: string | null;
+    location_country: string | null;
     photo_url: string | null;
     photos: string[];
     created_at: string;
@@ -68,6 +71,9 @@ export interface CrewCard {
     available_from: string | null;
     available_to: string | null;
     bio: string | null;
+    location_city: string | null;
+    location_state: string | null;
+    location_country: string | null;
     photos: string[];
 }
 
@@ -179,6 +185,9 @@ export interface CrewSearchFilters {
     region?: string;
     gender?: string;
     age_ranges?: string[];
+    location_country?: string;
+    location_state?: string;
+    location_city?: string;
 }
 
 // ═══════════════════════════════════════════════════
@@ -227,6 +236,9 @@ class LonelyHeartsServiceClass {
             available_from: data.available_from || null,
             available_to: data.available_to || null,
             bio: data.bio || null,
+            location_city: data.location_city || null,
+            location_state: data.location_state || null,
+            location_country: data.location_country || null,
             photo_url: data.photo_url || null,
             photos: data.photos || [],
             created_at: data.created_at,
@@ -461,6 +473,9 @@ class LonelyHeartsServiceClass {
             if (filters.region && card.sailing_region && !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase())) continue;
             if (filters.gender && card.gender !== filters.gender) continue;
             if (filters.age_ranges && filters.age_ranges.length > 0 && !filters.age_ranges.includes(card.age_range || '')) continue;
+            if (filters.location_country && (!card.location_country || !card.location_country.toLowerCase().includes(filters.location_country.toLowerCase()))) continue;
+            if (filters.location_state && (!card.location_state || !card.location_state.toLowerCase().includes(filters.location_state.toLowerCase()))) continue;
+            if (filters.location_city && (!card.location_city || !card.location_city.toLowerCase().includes(filters.location_city.toLowerCase()))) continue;
 
             cards.push(card);
         }
@@ -503,6 +518,9 @@ class LonelyHeartsServiceClass {
             available_from: cp.available_from || null,
             available_to: cp.available_to || null,
             bio: cp.bio || null,
+            location_city: cp.location_city || null,
+            location_state: cp.location_state || null,
+            location_country: cp.location_country || null,
             photos: cp.photos || cp.dating_photos || [],
         };
     }

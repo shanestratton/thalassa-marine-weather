@@ -25,6 +25,8 @@ import {
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
 import { triggerHaptic } from '../utils/system';
+import { LocationStore } from '../stores/LocationStore';
+import { COUNTRIES, getStatesForCountry } from '../data/locationData';
 
 interface LonelyHeartsPageProps {
     onOpenDM: (userId: string, name: string) => void;
@@ -45,6 +47,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const [filterSkills, setFilterSkills] = useState<string[]>([]);
     const [filterExperience, setFilterExperience] = useState('');
     const [filterRegion, setFilterRegion] = useState('');
+    const [filterLocationCountry, setFilterLocationCountry] = useState('');
+    const [filterLocationState, setFilterLocationState] = useState('');
+    const [filterLocationCity, setFilterLocationCity] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
     // Detail
@@ -68,6 +73,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const [editAvailFrom, setEditAvailFrom] = useState('');
     const [editAvailTo, setEditAvailTo] = useState('');
     const [editBio, setEditBio] = useState('');
+    const [editLocationCity, setEditLocationCity] = useState('');
+    const [editLocationState, setEditLocationState] = useState('');
+    const [editLocationCountry, setEditLocationCountry] = useState('');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     // Photo (up to 6)
@@ -79,6 +87,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     // Delete listing
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [showPreview, setShowPreview] = useState(false);
 
     // Card stack state
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -115,6 +124,31 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         init();
     }, []);
 
+    // Auto-fill location from GPS if empty
+    useEffect(() => {
+        if (editLocationCity || editLocationState || editLocationCountry) return;
+        if (view !== 'my_profile') return;
+        const loc = LocationStore.getState();
+        if (!loc.lat || !loc.lon) return;
+        (async () => {
+            try {
+                const res = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${loc.lat}&lon=${loc.lon}&format=json&zoom=10&addressdetails=1`,
+                    { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } }
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                const addr = data.address || {};
+                const city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || '';
+                const state = addr.state || addr.region || addr.county || '';
+                const country = addr.country || '';
+                if (city) setEditLocationCity(city);
+                if (state) setEditLocationState(state);
+                if (country) setEditLocationCountry(country);
+            } catch { /* GPS or network unavailable — user can fill manually */ }
+        })();
+    }, [view, editLocationCity, editLocationState, editLocationCountry]);
+
     const loadListings = useCallback(async (f?: CrewSearchFilters) => {
         const applied = f || filters;
         const data = await LonelyHeartsService.getCrewListings(applied);
@@ -142,6 +176,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             setEditAvailFrom(dp.available_from || '');
             setEditAvailTo(dp.available_to || '');
             setEditBio(dp.bio || '');
+            setEditLocationCity(dp.location_city || '');
+            setEditLocationState(dp.location_state || '');
+            setEditLocationCountry(dp.location_country || '');
             setEditPhotos(dp.photos?.length ? dp.photos : dp.photo_url ? [dp.photo_url] : []);
         }
     };
@@ -155,6 +192,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         if (filterSkills.length > 0) f.skills = filterSkills;
         if (filterExperience) f.experience = filterExperience;
         if (filterRegion) f.region = filterRegion;
+        if (filterLocationCountry) f.location_country = filterLocationCountry;
+        if (filterLocationState) f.location_state = filterLocationState;
+        if (filterLocationCity) f.location_city = filterLocationCity;
         setFilters(f);
         setLoading(true);
         await loadListings(f);
@@ -170,6 +210,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         setFilterSkills([]);
         setFilterExperience('');
         setFilterRegion('');
+        setFilterLocationCountry('');
+        setFilterLocationState('');
+        setFilterLocationCity('');
         setFilters({});
         setLoading(true);
         await loadListings({});
@@ -196,6 +239,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             skills: editSkills,
             sailing_experience: editExperience || null,
             sailing_region: editRegion.trim() || null,
+            location_city: editLocationCity.trim() || null,
+            location_state: editLocationState.trim() || null,
+            location_country: editLocationCountry.trim() || null,
             available_from: editAvailFrom || null,
             available_to: editAvailTo || null,
             bio: editBio.trim() || null,
@@ -394,6 +440,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             setEditAvailFrom('');
             setEditAvailTo('');
             setEditBio('');
+            setEditLocationCity('');
+            setEditLocationState('');
+            setEditLocationCountry('');
             setEditPhotos([]);
             toast.success('Listing removed from board');
             setView('board');
@@ -544,21 +593,67 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     </div>
                                 )}
 
-                                {/* Pinned Search CTA */}
-                                <div className="fixed left-0 right-0 px-4 z-20" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                                    <button
-                                        onClick={applyFilters}
-                                        disabled={!filterListingType}
-                                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${filterListingType
-                                            ? 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'
-                                            : 'bg-white/[0.06] text-white/25 cursor-not-allowed'
-                                            }`}
-                                    >
-                                        🔍 Search
-                                    </button>
+                                {/* Location Filters (optional) */}
+                                <div className="px-6 mb-4">
+                                    <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-white/40 mb-3">📍 Location (optional)</h3>
+                                    <div className="space-y-2">
+                                        <select
+                                            value={filterLocationCountry}
+                                            onChange={e => {
+                                                setFilterLocationCountry(e.target.value);
+                                                setFilterLocationState('');
+                                            }}
+                                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500/30 transition-colors appearance-none"
+                                            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                        >
+                                            <option value="" className="bg-[#1a1d2e]">Any Country</option>
+                                            {COUNTRIES.map(c => <option key={c} value={c} className="bg-[#1a1d2e]">{c}</option>)}
+                                        </select>
+                                        {filterLocationCountry && getStatesForCountry(filterLocationCountry).length > 0 && (
+                                            <select
+                                                value={filterLocationState}
+                                                onChange={e => setFilterLocationState(e.target.value)}
+                                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-sky-500/30 transition-colors appearance-none"
+                                                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                            >
+                                                <option value="" className="bg-[#1a1d2e]">Any State / Province</option>
+                                                {getStatesForCountry(filterLocationCountry).map(s => <option key={s} value={s} className="bg-[#1a1d2e]">{s}</option>)}
+                                            </select>
+                                        )}
+                                        <input
+                                            value={filterLocationCity}
+                                            onChange={e => setFilterLocationCity(e.target.value)}
+                                            placeholder="City / Town (optional)"
+                                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                        />
+                                    </div>
                                 </div>
+
                             </>
                         )}
+
+                        {/* Pinned Search CTA — always visible */}
+                        <div className="fixed left-0 right-0 px-4 z-20" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
+                            <button
+                                onClick={() => {
+                                    if (hasSearched) {
+                                        setHasSearched(false);
+                                        setListings([]);
+                                        setCurrentCardIndex(0);
+                                        setCardPhotoIndex(0);
+                                    } else {
+                                        applyFilters();
+                                    }
+                                }}
+                                disabled={!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0)}
+                                className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${(!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0))
+                                    ? 'bg-white/[0.06] text-white/25 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'
+                                    }`}
+                            >
+                                {hasSearched ? '🔍 New Search' : '🔍 Search'}
+                            </button>
+                        </div>
 
                         {/* ═══════ CARD STACK ═══════ */}
                         {listings.length === 0 ? (
@@ -713,8 +808,11 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 {/* Quick facts grid */}
                                                 <div className="flex flex-wrap gap-2">
 
+                                                    {(card.location_city || card.location_state || card.location_country) && (
+                                                        <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">📍 {[card.location_city, card.location_state, card.location_country].filter(Boolean).join(', ')}</span>
+                                                    )}
                                                     {card.sailing_region && (
-                                                        <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">📍 {card.sailing_region}</span>
+                                                        <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">⛵ {card.sailing_region}</span>
                                                     )}
                                                     {card.sailing_experience && (
                                                         <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">🧭 {card.sailing_experience}</span>
@@ -1197,6 +1295,44 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
+                        {/* Location */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">📍 Your Location</label>
+                            <div className="space-y-2.5">
+                                <select
+                                    value={editLocationCountry}
+                                    onChange={e => {
+                                        setEditLocationCountry(e.target.value);
+                                        setEditLocationState('');
+                                    }}
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                >
+                                    <option value="" className="bg-[#1a1d2e]">Select Country</option>
+                                    {COUNTRIES.map(c => <option key={c} value={c} className="bg-[#1a1d2e]">{c}</option>)}
+                                </select>
+                                {editLocationCountry && getStatesForCountry(editLocationCountry).length > 0 && (
+                                    <select
+                                        value={editLocationState}
+                                        onChange={e => setEditLocationState(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                    >
+                                        <option value="" className="bg-[#1a1d2e]">Select State / Province</option>
+                                        {getStatesForCountry(editLocationCountry).map(s => <option key={s} value={s} className="bg-[#1a1d2e]">{s}</option>)}
+                                    </select>
+                                )}
+                                <input
+                                    value={editLocationCity}
+                                    onChange={e => setEditLocationCity(e.target.value)}
+                                    placeholder="City / Town"
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                                    maxLength={60}
+                                />
+                            </div>
+                            <p className="text-[10px] text-white/25 mt-1.5 ml-1">Auto-detected from your GPS — edit if needed</p>
+                        </div>
+
                         {/* Sailing Region */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
@@ -1300,6 +1436,68 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         <p className="text-[11px] text-white/15 text-center">
                             Your listing is visible to other Crew Talk members who have opted in
                         </p>
+
+                        {/* Preview My Listing Button */}
+                        {editFirstName && (
+                            <button
+                                onClick={() => setShowPreview(!showPreview)}
+                                className="w-full py-3 rounded-2xl text-sm font-semibold transition-all active:scale-[0.98] bg-white/[0.04] border border-white/[0.06] text-white/60 hover:bg-white/[0.08]"
+                            >
+                                {showPreview ? '✕ Hide Preview' : '👁 Preview My Listing'}
+                            </button>
+                        )}
+
+                        {/* Preview Card */}
+                        {showPreview && (
+                            <div className="rounded-3xl overflow-hidden bg-gradient-to-b from-[#1a1d2e] to-[#0f1117] border border-white/[0.06] shadow-2xl">
+                                {editPhotos[0] && (
+                                    <div className="h-56 overflow-hidden">
+                                        <img src={editPhotos[0]} alt="Preview" className="w-full h-full object-cover" />
+                                    </div>
+                                )}
+                                <div className="p-5 space-y-3">
+                                    <div className="flex items-baseline gap-3">
+                                        <h3 className="text-xl font-bold text-white">{editFirstName || 'Your Name'}</h3>
+                                        {editAge && <span className="text-sm text-white/40">{editAge}</span>}
+                                    </div>
+                                    {editListingType && (
+                                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${editListingType === 'seeking_crew'
+                                            ? 'bg-sky-500/15 text-sky-300 border border-sky-400/20'
+                                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
+                                            }`}>
+                                            {editListingType === 'seeking_crew' ? '⛵ Looking for Crew' : '🧭 Looking for a Boat'}
+                                        </span>
+                                    )}
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {(editLocationCity || editLocationState || editLocationCountry) && (
+                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
+                                                📍 {[editLocationCity, editLocationState, editLocationCountry].filter(Boolean).join(', ')}
+                                            </span>
+                                        )}
+                                        {editRegion && (
+                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">⛵ {editRegion}</span>
+                                        )}
+                                        {editExperience && (
+                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">🧭 {editExperience}</span>
+                                        )}
+                                        {editGender && (
+                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">{editGender}</span>
+                                        )}
+                                    </div>
+                                    {editSkills.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                            {editSkills.map(s => (
+                                                <span key={s} className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-[10px] font-medium text-emerald-300/80 border border-emerald-500/10">{s}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {editBio && (
+                                        <p className="text-sm text-white/50 leading-relaxed line-clamp-4">{editBio}</p>
+                                    )}
+                                    <p className="text-[10px] text-white/20 text-center pt-2 border-t border-white/[0.04]">This is how your listing appears to others</p>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Delete Listing — only show if profile exists */}
                         {profile?.user_id && (
