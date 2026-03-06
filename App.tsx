@@ -18,6 +18,7 @@ import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaGpsProvider } from './services/NmeaGpsProvider';
+import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
 
@@ -102,6 +103,39 @@ const App: React.FC = () => {
             .catch(e => console.error('[App] Local DB init failed:', e));
         return () => stopSyncEngine();
     }, []);
+
+    // Wire Push Notification callbacks for in-app handling + deep navigation
+    useEffect(() => {
+        // Gap 3: Show in-app toast when push arrives while app is in foreground
+        PushNotificationService.onForegroundPush = (notification) => {
+            const title = notification.title || 'Notification';
+            toast.info(title);
+        };
+
+        // Gap 4: Navigate to the correct page when user taps a push notification
+        PushNotificationService.onNotificationTap = (data) => {
+            const type = data.notification_type as string;
+            switch (type) {
+                case 'dm':
+                    setPage('chat');
+                    break;
+                case 'weather_alert':
+                    setPage('dashboard');
+                    break;
+                case 'anchor_alarm':
+                    setPage('map');
+                    break;
+                default:
+                    setPage('dashboard');
+                    break;
+            }
+        };
+
+        return () => {
+            PushNotificationService.onForegroundPush = null;
+            PushNotificationService.onNotificationTap = null;
+        };
+    }, [setPage]);
 
     // Global keyboard dismiss — mimics native iOS behaviour.
     // Tapping outside an input/textarea/select blurs the active element,

@@ -25,6 +25,9 @@ class PushNotificationServiceClass {
     // Callback for handling notification taps (set by UI layer)
     onNotificationTap: ((data: Record<string, unknown>) => void) | null = null;
 
+    // Callback for foreground push notifications (show in-app toast)
+    onForegroundPush: ((notification: { title?: string; body?: string; data?: Record<string, unknown> }) => void) | null = null;
+
     /**
      * Initialize push notifications.
      * Call this early in the app lifecycle (e.g., AuthContext on login).
@@ -54,9 +57,14 @@ class PushNotificationServiceClass {
             // Listen for incoming notifications (foreground)
             await PushNotifications.addListener('pushNotificationReceived', (notification) => {
                 log.info('Push received (foreground):', notification.title);
-                // Foreground notifications are suppressed by default on iOS.
-                // The app is already open, so we don't need to show a banner.
-                // Could trigger an in-app toast here if desired.
+                // iOS suppresses banners when app is in foreground — show in-app toast instead
+                if (this.onForegroundPush) {
+                    this.onForegroundPush({
+                        title: notification.title ?? undefined,
+                        body: notification.body ?? undefined,
+                        data: notification.data as Record<string, unknown> | undefined,
+                    });
+                }
             });
 
             // Listen for notification taps (user opened notification from lock screen / notification center)
@@ -148,7 +156,7 @@ class PushNotificationServiceClass {
                 });
                 log.info('Push token removed from Supabase');
             } catch (e) {
-            console.warn('[PushNotification]', e);
+                console.warn('[PushNotification]', e);
                 /* best effort */
             }
         }
