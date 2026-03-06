@@ -225,7 +225,18 @@ export const ChatPage: React.FC = () => {
     useEffect(() => {
         // FAST PATH: Show channels immediately (from cache or defaults)
         // Don't wait for auth — channels are public data
-        loadChannels().then(() => {
+        loadChannels().then((chs) => {
+            // ── Auto-restore channel if returning from pin-view map ──
+            const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
+            if (returnChannelId) {
+                sessionStorage.removeItem('chat_return_to_channel');
+                const ch = chs.find(c => c.id === returnChannelId);
+                if (ch) {
+                    // Re-open the channel the user was viewing before the pin tap
+                    openChannel(ch);
+                }
+            }
+
             // Auth + profile load in background — non-blocking
             ChatService.initialize().then(async () => {
                 loadUnreadCount();
@@ -1208,7 +1219,7 @@ export const ChatPage: React.FC = () => {
                     style={{
                         background: trackImportStatus!.startsWith('✅') ? 'rgba(6,78,59,0.95)' : 'rgba(127,29,29,0.95)',
                         borderColor: trackImportStatus!.startsWith('✅') ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
-                        
+
                     }}>
                     <p className={`text-sm font-bold ${trackImportStatus!.startsWith('✅') ? 'text-emerald-300' : 'text-red-300'}`}>
                         {trackImportStatus}
