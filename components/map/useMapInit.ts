@@ -176,7 +176,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     minzoom: 0,
                     maxzoom: 12,
                     paint: {
-                        'raster-opacity': 0.55,
+                        'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.55, 10, 0.55, 11, 0.3, 11.5, 0],
                         'raster-saturation': -0.7,
                         'raster-brightness-max': 0.85,
                         'raster-contrast': 0.15,

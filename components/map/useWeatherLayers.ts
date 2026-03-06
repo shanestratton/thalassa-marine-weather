@@ -253,6 +253,7 @@ export function useWeatherLayers(
             type: 'raster',
             tiles: [`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/4/1_1.png`],
             tileSize: 256,
+            maxzoom: 12,
         });
         m.addLayer({
             id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
@@ -421,6 +422,7 @@ export function useWeatherLayers(
                         type: 'raster',
                         tiles: [`https://tilecache.rainviewer.com${startFrame.path}/256/{z}/{x}/{y}/4/1_1.png`],
                         tileSize: 256,
+                        maxzoom: 12,
                     });
                     map.addLayer({
                         id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
@@ -465,7 +467,7 @@ export function useWeatherLayers(
         // Static and dynamic tile layers (sea, satellite, temperature, clouds)
         const tileUrl = getTileUrl(activeLayer);
         if (tileUrl) {
-            map.addSource('weather-tiles', { type: 'raster', tiles: [tileUrl], tileSize: 256 });
+            map.addSource('weather-tiles', { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: activeLayer === 'satellite' ? 16 : 18 });
             map.addLayer({
                 id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
                 paint: {
@@ -564,6 +566,7 @@ export function useEmbeddedRain(
             type: 'raster',
             tiles: [`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/6/1_1.png`],
             tileSize: 256,
+            maxzoom: 12,
         });
         m.addLayer({
             id: 'embedded-rain', type: 'raster', source: 'embedded-rain',
