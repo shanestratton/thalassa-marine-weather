@@ -67,7 +67,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings } = useSettings();
-    const { setPage } = useUI();
+    const { setPage, previousView } = useUI();
     const [passageToast, setPassageToast] = useState<string | null>(null);
     const [isoProgress, setIsoProgress] = useState<{ step: number; closestNM: number; totalDistNM?: number; elapsed?: number; frontSize?: number; phase?: string } | null>(null);
 
@@ -151,7 +151,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         pinMarkerRef.current = marker;
 
         // Fly to the pin
-        map.flyTo({ center: [pinView.lng, pinView.lat], zoom: 14, duration: 1200 });
+        map.flyTo({ center: [pinView.lng, pinView.lat], zoom: 7, duration: 1200 });
     }, [isPinView, mapReady]);
 
     // ── Render ──
@@ -162,6 +162,22 @@ export const MapHub: React.FC<MapHubProps> = ({
 
             {/* Pin bounce + location pulse animations */}
             <style>{MAP_ANIMATIONS_CSS}</style>
+
+            {/* ═══ PIN VIEW BACK BUTTON ═══ */}
+            {isPinView && (
+                <button
+                    onClick={() => {
+                        delete (window as any).__thalassaPinView;
+                        setPage(previousView || 'chat');
+                    }}
+                    className="absolute top-14 left-4 z-[700] w-10 h-10 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
+                    aria-label="Back"
+                >
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                    </svg>
+                </button>
+            )}
 
             {/* ═══ VELOCITY WIND OVERLAY ═══ */}
             {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} />}
