@@ -55,14 +55,14 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 type: 'raster',
                 tiles: ['https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST_2&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE'],
                 tileSize: 256,
-                maxzoom: 12,
+                maxzoom: 7,
             });
             map.addLayer({
                 id: 'gebco-bathymetry-tiles',
                 type: 'raster',
                 source: 'gebco-bathymetry',
                 minzoom: 0,
-                maxzoom: 12,
+                maxzoom: 10,
                 paint: {
                     'raster-opacity': 0.55,
                     'raster-saturation': -0.7,

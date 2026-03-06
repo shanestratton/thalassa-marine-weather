@@ -43,7 +43,7 @@ const OCEAN_STYLE: StyleSpecification = {
                 'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
             ],
             tileSize: 256,
-            maxzoom: 12,
+            maxzoom: 7,
             attribution: '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry">EMODnet Bathymetry</a>',
         },
         'openseamap': {
@@ -74,7 +74,7 @@ const OCEAN_STYLE: StyleSpecification = {
             type: 'raster',
             source: 'gebco-bathymetry',
             minzoom: 0,
-            maxzoom: 12,
+            maxzoom: 10,
             paint: {
                 'raster-opacity': 0.35,
                 'raster-saturation': -0.3,
