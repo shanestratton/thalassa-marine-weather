@@ -538,7 +538,7 @@ export function useEmbeddedRain(
                     setEmbRainCount(allFrames.length);
                     const nowIdx = Math.max(0, past.length - 1);
                     embRainNowIdx.current = nowIdx;
-                    setEmbRainIdx(nowIdx);
+                    setEmbRainIdx(0);
                 } catch (err) { }
             })();
         }, embedded ? 1200 : 800);
