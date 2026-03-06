@@ -1450,55 +1450,109 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </button>
                         )}
 
-                        {/* Preview Card */}
+                        {/* Preview Card — mirrors the detail view exactly */}
                         {showPreview && (
-                            <div className="rounded-3xl overflow-hidden bg-gradient-to-b from-[#1a1d2e] to-[#0f1117] border border-white/[0.06] shadow-2xl">
-                                {editPhotos[0] && (
-                                    <div className="h-56 overflow-hidden">
-                                        <img src={editPhotos[0]} alt="Preview" className="w-full h-full object-cover" />
+                            <div className="px-1 py-2">
+                                {/* Profile header */}
+                                <div className="text-center mb-6">
+                                    <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
+                                        {editPhotos[0] ? (
+                                            <img src={editPhotos[0]} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
+                                                <span className="text-3xl">{editListingType === 'seeking_crew' ? '🚢' : '⛵'}</span>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                                <div className="p-5 space-y-3">
-                                    <div className="flex items-baseline gap-3">
-                                        <h3 className="text-xl font-bold text-white">{editFirstName || 'Your Name'}</h3>
-                                        {editAge && <span className="text-sm text-white/40">{editAge}</span>}
-                                    </div>
+                                    <h2 className="text-2xl font-black text-white/90 mb-0.5">{editFirstName || 'Your Name'}</h2>
+                                    {editAge && (
+                                        <p className="text-sm text-white/35 mb-1">{editAge}</p>
+                                    )}
                                     {editListingType && (
-                                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${editListingType === 'seeking_crew'
-                                            ? 'bg-sky-500/15 text-sky-300 border border-sky-400/20'
-                                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/20'
+                                        <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${editListingType === 'seeking_crew'
+                                            ? 'bg-emerald-500/15 text-emerald-300/80'
+                                            : 'bg-amber-500/15 text-amber-300/80'
                                             }`}>
-                                            {editListingType === 'seeking_crew' ? '⛵ Looking for Crew' : '🧭 Looking for a Boat'}
+                                            {editListingType === 'seeking_crew' ? '⚓ Captain' : '🧭 Crew'}
                                         </span>
                                     )}
-                                    <div className="flex flex-wrap gap-1.5">
+                                </div>
+
+                                {/* Info cards */}
+                                <div className="space-y-4">
+                                    {/* Quick facts */}
+                                    <div className="grid grid-cols-2 gap-2">
                                         {(editLocationCity || editLocationState || editLocationCountry) && (
-                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">
-                                                📍 {[editLocationCity, editLocationState, editLocationCountry].filter(Boolean).join(', ')}
-                                            </span>
+                                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Home Port</p>
+                                                <p className="text-sm text-white/70">🏠 {[editLocationCity, editLocationState, editLocationCountry].filter(Boolean).join(', ')}</p>
+                                            </div>
                                         )}
                                         {editRegion && (
-                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">⛵ {editRegion}</span>
+                                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Region</p>
+                                                <p className="text-sm text-white/70">📍 {editRegion}</p>
+                                            </div>
                                         )}
                                         {editExperience && (
-                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">🧭 {editExperience}</span>
+                                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Experience</p>
+                                                <p className="text-sm text-white/70">🧭 {editExperience}</p>
+                                            </div>
                                         )}
                                         {editGender && (
-                                            <span className="px-2.5 py-1 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">{editGender}</span>
+                                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Gender</p>
+                                                <p className="text-sm text-white/70">{editGender}</p>
+                                            </div>
+                                        )}
+                                        {editAge && (
+                                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">Age</p>
+                                                <p className="text-sm text-white/70">{editAge}</p>
+                                            </div>
                                         )}
                                     </div>
-                                    {editSkills.length > 0 && (
-                                        <div className="flex flex-wrap gap-1">
-                                            {editSkills.map(s => (
-                                                <span key={s} className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-[10px] font-medium text-emerald-300/80 border border-emerald-500/10">{s}</span>
-                                            ))}
+
+                                    {/* Availability */}
+                                    {(editAvailFrom || editAvailTo) && (
+                                        <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                                            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/40 mb-1">Availability</p>
+                                            <p className="text-sm text-emerald-200/70">
+                                                📅 {editAvailFrom ? formatDate(editAvailFrom) : 'Flexible'}
+                                                {!isOpenEnded(editAvailTo) && editAvailTo
+                                                    ? ` — ${formatDate(editAvailTo)}`
+                                                    : ' onwards'}
+                                            </p>
                                         </div>
                                     )}
-                                    {editBio && (
-                                        <p className="text-sm text-white/50 leading-relaxed line-clamp-4">{editBio}</p>
+
+                                    {/* Skills */}
+                                    {editSkills.length > 0 && (
+                                        <div>
+                                            <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-2">Seeking:</p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {editSkills.map(skill => (
+                                                    <span key={skill} className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-xs text-emerald-200/70 border border-emerald-500/15">
+                                                        {skill}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
-                                    <p className="text-[10px] text-white/20 text-center pt-2 border-t border-white/[0.04]">This is how your listing appears to others</p>
+
+                                    {/* Bio */}
+                                    {editBio && (
+                                        <div>
+                                            <h3 className="text-xs font-bold uppercase tracking-widest text-white/25 mb-2">📝 About</h3>
+                                            <p className="text-sm text-white/60 leading-relaxed whitespace-pre-wrap">
+                                                {editBio}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
+
+                                <p className="text-[10px] text-white/20 text-center pt-4 mt-4 border-t border-white/[0.04]">This is how your listing appears to others</p>
                             </div>
                         )}
 
