@@ -53,10 +53,10 @@ export function getCrewRank(helpful: number) {
 }
 
 // ─── Static Map URL ──────────────────────────────────────────────────
-export function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h = 180): string {
+export function getStaticMapUrl(lat: number, lng: number, zoom = 13, w = 300, h = 180, pinColor = 'ff4466'): string {
     const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
     if (token && token.length > 10) {
-        return `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/static/pin-l+ff4466(${lng},${lat})/${lng},${lat},${zoom},0/${w}x${h}@2x?access_token=${token}&logo=false&attribution=false`;
+        return `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/static/pin-l+${pinColor}(${lng},${lat})/${lng},${lat},${zoom},0/${w}x${h}@2x?access_token=${token}&logo=false&attribution=false`;
     }
     return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=${zoom}&size=${w}x${h}&markers=${lat},${lng},ol-marker`;
 }
