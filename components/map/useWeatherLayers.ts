@@ -579,10 +579,10 @@ export function useEmbeddedRain(
         if (!embRainPlaying) return;
         const timer = setInterval(() => {
             setEmbRainIdx(prev => {
-                if (prev + 1 >= embRainCount) { setEmbRainPlaying(false); return embRainNowIdx.current; }
+                if (prev + 1 >= embRainCount) { setEmbRainPlaying(false); return 0; }
                 return prev + 1;
             });
-        }, 400);
+        }, 1200);
         return () => clearInterval(timer);
     }, [embRainPlaying, embRainCount]);
 
