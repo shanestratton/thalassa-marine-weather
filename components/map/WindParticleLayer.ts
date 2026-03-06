@@ -277,6 +277,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
      * Enables X-axis texture REPEAT and particle wrapping at the antimeridian.
      */
     private globalMode: boolean = false;
+    private _onVisibilityChange: (() => void) | null = null;
 
     getMaxSpeed(): number {
         return this.maxObservedSpeed;
@@ -393,6 +394,17 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             this.pendingGrid = null;
             this.setGrid(grid, hour);
         }
+
+        // Resume rendering when the page becomes visible again.
+        // The render() method gates triggerRepaint() behind !document.hidden,
+        // so when the user backgrounds the app, the loop stops. This listener
+        // kicks it back off when they return.
+        this._onVisibilityChange = () => {
+            if (!document.hidden && this.windTimeline.length > 0) {
+                this.map?.triggerRepaint();
+            }
+        };
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
     }
 
     // ── Data loading ──────────────────────────────────────────
@@ -922,7 +934,8 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         const now = performance.now();
         if (now - this._lastRenderTime < 66) {
             // Schedule another frame but don't draw this one
-            this.map?.triggerRepaint();
+            // Guard: only request repaint if page is visible to avoid battery drain
+            if (!document.hidden) this.map?.triggerRepaint();
             return;
         }
         this._lastRenderTime = now;
@@ -1112,12 +1125,21 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (prevBlend) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
         if (prevDepthTest) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
 
-        this.map?.triggerRepaint();
+        // Continue animation — but ONLY if the page is visible.
+        // Without this guard, the GPU runs continuously even when the app
+        // is backgrounded, causing severe battery drain on mobile.
+        if (!document.hidden) {
+            this.map?.triggerRepaint();
+        }
     }
 
     // ── Cleanup ────────────────────────────────────────────────
 
     onRemove(_map: mapboxgl.Map, gl: WebGLRenderingContext): void {
+        if (this._onVisibilityChange) {
+            document.removeEventListener('visibilitychange', this._onVisibilityChange);
+            this._onVisibilityChange = null;
+        }
         if (this.program) gl.deleteProgram(this.program);
         if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
         if (this.particleBuffer) gl.deleteBuffer(this.particleBuffer);

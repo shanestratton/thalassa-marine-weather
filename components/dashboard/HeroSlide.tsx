@@ -1002,37 +1002,58 @@ const HeroSlideComponent = ({
                                 key={slideIdx}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                {showMapInstead ? (
-                                    /* ESSENTIAL MODE MAP — only on slide 0 to avoid multiple WebGL contexts */
-                                    <div className="relative w-full h-full flex flex-col">
-                                        <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
-                                            {slideIdx === 0 ? (
-                                                <>
-                                                    <style>{`
+                                {showMapInstead ? (() => {
+                                    /* ESSENTIAL MODE MAP — only on slide 0 to avoid multiple WebGL contexts.
+                                     * Uses IntersectionObserver to unmount the map when scrolled off-screen,
+                                     * preventing the WebGL render loop from burning battery on hidden slides. */
+                                    // eslint-disable-next-line react-hooks/rules-of-hooks
+                                    const mapContainerRef = React.useRef<HTMLDivElement>(null);
+                                    // eslint-disable-next-line react-hooks/rules-of-hooks
+                                    const [isMapVisible, setIsMapVisible] = React.useState(true);
+
+                                    // eslint-disable-next-line react-hooks/rules-of-hooks
+                                    React.useEffect(() => {
+                                        const el = mapContainerRef.current;
+                                        if (!el) return;
+                                        const observer = new IntersectionObserver(
+                                            ([entry]) => setIsMapVisible(entry.isIntersecting),
+                                            { threshold: 0.1 }
+                                        );
+                                        observer.observe(el);
+                                        return () => observer.disconnect();
+                                    }, []);
+
+                                    return (
+                                        <div className="relative w-full h-full flex flex-col">
+                                            <div ref={mapContainerRef} className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
+                                                {slideIdx === 0 && isMapVisible ? (
+                                                    <>
+                                                        <style>{`
                                                         .essential-map .mapboxgl-ctrl-bottom-left,
                                                         .essential-map .mapboxgl-ctrl-bottom-right,
                                                         .essential-map .mapboxgl-ctrl-logo { display: none !important; }
                                                     `}</style>
-                                                    <div className="essential-map absolute inset-0" style={{ touchAction: 'none' }}>
-                                                        <React.Suspense fallback={
-                                                            <div className="flex items-center justify-center h-full bg-slate-900">
-                                                                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                                            </div>
-                                                        }>
-                                                            <MapHub
-                                                                mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}
-                                                                initialZoom={5}
-                                                                minimalLabels
-                                                                embedded
-                                                                center={coordinates}
-                                                            />
-                                                        </React.Suspense>
-                                                    </div>
-                                                </>
-                                            ) : null}
+                                                        <div className="essential-map absolute inset-0" style={{ touchAction: 'none' }}>
+                                                            <React.Suspense fallback={
+                                                                <div className="flex items-center justify-center h-full bg-slate-900">
+                                                                    <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                                                                </div>
+                                                            }>
+                                                                <MapHub
+                                                                    mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}
+                                                                    initialZoom={5}
+                                                                    minimalLabels
+                                                                    embedded
+                                                                    center={coordinates}
+                                                                />
+                                                            </React.Suspense>
+                                                        </div>
+                                                    </>
+                                                ) : null}
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : showTideGraph ? (
+                                    );
+                                })() : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
                                     <div className="relative w-full h-full flex flex-col gap-2">
 
