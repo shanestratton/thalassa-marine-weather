@@ -383,7 +383,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             const todayTotal = hourly
                 .filter(h => new Date(h.time).toLocaleDateString('en-CA') === todayStr)
                 .reduce((sum, h) => sum + (h.precipitation ?? 0), 0);
-            return todayTotal > 0 ? parseFloat(todayTotal.toFixed(1)) : 0;
+            return todayTotal > 0 ? Math.round(todayTotal) : 0;
         }
         if (!isLive && hourly?.length) {
             // BUG FIX: Use cardTime (the hour the user scrolled to), NOT Date.now()
