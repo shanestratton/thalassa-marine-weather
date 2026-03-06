@@ -65,15 +65,6 @@ const OFFLINE_STYLE: StyleSpecification = {
             tileSize: 256,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         },
-        'gebco-bathymetry': {
-            type: 'raster',
-            tiles: [
-                'https://wms.gebco.net/mapserv?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=GEBCO_LATEST&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857&FORMAT=image/png&TRANSPARENT=TRUE',
-            ],
-            tileSize: 256,
-            maxzoom: 7,
-            attribution: '&copy; <a href="https://www.gebco.net">GEBCO</a>',
-        },
         'openseamap': {
             type: 'raster',
             tiles: [
@@ -91,18 +82,6 @@ const OFFLINE_STYLE: StyleSpecification = {
             source: 'osm-raster',
             minzoom: 0,
             maxzoom: 19,
-        },
-        {
-            id: 'gebco-bathymetry-tiles',
-            type: 'raster',
-            source: 'gebco-bathymetry',
-            minzoom: 0,
-            maxzoom: 10,
-            paint: {
-                'raster-opacity': 0.35,
-                'raster-saturation': -0.3,
-                'raster-brightness-max': 0.7,
-            },
         },
         {
             id: 'openseamap-overlay',
