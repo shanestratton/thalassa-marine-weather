@@ -34,6 +34,7 @@ const OCEAN_STYLE: StyleSpecification = {
                 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
             ],
             tileSize: 256,
+            maxzoom: 20,
             attribution: '&copy; <a href="https://carto.com">CARTO</a>',
         },
         'gebco-bathymetry': {
@@ -42,6 +43,7 @@ const OCEAN_STYLE: StyleSpecification = {
                 'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
             ],
             tileSize: 256,
+            maxzoom: 12,
             attribution: '&copy; <a href="https://emodnet.ec.europa.eu/bathymetry">EMODnet Bathymetry</a>',
         },
         'openseamap': {
@@ -50,6 +52,7 @@ const OCEAN_STYLE: StyleSpecification = {
                 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
             ],
             tileSize: 256,
+            maxzoom: 18,
             attribution: 'Map data: &copy; <a href="https://www.openseamap.org">OpenSeaMap</a> contributors',
         },
     },
@@ -316,7 +319,7 @@ const WaypointBadge: React.FC<{
             {/* Label */}
             <div style={{
                 background: 'rgba(4, 13, 26, 0.85)',
-                
+
                 padding: '2px 6px',
                 borderRadius: 4,
                 border: '1px solid rgba(255,255,255,0.1)',
