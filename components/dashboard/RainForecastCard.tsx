@@ -75,10 +75,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         } else if (rainSummary && !(/\bno\b/i.test(rainSummary) && /rain|precip/i.test(rainSummary))) {
             // Use Apple summary only if it doesn't contradict the detected rain
             headline = rainSummary;
-            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
+            subline = `Peak: ${Math.round(maxIntensity)} mm/hr`;
         } else {
             headline = 'Precipitation detected';
-            subline = `Peak: ${maxIntensity.toFixed(1)} mm/hr`;
+            subline = `Peak: ${Math.round(maxIntensity)} mm/hr`;
         }
 
         const category = getIntensityCategory(maxIntensity);
@@ -118,8 +118,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
             <button
                 onClick={openModal}
                 className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${isActive
-                        ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
-                        : 'bg-slate-800/40 border border-blue-400/10'
+                    ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
+                    : 'bg-slate-800/40 border border-blue-400/10'
                     }`}
                 style={{
                     minHeight: '76px',
@@ -441,11 +441,11 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Total</div>
-                                <div className="text-sm font-bold text-white tabular-nums">{analysis.totalPrecip.toFixed(1)} mm</div>
+                                <div className="text-sm font-bold text-white tabular-nums">{Math.round(analysis.totalPrecip)} mm</div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Peak</div>
-                                <div className="text-sm font-bold text-sky-400 tabular-nums">{analysis.maxIntensity.toFixed(1)} mm/hr</div>
+                                <div className="text-sm font-bold text-sky-400 tabular-nums">{Math.round(analysis.maxIntensity)} mm/hr</div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Type</div>
