@@ -60,16 +60,23 @@ export const MapHub: React.FC<MapHubProps> = ({
     pickerLabel,
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
-    const pinView = (window as any).__thalassaPinView as { lat: number; lng: number } | undefined;
-    const isPinView = !!pinView;
+    const [isPinView, setIsPinView] = useState(!!((window as any).__thalassaPinView));
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings } = useSettings();
-    const { setPage, previousView } = useUI();
+    const { setPage, previousView, currentView } = useUI();
     const [passageToast, setPassageToast] = useState<string | null>(null);
     const [isoProgress, setIsoProgress] = useState<{ step: number; closestNM: number; totalDistNM?: number; elapsed?: number; frontSize?: number; phase?: string } | null>(null);
+
+    // Re-check pin view when navigating TO the map tab
+    useEffect(() => {
+        if (currentView === 'map') {
+            const pv = (window as any).__thalassaPinView;
+            setIsPinView(!!pv);
+        }
+    }, [currentView]);
 
     // Listen for isochrone progress + completion events
     useEffect(() => {
@@ -128,7 +135,8 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
-        if (!isPinView || !pinView || !mapReady || !mapRef.current) return;
+        const pv = (window as any).__thalassaPinView as { lat: number; lng: number } | undefined;
+        if (!isPinView || !pv || !mapReady || !mapRef.current) return;
         const map = mapRef.current;
 
         // Remove any existing pin
@@ -146,12 +154,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             "></div>
         `;
         const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-            .setLngLat([pinView.lng, pinView.lat])
+            .setLngLat([pv.lng, pv.lat])
             .addTo(map);
         pinMarkerRef.current = marker;
 
         // Fly to the pin
-        map.flyTo({ center: [pinView.lng, pinView.lat], zoom: 7, duration: 1200 });
+        map.flyTo({ center: [pv.lng, pv.lat], zoom: 7, duration: 1200 });
     }, [isPinView, mapReady]);
 
     // ── Render ──
@@ -168,6 +176,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <button
                     onClick={() => {
                         delete (window as any).__thalassaPinView;
+                        setIsPinView(false);
                         setPage(previousView || 'chat');
                     }}
                     className="absolute top-14 left-4 z-[700] w-10 h-10 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"

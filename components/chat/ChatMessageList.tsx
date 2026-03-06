@@ -73,7 +73,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
         setPage('map');
         // After a brief delay (let MapHub mount/render), center the map on the pin
         setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('map-recenter', { detail: { lat, lon: lng } }));
+            window.dispatchEvent(new CustomEvent('map-recenter', { detail: { lat, lon: lng, zoom: 7 } }));
         }, 500);
     };
 
