@@ -1087,11 +1087,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trailData);
 
-        // Scale particle count by zoom: full at zoom ≤3, down to 10% at zoom ≥10
-        const zoom = this.map ? this.map.getZoom() : 3;
-        const zoomFraction = Math.max(0.10, 1.0 - Math.min(1.0, Math.max(0, zoom - 3) / 7) * 0.90);
-        const activeParticles = Math.max(500, Math.floor(NUM_PARTICLES * zoomFraction));
-        const drawCount = activeParticles * TRAIL_LENGTH;
+        const drawCount = TOTAL_POINTS;
         // Draw particles for 3 world copies: offset by -360°, 0°, +360°
         const worldOffsets = this.globalMode ? [-360, 0, 360] : [0];
         for (const offset of worldOffsets) {
