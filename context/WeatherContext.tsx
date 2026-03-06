@@ -119,6 +119,7 @@ interface WeatherContextType {
     debugInfo: DebugInfo | null;
     quotaUsed: number;
     backgroundUpdating: boolean;
+    staleRefresh: boolean;
     nextUpdate: number | null;
     fetchWeather: (location: string, force?: boolean, coords?: { lat: number, lon: number }, showOverlay?: boolean, silent?: boolean) => Promise<void>;
     selectLocation: (location: string, coords?: { lat: number, lon: number }) => Promise<void>;
@@ -139,6 +140,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState("Initializing Weather Data...");
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
+    const [staleRefresh, setStaleRefresh] = useState(false);
     const [locationMode, setLocationMode] = useState<'gps' | 'selected'>('gps');
     const [error, setError] = useState<string | null>(null);
     const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
@@ -576,6 +578,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } finally {
             isFetchingRef.current = false; // Release fetch lock
             setBackgroundUpdating(false);
+            setStaleRefresh(false); // Clear stale blur on EVERY fetch completion
             setLoading(false);
         }
     }, [incrementQuota]);
@@ -735,7 +738,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // WAKE FROM SLEEP — when iPhone/device resumes, check if data is stale
         // and trigger an immediate refresh. The setInterval above is frozen while
         // the phone sleeps, so we can't rely on it to catch multi-hour gaps.
-        const STALE_ON_WAKE_MS = 15 * 60 * 1000; // 15 minutes
+        const STALE_ON_WAKE_MS = 60 * 60 * 1000; // 1 hour — only blur for major staleness (e.g. overnight sleep)
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') return;
             if (isFetchingRef.current) return;
@@ -748,6 +751,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // If data is older than 15 minutes, immediately refresh
             if (dataAge > STALE_ON_WAKE_MS) {
                 console.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
+                setStaleRefresh(true); // Signal dashboard to blur
                 // Small delay so the device has time to re-establish network
                 setTimeout(() => {
                     if (isFetchingRef.current) return;
@@ -979,6 +983,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         debugInfo,
         quotaUsed,
         backgroundUpdating,
+        staleRefresh,
         nextUpdate,
         fetchWeather,
         refreshData,
@@ -998,6 +1003,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         debugInfo,
         quotaUsed,
         backgroundUpdating,
+        staleRefresh,
         nextUpdate,
         fetchWeather,
         refreshData,
