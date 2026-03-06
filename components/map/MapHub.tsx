@@ -206,7 +206,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         .emb-rain-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
                     `}</style>
                     <button
-                        onClick={() => embRain.setEmbRainPlaying(!embRain.embRainPlaying)}
+                        onClick={() => {
+                            if (!embRain.embRainPlaying) { embRain.setEmbRainIdx(0); }
+                            embRain.setEmbRainPlaying(!embRain.embRainPlaying);
+                        }}
                         className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
                     >
                         {embRain.embRainPlaying ? (
