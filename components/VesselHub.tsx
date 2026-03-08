@@ -199,7 +199,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                         className={`stagger-item bg-gradient-to-br ${isObserver ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : 'from-emerald-500/15 to-emerald-500/15 border-emerald-500/20'} border rounded-xl p-3 text-left group ${isObserver ? '' : 'hover:scale-[1.02]'} transition-all active:scale-[0.98]`}
                     >
                         <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
-                            <CompassIcon />
+                            <div className="text-emerald-400"><CompassIcon /></div>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
                         <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-500' : 'text-emerald-400'}`}>{isObserver ? 'Vessel Req' : 'Route Plan'}</p>
