@@ -1549,3 +1549,443 @@ body,
     opacity: 1 !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   DASHBOARD & WIDGET MICRO-ANIMATIONS
+   Moved from inline <style> tags in React to prevent CSSOM thrashing
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes hw-blink {
+
+  0%,
+  90%,
+  100% {
+    opacity: 1;
+  }
+
+  95% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes hw-blow {
+
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  25% {
+    transform: rotate(8deg);
+  }
+
+  75% {
+    transform: rotate(-6deg);
+  }
+}
+
+@keyframes hw-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hw-drip {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(1.5px);
+  }
+}
+
+@keyframes hw-ripple {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+
+@keyframes hw-wobble {
+
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  20% {
+    transform: rotate(-8deg);
+  }
+
+  40% {
+    transform: rotate(6deg);
+  }
+
+  60% {
+    transform: rotate(-4deg);
+  }
+
+  80% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes hw-sparkle {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes hh-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Essential Mode Map Overrides */
+.essential-map .mapboxgl-ctrl-bottom-left,
+.essential-map .mapboxgl-ctrl-bottom-right,
+.essential-map .mapboxgl-ctrl-logo {
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MAP OVERLAYS & CONTROLS
+   Moved from inline <style> tags in React to prevent CSSOM thrashing
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes pinBounce {
+  0% {
+    transform: rotate(-45deg) translateY(-20px) scale(0.5);
+    opacity: 0;
+  }
+
+  60% {
+    transform: rotate(-45deg) translateY(2px) scale(1.1);
+  }
+
+  100% {
+    transform: rotate(-45deg) translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes locPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.loc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 1.5px solid #fff;
+  animation: locPulse 2s infinite;
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+}
+
+/* Embedded Rain Slider */
+.emb-rain-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.emb-rain-slider::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.emb-rain-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #22c55e;
+  margin-top: -5.5px;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+/* WeatherMap Vessel Pulse Marker */
+.vessel-dot {
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #38bdf8;
+  position: relative;
+  z-index: 10;
+}
+
+.vessel-pulse {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  left: -11px;
+  top: -11px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 50%;
+  animation: pulse-out 2s infinite;
+}
+
+@keyframes pulse-out {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.8;
+  }
+
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANIMATED ICON KEYFRAMES
+   Moved from AnimatedIcons.tsx document.createElement('style') injection
+   to prevent CSSOM invalidation on iOS Safari.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes icon-wind-blow {
+
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  25% {
+    transform: rotate(-8deg);
+  }
+
+  75% {
+    transform: rotate(6deg);
+  }
+}
+
+@keyframes icon-rain-fall {
+  0% {
+    transform: translateY(-2px);
+    opacity: 0;
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(4px);
+    opacity: 0;
+  }
+}
+
+@keyframes icon-sun-pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes icon-sun-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes icon-wave-undulate {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes icon-cloud-drift {
+
+  0%,
+  100% {
+    transform: translateX(0px);
+  }
+
+  50% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes icon-compass-wobble {
+  0% {
+    transform: rotate(-15deg);
+  }
+
+  30% {
+    transform: rotate(10deg);
+  }
+
+  60% {
+    transform: rotate(-5deg);
+  }
+
+  80% {
+    transform: rotate(3deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes icon-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.anim-icon {
+  animation: icon-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-wind {
+  animation: icon-wind-blow 2s ease-in-out;
+  transform-origin: center;
+}
+
+.anim-rain-1 {
+  animation: icon-rain-fall 1.2s ease-in;
+}
+
+.anim-rain-2 {
+  animation: icon-rain-fall 1.2s ease-in 0.3s;
+}
+
+.anim-rain-3 {
+  animation: icon-rain-fall 1.2s ease-in 0.6s;
+}
+
+.anim-sun-core {
+  animation: icon-sun-pulse 3s ease-in-out;
+}
+
+.anim-sun-rays {
+  animation: icon-sun-rotate 20s linear;
+  transform-origin: center;
+}
+
+.anim-wave {
+  animation: icon-wave-undulate 2s ease-in-out;
+}
+
+.anim-cloud {
+  animation: icon-cloud-drift 3s ease-in-out;
+}
+
+.anim-compass {
+  animation: icon-compass-wobble 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ESSENTIAL WX MAP — Wind Streaks & Weather Pulse
+   CSS-only animations: zero JS per-frame, GPU-composited only.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes wxWindStreak {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 0.7;
+  }
+
+  80% {
+    opacity: 0.4;
+  }
+
+  100% {
+    transform: translateX(600px);
+    opacity: 0;
+  }
+}
+
+@keyframes wxWeatherPulse {
+
+  0%,
+  100% {
+    opacity: 0.08;
+  }
+
+  50% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes wxCompassNeedle {
+
+  0%,
+  100% {
+    filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.4));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+  }
+}

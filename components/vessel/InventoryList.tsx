@@ -8,11 +8,15 @@
  * - Quick scan button to open InventoryScanner
  * - Swipe-to-delete (via button)
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('InventoryList');
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { InventoryScanner } from './InventoryScanner';
+import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
 import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
@@ -97,16 +101,14 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({ item, i
                                 {item.quantity}
                             </p>
                         </div>
-                        {/* 3-dot menu for Edit */}
+                        {/* Edit button */}
                         <button
                             onClick={(e) => { e.stopPropagation(); onEdit(); }}
                             className="p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
                             aria-label="Edit item"
                         >
-                            <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
-                                <circle cx="12" cy="5" r="1.5" />
-                                <circle cx="12" cy="12" r="1.5" />
-                                <circle cx="12" cy="19" r="1.5" />
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                             </svg>
                         </button>
                     </div>
@@ -178,6 +180,15 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [stats, setStats] = useState<{ totalItems: number; totalQuantity: number; lowStock: number } | null>(null);
 
+    // Header 3-dot menu
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    const headerMenuRef = useRef<HTMLDivElement>(null);
+
+    // Category export picker
+    const [showExportPicker, setShowExportPicker] = useState(false);
+    const [exportCategories, setExportCategories] = useState<Set<InventoryCategory>>(new Set());
+    const [exportMode, setExportMode] = useState<'download' | 'share'>('download');
+
     // ── Load data ──
     const loadItems = useCallback(async () => {
         try {
@@ -186,7 +197,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             const s = await InventoryService.getStats();
             setStats(s);
         } catch (e) {
-            console.warn('[InventoryList] load failed:', e);
+            log.warn(' load failed:', e);
             toast.error('Failed to load inventory');
         }
         setLoading(false);
@@ -224,6 +235,33 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         });
     }, [items, searchQuery]);
 
+    // ── Export/Share by category (PDF) ──
+    const handleExport = useCallback(async (mode: 'download' | 'share', categories: Set<InventoryCategory>) => {
+        try {
+            const opts = { items, categories, vesselName: undefined as string | undefined };
+            if (mode === 'share') {
+                await shareInventoryPdf(opts);
+            } else {
+                await downloadInventoryPdf(opts);
+                toast.success('Inventory PDF downloaded');
+            }
+        } catch (e) {
+            log.warn(' Export failed:', e);
+            toast.error('Export failed');
+        }
+        setShowExportPicker(false);
+        setExportCategories(new Set());
+    }, [items]);
+
+    const toggleExportCategory = useCallback((cat: InventoryCategory) => {
+        setExportCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(cat)) next.delete(cat);
+            else next.add(cat);
+            return next;
+        });
+    }, []);
+
     // Group by category for rendering
     const groupedItems = useMemo(() =>
         CATEGORIES
@@ -253,7 +291,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         try {
             await InventoryService.delete(item.id);
         } catch (e) {
-            console.warn('[InventoryList] delete failed:', e);
+            log.warn(' delete failed:', e);
             toast.error('Failed to delete item');
             // Restore item on failure
             setItems(prev => [...prev, item]);
@@ -313,7 +351,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             toast.success('Item updated');
             flash();
         } catch (e) {
-            console.warn('[InventoryList] edit failed:', e);
+            log.warn(' edit failed:', e);
             toast.error('Failed to update item');
         }
     };
@@ -325,7 +363,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             const updated = await InventoryService.adjustQuantity(id, delta);
             setItems(prev => prev.map(i => i.id === id ? updated : i));
         } catch (e) {
-            console.warn('[InventoryList] qty adjust failed:', e);
+            log.warn(' qty adjust failed:', e);
             toast.error('Failed to update quantity');
         }
     };
@@ -354,6 +392,47 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {stats && stats.lowStock > 0 && <span className="text-amber-400"> · {stats.lowStock} Low</span>}
                         </p>
                     }
+                    action={items.length > 0 ? (
+                        <div className="relative" ref={headerMenuRef}>
+                            <button
+                                onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                aria-label="Page actions"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="12" cy="5" r="1.5" />
+                                    <circle cx="12" cy="12" r="1.5" />
+                                    <circle cx="12" cy="19" r="1.5" />
+                                </svg>
+                            </button>
+                            {headerMenuOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <button
+                                            onClick={() => { setHeaderMenuOpen(false); setExportMode('download'); setExportCategories(new Set()); setShowExportPicker(true); }}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
+                                        >
+                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                            Download Inventory
+                                        </button>
+                                        <div className="border-t border-white/5" />
+                                        <button
+                                            onClick={() => { setHeaderMenuOpen(false); setExportMode('share'); setExportCategories(new Set()); setShowExportPicker(true); }}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
+                                        >
+                                            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                                            </svg>
+                                            Share Inventory
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    ) : undefined}
                 />
 
                 {/* ── Search ── */}
@@ -490,7 +569,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     setEditBarcode(barcodes[0].rawValue);
                                                     triggerHaptic('medium');
                                                 }
-                                            } catch (e) { console.warn('[InventoryList] cancelled:', e); }
+                                            } catch (e) { log.warn(' cancelled:', e); }
                                         }
                                     }}
                                     className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
@@ -539,6 +618,44 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
             />
+
+            {/* ═══ EXPORT CATEGORY PICKER ═══ */}
+            {showExportPicker && (
+                <ModalSheet isOpen={true} onClose={() => setShowExportPicker(false)} title={exportMode === 'share' ? 'Share Inventory' : 'Download Inventory'}>
+                    <p className="text-sm text-gray-400 mb-3">Select categories to include, or leave blank for all:</p>
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                        {CATEGORIES.map(cat => {
+                            const count = items.filter(i => i.category === cat).length;
+                            const selected = exportCategories.has(cat);
+                            return (
+                                <button
+                                    key={cat}
+                                    onClick={() => toggleExportCategory(cat)}
+                                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${selected
+                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                        : 'bg-white/5 text-gray-400 border border-white/5 hover:border-white/10'
+                                        }`}
+                                >
+                                    <span>{CATEGORY_ICONS[cat]}</span>
+                                    <span className="flex-1 text-left">{cat}</span>
+                                    <span className="text-xs text-gray-500">{count}</span>
+                                    {selected && (
+                                        <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <button
+                        onClick={() => handleExport(exportMode, exportCategories)}
+                        className="w-full py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
+                    >
+                        {exportMode === 'share' ? 'Share' : 'Download'} {exportCategories.size > 0 ? `${exportCategories.size} ${exportCategories.size === 1 ? 'Category' : 'Categories'}` : 'All Categories'}
+                    </button>
+                </ModalSheet>
+            )}
         </div>
     );
 };

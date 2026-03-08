@@ -113,7 +113,7 @@ export const HourlyWidget = ({ hourly, units, isLandlocked }: { hourly: HourlyFo
                                         {tideIcon}
                                     </div>
                                     <div className="flex items-baseline gap-1">
-                                        <span className={`text-xl font-bold ${tideValueClass}`}>{tideVal !== null ? tideVal.toFixed(2) : '--'}</span>
+                                        <span className={`text-xl font-bold ${tideValueClass}`}>{tideVal !== null ? tideVal.toFixed(1) : '--'}</span>
                                         <span className="text-xs text-gray-500">{units.tideHeight || 'm'}</span>
                                     </div>
                                     <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">

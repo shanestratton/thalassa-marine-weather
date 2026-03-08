@@ -13,6 +13,9 @@
  */
 
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('SpatiotemporalMap');
 import Map, { Source, Layer, Marker, MapRef } from 'react-map-gl/maplibre';
 import type { StyleSpecification, LngLatBoundsLike } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -497,9 +500,9 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.addLayer(windLayer as any);
-            console.info('[SpatiotemporalMap] Wind particle layer added to map');
+            log.info(' Wind particle layer added to map');
         } catch (e) {
-            console.error('[SpatiotemporalMap] Failed to add wind layer:', e);
+            log.error(' Failed to add wind layer:', e);
         }
 
         // Feed initial wind data from WindStore (if available)
@@ -515,7 +518,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         const { grid } = WindStore.getState();
         if (!grid) { return; }
 
-        console.info(`[SpatiotemporalMap] Feeding wind data: ${grid.width}×${grid.height} to layer at hour=${currentTimeHours}`);
+        log.info(`[SpatiotemporalMap] Feeding wind data: ${grid.width}×${grid.height} to layer at hour=${currentTimeHours}`);
         layer.setGrid(grid, currentTimeHours);
     }, [currentTimeHours]);
 
@@ -544,7 +547,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         return () => {
             const map = mapRef.current?.getMap();
             if (map && windLayerRef.current) {
-                try { map.removeLayer(windLayerRef.current.id); } catch (e) { console.warn('[SpatiotemporalMap] ok:', e); }
+                try { map.removeLayer(windLayerRef.current.id); } catch (e) { log.warn(' ok:', e); }
                 windLayerRef.current = null;
             }
         };

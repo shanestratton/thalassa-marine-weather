@@ -1,5 +1,8 @@
 
 import * as L from 'leaflet';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('ParticleEngine');
 interface Particle {
     lat: number;
     lon: number;
@@ -249,7 +252,7 @@ export class ParticleEngine {
 
             this.ctx.restore();
         } catch (e) {
-            console.warn('[ParticleEngine]', e);
+            log.warn( e);
             /* Canvas draw error — restore state to prevent corruption */
             this.ctx.restore();
         }

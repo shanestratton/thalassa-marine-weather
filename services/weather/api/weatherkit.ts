@@ -200,7 +200,7 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
         const dateStr = d.forecastStart || '';
         const dateObj = new Date(dateStr);
         const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-        const isoDate = dateStr.substring(0, 10); // YYYY-MM-DD
+        const isoDate = dateObj.toLocaleDateString('en-CA'); // YYYY-MM-DD in device timezone
 
         return {
             day: dayName,

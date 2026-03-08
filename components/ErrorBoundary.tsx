@@ -12,6 +12,9 @@
  */
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('ErrorBoundary');
 import { AlertTriangleIcon } from './Icons';
 
 interface ErrorBoundaryProps {
@@ -120,8 +123,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         const boundaryName = this.props.boundaryName || 'Unknown';
 
         // Enhanced error logging for debugging
-        console.error(`[ErrorBoundary:${boundaryName}] Caught render error:`, error);
-        console.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
+        log.error(`[ErrorBoundary:${boundaryName}] Caught render error:`, error);
+        log.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
 
         // Call optional error callback
         if (this.props.onError) {

@@ -1,5 +1,8 @@
 
 import React from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('WeatherGrid_exports');
 import { t } from '../../theme';
 import { Card } from './shared/Card';
 import { Metric } from './shared/Metric';
@@ -16,7 +19,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch (e) { console.warn('[WeatherGrid_exports]', e); return new Set(); }
+        } catch (e) { log.warn( e); return new Set(); }
     });
 
     // Critical warnings that CANNOT be dismissed (life/vessel safety)
@@ -42,7 +45,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch (e) { console.warn('[WeatherGrid_exports] non-critical:', e); }
+        } catch (e) { log.warn(' non-critical:', e); }
     };
 
     if (!activeAlerts || activeAlerts.length === 0) {

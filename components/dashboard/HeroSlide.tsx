@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { t } from '../../theme';
 import { TideGraph } from './TideAndVessel';
-const MapHub = React.lazy(() => import('../map/MapHub').then(m => ({ default: m.MapHub })));
+// MapHub removed from essential mode — uses static image to prevent GPU heating
 import { MapIcon, StarIcon, DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, WindIcon, CloudIcon, RainIcon, WaveIcon } from '../Icons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast, UserSettings, SourcedWeatherMetrics } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
-import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, convertMetersTo, formatCoordinate } from '../../utils';
+import { convertTemp, convertSpeed, convertLength, convertPrecip, calculateApparentTemp, convertDistance, getTideStatus, calculateDailyScore, getSailingScoreColor, getSailingConditionText, degreesToCardinal, cardinalToDegrees, convertMetersTo, formatCoordinate } from '../../utils';
 
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
@@ -13,6 +13,7 @@ import { useEnvironment } from '../../context/ThemeContext';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { ALL_HERO_WIDGETS } from '../WidgetDefinitions';
 import { StatusBadges } from './StatusBadges';
+import { MetricGridPanel } from './hero/MetricGridPanel';
 import { TimerBadge } from './TimerBadge';
 import { Countdown } from './Countdown';
 import { LocationClock } from './LocationClock';
@@ -23,6 +24,294 @@ import { renderHeroWidget, formatTemp, formatCondition, renderHighLow, STATIC_WI
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { ShipLogService } from '../../services/ShipLogService';
 import { isGoldenHour } from '../../utils/goldenHour';
+
+// --- ESSENTIAL MAP SLIDE ---
+// Extracted from inline IIFE to avoid calling hooks inside .map() loop (Rules of Hooks violation).
+const EssentialMapSlide: React.FC<{
+    slideIdx: number;
+    isGolden: boolean;
+    isCardDay: boolean;
+    coordinates?: { lat: number; lon: number };
+    windSpeed?: number | null;
+    windDirection?: number | null;
+    windGust?: number | null;
+    condition?: string | null;
+    units?: UnitPreferences;
+}> = ({ slideIdx, isGolden, isCardDay, coordinates, windSpeed, windDirection, windGust, condition, units }) => {
+    // BATTERY FIX: Use a static Mapbox image instead of a live WebGL map.
+    const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+    const lon = coordinates?.lon ?? 151.2;
+    const lat = coordinates?.lat ?? -33.87;
+    const zoom = 5;
+    const tileSize = 256;
+
+    const staticUrl = token
+        ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400@2x?access_token=${token}&attribution=false&logo=false`
+        : '';
+
+    // Fetch latest RainViewer radar timestamp — fire ASAP on mount
+    const [radarPath, setRadarPath] = useState<string | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' })
+            .then(r => r.json())
+            .then(data => {
+                if (cancelled) return;
+                const latest = data?.radar?.past?.slice(-1)?.[0];
+                if (latest?.path) setRadarPath(latest.path);
+            })
+            .catch(() => { /* silent — rain overlay is optional */ });
+        return () => { cancelled = true; };
+    }, []);
+
+    // Compute tile grid — pixel-aligned to match Mapbox static image
+    const tileGrid = useMemo(() => {
+        const n = Math.pow(2, zoom);
+        const cx = ((lon + 180) / 360) * n;
+        const latRad = (lat * Math.PI) / 180;
+        const cy = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+
+        const centerTileX = Math.floor(cx);
+        const centerTileY = Math.floor(cy);
+        const pxOffsetX = (cx - centerTileX) * tileSize;
+        const pxOffsetY = (cy - centerTileY) * tileSize;
+
+        const containerW = 600;
+        const containerH = 400;
+
+        const tiles: { left: number; top: number; tx: number; ty: number; key: string }[] = [];
+        for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                const tx = centerTileX + dx;
+                const ty = centerTileY + dy;
+                if (ty < 0 || ty >= n) continue;
+                tiles.push({
+                    left: containerW / 2 - pxOffsetX + dx * tileSize,
+                    top: containerH / 2 - pxOffsetY + dy * tileSize,
+                    tx, ty,
+                    key: `${tx}-${ty}`,
+                });
+            }
+        }
+        return tiles;
+    }, [lat, lon]);
+
+    // --- Lightweight wind particles (Canvas 2D, ~12 FPS) ---
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animRef = useRef<number>(0);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const speed = windSpeed ?? 0;
+        if (speed < 1) return;
+
+        // Wind direction = where it blows FROM. Add 180° so particles travel downwind.
+        const dirRad = (((windDirection ?? 180) + 180) * Math.PI) / 180;
+        const vxBase = Math.sin(dirRad) * speed * 0.15;
+        const vyBase = -Math.cos(dirRad) * speed * 0.15;
+        // Trail direction (unit vector for drawing streak lines)
+        const trailLen = 8 + speed * 0.35; // streak length in px — slightly shorter tails
+
+        // Deferred sizing — wait for layout
+        let w = 0, h = 0;
+        const sizeCanvas = () => {
+            const parent = canvas.parentElement;
+            if (!parent) return;
+            w = parent.clientWidth;
+            h = parent.clientHeight;
+            if (w > 0 && h > 0) {
+                canvas.width = w;
+                canvas.height = h;
+            }
+        };
+
+        // Particle type: position, speed multiplier, age (0-1), maxAge
+        type P = { x: number; y: number; s: number; age: number; maxAge: number };
+        const count = Math.min(Math.floor(200 + speed * 8), 400);
+        const particles: P[] = [];
+
+        const spawn = (): P => ({
+            x: Math.random() * (w || 400),
+            y: Math.random() * (h || 300),
+            s: 0.5 + Math.random() * 1.0,
+            age: Math.random(),
+            maxAge: 0.3 + Math.random() * 0.5,
+        });
+
+        const respawnAtEdge = (p: P) => {
+            // Respawn randomly across the full canvas for even coverage
+            p.x = Math.random() * w;
+            p.y = Math.random() * h;
+            p.age = 0;
+            p.maxAge = 0.3 + Math.random() * 0.5;
+            p.s = 0.5 + Math.random() * 1.0;
+        };
+
+        // Init after a short delay to let layout settle
+        let running = true;
+        const initTimeout = setTimeout(() => {
+            sizeCanvas();
+            for (let i = 0; i < count; i++) particles.push(spawn());
+            tick();
+        }, 120);
+
+        // Trail vector (normalized wind direction)
+        const tdx = Math.sin(dirRad);
+        const tdy = -Math.cos(dirRad);
+
+        function tick() {
+            if (!running || w === 0 || !ctx) return;
+            ctx.clearRect(0, 0, w, h);
+
+            for (const p of particles) {
+                // Advance position
+                p.x += vxBase * p.s;
+                p.y += vyBase * p.s;
+                p.age += 0.012;
+
+                // Lifecycle opacity: fade in → hold → fade out
+                const lifeRatio = p.age / p.maxAge;
+                let alpha: number;
+                if (lifeRatio < 0.1) alpha = lifeRatio / 0.1;
+                else if (lifeRatio > 0.75) alpha = (1 - lifeRatio) / 0.25;
+                else alpha = 1;
+                alpha = Math.max(0, Math.min(1, alpha)) * (0.3 + p.s * 0.25);
+
+                // Respawn if expired or off-screen
+                if (lifeRatio >= 1 || p.x < -30 || p.x > w + 30 || p.y < -30 || p.y > h + 30) {
+                    respawnAtEdge(p);
+                    continue;
+                }
+
+                // --- Color by speed: slow = cool blue, fast = warm white ---
+                const t = Math.min(1, (p.s - 0.5) / 1.0); // 0 = slowest, 1 = fastest
+                const r = Math.round(120 + t * 135); // 120 → 255
+                const g = Math.round(180 + t * 60);  // 180 → 240
+                const b = Math.round(255 - t * 55);  // 255 → 200
+
+                // --- Draw "wind sperm": bright head dot + fading gradient tail ---
+                const tailX = p.x - tdx * trailLen * p.s;
+                const tailY = p.y - tdy * trailLen * p.s;
+
+                // Gradient trail: head = bright, tail = transparent
+                const grad = ctx.createLinearGradient(p.x, p.y, tailX, tailY);
+                grad.addColorStop(0, `rgba(${r},${g},${b},${(alpha * 0.9).toFixed(2)})`);
+                grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(tailX, tailY);
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Head dot
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${Math.min(255, r + 20)},${Math.min(255, g + 10)},${b},${(alpha * 1.1).toFixed(2)})`;
+                ctx.fill();
+            }
+
+            animRef.current = window.setTimeout(tick, 83) as unknown as number;
+        }
+
+        return () => {
+            running = false;
+            clearTimeout(initTimeout);
+            clearTimeout(animRef.current);
+        };
+    }, [windSpeed, windDirection]);
+
+
+
+
+    // --- Wind for compass display ---
+    const displaySpeed = useMemo(() => {
+        if (windSpeed == null) return null;
+        const s = units?.speed ?? 'knots';
+        return Math.round(convertSpeed(windSpeed, s) || 0);
+    }, [windSpeed, units?.speed]);
+    const speedUnit = units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : 'kts';
+    const windLabel = windDirection != null ? degreesToCardinal(windDirection) : '';
+
+    return (
+        <div className="relative w-full h-full flex flex-col">
+            <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
+                {staticUrl ? (
+                    <>
+                        {/* Layer 1: Dark basemap */}
+                        <img
+                            src={staticUrl}
+                            alt="Location map"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            loading="eager"
+                            draggable={false}
+                        />
+                        {/* Layer 2: Rain radar overlay */}
+                        {radarPath && tileGrid.length > 0 && (
+                            <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ opacity: 0.6 }}>
+                                {tileGrid.map(t => (
+                                    <img
+                                        key={`rain-${t.key}`}
+                                        src={`https://tilecache.rainviewer.com${radarPath}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`}
+                                        alt=""
+                                        className="absolute"
+                                        style={{ left: t.left, top: t.top, width: tileSize, height: tileSize }}
+                                        loading="eager"
+                                        draggable={false}
+                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                        {/* Layer 3: Wind particles — lightweight Canvas 2D @ 12 FPS */}
+                        <canvas
+                            ref={canvasRef}
+                            className="absolute inset-0 w-full h-full pointer-events-none"
+                        />
+                        {/* Layer 4: Vignette — dark edges for premium radar look */}
+                        <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{ background: 'radial-gradient(ellipse at 50% 50%, transparent 35%, rgba(0,0,0,0.55) 100%)' }}
+                        />
+
+
+                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                            <div className="relative">
+                                <div className="w-2 h-2 rounded-full bg-sky-400" style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }} />
+                                <div className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping" style={{ animationDuration: '3s' }} />
+                            </div>
+                        </div>
+                        {/* Layer 5: Wind badge — bottom-left */}
+                        {displaySpeed != null && (
+                            <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/[0.06]">
+                                {windDirection != null && (
+                                    <div className="w-3.5 h-3.5 flex items-center justify-center" style={{ transform: `rotate(${windDirection + 180}deg)` }}>
+                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                            <path d="M5 0L3 8h4L5 0z" fill="rgba(56,189,248,0.9)" />
+                                        </svg>
+                                    </div>
+                                )}
+                                <span className="text-[9px] text-white/70 font-semibold leading-none tracking-wide">
+                                    {windLabel} {displaySpeed}<span className="text-white/35 ml-0.5">{speedUnit}</span>
+                                </span>
+                            </div>
+                        )}
+                        {/* Layer 6: Condition label — top-right */}
+                        {condition && (
+                            <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/[0.06]">
+                                <span className="text-[9px] text-white/50 font-medium tracking-wide">{condition}</span>
+                            </div>
+                        )}
+                    </>
+                ) : null}
+            </div>
+        </div>
+    );
+};
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
@@ -946,8 +1235,6 @@ const HeroSlideComponent = ({
 
     return (
         <div className="relative w-full h-full overflow-hidden">
-            {/* Icon animation keyframes (shared with HeroWidgets) */}
-            <style>{`@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:.15}}@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}@keyframes hw-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}`}</style>
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
 
@@ -1002,58 +1289,19 @@ const HeroSlideComponent = ({
                                 key={slideIdx}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                {showMapInstead ? (() => {
-                                    /* ESSENTIAL MODE MAP — only on slide 0 to avoid multiple WebGL contexts.
-                                     * Uses IntersectionObserver to unmount the map when scrolled off-screen,
-                                     * preventing the WebGL render loop from burning battery on hidden slides. */
-                                    // eslint-disable-next-line react-hooks/rules-of-hooks
-                                    const mapContainerRef = React.useRef<HTMLDivElement>(null);
-                                    // eslint-disable-next-line react-hooks/rules-of-hooks
-                                    const [isMapVisible, setIsMapVisible] = React.useState(true);
-
-                                    // eslint-disable-next-line react-hooks/rules-of-hooks
-                                    React.useEffect(() => {
-                                        const el = mapContainerRef.current;
-                                        if (!el) return;
-                                        const observer = new IntersectionObserver(
-                                            ([entry]) => setIsMapVisible(entry.isIntersecting),
-                                            { threshold: 0.1 }
-                                        );
-                                        observer.observe(el);
-                                        return () => observer.disconnect();
-                                    }, []);
-
-                                    return (
-                                        <div className="relative w-full h-full flex flex-col">
-                                            <div ref={mapContainerRef} className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
-                                                {slideIdx === 0 && isMapVisible ? (
-                                                    <>
-                                                        <style>{`
-                                                        .essential-map .mapboxgl-ctrl-bottom-left,
-                                                        .essential-map .mapboxgl-ctrl-bottom-right,
-                                                        .essential-map .mapboxgl-ctrl-logo { display: none !important; }
-                                                    `}</style>
-                                                        <div className="essential-map absolute inset-0" style={{ touchAction: 'none' }}>
-                                                            <React.Suspense fallback={
-                                                                <div className="flex items-center justify-center h-full bg-slate-900">
-                                                                    <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                                                </div>
-                                                            }>
-                                                                <MapHub
-                                                                    mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}
-                                                                    initialZoom={5}
-                                                                    minimalLabels
-                                                                    embedded
-                                                                    center={coordinates}
-                                                                />
-                                                            </React.Suspense>
-                                                        </div>
-                                                    </>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    );
-                                })() : showTideGraph ? (
+                                {showMapInstead ? (
+                                    <EssentialMapSlide
+                                        slideIdx={slideIdx}
+                                        isGolden={isGolden}
+                                        isCardDay={isCardDay}
+                                        coordinates={coordinates}
+                                        windSpeed={data.windSpeed}
+                                        windDirection={typeof data.windDirection === 'number' ? data.windDirection : cardinalToDegrees(data.windDirection) ?? null}
+                                        windGust={data.windGust}
+                                        condition={data.condition}
+                                        units={units}
+                                    />
+                                ) : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */
                                     <div className="relative w-full h-full flex flex-col gap-2">
 
@@ -1113,20 +1361,19 @@ const HeroSlideComponent = ({
                                                 const OFFSHORE_WIDGETS = [
                                                     { id: 'waterTemperature', label: 'WATER', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'currentSpeed', label: 'DRIFT', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
-                                                    { id: 'currentDirection', label: 'SET', icon: <span style={{ display: 'inline-flex', animation: 'hw-spin 8s linear infinite' }}><CompassIcon rotation={0} className="w-3 h-3" /></span>, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
+                                                    { id: 'currentDirection', label: 'SET', icon: <CompassIcon rotation={0} className="w-3 h-3" />, headingColor: 'text-purple-400', labelColor: 'text-purple-300' },
                                                     { id: 'cape', label: 'CAPE', icon: <CloudIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
                                                     { id: 'secondarySwellHeight', label: 'SWELL 2', icon: <WaveIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
                                                     { id: 'secondarySwellPeriod', label: 'PER. 2', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
                                                 ];
                                                 const INLAND_WIDGETS = [
-                                                    { id: 'humidity', label: 'HUM', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
+                                                    { id: 'humidity', label: 'HUM', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'uv', label: 'UV', icon: <SunIcon className="w-3 h-3" />, headingColor: 'text-amber-400', labelColor: 'text-amber-300' },
-                                                    { id: 'precip', label: 'RAIN', icon: <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite 0.5s' }}><DropletIcon className="w-3 h-3" /></span>, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
+                                                    { id: 'precip', label: 'RAIN', icon: <DropletIcon className="w-3 h-3" />, headingColor: 'text-sky-400', labelColor: 'text-sky-300' },
                                                     { id: 'pressure', label: 'HPA', icon: <GaugeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
-                                                    { id: 'visibility', label: 'VIS', icon: <span style={{ display: 'inline-flex', animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
+                                                    { id: 'visibility', label: 'VIS', icon: <EyeIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                     { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                 ];
-
                                                 const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);
                                                 const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS
                                                     : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
@@ -1163,40 +1410,7 @@ const HeroSlideComponent = ({
                                                     }
                                                 };
 
-                                                const topRow = widgets.slice(0, 3);
-                                                const bottomRow = widgets.slice(3, 6);
-
-                                                const renderCell = (w: typeof topRow[0]) => (
-                                                    <div key={w.id} className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
-                                                        <div className="flex items-center gap-1.5 opacity-90">
-                                                            <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
-                                                            <span className={`text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}>{w.label}</span>
-                                                        </div>
-                                                        <div className="flex items-baseline gap-0.5">
-                                                            <span className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md" style={{ fontFeatureSettings: '"tnum"' }}>
-                                                                {getVal(w.id)}
-                                                            </span>
-                                                            {getUnit(w.id) && <span className="text-[11px] font-sans text-slate-400 font-medium ml-1 self-end mb-1.5">{getUnit(w.id)}</span>}
-                                                        </div>
-                                                    </div>
-                                                );
-
-                                                return (
-                                                    <>
-                                                        {/* TOP ROW */}
-                                                        <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
-                                                            {topRow.map(renderCell)}
-                                                        </div>
-
-                                                        {/* Horizontal divider */}
-                                                        <div className="w-full h-px bg-white/[0.12] shrink-0" />
-
-                                                        {/* BOTTOM ROW */}
-                                                        <div className="w-full grid grid-cols-3 divide-x divide-white/[0.12] flex-1 min-h-0">
-                                                            {bottomRow.map(renderCell)}
-                                                        </div>
-                                                    </>
-                                                );
+                                                return <MetricGridPanel widgets={widgets} getValue={getVal} getUnit={getUnit} />;
                                             })()}
                                         </div>
                                     </div>

@@ -57,7 +57,7 @@ function getWeatherRecommendation(windKts: number, gustKts: number, waveM: numbe
 /** Format meters to human-readable */
 function formatDistance(meters: number): string {
     if (meters < 1000) return `${meters.toFixed(0)}m`;
-    return `${(meters / 1852).toFixed(2)} NM`;
+    return `${(meters / 1852).toFixed(1)} NM`;
 }
 
 /** Format bearing to compass cardinal */

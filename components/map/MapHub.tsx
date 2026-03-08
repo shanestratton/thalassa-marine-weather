@@ -17,6 +17,9 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { useRef, useState, useEffect } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('MapHub');
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -31,7 +34,7 @@ import { WindDataController } from '../../services/weather/WindDataController';
 import { GpsService } from '../../services/GpsService';
 import { WindParticleLayer } from './WindParticleLayer';
 
-import { type MapHubProps, MAP_ANIMATIONS_CSS } from './mapConstants';
+import { type MapHubProps } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
@@ -82,10 +85,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const onProgress = (e: Event) => {
             const d = (e as CustomEvent).detail;
-            console.info('[MapHub] Isochrone progress:', d);
+            log.info('Isochrone progress:', d);
             if (d) setIsoProgress({ step: d.step, closestNM: d.closestNM, totalDistNM: d.totalDistNM, elapsed: d.elapsed, frontSize: d.frontSize, phase: d.phase });
         };
-        const onComplete = () => { console.info('[MapHub] Isochrone complete — clearing progress'); setIsoProgress(null); };
+        const onComplete = () => { log.info('Isochrone complete — clearing progress'); setIsoProgress(null); };
         window.addEventListener('thalassa:isochrone-progress', onProgress);
         window.addEventListener('thalassa:isochrone-complete', onComplete);
         return () => {
@@ -131,7 +134,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
-    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, !embedded);
+    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, !embedded && weather.activeLayer === 'velocity');
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -168,8 +171,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* Map container */}
             <div ref={containerRef} className="w-full h-full" />
 
-            {/* Pin bounce + location pulse animations */}
-            <style>{MAP_ANIMATIONS_CSS}</style>
+            {/* Pin bounce + location pulse animations moved to index.css */}
 
             {/* ═══ PIN VIEW BACK BUTTON ═══ */}
             {isPinView && (
@@ -200,11 +202,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
                     style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
                 >
-                    <style>{`
-                        .emb-rain-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
-                        .emb-rain-slider::-webkit-slider-runnable-track { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
-                        .emb-rain-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
-                    `}</style>
+                    {/* Slider styles moved to index.css */}
                     <button
                         onClick={() => {
                             if (!embRain.embRainPlaying) { embRain.setEmbRainIdx(0); }
@@ -330,7 +328,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 }
                                                 await shareGPXFile(gpx, `passage_${passage.departure!.name}_to_${passage.arrival!.name}.gpx`);
                                             } catch (err) {
-                                                console.error('[GPX Export]', err);
+                                                log.error('GPX Export failed:', err);
                                                 setPassageToast('Export failed');
                                                 setTimeout(() => setPassageToast(null), 2000);
                                             }
@@ -393,7 +391,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setTimeout(() => setPassageToast(null), 2000);
                                                 }
                                             } catch (err) {
-                                                console.error('[MapHub] Failed to save planned route:', err);
+                                                log.error('Failed to save planned route:', err);
                                                 setPassageToast('Save failed ✗');
                                                 setTimeout(() => setPassageToast(null), 2000);
                                             }
@@ -512,7 +510,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                                     if (!resp.ok) {
                                         let errDetail = `Server ${resp.status}`;
-                                        try { const errJson = await resp.json(); errDetail = errJson.error || errJson.detail || errDetail; } catch (e) { console.warn('[MapHub]', e); errDetail = await resp.text().catch(() => errDetail); }
+                                        try { const errJson = await resp.json(); errDetail = errJson.error || errJson.detail || errDetail; } catch (e) { log.warn('parse error:', e); errDetail = await resp.text().catch(() => errDetail); }
                                         throw new Error(errDetail);
                                     }
 
@@ -534,6 +532,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         try { map.removeLayer('wind-particles'); } catch (_) { }
                                         engine = new WindParticleLayer();
                                         map.addLayer(engine);
+                                        try { map.moveLayer('coastline-outline'); } catch (_) { }
                                         try { map.moveLayer('coastline-stroke'); } catch (_) { }
                                         try { map.moveLayer('country-borders-overlay'); } catch (_) { }
                                         weather.windEngineRef.current = engine;
@@ -548,7 +547,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 } catch (err) {
                                     const msg = err instanceof Error ? err.message : 'Download failed';
                                     weather.setGribError(msg);
-                                    console.error('[GRIB] Error:', msg, err);
+                                    log.error('GRIB decode error:', msg, err);
                                     triggerHaptic('heavy');
                                     setTimeout(() => weather.setGribError(null), 5000);
                                 } finally {
@@ -684,17 +683,42 @@ export const MapHub: React.FC<MapHubProps> = ({
                         </div>
 
                         <div className="shrink-0 text-right min-w-[52px]">
-                            <p className="text-xs font-black text-white">+{weather.windHour.toFixed(1)}h</p>
+                            <p className="text-xs font-black text-white">
+                                {(() => {
+                                    const hrs = weather.windForecastHoursRef.current;
+                                    const idx = Math.round(weather.windHour);
+                                    const h = hrs[idx] ?? 0;
+                                    if (h === 0) return 'Now';
+                                    return `+${h}h`;
+                                })()}
+                            </p>
                             <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                                {weather.windHour < 24 ? 'Today' : weather.windHour < 48 ? 'Tomorrow' : `+${Math.floor(weather.windHour / 24)}d`}
+                                {(() => {
+                                    const hrs = weather.windForecastHoursRef.current;
+                                    const idx = Math.round(weather.windHour);
+                                    const h = hrs[idx] ?? 0;
+                                    if (h < 24) return 'Today';
+                                    if (h < 48) return 'Tomorrow';
+                                    return `+${Math.floor(h / 24)}d`;
+                                })()}
                             </p>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ═══ RAIN TIMELINE SCRUBBER ═══ */}
-            {!isPinView && weather.activeLayer === 'rain' && weather.rainFrameCount > 1 && (
+            {/* ═══ RAIN LOADING ═══ */}
+            {!isPinView && weather.activeLayer === 'rain' && weather.rainLoading && (
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
+                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-3 flex items-center justify-center gap-3">
+                        <div className="w-4 h-4 border-2 border-emerald-400/60 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs font-bold text-emerald-400/80">Loading rain radar &amp; forecast…</span>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ UNIFIED RAIN + FORECAST SCRUBBER ═══ */}
+            {!isPinView && weather.activeLayer === 'rain' && weather.rainReady && weather.rainFrameCount > 1 && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                         <button
@@ -729,6 +753,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
                                 <div className="absolute inset-y-0 left-0 bg-emerald-500/40 rounded-full" style={{ width: `${(weather.rainFrameIndex / Math.max(1, weather.rainFrameCount - 1)) * 100}%` }} />
                             </div>
+                            {/* Now marker pip */}
+                            {weather.rainNowIdxRef.current > 0 && weather.rainNowIdxRef.current < weather.rainFrameCount - 1 && (
+                                <div
+                                    className="absolute top-1/2 w-0.5 h-4 bg-white/40 pointer-events-none"
+                                    style={{ left: `${(weather.rainNowIdxRef.current / Math.max(1, weather.rainFrameCount - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
+                                />
+                            )}
                             <div
                                 className="absolute top-1/2 w-5 h-5 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/30 border-2 border-white/40 pointer-events-none"
                                 style={{ left: `${(weather.rainFrameIndex / Math.max(1, weather.rainFrameCount - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
@@ -737,17 +768,11 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         <div className="shrink-0 text-right min-w-[52px]">
                             <p className="text-xs font-black text-white">
-                                {(() => {
-                                    const frames = weather.rainFramesRef.current;
-                                    if (!frames.length) return '--';
-                                    const now = Date.now() / 1000;
-                                    const frameTime = frames[weather.rainFrameIndex]?.time ?? now;
-                                    const diffMin = Math.round((frameTime - now) / 60);
-                                    if (Math.abs(diffMin) < 3) return 'NOW';
-                                    return `${diffMin > 0 ? '+' : ''}${diffMin}m`;
-                                })()}
+                                {weather.unifiedFramesRef.current[weather.rainFrameIndex]?.label ?? '--'}
                             </p>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Radar</p>
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                                {weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type === 'forecast' ? 'Forecast' : 'Radar'}
+                            </p>
                         </div>
                     </div>
                 </div>

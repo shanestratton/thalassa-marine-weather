@@ -172,8 +172,8 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
     return (
         <div className="bio-animate-in" style={{
             background: 'rgba(15, 23, 42, 0.85)',
-            
-            
+
+
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: 16,
             borderTopLeftRadius: 0,
@@ -327,7 +327,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                     filter: `drop-shadow(0 0 8px ${C.primaryGlow})`,
                     letterSpacing: '0.03em',
                 }}>
-                    {costScore?.toFixed(2) ?? '—'}
+                    {costScore?.toFixed(1) ?? '—'}
                 </span>
             </div>
         </div>

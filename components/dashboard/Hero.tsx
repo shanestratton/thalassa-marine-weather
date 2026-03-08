@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+
+// PERF: Refs used to keep handler closures stable while accessing latest callbacks
+
 import { HeroSlide } from './HeroSlide';
 import { HeroSlideSkeleton } from './Skeletons';
 import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
@@ -67,55 +70,96 @@ export const HeroSection = ({
     const scrollRef = useRef<HTMLDivElement>(null);
     const activeIndexRef = useRef(0);
 
-    // Construct rows: Index 0 is Current/Today. Index 1+ are Forecasts/Future.
+    // PERF FIX: Store callback refs so handler closures are stable across renders
+    const onTimeSelectRef = useRef(onTimeSelect);
+    const onHourChangeRef = useRef(onHourChange);
+    onTimeSelectRef.current = onTimeSelect;
+    onHourChangeRef.current = onHourChange;
+
+    // Construct rows: TODAY (live card) + future forecast days
     const dayRows = useMemo(() => {
-        const rows = [];
+        const rows: { data: WeatherMetrics; hourly: HourlyForecast[]; customTime: number | undefined }[] = [];
 
-        // Row 0: Current
-        // Filter hourly for today?
-        // Usually index 0 wants all available hourly or just remaining?
-        // HeroSlide handles "Live" logic if index=0.
-        rows.push({
-            data: current,
-            hourly: hourly || [],
-            customTime: undefined // Current uses live time
-        });
+        // Compute today's ISO date in the location's timezone (handles UTC offset edge cases)
+        const tz = timeZone || undefined;
+        const now = new Date();
+        const todayISO = now.toLocaleDateString('en-CA', { timeZone: tz });
+        // WeatherKit cached data may have yesterday's UTC date for today's local date
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayISO = yesterday.toLocaleDateString('en-CA', { timeZone: tz });
 
-        // Forecast Rows - Filter out first day (Today) to avoid duplication
-        if (forecasts && forecasts.length > 1) {
-            forecasts.slice(1).forEach(f => {
-                // Filter hourly for this specific day
-                const targetDate = f.isoDate;
-                // Fallback to f.date if isoDate missing (though type says isoDate optional?)
-                // Assuming h.time follows ISO, we can match YYYY-MM-DD
-                let dayHourly: HourlyForecast[] = [];
-                if (targetDate && hourly && Array.isArray(hourly)) {
-                    dayHourly = hourly.filter((h, debugIdx) => {
-                        // FIX: Convert UTC timestamp to Local Date String using Location's Timezone
-                        // This ensures that "00:00 Local" (which might be "14:00 Previous Day UTC") matches the target date.
-                        const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
-
-                        return localDateStr === targetDate;
-                    });
-                }
-
-                // Construct metrics for the forecast day
-                // We cast to any because WeatherMetrics and ForecastDay have overlaps but aren't identical
-                const metrics: any = {
-                    ...current, // Default fallback
-                    ...f, // Override with forecast data (temp, wind, etc)
-                    condition: f.condition,
-                };
-                rows.push({
-                    data: metrics as WeatherMetrics,
-                    hourly: dayHourly,
-                    // Set customTime to Noon of that day to centre the graph
-                    customTime: new Date(targetDate + 'T00:00:00').getTime()
-                });
+        // ROW 0: TODAY (Live Card) — uses current conditions + today's hourly data
+        // Find today's daily forecast to merge high/low/sunrise/sunset
+        let todayForecast: any = null;
+        if (forecasts && forecasts.length > 0) {
+            todayForecast = forecasts.find((f, fIdx) => {
+                const fDate = f.isoDate || f.date;
+                if (fDate && fDate === todayISO) return true;
+                // UTC offset match: first entry with yesterday's UTC date = today local
+                if (fDate && fDate === yesterdayISO && fIdx === 0) return true;
+                return false;
             });
         }
+
+        // Build today's hourly: filter to today's date
+        let todayHourly: HourlyForecast[] = [];
+        if (hourly && Array.isArray(hourly)) {
+            todayHourly = hourly.filter((h) => {
+                if (!h || !h.time) return false;
+                const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
+                return localDateStr === todayISO;
+            });
+        }
+
+        const todayMetrics: any = {
+            ...(todayForecast || {}), // Daily forecast base (high/low/sunrise/sunset)
+            ...current, // Real-time observation data WINS over forecast nulls
+            // Explicitly pull daily-only fields from the forecast
+            highTemp: todayForecast?.highTemp ?? current.highTemp,
+            lowTemp: todayForecast?.lowTemp ?? current.lowTemp,
+            sunrise: todayForecast?.sunrise ?? (current as any).sunrise,
+            sunset: todayForecast?.sunset ?? (current as any).sunset,
+        };
+        rows.push({
+            data: todayMetrics as WeatherMetrics,
+            hourly: todayHourly,
+            customTime: undefined, // Live — uses new Date() for "now" line
+        });
+
+        // ROWS 1+: Future forecast days (skip today to avoid duplication)
+        if (forecasts && forecasts.length > 0) {
+            forecasts
+                .filter((f, fIdx) => {
+                    const fDate = f.isoDate || f.date;
+                    if (fDate && fDate === todayISO) return false;
+                    if (fDate && fDate === yesterdayISO && fIdx === 0) return false;
+                    return true;
+                })
+                .forEach(f => {
+                    const targetDate = f.isoDate;
+                    let dayHourly: HourlyForecast[] = [];
+                    if (targetDate && hourly && Array.isArray(hourly)) {
+                        dayHourly = hourly.filter((h) => {
+                            const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
+                            return localDateStr === targetDate;
+                        });
+                    }
+
+                    const metrics: any = {
+                        ...current,
+                        ...f,
+                        condition: f.condition,
+                    };
+                    rows.push({
+                        data: metrics as WeatherMetrics,
+                        hourly: dayHourly,
+                        customTime: undefined,
+                    });
+                });
+        }
         return rows;
-    }, [current, forecasts, hourly]);
+    }, [current, forecasts, hourly, timeZone]);
 
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const y = e.currentTarget.scrollTop;
@@ -156,31 +200,26 @@ export const HeroSection = ({
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
     }, []);
 
-    // Memoized time select handler for HeroSlide - avoids creating new function each render
-    const createTimeSelectHandler = useCallback((rIdx: number) => (time: number | undefined) => {
-        // Forward to Dashboard
-        if (onTimeSelect) onTimeSelect(time);
+    // PERF FIX: Pre-compute a stable array of per-slide onTimeSelect handlers.
+    // Old approach: `createTimeSelectHandler(rIdx)` returned a NEW closure every render,
+    // completely defeating React.memo on HeroSlide. Now each handler is created once
+    // and survives re-renders because callbacks are accessed via refs.
+    const timeSelectHandlers = useMemo(() => {
+        return dayRows.map((_, rIdx) => (time: number | undefined) => {
+            // Forward to Dashboard (via ref — always latest)
+            onTimeSelectRef.current?.(time);
 
-        // Calculate hour index for Dashboard's activeHour state
-        if (onHourChange && time) {
-            const selectedDate = new Date(time);
-            const hour = selectedDate.getHours();
-
-            if (rIdx === 0) {
-                // TODAY - calculate offset from current hour
-                const now = new Date();
-                const currentHour = now.getHours();
-                const hourOffset = hour - currentHour;
-                onHourChange(hourOffset);
-            } else {
-                // FORECAST - hour is just the hour of day (0-23)
-                onHourChange(hour);
+            // Calculate hour index for Dashboard's activeHour state
+            if (onHourChangeRef.current && time) {
+                const selectedDate = new Date(time);
+                const hour = selectedDate.getHours();
+                // All rows are forecast days — hour is simply hour of day (0-23)
+                onHourChangeRef.current(hour);
+            } else if (onHourChangeRef.current && !time) {
+                onHourChangeRef.current(0);
             }
-        } else if (onHourChange && !time) {
-            // NOW card selected
-            onHourChange(0);
-        }
-    }, [onTimeSelect, onHourChange]);
+        });
+    }, [dayRows.length]);
 
     return (
         <div className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}>
@@ -235,7 +274,7 @@ export const HeroSection = ({
                                 guiDetails={guiDetails}
                                 coordinates={coordinates}
                                 generatedAt={generatedAt}
-                                onTimeSelect={createTimeSelectHandler(rIdx)}
+                                onTimeSelect={timeSelectHandlers[rIdx]}
                                 onHourChange={onHourChange}
                                 isVisible={activeIndex === rIdx}
                                 utcOffset={utcOffset}

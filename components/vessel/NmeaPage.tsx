@@ -5,6 +5,9 @@
  * Tap any instrument card to open a fullscreen gauge overlay.
  */
 import React, { useState, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('NmeaPage');
 import { useNmeaStore, NmeaValue, NmeaStatusDot } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore, type TimestampedMetric } from '../../services/NmeaStore';
@@ -37,7 +40,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             NmeaListenerService.start();
             NmeaStore.start();
         } catch (e) {
-            console.error('NMEA connect failed:', e);
+            log.error('NMEA connect failed:', e);
         } finally {
             setConnecting(false);
         }

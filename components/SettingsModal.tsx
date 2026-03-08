@@ -1,5 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('SettingsModal');
 import { UserSettings, LengthUnit } from '../types';
 import {
     CompassIcon, BellIcon, ArrowRightIcon,
@@ -193,7 +196,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             if (pos) {
                 const { latitude, longitude } = pos;
                 let resolvedName = `WP ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { console.warn('[SettingsModal] fallback to WP coords:', e); }
+                try { const name = await reverseGeocode(latitude, longitude); if (name) resolvedName = name; } catch (e) { log.warn(' fallback to WP coords:', e); }
                 onSave({ defaultLocation: resolvedName });
             }
             setDetectingLoc(false);
@@ -234,8 +237,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
         <div className="w-full max-w-6xl mx-auto h-full flex flex-col md:flex-row pb-24 relative">
             {/* Ambient Background Glows */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-                <div className="absolute top-10 left-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px] animate-pulse"></div>
-                <div className="absolute bottom-10 right-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px] animate-pulse delay-1000"></div>
+                <div className="absolute top-10 left-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px]"></div>
+                <div className="absolute bottom-10 right-10 w-96 h-96 bg-sky-500/10 rounded-full blur-[100px]"></div>
             </div>
 
             <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
@@ -569,6 +572,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             <option value="l">Liters</option>
                                         </select>
                                     </div>
+                                </div>
+                            </Section>
+                            <Section title="Legal">
+                                <div className="p-4">
+                                    <button
+                                        onClick={() => window.open('/terms.html', '_blank')}
+                                        className="w-full flex items-center gap-3 p-3 bg-white/[0.03] border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
+                                    >
+                                        <div className="p-2 bg-white/5 rounded-lg">
+                                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm text-white font-bold">Terms of Service & Privacy Policy</p>
+                                            <p className="text-xs text-gray-500 mt-0.5">View our terms, conditions, and data practices</p>
+                                        </div>
+                                        <ArrowRightIcon className="w-4 h-4 text-gray-500" />
+                                    </button>
                                 </div>
                             </Section>
                             <Section title="Danger Zone">

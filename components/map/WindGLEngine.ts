@@ -13,6 +13,9 @@
  */
 
 import type mapboxgl from 'mapbox-gl';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('WindGLEngine');
 import { WindGrid, MAX_SPEED, encodeWindTexture } from '../../services/weather/windField';
 
 // ── Constants ─────────────────────────────────────────────────────
@@ -242,6 +245,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
     private speedFactor = 0.0002;
     private dropRate = 0.0015;
     private dropRateBump = 0.005;
+    private _lastRenderTime = 0;
 
     constructor(layerId = 'wind-particles') {
         this.id = layerId;
@@ -288,6 +292,15 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
 
     render(gl: WebGLRenderingContext, matrix: number[]) {
         if (!this.grid) return;
+
+        // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
+        // Wind particles don't need 60fps; this cuts GPU load by ~75%.
+        const now = performance.now();
+        if (now - this._lastRenderTime < 66) {
+            if (!document.hidden) this.map.triggerRepaint();
+            return;
+        }
+        this._lastRenderTime = now;
 
         // Resize trail textures if canvas size changed
         const canvas = gl.canvas as HTMLCanvasElement;
@@ -343,7 +356,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             if (prevDepthTest) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
             gl.depthMask(prevDepthMask);
         } catch (e) {
-            console.error('[WindGL] Render error:', e);
+            log.error('[WindGL] Render error:', e);
         }
 
         // Keep animating — but ONLY if the page is visible.
@@ -601,7 +614,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         gl.compileShader(v);
         if (!gl.getShaderParameter(v, gl.COMPILE_STATUS)) {
             const e = gl.getShaderInfoLog(v);
-            console.error('[WindGL] VS error:', e);
+            log.error('[WindGL] VS error:', e);
             throw new Error('VS: ' + e);
         }
         const f = gl.createShader(gl.FRAGMENT_SHADER)!;
@@ -609,7 +622,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         gl.compileShader(f);
         if (!gl.getShaderParameter(f, gl.COMPILE_STATUS)) {
             const e = gl.getShaderInfoLog(f);
-            console.error('[WindGL] FS error:', e);
+            log.error('[WindGL] FS error:', e);
             throw new Error('FS: ' + e);
         }
         const p = gl.createProgram()!;
@@ -618,7 +631,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         gl.linkProgram(p);
         if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
             const e = gl.getProgramInfoLog(p);
-            console.error('[WindGL] Link error:', e);
+            log.error('[WindGL] Link error:', e);
             throw new Error('Link: ' + e);
         }
         return p;

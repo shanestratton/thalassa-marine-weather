@@ -10,6 +10,9 @@
  * - Add / Edit document modal
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('DocumentsHub');
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
 import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
@@ -141,7 +144,7 @@ async function openDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
         return true;
     } catch (e: unknown) {
         if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
-        console.warn('[DocumentsHub] openDocFile failed:', e);
+        log.warn(' openDocFile failed:', e);
         return false;
     }
 }
@@ -165,7 +168,7 @@ async function shareDocFile(uri: string, doc: ShipDocument): Promise<boolean> {
         return true;
     } catch (e: unknown) {
         if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
-        console.warn('[DocumentsHub] shareDocFile failed:', e);
+        log.warn(' shareDocFile failed:', e);
         return false;
     }
 }
@@ -186,35 +189,14 @@ interface SwipeableDocCardProps {
     onTap: () => void;
     onEdit: () => void;
     onDelete: () => void;
+    selected: boolean;
+    onToggleSelect: () => void;
 }
 
-const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit, onDelete }) => {
+const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit, onDelete, selected, onToggleSelect }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
-    const [actionBusy, setActionBusy] = useState<'download' | 'share' | null>(null);
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
-    const hasFile = !!doc.file_uri;
-
-    const handleDownload = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!doc.file_uri) return;
-        setActionBusy('download');
-        triggerHaptic('light');
-        const ok = await saveDocFile(doc.file_uri, doc);
-        if (ok) toast.success('📥 Saved to device');
-        else toast.error('Download failed');
-        setActionBusy(null);
-    };
-
-    const handleShare = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!doc.file_uri) return;
-        setActionBusy('share');
-        triggerHaptic('light');
-        const ok = await shareDocFile(doc.file_uri, doc);
-        if (!ok) toast.error('Share not available');
-        setActionBusy(null);
-    };
 
     return (
         <div className="relative overflow-hidden rounded-2xl">
@@ -238,6 +220,25 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
                 ref={ref}
                 onClick={() => { if (swipeOffset === 0) onTap(); }}
             >
+                {/* Selection checkbox */}
+                <button
+                    onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                    className="shrink-0 flex items-center justify-center w-10 ml-1"
+                    aria-label={selected ? 'Deselect' : 'Select'}
+                >
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selected
+                        ? 'bg-sky-500 border-sky-500'
+                        : 'border-gray-500/40 bg-transparent'
+                        }`}
+                    >
+                        {selected && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                        )}
+                    </div>
+                </button>
+
                 {/* Traffic light bar */}
                 <div className={`w-1.5 shrink-0 ${colors.dot}`} />
 
@@ -248,73 +249,31 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({ doc, onTap, onEdit,
                         <span className="text-micro">{CATEGORY_ICONS[doc.category] || '📋'}</span>
                         <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">{doc.category}</span>
                     </div>
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 text-left">
-                            <h4 className="text-sm font-black text-white tracking-wide mb-0.5">{doc.document_name}</h4>
-                            <p className={`text-label font-bold uppercase tracking-widest ${colors.text}`}>
-                                {colors.label}
-                            </p>
-                        </div>
-
-                        <div className="shrink-0 flex flex-col items-end gap-1.5">
-                            {doc.expiry_date && (
-                                <span className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
-                                    {status === 'expired' ? 'Exp ' : 'Exp '}
-                                    {new Date(doc.expiry_date).toLocaleDateString()}
-                                </span>
-                            )}
-                            {/* Action buttons — edit always visible, file actions when file attached */}
-                            <div className="flex items-center gap-2">
-                                {/* Edit */}
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                                    className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10 hover:text-white active:scale-95 transition-all"
-                                    aria-label="Edit document"
-                                >
-                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                    </svg>
-                                </button>
-                                {hasFile && (
-                                    <>
-                                        {/* Save to Files */}
-                                        <button
-                                            onClick={handleDownload}
-                                            disabled={actionBusy === 'download'}
-                                            className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
-                                            aria-label="Save to Files"
-                                        >
-                                            {actionBusy === 'download' ? (
-                                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
-                                                </svg>
-                                            ) : (
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                                </svg>
-                                            )}
-                                        </button>
-                                        {/* Share / Email */}
-                                        <button
-                                            onClick={handleShare}
-                                            disabled={actionBusy === 'share'}
-                                            className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
-                                            aria-label="Share or email"
-                                        >
-                                            {actionBusy === 'share' ? (
-                                                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeLinecap="round" />
-                                                </svg>
-                                            ) : (
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                </svg>
-                                            )}
-                                        </button>
-                                    </>
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 text-left min-w-0">
+                            <h4 className="text-sm font-black text-white tracking-wide mb-0.5 truncate">{doc.document_name}</h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <p className={`text-label font-bold uppercase tracking-widest ${colors.text}`}>
+                                    {colors.label}
+                                </p>
+                                {doc.expiry_date && (
+                                    <span className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}>
+                                        Exp {new Date(doc.expiry_date).toLocaleDateString()}
+                                    </span>
                                 )}
                             </div>
                         </div>
+
+                        {/* Direct edit button — vertically centered */}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                            className="shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
+                            aria-label="Edit document"
+                        >
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -328,6 +287,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [documents, setDocuments] = useState<ShipDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
     // Add/Edit state
     const [showForm, setShowForm] = useState(false);
@@ -347,7 +308,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         try {
             setDocuments(LocalDocumentService.getAll());
         } catch (e) {
-            console.error('Failed to load documents:', e);
+            log.error('Failed to load documents:', e);
             toast.error('Failed to load documents');
         } finally {
             setLoading(false);
@@ -458,7 +419,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             // Mark for cloud sync
             DocumentSyncService.markForSync(savedId);
         } catch (e) {
-            console.error('Failed to save document:', e);
+            log.error('Failed to save document:', e);
             toast.error('Failed to save document');
         }
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
@@ -483,7 +444,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             await LocalDocumentService.delete(doc.id);
             DocumentSyncService.markDeleted(doc.id);
         } catch (e) {
-            console.warn('[DocumentsHub] delete failed:', e);
+            log.warn(' delete failed:', e);
             toast.error('Failed to delete document');
             setDocuments(prev => [...prev, doc]);
         }
@@ -507,6 +468,58 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         }
     };
 
+    const toggleSelectDoc = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    // Batch download selected docs
+    const handleBatchDownload = async () => {
+        setHeaderMenuOpen(false);
+        const selected = documents.filter(d => selectedIds.has(d.id) && d.file_uri);
+        if (selected.length === 0) { toast.error('No files attached to selected documents'); return; }
+        triggerHaptic('medium');
+        let ok = 0;
+        for (const doc of selected) {
+            if (doc.file_uri && await saveDocFile(doc.file_uri, doc)) ok++;
+        }
+        toast.success(`📥 Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
+        setSelectedIds(new Set());
+    };
+
+    // Batch share/email selected docs
+    const handleBatchShare = async () => {
+        setHeaderMenuOpen(false);
+        const selected = documents.filter(d => selectedIds.has(d.id) && d.file_uri);
+        if (selected.length === 0) { toast.error('No files attached to selected documents'); return; }
+        triggerHaptic('medium');
+        // Share all files via a single share sheet if possible
+        try {
+            const fileUris: string[] = [];
+            for (const doc of selected) {
+                if (doc.file_uri) {
+                    const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
+                    const cachedUri = await writeUriToCache(freshUri, doc.document_name);
+                    fileUris.push(cachedUri);
+                }
+            }
+            const { Share } = await import('@capacitor/share');
+            await Share.share({
+                title: `Ship's Documents (${fileUris.length})`,
+                files: fileUris,
+                dialogTitle: 'Share Selected Documents',
+            });
+        } catch (e: unknown) {
+            if (!(e as Error).message?.includes('cancel') && !(e as Error).message?.includes('dismissed')) {
+                toast.error('Share failed');
+            }
+        }
+        setSelectedIds(new Set());
+    };
+
     // ── Expiry stats ──
     const expiredCount = documents.filter(d => getExpiryStatus(d.expiry_date) === 'expired').length;
     const warningCount = documents.filter(d => getExpiryStatus(d.expiry_date) === 'warning').length;
@@ -524,10 +537,68 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     subtitle={
                         <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
                             {documents.length} Documents
+                            {selectedIds.size > 0 && <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>}
                             {expiredCount > 0 && <span className="text-red-400 ml-2">⚠ {expiredCount} Expired</span>}
                             {warningCount > 0 && <span className="text-amber-400 ml-2">⚡ {warningCount} Expiring</span>}
                             {pendingSyncCount > 0 && <span className="text-sky-400 ml-2">☁️ {pendingSyncCount} pending</span>}
                         </p>
+                    }
+                    action={
+                        <div className="relative">
+                            <button
+                                onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                aria-label="Page actions"
+                            >
+                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="12" cy="5" r="1.5" />
+                                    <circle cx="12" cy="12" r="1.5" />
+                                    <circle cx="12" cy="19" r="1.5" />
+                                </svg>
+                            </button>
+                            {headerMenuOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        <button
+                                            onClick={handleBatchDownload}
+                                            disabled={selectedIds.size === 0}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
+                                        >
+                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                            Download Selected
+                                        </button>
+                                        <div className="border-t border-white/5" />
+                                        <button
+                                            onClick={handleBatchShare}
+                                            disabled={selectedIds.size === 0}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
+                                        >
+                                            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                            Share Selected
+                                        </button>
+                                        {selectedIds.size > 0 && (
+                                            <>
+                                                <div className="border-t border-white/5" />
+                                                <button
+                                                    onClick={() => { setSelectedIds(new Set()); setHeaderMenuOpen(false); }}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                    Clear Selection
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     }
                 />
 
@@ -583,6 +654,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             onTap={() => handleOpenDoc(doc)}
                                             onEdit={() => openEditForm(doc)}
                                             onDelete={() => handleDelete(doc.id)}
+                                            selected={selectedIds.has(doc.id)}
+                                            onToggleSelect={() => toggleSelectDoc(doc.id)}
                                         />
                                     ))}
                                 </div>

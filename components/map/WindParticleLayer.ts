@@ -1,4 +1,7 @@
 import mapboxgl from 'mapbox-gl';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('WindParticleLayer');
 import type { WindGrid } from '../../services/weather/windField';
 
 const MAX_SPEED = 60.0;
@@ -313,7 +316,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     // ── WebGL init ────────────────────────────────────────────
 
     onAdd(map: mapboxgl.Map, gl: WebGLRenderingContext): void {
-        console.info(`[WindGL] onAdd called — gl context:`, gl ? 'valid' : 'null');
+        log.info(`[WindGL] onAdd called — gl context:`, gl ? 'valid' : 'null');
         this.map = map;
         this.gl = gl;
 
@@ -345,7 +348,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (gl2.createVertexArray) {
             this.particleVAO = gl2.createVertexArray();
             gl2.bindVertexArray(this.particleVAO);
-            console.info('[WindGL] Using WebGL2 VAO for particle attributes');
+            log.info('[WindGL] Using WebGL2 VAO for particle attributes');
         }
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
@@ -418,7 +421,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         if (!this.gl) {
             this.pendingGrid = { grid, hour };
-            console.info(`[WindGL] setGrid: GL not ready, queuing grid ${grid.width}×${grid.height}`);
+            log.info(`[WindGL] setGrid: GL not ready, queuing grid ${grid.width}×${grid.height}`);
             return;
         }
 
@@ -438,13 +441,13 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.windTimeline = [];
         const size = grid.width * grid.height;
 
-        console.info(`[WindGL] setGrid: ${grid.width}×${grid.height}, totalHours=${grid.totalHours}, u.length=${grid.u.length}, bounds=[${grid.south},${grid.north}]×[${grid.west},${grid.east}]`);
+        log.info(`[WindGL] setGrid: ${grid.width}×${grid.height}, totalHours=${grid.totalHours}, u.length=${grid.u.length}, bounds=[${grid.south},${grid.north}]×[${grid.west},${grid.east}]`);
 
         for (let h = 0; h < grid.totalHours; h++) {
             const uSrc = grid.u[h];
             const vSrc = grid.v[h];
             if (!uSrc || !vSrc) {
-                console.warn(`[WindGL] setGrid: hour ${h} missing data — u:${!!uSrc} v:${!!vSrc}`);
+                log.warn(`[WindGL] setGrid: hour ${h} missing data — u:${!!uSrc} v:${!!vSrc}`);
                 continue;
             }
 
@@ -456,7 +459,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         }
 
         this.totalHours = this.windTimeline.length;
-        console.info(`[WindGL] setGrid: built ${this.windTimeline.length} timesteps, maxSpeed calc...`);
+        log.info(`[WindGL] setGrid: built ${this.windTimeline.length} timesteps, maxSpeed calc...`);
 
         // Compute max speed across ALL timesteps for legend
         let gridMax = 0;
@@ -467,7 +470,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             }
         }
         this.maxObservedSpeed = gridMax;
-        console.info(`[WindGL] setGrid: maxSpeed=${gridMax.toFixed(1)} kts, uploading textures...`);
+        log.info(`[WindGL] setGrid: maxSpeed=${gridMax.toFixed(1)} kts, uploading textures...`);
 
         // ── Upload speed texture for heatmap ──
         this._uploadSpeedTexture(grid);
@@ -478,7 +481,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // Reset render log counter so we see the first render with actual data
         this._renderLogCount = 0;
-        console.info(`[WindGL] setGrid complete — triggering repaint`);
+        log.info(`[WindGL] setGrid complete — triggering repaint`);
         this.map?.triggerRepaint();
     }
 
@@ -942,7 +945,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         if (!this.program || !this.particleBuffer || !matrixOrOptions) {
             if (this._renderLogCount < 3) {
-                console.warn(`[WindGL] render bail: program=${!!this.program} buf=${!!this.particleBuffer} arg=${!!matrixOrOptions} timeline=${this.windTimeline.length}`);
+                log.warn(`[WindGL] render bail: program=${!!this.program} buf=${!!this.particleBuffer} arg=${!!matrixOrOptions} timeline=${this.windTimeline.length}`);
                 this._renderLogCount++;
             }
             return;
@@ -959,13 +962,13 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 ?? opts.modelViewProjectionMatrix
                 ?? opts.projectionMatrix;
             if (this._renderLogCount < 2) {
-                console.info(`[WindGL] MapLibre v3 — mainMatrix[0]=${opts.defaultProjectionData?.mainMatrix?.[0]?.toFixed(0)}`);
+                log.info(`[WindGL] MapLibre v3 — mainMatrix[0]=${opts.defaultProjectionData?.mainMatrix?.[0]?.toFixed(0)}`);
             }
         }
 
         if (!rawMatrix) {
             if (this._renderLogCount < 3) {
-                console.warn(`[WindGL] No valid matrix in render arg. Type: ${typeof matrixOrOptions}, constructor: ${matrixOrOptions?.constructor?.name}`);
+                log.warn(`[WindGL] No valid matrix in render arg. Type: ${typeof matrixOrOptions}, constructor: ${matrixOrOptions?.constructor?.name}`);
                 this._renderLogCount++;
             }
             return;
@@ -982,14 +985,14 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         if (mat.length !== 16) {
             if (this._renderLogCount < 3) {
-                console.warn(`[WindGL] Invalid matrix length: ${mat.length} (expected 16). Raw type: ${rawMatrix?.constructor?.name}`);
+                log.warn(`[WindGL] Invalid matrix length: ${mat.length} (expected 16). Raw type: ${rawMatrix?.constructor?.name}`);
                 this._renderLogCount++;
             }
             return;
         }
 
         if (this._renderLogCount < 3) {
-            console.info(`[WindGL] Rendering: timeline=${this.windTimeline.length} particles=${NUM_PARTICLES} mat[0]=${mat[0].toFixed(4)} gridBounds=[${this.gridBounds.south},${this.gridBounds.north}]×[${this.gridBounds.west},${this.gridBounds.east}]`);
+            log.info(`[WindGL] Rendering: timeline=${this.windTimeline.length} particles=${NUM_PARTICLES} mat[0]=${mat[0].toFixed(4)} gridBounds=[${this.gridBounds.south},${this.gridBounds.north}]×[${this.gridBounds.west},${this.gridBounds.east}]`);
             this._renderLogCount++;
         }
 

@@ -11,6 +11,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
+import { toast } from '../Toast';
 
 // leaflet.offline extends L.TileLayer — import for side effects
 import 'leaflet.offline';
@@ -33,16 +34,13 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
             zoomlevels: [3, 4, 5, 6, 7, 8, 9, 10],
             position: 'topright',
             confirm(layer: any, successCallback: () => void) {
-                // Auto-confirm (or you can show a modal)
                 const tileCount = layer._tilesforSave?.length || 0;
-                if (window.confirm(`Download ${tileCount} tiles for offline use?`)) {
-                    successCallback();
-                }
+                toast.info(`Downloading ${tileCount} tiles for offline use…`);
+                successCallback();
             },
-            confirmRemoval(layer: any, successCallback: () => void) {
-                if (window.confirm('Remove all cached tiles?')) {
-                    successCallback();
-                }
+            confirmRemoval(_layer: any, successCallback: () => void) {
+                successCallback();
+                toast.success('Cached tiles removed');
             },
             saveText: '💾 Save Tiles',
             rmText: '🗑️ Clear Cache',
@@ -62,7 +60,8 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
 
         tileLayer.on('savetileend', () => {
             savedTiles++;
-            if (savedTiles % 50 === 0 || savedTiles === totalTiles) {
+            if (savedTiles === totalTiles) {
+                toast.success(`${savedTiles} tiles saved for offline use`);
             }
         });
 

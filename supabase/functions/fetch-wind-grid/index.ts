@@ -28,6 +28,7 @@ const CORS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    "Access-Control-Expose-Headers": "X-GFS-Date, X-GFS-Cycle, X-Frames, X-Hours, X-Bounds",
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -89,7 +90,7 @@ function toNoaaLon(lon: number): number {
 /** Pick the GFS grid resolution based on requested area size. */
 function selectResolution(north: number, south: number, east: number, west: number): {
     filter: string;
-    file: string;
+    fileBase: string;
     label: string;
 } {
     const latSpan = Math.abs(north - south);
@@ -98,16 +99,19 @@ function selectResolution(north: number, south: number, east: number, west: numb
     const areaDeg2 = latSpan * lonSpan;
 
     if (areaDeg2 > 10_000) {
-        // >100°×100° → 1.0° grid (~65K points max)
-        return { filter: "filter_gfs_1p00.pl", file: "pgrb2.1p00.f000", label: "1.00°" };
+        return { filter: "filter_gfs_1p00.pl", fileBase: "pgrb2.1p00", label: "1.00°" };
     }
     if (areaDeg2 > 2_500) {
-        // >50°×50° → 0.50° grid (~65K points max)
-        return { filter: "filter_gfs_0p50.pl", file: "pgrb2full.0p50.f000", label: "0.50°" };
+        return { filter: "filter_gfs_0p50.pl", fileBase: "pgrb2full.0p50", label: "0.50°" };
     }
-    // Small areas → full 0.25° resolution
-    return { filter: "filter_gfs_0p25.pl", file: "pgrb2.0p25.f000", label: "0.25°" };
+    return { filter: "filter_gfs_0p25.pl", fileBase: "pgrb2.0p25", label: "0.25°" };
 }
+
+// ── Types ─────────────────────────────────────────────────────
+
+// ── Forecast hours to fetch ───────────────────────────────────
+
+const FORECAST_HOURS = [0, 3, 6, 9, 12, 18, 24, 36, 48, 72];
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -137,7 +141,6 @@ Deno.serve(async (req: Request) => {
         const body: WindRequest = await req.json();
         const { north, south, east, west } = body;
 
-        // Validate
         if (
             typeof north !== "number" || typeof south !== "number" ||
             typeof east !== "number" || typeof west !== "number"
@@ -149,91 +152,99 @@ Deno.serve(async (req: Request) => {
             );
         }
 
-        // Convert longitudes to 0-360 for NOAA
         const lonSpan = east - west;
         let leftLon: number;
         let rightLon: number;
 
         if (lonSpan >= 360) {
-            // Full globe request — NOAA needs 0..360
             leftLon = 0;
             rightLon = 360;
         } else {
             leftLon = toNoaaLon(west);
             rightLon = toNoaaLon(east);
-            // Handle antimeridian wrap: ensure rightlon > leftlon
             if (rightLon <= leftLon) rightLon += 360;
         }
 
-        // Get latest GFS cycle
         const { date, cycle } = getLatestGfsCycle();
-
-        // Auto-select resolution based on area
         const res = selectResolution(north, south, east, west);
 
-        // Build NOMADS GRIB Filter URL — single request for the entire subregion
-        const params = new URLSearchParams({
-            dir: `/gfs.${date}/${cycle}/atmos`,
-            file: `gfs.t${cycle}z.${res.file}`,
-            var_UGRD: "on",
-            var_VGRD: "on",
-            lev_10_m_above_ground: "on",
-            subregion: "",
-            leftlon: leftLon.toFixed(2),
-            rightlon: rightLon.toFixed(2),
-            toplat: north.toFixed(2),
-            bottomlat: south.toFixed(2),
+        // Fetch all forecast hours in parallel
+        const fetchPromises = FORECAST_HOURS.map(async (fhr) => {
+            const fhrStr = String(fhr).padStart(3, "0");
+            const params = new URLSearchParams({
+                dir: `/gfs.${date}/${cycle}/atmos`,
+                file: `gfs.t${cycle}z.${res.fileBase}.f${fhrStr}`,
+                var_UGRD: "on",
+                var_VGRD: "on",
+                lev_10_m_above_ground: "on",
+                subregion: "",
+                leftlon: leftLon.toFixed(2),
+                rightlon: rightLon.toFixed(2),
+                toplat: north.toFixed(2),
+                bottomlat: south.toFixed(2),
+            });
+
+            const noaaUrl = `https://nomads.ncep.noaa.gov/cgi-bin/${res.filter}?${params.toString()}`;
+            console.log(`[fetch-wind-grid] f${fhrStr}: ${noaaUrl}`);
+
+            try {
+                const upstream = await fetch(noaaUrl);
+                if (!upstream.ok) {
+                    console.warn(`[fetch-wind-grid] f${fhrStr}: NOAA returned ${upstream.status}`);
+                    return null;
+                }
+                const buf = await upstream.arrayBuffer();
+                if (buf.byteLength < 200) {
+                    console.warn(`[fetch-wind-grid] f${fhrStr}: too small (${buf.byteLength}B)`);
+                    return null;
+                }
+                return new Uint8Array(buf);
+            } catch (err) {
+                console.warn(`[fetch-wind-grid] f${fhrStr}: fetch failed:`, err);
+                return null;
+            }
         });
 
-        const noaaUrl = `https://nomads.ncep.noaa.gov/cgi-bin/${res.filter}?${params.toString()}`;
+        const results = await Promise.all(fetchPromises);
+        const validChunks: Uint8Array[] = [];
+        const validHours: number[] = [];
 
-        console.log(`[fetch-wind-grid] GFS ${date}/${cycle}z @ ${res.label} → ${noaaUrl}`);
+        for (let i = 0; i < results.length; i++) {
+            if (results[i]) {
+                validChunks.push(results[i]!);
+                validHours.push(FORECAST_HOURS[i]);
+            }
+        }
 
-        // Fetch GRIB2 from NOAA
-        const upstream = await fetch(noaaUrl);
-
-        if (!upstream.ok) {
-            const errText = await upstream.text();
-            console.error(`[fetch-wind-grid] NOAA error ${upstream.status}: ${errText}`);
+        if (validChunks.length === 0) {
             return corsResponse(
-                JSON.stringify({
-                    error: `NOAA NOMADS returned ${upstream.status}`,
-                    detail: errText.substring(0, 500),
-                    url: noaaUrl,
-                }),
+                JSON.stringify({ error: "No valid GRIB data from NOAA" }),
                 502,
                 { "Content-Type": "application/json" },
             );
         }
 
-        // Stream the raw GRIB2 binary directly to the client
-        const gribData = await upstream.arrayBuffer();
-
-        // Guard: NOAA sometimes returns HTML error pages instead of GRIB2
-        if (gribData.byteLength < 200) {
-            const text = new TextDecoder().decode(gribData);
-            console.error(`[fetch-wind-grid] Suspiciously small response (${gribData.byteLength}B): ${text}`);
-            return corsResponse(
-                JSON.stringify({
-                    error: "NOAA returned empty or invalid data",
-                    detail: text.substring(0, 300),
-                    url: noaaUrl,
-                }),
-                502,
-                { "Content-Type": "application/json" },
-            );
+        // Concatenate all valid chunks
+        const totalSize = validChunks.reduce((sum, c) => sum + c.byteLength, 0);
+        const concatenated = new Uint8Array(totalSize);
+        let offset = 0;
+        for (const chunk of validChunks) {
+            concatenated.set(chunk, offset);
+            offset += chunk.byteLength;
         }
 
         console.log(
-            `[fetch-wind-grid] Proxied ${gribData.byteLength} bytes ` +
-            `(GFS ${date}/${cycle}z @ ${res.label}, bounds=[${south},${north}]×[${west},${east}])`,
+            `[fetch-wind-grid] ${validChunks.length}/${FORECAST_HOURS.length} hours, ` +
+            `${totalSize} bytes (GFS ${date}/${cycle}z @ ${res.label})`,
         );
 
-        return corsResponse(new Uint8Array(gribData) as unknown as BodyInit, 200, {
+        return corsResponse(concatenated as unknown as BodyInit, 200, {
             "Content-Type": "application/octet-stream",
-            "Content-Length": String(gribData.byteLength),
+            "Content-Length": String(totalSize),
             "X-GFS-Date": date,
             "X-GFS-Cycle": `${cycle}z`,
+            "X-Frames": String(validChunks.length),
+            "X-Hours": validHours.join(","),
             "X-Bounds": `${south},${north},${west},${east}`,
         });
     } catch (err) {

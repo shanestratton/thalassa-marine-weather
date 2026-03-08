@@ -15,6 +15,9 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -375,7 +378,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     setDataInfo({ refTime, source: result.source });
                 }
             } catch (err) {
-                console.error('[VelocityOverlay] All data sources failed:', err);
+                log.error('[VelocityOverlay] All data sources failed:', err);
             } finally {
                 fetchingRef.current = false;
             }
@@ -400,7 +403,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // ── Heat map layer DISABLED — clean dark map with particles only ──
     // useEffect(() => {
     //     if (!mapboxMap || !visible || !windData) return;
-    //     try { injectHeatMap(mapboxMap, windData); } catch (err) { console.error('[HeatMap]', err); }
+    //     try { injectHeatMap(mapboxMap, windData); } catch (err) { log.error('[HeatMap]', err); }
     //     return () => { removeHeatMap(mapboxMap); };
     // }, [mapboxMap, visible, windData]);
 
@@ -515,7 +518,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             syncViewport();
         };
 
-        setup().catch(err => console.error('[VelocityOverlay] Setup failed:', err));
+        setup().catch(err => log.error('[VelocityOverlay] Setup failed:', err));
 
         // ── Cleanup ──────────────────────────────────────────────
         return () => {

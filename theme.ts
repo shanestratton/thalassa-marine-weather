@@ -42,6 +42,7 @@ export interface ThemeColors {
         emerald: { bg: string; bgActive: string; text: string; border: string; borderActive: string };
         red: { bg: string; bgActive: string; text: string; border: string; borderActive: string };
         purple: { bg: string; bgActive: string; text: string; border: string; borderActive: string };
+        teal: { bg: string; bgActive: string; text: string; border: string; borderActive: string };
     };
     border: {
         subtle: string;
@@ -127,6 +128,13 @@ const offshoreColors: ThemeColors = {
             border: 'border-purple-500/20',
             borderActive: 'border-purple-500/60',
         },
+        teal: {
+            bg: 'bg-teal-500/10',
+            bgActive: 'bg-teal-500/20',
+            text: 'text-teal-400',
+            border: 'border-teal-500/20',
+            borderActive: 'border-teal-500/40',
+        },
     },
     border: {
         subtle: 'border border-white/5',
@@ -194,6 +202,13 @@ const onshoreColors: ThemeColors = {
             text: 'text-red-400',
             border: 'border-red-500/20',
             borderActive: 'border-red-500/60',
+        },
+        teal: {
+            bg: 'bg-teal-500/10',
+            bgActive: 'bg-teal-500/20',
+            text: 'text-teal-400',
+            border: 'border-teal-500/20',
+            borderActive: 'border-teal-500/40',
         },
     },
     border: {

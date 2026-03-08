@@ -13,13 +13,18 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('ChatPage');
 import { ChatService, ChatChannel, ChatMessage, DirectMessage, DMConversation, DEFAULT_CHANNELS } from '../services/ChatService';
 import { clientFilter, reportMessage, type ClientFilterResult } from '../services/ContentModerationService';
 import { uploadProfilePhoto, batchFetchAvatars, getCachedAvatar, removeProfilePhoto, getProfile, updateProfile } from '../services/ProfilePhotoService';
 import { LonelyHeartsPage } from './LonelyHeartsPage';
-import { DatingSwipePage } from './DatingSwipePage';
+
 import { BgGeoManager } from '../services/BgGeoManager';
 import { PinService, SavedPin } from '../services/PinService';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { toast } from './Toast';
 import { ShipLogService } from '../services/ShipLogService';
 import { TrackSharingService } from '../services/TrackSharingService';
 import { ShipLogEntry } from '../types';
@@ -45,7 +50,7 @@ import {
 } from './chat/chatUtils';
 
 // --- TYPES ---
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'lonely_hearts' | 'find_crew' | 'marketplace';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace';
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';
@@ -122,7 +127,7 @@ export const ChatPage: React.FC = () => {
         try {
             const stored = localStorage.getItem('chat_liked_messages');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch (e) { console.warn('[ChatPage]', e); return new Set(); }
+        } catch (e) { log.warn('localStorage parse:', e); return new Set(); }
     });
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
@@ -302,11 +307,6 @@ export const ChatPage: React.FC = () => {
 
     // --- CHANNEL ACTIONS ---
     const openChannel = async (channel: ChatChannel) => {
-        // First Mates (legacy DB name: 'Lonely Hearts') gets its own dedicated page
-        if (channel.name === 'First Mates' || channel.name === 'Lonely Hearts') {
-            setView('lonely_hearts');
-            return;
-        }
         // Find Crew gets the crew board page
         if (channel.name === 'Find Crew') {
             setView('find_crew');
@@ -426,7 +426,7 @@ export const ChatPage: React.FC = () => {
                 }
             }
         } catch (e) {
-            console.warn('[ChatPage]', e);
+            log.warn('GPS fallback:', e);
             setPinLat(-33.8568);
             setPinLng(151.2153);
         }
@@ -597,7 +597,7 @@ export const ChatPage: React.FC = () => {
                 .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
             setVoyageList(list);
         } catch (e) {
-            console.warn('[ChatPage]', e);
+            log.warn('Track picker load failed:', e);
             setVoyageList([]);
         } finally {
             setTrackLoadingVoyages(false);
@@ -643,7 +643,7 @@ export const ChatPage: React.FC = () => {
                 setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
             }
         } catch (err) {
-            console.error('Failed to share track:', err);
+            log.error('Failed to share track:', err);
         } finally {
             setTrackSharing(false);
         }
@@ -666,7 +666,7 @@ export const ChatPage: React.FC = () => {
             try {
                 entries = importGPXToEntries(gpxData);
             } catch (parseErr) {
-                console.error('GPX parse failed:', parseErr);
+                log.error('GPX parse failed:', parseErr);
                 setTrackImportStatus('❌ Invalid GPX data — cannot parse');
                 return;
             }
@@ -675,12 +675,12 @@ export const ChatPage: React.FC = () => {
                 return;
             }
             // Stamp as community download
-            entries.forEach(e => { (e as any).source = 'community_download'; });
+            entries.forEach((e: Record<string, unknown>) => { e.source = 'community_download'; });
             setTrackImportStatus(`⏳ Saving ${entries.length} entries…`);
             const { savedCount } = await ShipLogService.importGPXVoyage(entries);
             setTrackImportStatus(`✅ Imported "${title}" — ${savedCount} entries`);
         } catch (err) {
-            console.error('Track import failed:', err);
+            log.error('Track import failed:', err);
             const msg = err instanceof Error ? err.message : 'Unknown error';
             setTrackImportStatus(`❌ Import failed — ${msg}`);
         } finally {
@@ -871,24 +871,40 @@ export const ChatPage: React.FC = () => {
         setShowModMenu(null);
     }, []);
 
+    // Confirm dialog state for mod actions
+    const [confirmAction, setConfirmAction] = useState<{
+        title: string;
+        message: string;
+        destructive: boolean;
+        onConfirm: () => Promise<void>;
+    } | null>(null);
+
     const handleBlockUserPlatform = useCallback(async (userId: string, name: string) => {
-        const confirmed = window.confirm(`🚫 Block ${name} from the platform?\n\nThis will permanently prevent them from sending messages.`);
-        if (!confirmed) return;
-        const ok = await ChatService.blockUserPlatform(userId);
-        if (ok) {
-            window.alert(`${name} has been blocked from the platform.`);
-        }
-        setShowModMenu(null);
+        setConfirmAction({
+            title: 'Block User',
+            message: `Block ${name} from the platform? This will permanently prevent them from sending messages.`,
+            destructive: true,
+            onConfirm: async () => {
+                const ok = await ChatService.blockUserPlatform(userId);
+                if (ok) toast.success(`${name} has been blocked from the platform`);
+                setShowModMenu(null);
+                setConfirmAction(null);
+            },
+        });
     }, []);
 
     const handleMakeAdmin = useCallback(async (userId: string, name: string) => {
-        const confirmed = window.confirm(`👑 Make ${name} an Admin?\n\nAdmins can delete posts, pin messages, mute users, and create channels.`);
-        if (!confirmed) return;
-        const ok = await ChatService.setRole(userId, 'admin');
-        if (ok) {
-            window.alert(`${name} is now an Admin.`);
-        }
-        setShowModMenu(null);
+        setConfirmAction({
+            title: 'Promote to Admin',
+            message: `Make ${name} an Admin? Admins can delete posts, pin messages, mute users, and create channels.`,
+            destructive: false,
+            onConfirm: async () => {
+                const ok = await ChatService.setRole(userId, 'admin');
+                if (ok) toast.success(`${name} is now an Admin`);
+                setShowModMenu(null);
+                setConfirmAction(null);
+            },
+        });
     }, []);
 
     const handleMarkHelpful = useCallback(async (msgId: string) => {
@@ -915,7 +931,7 @@ export const ChatPage: React.FC = () => {
         else if (view === 'dm_thread') { setView('dm_inbox'); setDmPartner(null); }
         else if (view === 'dm_inbox') { setView('channels'); }
         else if (view === 'profile') { setView('channels'); }
-        else if (view === 'lonely_hearts') { setView('channels'); }
+
         else if (view === 'find_crew') { setView('channels'); }
         else if (view === 'marketplace') { setView('channels'); }
     };
@@ -1010,14 +1026,7 @@ export const ChatPage: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {/* ══════ FIRST MATES ══════ */}
-                {view === 'lonely_hearts' && !loading && (
-                    <DatingSwipePage
-                        onOpenDM={(userId, name) => {
-                            openDMThread(userId, name);
-                        }}
-                    />
-                )}
+
                 {/* ══════ FIND CREW BOARD ══════ */}
                 {view === 'find_crew' && !loading && (
                     <LonelyHeartsPage
@@ -1226,6 +1235,16 @@ export const ChatPage: React.FC = () => {
                     </p>
                 </div>
             )}
+            {/* Mod action confirm dialog */}
+            <ConfirmDialog
+                isOpen={!!confirmAction}
+                title={confirmAction?.title || ''}
+                message={confirmAction?.message || ''}
+                destructive={confirmAction?.destructive || false}
+                confirmLabel={confirmAction?.destructive ? 'Block' : 'Confirm'}
+                onConfirm={confirmAction?.onConfirm || (() => { })}
+                onCancel={() => setConfirmAction(null)}
+            />
         </div>
     );
 };

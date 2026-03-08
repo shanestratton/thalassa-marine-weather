@@ -11,8 +11,12 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
+import { Capacitor } from '@capacitor/core';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
@@ -89,6 +93,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     const [saving, setSaving] = useState(false);
     const [polishing, setPolishing] = useState(false);
     const [deletedItem, setDeletedItem] = useState<DiaryEntry | null>(null);
+    const deletedIdRef = useRef<string | null>(null);
     const [gpsLoading, setGpsLoading] = useState(false);
 
     // Timeline selection state
@@ -112,10 +117,61 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     const fileRef = useRef<HTMLInputElement>(null);
 
+    // Keyboard-aware height for compose view
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    // Track iOS keyboard height via Capacitor Keyboard plugin (reliable with KeyboardResize.None)
+    // Falls back to visualViewport for web
+    useEffect(() => {
+        let cleanup: (() => void) | undefined;
+
+        if (Capacitor.isNativePlatform()) {
+            import('@capacitor/keyboard').then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                    // After the layout adjusts, scroll the focused field into view
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement;
+                        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 250);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+                cleanup = () => {
+                    showHandle.then(h => h.remove());
+                    hideHandle.then(h => h.remove());
+                };
+            }).catch(() => { /* Keyboard plugin not available */ });
+        } else {
+            // Web fallback: visualViewport
+            const vp = window.visualViewport;
+            if (vp) {
+                const handleResize = () => {
+                    const kbHeight = window.innerHeight - vp.height;
+                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
+                };
+                vp.addEventListener('resize', handleResize);
+                cleanup = () => vp.removeEventListener('resize', handleResize);
+            }
+        }
+
+        return () => {
+            cleanup?.();
+            setKeyboardHeight(0);
+        };
+    }, []);
+
     // ── Load entries ───────────────────────────────────────────
 
     const refreshEntries = useCallback(() => {
-        DiaryService.getEntries(100).then(data => setEntries(data));
+        DiaryService.getEntries(100).then(data => {
+            // Filter out the entry pending soft-delete (undo window still open)
+            const pendingId = deletedIdRef.current;
+            setEntries(pendingId ? data.filter(e => e.id !== pendingId) : data);
+        });
     }, []);
 
     useEffect(() => {
@@ -287,7 +343,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 setRecordingTime(prev => prev + 1);
             }, 1000);
         } catch (err) {
-            console.error('[Diary] Mic access denied:', err);
+            log.error('[Diary] Mic access denied:', err);
         }
     };
 
@@ -418,6 +474,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         if (!item) return;
         triggerHaptic('medium');
 
+        // Track pending-delete so refreshEntries won't bring it back
+        deletedIdRef.current = id;
         // Remove from UI immediately
         setEntries(prev => prev.filter(e => e.id !== id));
         setSelectedEntry(null);
@@ -432,11 +490,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         try {
             await DiaryService.deleteEntry(item.id);
         } catch (e) {
-            console.warn('[DiaryPage] delete failed:', e);
+            log.warn(' delete failed:', e);
             toast.error('Failed to delete entry');
             // Restore on failure
             setEntries(prev => [...prev, item]);
         }
+        // Clear pending-delete ref after API call completes
+        deletedIdRef.current = null;
     };
 
     const handleUndoDelete = () => {
@@ -445,6 +505,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             toast.success('Entry restored');
         }
         setDeletedItem(null);
+        deletedIdRef.current = null;
     };
 
     // ── Grouped entries ────────────────────────────────────────
@@ -465,7 +526,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             },
             onError: (err) => {
                 setExportProgress(null);
-                console.error('Diary PDF export error:', err);
+                log.error('Diary PDF export error:', err);
             }
         });
     }, []);
@@ -555,7 +616,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         entry: DiaryEntry;
         onTap: () => void;
         onDelete: () => void;
-    }> = ({ entry, onTap, onDelete }) => {
+        onEdit: () => void;
+        selected: boolean;
+        onToggleSelect: () => void;
+    }> = ({ entry, onTap, onDelete, onEdit, selected, onToggleSelect }) => {
         const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
@@ -577,63 +641,82 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                 {/* Main card (slides on swipe) */}
                 <div
-                    className={`relative w-full text-left bg-white/[0.03] border border-white/5 rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all ${isSwiping ? '' : 'duration-200'}`}
+                    className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} flex items-stretch border ${selected ? 'border-sky-500/50' : 'border-white/5'} rounded-2xl overflow-hidden bg-white/[0.03]`}
                     style={{ transform: `translateX(-${swipeOffset}px)` }}
                     ref={ref}
                     onClick={() => { if (swipeOffset === 0) onTap(); }}
                 >
-                    {entry.photos.length > 0 && (
-                        <div className="flex h-28 overflow-hidden">
-                            {entry.photos.slice(0, 3).map((url, i) => (
-                                <img key={i} src={url} alt="" className={`h-full object-cover ${entry.photos.length === 1 ? 'w-full' : entry.photos.length === 2 ? 'w-1/2' : 'w-1/3'}`} />
-                            ))}
-                            {entry.photos.length > 3 && (
-                                <div className="w-1/3 h-full bg-black/50 flex items-center justify-center">
-                                    <span className="text-white/60 text-sm font-bold">+{entry.photos.length - 3}</span>
-                                </div>
+                    {/* Selection checkbox */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                        className="shrink-0 flex items-center justify-center w-10 ml-1"
+                        aria-label={selected ? 'Deselect' : 'Select'}
+                    >
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selected
+                            ? 'bg-sky-500 border-sky-500'
+                            : 'border-gray-500/40 bg-transparent'
+                            }`}
+                        >
+                            {selected && (
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
                             )}
                         </div>
-                    )}
+                    </button>
 
-                    <div className="p-4">
-                        <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-sm">{moodCfg.emoji}</span>
-                                    <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
-                                    {entry.audio_url && <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
-                                    {entry._offline && <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
-                                </div>
-                                <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                    {/* Blue accent bar */}
+                    <div className="w-1.5 shrink-0 bg-sky-500" />
+
+                    {/* Content */}
+                    <div className="flex-1 p-4">
+                        {/* Mood badge — top of card */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                            <span className="text-micro">{moodCfg.emoji}</span>
+                            <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">{moodCfg.label || entry.mood}</span>
+                            {entry.audio_url && <span className="text-[10px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">🎙️</span>}
+                            {entry._offline && <span className="text-[10px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">PENDING</span>}
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 text-left min-w-0">
+                                <h4 className="text-sm font-black text-white tracking-wide mb-0.5 truncate">{entry.title}</h4>
+                                <p className="text-label text-gray-400 line-clamp-2 leading-relaxed">
                                     {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
                                 </p>
-                            </div>
-                            <span className="text-[11px] text-gray-500 font-mono shrink-0 mt-0.5">
-                                {formatTime(entry.created_at)}
-                            </span>
-                        </div>
-
-                        {entryHasCoords && (
-                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/60">
-                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                </svg>
-                                <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
-                                {entry.location_name && !entry.location_name.includes('°') && (
-                                    <span className="text-gray-500 truncate">— {entry.location_name}</span>
+                                {entryHasCoords && (
+                                    <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-sky-500/60">
+                                        <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                        </svg>
+                                        <span className="font-mono font-medium">{formatCoord(entry.latitude!, entry.longitude!)}</span>
+                                        {entry.location_name && !entry.location_name.includes('°') && (
+                                            <span className="text-gray-500 truncate">— {entry.location_name}</span>
+                                        )}
+                                    </div>
+                                )}
+                                {!entryHasCoords && entry.location_name && (
+                                    <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-sky-500/50">
+                                        <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                        </svg>
+                                        <span className="font-medium truncate">{entry.location_name}</span>
+                                    </div>
                                 )}
                             </div>
-                        )}
-                        {!entryHasCoords && entry.location_name && (
-                            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-sky-500/50">
-                                <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+
+                            {/* Edit button — vertically centered */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                                className="shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
+                                aria-label="Edit entry"
+                            >
+                                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                                 </svg>
-                                <span className="font-medium truncate">{entry.location_name}</span>
-                            </div>
-                        )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -663,11 +746,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <button onClick={() => openEdit(e)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
                             <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                            </svg>
-                        </button>
-                        <button onClick={() => handleDelete(e.id)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                            <svg className="w-5 h-5 text-red-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                             </svg>
                         </button>
                     </div>
@@ -781,8 +859,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     if (showCompose) {
         const isEditing = !!editingId;
+        // Dynamic bottom padding: when keyboard is up, add extra space so textarea stays visible
+        const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
         return (
-            <div className="flex flex-col h-full bg-slate-950 text-white" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+            <div className="flex flex-col h-full bg-slate-950 text-white" style={{ paddingBottom: bottomPad }}>
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
@@ -1048,19 +1128,23 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     title="Diary"
                     onBack={onBack}
                     breadcrumbs={['Ship\'s Office', 'Diary']}
-                    subtitle={selectMode ? `${selectedIds.size} Selected` : `${entries.length} ${entries.length === 1 ? 'Entry' : 'Entries'}`}
-                    action={selectMode ? (
-                        <button onClick={exitSelectMode} className="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-white min-h-[44px]">
-                            Done
-                        </button>
-                    ) : entries.length > 0 ? (
+                    subtitle={
+                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                            {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
+                            {selectedIds.size > 0 && <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>}
+                        </p>
+                    }
+                    action={entries.length > 0 ? (
                         <div className="relative" ref={menuRef}>
                             <button
                                 onClick={() => setMenuOpen(!menuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                aria-label="Page actions"
                             >
-                                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="12" cy="5" r="1.5" />
+                                    <circle cx="12" cy="12" r="1.5" />
+                                    <circle cx="12" cy="19" r="1.5" />
                                 </svg>
                             </button>
                             {menuOpen && (
@@ -1068,23 +1152,48 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
-                                            onClick={() => { setSelectMode(true); setSelectedIds(new Set()); setMenuOpen(false); }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                            onClick={() => {
+                                                setMenuOpen(false);
+                                                const sel = entries.filter(e => selectedIds.has(e.id));
+                                                if (sel.length > 0) exportDiaryPdf(sel);
+                                            }}
+                                            disabled={selectedIds.size === 0}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                         >
-                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                             </svg>
-                                            Select for Export
+                                            Download Selected
                                         </button>
+                                        <div className="border-t border-white/5" />
                                         <button
-                                            onClick={() => { exportDiaryPdf(entries); setMenuOpen(false); }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
+                                            onClick={() => {
+                                                setMenuOpen(false);
+                                                const sel = entries.filter(e => selectedIds.has(e.id));
+                                                if (sel.length > 0) exportDiaryPdf(sel);
+                                            }}
+                                            disabled={selectedIds.size === 0}
+                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                         >
-                                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
+                                            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
                                             </svg>
-                                            Export All to PDF
+                                            Share Selected
                                         </button>
+                                        {selectedIds.size > 0 && (
+                                            <>
+                                                <div className="border-t border-white/5" />
+                                                <button
+                                                    onClick={() => { setSelectedIds(new Set()); setMenuOpen(false); }}
+                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                    Clear Selection
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -1134,47 +1243,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         <div className="flex-1 h-px bg-white/5" />
                                     </div>
 
-                                    <div className="space-y-3 ml-4 border-l border-white/5 pl-4">
-                                        {dayEntries.map(entry => {
-                                            if (selectMode) {
-                                                // In select mode, render as buttons with selection UI
-                                                const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
-                                                const entryHasCoords = entry.latitude != null && entry.longitude != null;
-                                                return (
-                                                    <button
-                                                        key={entry.id}
-                                                        onClick={() => toggleEntrySelection(entry.id)}
-                                                        className={`relative w-full text-left bg-white/[0.03] border rounded-2xl overflow-hidden hover:bg-white/[0.05] transition-all active:scale-[0.98] ${selectedIds.has(entry.id) ? 'border-sky-500/50 !bg-sky-500/5' : 'border-white/5 hover:border-white/10'}`}
-                                                    >
-                                                        <div className="absolute top-3 right-3 z-10">
-                                                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedIds.has(entry.id) ? 'bg-sky-500 border-sky-500' : 'border-white/20 bg-black/30'}`}>
-                                                                {selectedIds.has(entry.id) && (
-                                                                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                                                    </svg>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <div className="p-4">
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className="text-sm">{moodCfg.emoji}</span>
-                                                                <h4 className="text-sm font-bold text-white truncate">{entry.title}</h4>
-                                                            </div>
-                                                            <p className="text-xs text-gray-400 line-clamp-2">{entry.body || ''}</p>
-                                                        </div>
-                                                    </button>
-                                                );
-                                            }
-                                            // Normal mode: swipeable card
-                                            return (
-                                                <SwipeableDiaryCard
-                                                    key={entry.id}
-                                                    entry={entry}
-                                                    onTap={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
-                                                    onDelete={() => handleDelete(entry.id)}
-                                                />
-                                            );
-                                        })}
+                                    <div className="space-y-3">
+                                        {dayEntries.map(entry => (
+                                            <SwipeableDiaryCard
+                                                key={entry.id}
+                                                entry={entry}
+                                                onTap={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
+                                                onDelete={() => handleDelete(entry.id)}
+                                                onEdit={() => openEdit(entry)}
+                                                selected={selectedIds.has(entry.id)}
+                                                onToggleSelect={() => toggleEntrySelection(entry.id)}
+                                            />
+                                        ))}
                                     </div>
                                 </div>
                             ))}
@@ -1182,45 +1262,21 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ── Bottom bar: select mode export OR slide-to-action ── */}
+                {/* ── Bottom bar: slide-to-action ── */}
                 <div className="shrink-0 px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
-                    {selectMode ? (
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => {
-                                    const sel = entries.filter(e => selectedIds.has(e.id));
-                                    if (sel.length > 0) exportDiaryPdf(sel);
-                                }}
-                                disabled={selectedIds.size === 0}
-                                className="flex-1 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2"
-                            >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75" />
-                                </svg>
-                                Export {selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Selected'}
-                            </button>
-                            <button
-                                onClick={() => setSelectedIds(new Set(entries.map(e => e.id)))}
-                                className="py-3 px-4 rounded-xl bg-white/5 text-white font-bold text-xs transition-colors"
-                            >
-                                All
-                            </button>
-                        </div>
-                    ) : (
-                        <SlideToAction
-                            label="Slide to Write Entry"
-                            thumbIcon={
-                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                </svg>
-                            }
-                            onConfirm={() => {
-                                triggerHaptic('medium');
-                                openCompose();
-                            }}
-                            theme="sky"
-                        />
-                    )}
+                    <SlideToAction
+                        label="Slide to Write Entry"
+                        thumbIcon={
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                        }
+                        onConfirm={() => {
+                            triggerHaptic('medium');
+                            openCompose();
+                        }}
+                        theme="sky"
+                    />
                 </div>
             </div>
 

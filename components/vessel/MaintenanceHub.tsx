@@ -7,6 +7,9 @@
  *   3. Log Service Sheet: Bottom sheet for recording a maintenance event
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('MaintenanceHub');
 import {
     MaintenanceService,
     calculateStatus,
@@ -199,14 +202,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     toast.success('40 suggested tasks added — customise to suit your vessel');
                     return;
                 } catch (seedErr) {
-                    console.warn('[MaintenanceHub] seed failed:', seedErr);
+                    log.warn(' seed failed:', seedErr);
                     // Proceed with empty list — user can add manually
                 }
             }
 
             setTasks(data);
         } catch (e) {
-            console.error('Failed to load tasks:', e);
+            log.error('Failed to load tasks:', e);
             toast.error('Failed to load maintenance tasks');
         } finally {
             setLoading(false);
@@ -292,7 +295,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             toast.success('Service logged');
             flash();
         } catch (e) {
-            console.error('Failed to log service:', e);
+            log.error('Failed to log service:', e);
             toast.error('Failed to log service');
         } finally {
             setSheetSaving(false);
@@ -338,7 +341,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             resetForm();
             await loadTasks();
         } catch (e) {
-            console.error('Failed to create task:', e);
+            log.error('Failed to create task:', e);
             toast.error('Failed to create task');
         }
     }, [form, resetForm, loadTasks]);
@@ -350,7 +353,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setHistoryItems(h);
             setShowHistory(true);
         } catch (e) {
-            console.error('Failed to load history:', e);
+            log.error('Failed to load history:', e);
         }
     }, []);
 
@@ -367,7 +370,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             }
             setShowExportModal(false);
         } catch (e) {
-            console.error('Failed to export PDF:', e);
+            log.error('Failed to export PDF:', e);
             toast.error('PDF export failed');
         } finally {
             setExporting(false);
@@ -395,7 +398,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         try {
             await MaintenanceService.deleteTask(task.id);
         } catch (e) {
-            console.warn('[MaintenanceHub] delete failed:', e);
+            log.warn(' delete failed:', e);
             toast.error('Failed to delete task');
             setTasks(prev => [...prev, task]);
         }
@@ -452,7 +455,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             toast.success('Task updated');
             flash();
         } catch (e) {
-            console.error('Failed to update task:', e);
+            log.error('Failed to update task:', e);
             toast.error('Failed to update task');
         }
     }, [editTask, form, loadTasks]);

@@ -3,6 +3,9 @@
  * Extracted from SettingsModal monolith (163 lines → standalone component).
  */
 import React from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('AlertsTab');
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import {
     WindIcon, WaveIcon, EyeIcon, SunIcon, ThermometerIcon, RainIcon
@@ -16,7 +19,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     ) => {
         if (field === 'enabled' && value === true) {
             if ('Notification' in window && Notification.permission !== 'granted') {
-                try { await Notification.requestPermission(); } catch (e) { console.warn('[AlertsTab] user denied or API unavailable:', e); }
+                try { await Notification.requestPermission(); } catch (e) { log.warn(' user denied or API unavailable:', e); }
             }
         }
         onSave({

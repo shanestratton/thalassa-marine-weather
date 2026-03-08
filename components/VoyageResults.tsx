@@ -1,4 +1,7 @@
 import React from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('VoyageResults');
 import { toast } from './Toast';
 import { VoyagePlan, VoyageHazard, Waypoint, DeepAnalysisReport, VesselProfile } from '../types';
 import {
@@ -772,7 +775,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     toast.error('Failed to save route. Please ensure you are logged in.');
                                 }
                             } catch (err) {
-                                console.error('[SaveRoute]', err);
+                                log.error('[SaveRoute]', err);
                                 toast.error('Error saving route to logbook.');
                             }
                         }}

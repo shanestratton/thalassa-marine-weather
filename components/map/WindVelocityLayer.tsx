@@ -11,6 +11,9 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('WindVelocityLayer');
 import L from 'leaflet';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -71,7 +74,7 @@ export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
                     setError(null);
                 }
             } catch (err) {
-                console.error('[WindVelocityLayer] Fetch failed:', err);
+                log.error(' Fetch failed:', err);
                 if (!cancelled) setError(String(err));
             }
         };

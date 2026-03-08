@@ -4,6 +4,9 @@
  */
 
 import React, { useState } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('AddEntryModal');
 import { ShipLogService } from '../services/ShipLogService';
 import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
 import { useFocusTrap } from '../hooks/useAccessibility';
@@ -91,7 +94,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     });
                     toast.success('Repair task added to R&M');
                 } catch (err) {
-                    console.error('[AddEntry] Failed to create repair task:', err);
+                    log.error('[AddEntry] Failed to create repair task:', err);
                 }
             }
 

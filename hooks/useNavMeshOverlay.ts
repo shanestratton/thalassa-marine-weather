@@ -14,6 +14,9 @@
  */
 
 import { useEffect, useRef, MutableRefObject } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('useNavMeshOverlay');
 import L from 'leaflet';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -63,7 +66,7 @@ export function useNavMeshOverlay(
                 graphDataRef.current = data;                loadingRef.current = false;
             })
             .catch(err => {
-                console.error('[NavMesh] Failed to load:', err);
+                log.error('[NavMesh] Failed to load:', err);
                 loadingRef.current = false;
             });
     }, [visible, supabaseUrl, region]);

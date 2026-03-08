@@ -7,6 +7,9 @@
  *   3. Escrow PIN system (Secure Funds / Enter PIN)
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('MarketplaceThread');
 import { type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
@@ -125,7 +128,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                 });
             setInput('');
         } catch (e) {
-            console.error('Failed to send:', e);
+            log.error('Failed to send:', e);
             toast.error('Failed to send message');
         } finally {
             setSending(false);
@@ -167,7 +170,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                 pin_code: pin,
             });
         } catch (e) {
-            console.error('Failed to secure funds:', e);
+            log.error('Failed to secure funds:', e);
             toast.error('Failed to secure funds — try again');
         } finally {
             setSecuringFunds(false);

@@ -380,11 +380,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 overflow-hidden relative touch-none overscroll-none" style={{ touchAction: 'none' }}>
-            <style>{`
-                .vessel-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; box-shadow: 0 0 10px #38bdf8; position: relative; z-index: 10; }
-                .vessel-pulse { position: absolute; width: 30px; height: 30px; left: -11px; top: -11px; border: 1px solid rgba(56, 189, 248, 0.5); border-radius: 50%; animation: pulse-out 2s infinite; }
-                @keyframes pulse-out { 0% { transform: scale(0.5); opacity: 0.8; } 100% { transform: scale(1.5); opacity: 0; } }
-            `}</style>
+            {/* Vessel pin animation styles moved to index.css */}
 
             <div className="absolute top-0 left-0 right-0 z-[800] px-4 pb-4 pt-[calc(3.5rem+env(safe-area-inset-top))] bg-gradient-to-b from-slate-900/90 to-transparent pointer-events-none">
                 <div className="flex flex-col items-start gap-4 max-w-7xl mx-auto w-full">
