@@ -5,7 +5,8 @@
  * This file is ONLY responsible for JSX layout.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('LogPage');
@@ -115,6 +116,35 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [showArchived, setShowArchived] = useState(false);
     const [isImportingGPX, setIsImportingGPX] = useState(false);
     const gpxFileInputRef = useRef<HTMLInputElement>(null);
+
+    // GPS Disclaimer modal state
+    const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
+    const pendingStartRef = useRef<(() => void) | null>(null);
+
+    const checkGpsDisclaimer = useCallback(async (onProceed: () => void) => {
+        try {
+            const { value } = await Preferences.get({ key: 'gps_disclaimer_dismissed' });
+            if (value === 'true') {
+                onProceed();
+            } else {
+                pendingStartRef.current = onProceed;
+                setShowGpsDisclaimer(true);
+            }
+        } catch {
+            onProceed(); // fail-open
+        }
+    }, []);
+
+    const dismissGpsDisclaimer = useCallback(async (dontShowAgain: boolean) => {
+        if (dontShowAgain) {
+            await Preferences.set({ key: 'gps_disclaimer_dismissed', value: 'true' });
+        }
+        setShowGpsDisclaimer(false);
+        if (pendingStartRef.current) {
+            pendingStartRef.current();
+            pendingStartRef.current = null;
+        }
+    }, []);
 
     // Share form auto-fill state
     const [shareAutoTitle, setShareAutoTitle] = useState('');
@@ -561,7 +591,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 <SlideToAction
                                     label="Slide to Start Tracking"
                                     thumbIcon={<PlayIcon className="w-5 h-5 text-white" />}
-                                    onConfirm={handleStartTracking}
+                                    onConfirm={() => checkGpsDisclaimer(handleStartTracking)}
                                     theme="emerald"
                                 />
                             </div>
@@ -572,6 +602,43 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
             {/* Toast Notifications */}
             <toast.ToastContainer />
+
+            {/* GPS Accuracy Disclaimer Modal */}
+            {showGpsDisclaimer && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 backdrop-blur-sm px-6">
+                    <div className="bg-slate-900 border border-amber-500/20 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-[slideUp_0.2s_ease-out]">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                                <span className="text-xl">⚠️</span>
+                            </div>
+                            <h3 className="text-lg font-bold text-white">GPS Accuracy Notice</h3>
+                        </div>
+                        <p className="text-sm text-slate-300 leading-relaxed mb-4">
+                            Phone GPS accuracy degrades significantly on water without WiFi or cell-tower assist — especially in overcast or rainy conditions.
+                        </p>
+                        <p className="text-sm text-slate-300 leading-relaxed mb-5">
+                            For best track accuracy offshore, connect to your vessel's <span className="text-amber-400 font-semibold">NMEA GPS</span> via a WiFi gateway (e.g. YDWG-02, Vesper, or Bad Elf).
+                        </p>
+                        <label className="flex items-center gap-2.5 mb-5 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                id="gps-disclaimer-dismiss"
+                                className="w-4 h-4 rounded border-white/20 bg-slate-800 accent-amber-500"
+                            />
+                            <span className="text-xs text-slate-400">Don't show this again</span>
+                        </label>
+                        <button
+                            onClick={() => {
+                                const checkbox = document.getElementById('gps-disclaimer-dismiss') as HTMLInputElement;
+                                dismissGpsDisclaimer(checkbox?.checked ?? false);
+                            }}
+                            className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-sm uppercase tracking-wider active:scale-[0.97] transition-all"
+                        >
+                            Got it — Start Tracking
+                        </button>
+                    </div>
+                </div>
+            )}
 
 
             {/* Manual Entry Modal */}
