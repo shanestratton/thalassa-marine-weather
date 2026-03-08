@@ -484,7 +484,7 @@ class ShipLogServiceClass {
                 // 2. Re-evaluate logging zone (nearshore/coastal/offshore)
                 await this.rescheduleAdaptiveInterval();
             } catch (e) {
-            console.warn('[ShipLog]', e);
+                console.warn('[ShipLog]', e);
                 // Best effort — don't crash tracking
             }
         }, 60_000); // Every 60 seconds
@@ -505,9 +505,14 @@ class ShipLogServiceClass {
             // Feed accuracy into precision tracker (detects Bad Elf Pro+ etc.)
             GpsPrecision.feed(pos.accuracy);
 
-            // Buffer every fix for high-fidelity track thinning
+            // Buffer fix for high-fidelity track thinning
+            // ACCURACY GATE: Drop fixes with >100m horizontal accuracy — these
+            // create zig-zag artifacts, especially on water in bad weather where
+            // phone GPS degrades without WiFi/cell-tower assist.
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
-                this.trackBuffer.push(pos);
+                if (pos.accuracy <= 100) {
+                    this.trackBuffer.push(pos);
+                }
             }
 
             // Feed altitude to EnvironmentService for on-water/on-land detection
@@ -536,7 +541,7 @@ class ShipLogServiceClass {
             // Feed accuracy into precision tracker
             GpsPrecision.feed(nmeaPos.accuracy);
 
-            // Buffer for track thinning
+            // Buffer for track thinning (NMEA is always high accuracy)
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
                 this.trackBuffer.push(this.lastBgLocation);
             }
@@ -904,7 +909,7 @@ class ShipLogServiceClass {
                 entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
                 this.lastWaterStatus = entry.isOnWater; // Seed cache for subsequent entries
             } catch (e) {
-            console.warn('[ShipLog]', e);
+                console.warn('[ShipLog]', e);
                 entry.isOnWater = true; // Fail open
             }
         } else {
