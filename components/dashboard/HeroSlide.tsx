@@ -53,6 +53,8 @@ const EssentialMapSlide: React.FC<{
     const [radarFrames, setRadarFrames] = useState<{ path: string; time: number }[]>([]);
     const [activeFrame, setActiveFrame] = useState(0);
     const [nowIdx, setNowIdx] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const scrubberRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -79,15 +81,23 @@ const EssentialMapSlide: React.FC<{
         return () => { cancelled = true; };
     }, []);
 
-    // Auto-play loop: cycle through all frames every 800ms
+    // Auto-play loop: only runs when user presses play — saves battery
     useEffect(() => {
-        if (radarFrames.length < 2) return;
+        if (!isPlaying || radarFrames.length < 2) return;
         const timer = setInterval(() => {
             if (document.hidden) return;
-            setActiveFrame(prev => (prev + 1) % radarFrames.length);
+            setActiveFrame(prev => {
+                const next = (prev + 1) % radarFrames.length;
+                // Pause when looping back to start
+                if (next === 0) {
+                    setIsPlaying(false);
+                    return nowIdx; // snap back to 'now'
+                }
+                return next;
+            });
         }, 800);
         return () => clearInterval(timer);
-    }, [radarFrames.length]);
+    }, [isPlaying, radarFrames.length, nowIdx]);
 
     // Compute tile grid for rain overlay
     const tileGrid = useMemo(() => {
@@ -142,6 +152,16 @@ const EssentialMapSlide: React.FC<{
 
     const isLive = activeFrame === nowIdx;
     const progress = radarFrames.length > 1 ? activeFrame / (radarFrames.length - 1) : 0;
+
+    // Scrubber drag handler
+    const handleScrub = useCallback((clientX: number) => {
+        if (!scrubberRef.current || radarFrames.length < 2) return;
+        const rect = scrubberRef.current.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const idx = Math.round(pct * (radarFrames.length - 1));
+        setActiveFrame(idx);
+        setIsPlaying(false); // pause on manual scrub
+    }, [radarFrames.length]);
 
     return (
         <div className="relative w-full h-full flex flex-col">
@@ -203,36 +223,78 @@ const EssentialMapSlide: React.FC<{
                     </div>
                 </div>
 
-                {/* Layer 5: Radar timeline bar */}
+                {/* Layer 5: Radar scrubber bar + play control */}
                 {radarFrames.length > 1 && (
-                    <div className="absolute bottom-0 left-0 right-0 pointer-events-none px-3 pb-2.5">
-                        <div className="relative h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
-                            {/* Progress trail */}
-                            <div
-                                className="absolute inset-y-0 left-0 rounded-full"
-                                style={{
-                                    width: `${progress * 100}%`,
-                                    background: 'linear-gradient(90deg, rgba(56,189,248,0.1) 0%, rgba(56,189,248,0.4) 100%)',
-                                    transition: progress < 0.05 ? 'none' : 'width 400ms ease',
+                    <div className="absolute bottom-0 left-0 right-0 px-2.5 pb-2" style={{ pointerEvents: 'auto' }}>
+                        <div className="flex items-center gap-2">
+                            {/* Play/Pause button */}
+                            <button
+                                onClick={() => {
+                                    if (!isPlaying) {
+                                        // Start from beginning if at end or at 'now'
+                                        if (activeFrame >= radarFrames.length - 1) setActiveFrame(0);
+                                        setIsPlaying(true);
+                                    } else {
+                                        setIsPlaying(false);
+                                    }
                                 }}
-                            />
-                            {/* Playhead dot */}
+                                className="w-7 h-7 shrink-0 rounded-full bg-white/10 backdrop-blur-md border border-white/[0.12] flex items-center justify-center active:scale-90 transition-all"
+                            >
+                                {isPlaying ? (
+                                    <svg className="w-3 h-3 text-white/80" fill="currentColor" viewBox="0 0 24 24">
+                                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                                    </svg>
+                                ) : (
+                                    <svg className="w-3 h-3 text-white/80 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                )}
+                            </button>
+
+                            {/* Scrubber track */}
                             <div
-                                className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-sky-400"
-                                style={{
-                                    left: `${progress * 100}%`,
-                                    transform: `translateX(-50%) translateY(-50%)`,
-                                    boxShadow: '0 0 6px rgba(56,189,248,0.6)',
-                                    transition: progress < 0.05 ? 'none' : 'left 400ms ease',
-                                }}
-                            />
-                            {/* "Now" marker */}
-                            {nowIdx > 0 && radarFrames.length > 1 && (
-                                <div
-                                    className="absolute top-0 bottom-0 w-px bg-white/20"
-                                    style={{ left: `${(nowIdx / (radarFrames.length - 1)) * 100}%` }}
-                                />
-                            )}
+                                ref={scrubberRef}
+                                className="flex-1 relative h-7 flex items-center cursor-pointer"
+                                onClick={(e) => handleScrub(e.clientX)}
+                                onTouchMove={(e) => { e.preventDefault(); handleScrub(e.touches[0].clientX); }}
+                                onTouchStart={(e) => handleScrub(e.touches[0].clientX)}
+                            >
+                                {/* Track background */}
+                                <div className="w-full h-[3px] rounded-full bg-white/[0.08] relative overflow-visible">
+                                    {/* Progress fill */}
+                                    <div
+                                        className="absolute inset-y-0 left-0 rounded-full"
+                                        style={{
+                                            width: `${progress * 100}%`,
+                                            background: 'linear-gradient(90deg, rgba(56,189,248,0.15) 0%, rgba(56,189,248,0.5) 100%)',
+                                            transition: isPlaying ? 'width 400ms ease' : 'width 100ms ease',
+                                        }}
+                                    />
+                                    {/* 'Now' marker tick */}
+                                    {nowIdx > 0 && (
+                                        <div
+                                            className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/25"
+                                            style={{ left: `${(nowIdx / (radarFrames.length - 1)) * 100}%` }}
+                                        />
+                                    )}
+                                    {/* Thumb */}
+                                    <div
+                                        className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-sky-400 border-2 border-white/30"
+                                        style={{
+                                            left: `${progress * 100}%`,
+                                            transform: 'translateX(-50%) translateY(-50%)',
+                                            boxShadow: '0 0 8px rgba(56,189,248,0.5)',
+                                            transition: isPlaying ? 'left 400ms ease' : 'left 100ms ease',
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Time label */}
+                            <div className="shrink-0 min-w-[36px] text-right">
+                                <span className="text-[9px] text-white/40 font-mono font-semibold tabular-nums">{timeLabel}</span>
+                            </div>
                         </div>
                     </div>
                 )}
