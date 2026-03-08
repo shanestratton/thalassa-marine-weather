@@ -62,9 +62,11 @@ const EssentialMapSlide: React.FC<{
                 if (cancelled) return;
                 const nowSec = Date.now() / 1000;
                 const maxAge = 3 * 60 * 60; // 3 hours max
-                const past = (data?.radar?.past ?? [])
-                    .map((f: any) => ({ path: f.path, time: f.time }))
-                    .filter((f: { time: number }) => nowSec - f.time < maxAge);
+                const allPast = (data?.radar?.past ?? [])
+                    .map((f: any) => ({ path: f.path, time: f.time }));
+                // Prefer recent frames, but fall back to ALL if none pass the freshness filter
+                const fresh = allPast.filter((f: { time: number }) => nowSec - f.time < maxAge);
+                const past = fresh.length > 0 ? fresh : allPast;
                 const forecast = (data?.radar?.nowcast ?? [])
                     .map((f: any) => ({ path: f.path, time: f.time }));
                 const all = [...past, ...forecast];
