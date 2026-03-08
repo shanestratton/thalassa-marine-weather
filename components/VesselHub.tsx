@@ -69,11 +69,11 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     // Zone 2 cards — now 8 cards in compact 4x2 grid
     const officeCards: OfficeCard[] = [
         {
-            id: 'passage',
-            label: 'Passages',
-            sublabel: 'Route Planning',
-            icon: <CompassIcon />,
-            page: 'route',
+            id: 'checklists',
+            label: 'Checklists',
+            sublabel: 'Pre-Departure',
+            icon: <ChecklistIcon />,
+            page: 'checklists',
             accentColor: 'text-emerald-400',
             accentBg: 'from-emerald-500/20 to-sky-500/20 border-emerald-500/20',
         },
@@ -154,22 +154,22 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 stagger-cascade">
+                <div className="grid grid-cols-3 gap-3 stagger-cascade">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('compass');
                         }}
-                        className={`stagger-item bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
+                        className={`stagger-item bg-gradient-to-br ${anchorAccent.bg} border rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]`}
                     >
-                        <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
                             <svg className={`w-4 h-4 ${anchorAccent.color}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L12 5M12 5C9.79 5 8 6.79 8 9V12L12 16L16 12V9C16 6.79 14.21 5 12 5ZM8 19H16M10 19V21M14 19V21M5 12H3M21 12H19" />
                             </svg>
                         </div>
-                        <h4 className="text-xs font-black text-white tracking-wide">Anchor Watch</h4>
-                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${anchorAccent.color}`}>{anchorSublabel}</p>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Anchor Watch</h4>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color} truncate`}>{anchorSublabel}</p>
                     </button>
 
                     {/* Log Book Card */}
@@ -178,15 +178,31 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             triggerHaptic('light');
                             onNavigate('details');
                         }}
-                        className="stagger-item bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                        className="stagger-item bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
                     >
-                        <div className="p-2 rounded-lg bg-white/5 inline-block mb-2 group-hover:bg-white/10 transition-colors">
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
                             <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
                             </svg>
                         </div>
-                        <h4 className="text-xs font-black text-white tracking-wide">Log Book</h4>
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-1">Voyage Entries</p>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">Voyage Entries</p>
+                    </button>
+
+                    {/* Passage Planning Card */}
+                    <button
+                        onClick={() => {
+                            if (isObserver) return;
+                            triggerHaptic('light');
+                            onNavigate('route');
+                        }}
+                        className={`stagger-item bg-gradient-to-br ${isObserver ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : 'from-emerald-500/15 to-emerald-500/15 border-emerald-500/20'} border rounded-xl p-3 text-left group ${isObserver ? '' : 'hover:scale-[1.02]'} transition-all active:scale-[0.98]`}
+                    >
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                            <CompassIcon />
+                        </div>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-500' : 'text-emerald-400'}`}>{isObserver ? 'Vessel Req' : 'Route Plan'}</p>
                     </button>
                 </div>
             </div>
@@ -354,5 +370,11 @@ const CompassIcon: React.FC = () => (
 const PenIcon: React.FC = () => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+    </svg>
+);
+
+const ChecklistIcon: React.FC = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
 );
