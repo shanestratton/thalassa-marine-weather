@@ -67,6 +67,7 @@ const ChatPage = lazyRetry(() => import('./components/ChatPage').then(module => 
 const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
 const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
 const CrewPage = lazyRetry(() => import('./components/CrewManagement').then(m => ({ default: m.CrewManagement })));
+const ChecklistsPage = lazyRetry(() => import('./components/vessel/ChecklistsPage').then(m => ({ default: m.ChecklistsPage })));
 const IOSInstallPrompt = React.lazy(() => import('./components/IOSInstallPrompt').then(m => ({ default: m.IOSInstallPrompt })));
 const OnboardingOverlay = React.lazy(() => import('./components/ui/OnboardingOverlay').then(m => ({ default: m.OnboardingOverlay })));
 
@@ -75,7 +76,7 @@ const App: React.FC = () => {
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
-    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew';
+    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew' || currentView === 'checklists';
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -282,7 +283,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && currentView !== 'crew' && (
+                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && currentView !== 'crew' && currentView !== 'checklists' && (
                             <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
                                 <div className="relative flex-grow md:w-96 group h-full">
                                     <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
@@ -321,7 +322,7 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew' || currentView === 'checklists'}>
                         <main className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -398,6 +399,7 @@ const App: React.FC = () => {
                                                         {currentView === 'diary' && <ErrorBoundary boundaryName="Diary"><DiaryPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
                                                         {currentView === 'route' && <ErrorBoundary boundaryName="RoutePlanner"><VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} /></ErrorBoundary>}
                                                         {currentView === 'crew' && <ErrorBoundary boundaryName="Crew"><CrewPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'checklists' && <ErrorBoundary boundaryName="Checklists"><ChecklistsPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
                                                     </>
                                                 )}
                                             </div>
