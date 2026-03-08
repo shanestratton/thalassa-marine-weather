@@ -63,6 +63,9 @@ class DiaryServiceClass {
     private _syncInProgress = false;
     private _lastRefreshTime = 0;
     private _refreshPromise: Promise<void> | null = null;
+    // Buffer of recently-synced entries — prevents race condition where entry
+    // vanishes between pending removal and server cache arrival
+    private _recentlySynced: { entry: DiaryEntry; syncedAt: number }[] = [];
 
     constructor() {
         // Auto-sync when connectivity resumes
@@ -397,6 +400,9 @@ class DiaryServiceClass {
                         // Remove this entry from pending immediately (crash-safe)
                         const remaining = this._getPendingEntries().filter(e => e.id !== entry.id);
                         this._savePending(remaining);
+                        // Keep the server-returned entry in a short-lived buffer so it
+                        // survives the gap between pending removal and server cache refresh
+                        this._recentlySynced.push({ entry: data as DiaryEntry, syncedAt: Date.now() });
                         syncedCount++;
                         console.log(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {
@@ -416,10 +422,11 @@ class DiaryServiceClass {
             }
 
             if (syncedCount > 0) {
-                // Refresh cache atomically — _refreshFromServer calls _saveCachedEntries
-                // which overwrites the cache in one shot. Do NOT call _invalidateCache()
-                // first — that creates a window where getEntries() reads an empty cache.
-                await this._refreshFromServer(50);
+                // DON'T call _refreshFromServer here — it creates a race condition:
+                // the server may not have replicated the newly inserted row yet, so
+                // the refresh would overwrite the cache with stale data (missing the
+                // just-synced entry). The _recentlySynced buffer + natural 8s polling
+                // in DiaryPage handles this safely.
                 console.log(`[Diary] Sync complete — ${syncedCount} entries synced`);
             }
         } finally {
@@ -513,18 +520,27 @@ class DiaryServiceClass {
                 // But we must ALSO preserve any still-pending entries so they don't
                 // vanish from the UI while waiting for sync.
                 const pending = this._getPendingEntries();
-                if (pending.length > 0) {
-                    // Merge: server data + pending entries (pending wins on collision)
-                    const serverIds = new Set((data as DiaryEntry[]).map(e => e.id));
-                    const pendingNotOnServer = pending.filter(e => !serverIds.has(e.id));
-                    const merged = [
-                        ...pendingNotOnServer,
-                        ...(data as DiaryEntry[]),
-                    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                    this._saveCachedEntries(merged);
-                } else {
-                    this._saveCachedEntries(data as DiaryEntry[]);
-                }
+
+                // Purge stale entries from recently-synced buffer (>30s)
+                const now = Date.now();
+                this._recentlySynced = this._recentlySynced.filter(r => now - r.syncedAt < 30_000);
+
+                // Collect all IDs already in server data
+                const serverIds = new Set((data as DiaryEntry[]).map(e => e.id));
+
+                // Merge: server data + pending entries + recently-synced buffer
+                // (pending and recently-synced win on collision with server data)
+                const pendingNotOnServer = pending.filter(e => !serverIds.has(e.id));
+                const recentNotOnServer = this._recentlySynced
+                    .map(r => r.entry)
+                    .filter(e => !serverIds.has(e.id));
+
+                const merged = [
+                    ...pendingNotOnServer,
+                    ...recentNotOnServer,
+                    ...(data as DiaryEntry[]),
+                ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                this._saveCachedEntries(merged);
             }
         } catch (e) { console.error('[Diary] Server refresh failed:', e); }
     }
