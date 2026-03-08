@@ -316,7 +316,7 @@ const EssentialMapSlide: React.FC<{
 
                 {/* Layer 7: Wind badge — bottom-left */}
                 {displaySpeed != null && (
-                    <div className="absolute bottom-6 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                    <div className="absolute bottom-10 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
                         {windDirection != null && (
                             <div className="w-3.5 h-3.5 flex items-center justify-center" style={{ transform: `rotate(${windDirection + 180}deg)` }}>
                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
