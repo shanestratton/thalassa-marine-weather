@@ -25,8 +25,8 @@ import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { ShipLogService } from '../../services/ShipLogService';
 import { isGoldenHour } from '../../utils/goldenHour';
 
-// --- ESSENTIAL MAP SLIDE ---
-// Extracted from inline IIFE to avoid calling hooks inside .map() loop (Rules of Hooks violation).
+// --- ESSENTIAL RADAR MAP CARD ---
+// Static Mapbox basemap with looping RainViewer radar. Zero GPU — pure CSS transitions.
 const EssentialMapSlide: React.FC<{
     slideIdx: number;
     isGolden: boolean;
@@ -38,7 +38,6 @@ const EssentialMapSlide: React.FC<{
     condition?: string | null;
     units?: UnitPreferences;
 }> = ({ slideIdx, isGolden, isCardDay, coordinates, windSpeed, windDirection, windGust, condition, units }) => {
-    // BATTERY FIX: Use a static Mapbox image instead of a live WebGL map.
     const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
     const lon = coordinates?.lon ?? 151.2;
     const lat = coordinates?.lat ?? -33.87;
@@ -49,186 +48,88 @@ const EssentialMapSlide: React.FC<{
         ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400@2x?access_token=${token}&attribution=false&logo=false`
         : '';
 
-    // Fetch latest RainViewer radar timestamp — fire ASAP on mount
-    const [radarPath, setRadarPath] = useState<string | null>(null);
+
+    // --- Rain radar frames (last ~2hrs + nowcast) ---
+    const [radarFrames, setRadarFrames] = useState<{ path: string; time: number }[]>([]);
+    const [activeFrame, setActiveFrame] = useState(0);
+    const [nowIdx, setNowIdx] = useState(0);
+
     useEffect(() => {
         let cancelled = false;
         fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' })
             .then(r => r.json())
             .then(data => {
                 if (cancelled) return;
-                const latest = data?.radar?.past?.slice(-1)?.[0];
-                if (latest?.path) setRadarPath(latest.path);
+                const nowSec = Date.now() / 1000;
+                const maxAge = 3 * 60 * 60; // 3 hours max
+                const past = (data?.radar?.past ?? [])
+                    .map((f: any) => ({ path: f.path, time: f.time }))
+                    .filter((f: { time: number }) => nowSec - f.time < maxAge);
+                const forecast = (data?.radar?.nowcast ?? [])
+                    .map((f: any) => ({ path: f.path, time: f.time }));
+                const all = [...past, ...forecast];
+                setRadarFrames(all);
+                const ni = Math.max(0, past.length - 1);
+                setNowIdx(ni);
+                setActiveFrame(ni);
             })
-            .catch(() => { /* silent — rain overlay is optional */ });
+            .catch(() => { });
         return () => { cancelled = true; };
     }, []);
 
-    // Compute tile grid — pixel-aligned to match Mapbox static image
+    // Auto-play loop: cycle through all frames every 800ms
+    useEffect(() => {
+        if (radarFrames.length < 2) return;
+        const timer = setInterval(() => {
+            if (document.hidden) return;
+            setActiveFrame(prev => (prev + 1) % radarFrames.length);
+        }, 800);
+        return () => clearInterval(timer);
+    }, [radarFrames.length]);
+
+    // Compute tile grid for rain overlay
     const tileGrid = useMemo(() => {
         const n = Math.pow(2, zoom);
         const cx = ((lon + 180) / 360) * n;
         const latRad = (lat * Math.PI) / 180;
         const cy = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
-
         const centerTileX = Math.floor(cx);
         const centerTileY = Math.floor(cy);
         const pxOffsetX = (cx - centerTileX) * tileSize;
         const pxOffsetY = (cy - centerTileY) * tileSize;
-
-        const containerW = 600;
-        const containerH = 400;
-
+        const containerW = 600, containerH = 400;
         const tiles: { left: number; top: number; tx: number; ty: number; key: string }[] = [];
-        for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
                 const tx = centerTileX + dx;
                 const ty = centerTileY + dy;
                 if (ty < 0 || ty >= n) continue;
                 tiles.push({
                     left: containerW / 2 - pxOffsetX + dx * tileSize,
                     top: containerH / 2 - pxOffsetY + dy * tileSize,
-                    tx, ty,
-                    key: `${tx}-${ty}`,
+                    tx, ty, key: `${tx}-${ty}`,
                 });
             }
         }
         return tiles;
     }, [lat, lon]);
 
-    // --- Lightweight wind particles (Canvas 2D, ~12 FPS) ---
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const animRef = useRef<number>(0);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const speed = windSpeed ?? 0;
-        if (speed < 1) return;
-
-        // Wind direction = where it blows FROM. Add 180° so particles travel downwind.
-        const dirRad = (((windDirection ?? 180) + 180) * Math.PI) / 180;
-        const vxBase = Math.sin(dirRad) * speed * 0.15;
-        const vyBase = -Math.cos(dirRad) * speed * 0.15;
-        // Trail direction (unit vector for drawing streak lines)
-        const trailLen = 8 + speed * 0.35; // streak length in px — slightly shorter tails
-
-        // Deferred sizing — wait for layout
-        let w = 0, h = 0;
-        const sizeCanvas = () => {
-            const parent = canvas.parentElement;
-            if (!parent) return;
-            w = parent.clientWidth;
-            h = parent.clientHeight;
-            if (w > 0 && h > 0) {
-                canvas.width = w;
-                canvas.height = h;
-            }
-        };
-
-        // Particle type: position, speed multiplier, age (0-1), maxAge
-        type P = { x: number; y: number; s: number; age: number; maxAge: number };
-        const count = Math.min(Math.floor(200 + speed * 8), 400);
-        const particles: P[] = [];
-
-        const spawn = (): P => ({
-            x: Math.random() * (w || 400),
-            y: Math.random() * (h || 300),
-            s: 0.5 + Math.random() * 1.0,
-            age: Math.random(),
-            maxAge: 0.3 + Math.random() * 0.5,
-        });
-
-        const respawnAtEdge = (p: P) => {
-            // Respawn randomly across the full canvas for even coverage
-            p.x = Math.random() * w;
-            p.y = Math.random() * h;
-            p.age = 0;
-            p.maxAge = 0.3 + Math.random() * 0.5;
-            p.s = 0.5 + Math.random() * 1.0;
-        };
-
-        // Init after a short delay to let layout settle
-        let running = true;
-        const initTimeout = setTimeout(() => {
-            sizeCanvas();
-            for (let i = 0; i < count; i++) particles.push(spawn());
-            tick();
-        }, 120);
-
-        // Trail vector (normalized wind direction)
-        const tdx = Math.sin(dirRad);
-        const tdy = -Math.cos(dirRad);
-
-        function tick() {
-            if (!running || w === 0 || !ctx) return;
-            ctx.clearRect(0, 0, w, h);
-
-            for (const p of particles) {
-                // Advance position
-                p.x += vxBase * p.s;
-                p.y += vyBase * p.s;
-                p.age += 0.012;
-
-                // Lifecycle opacity: fade in → hold → fade out
-                const lifeRatio = p.age / p.maxAge;
-                let alpha: number;
-                if (lifeRatio < 0.1) alpha = lifeRatio / 0.1;
-                else if (lifeRatio > 0.75) alpha = (1 - lifeRatio) / 0.25;
-                else alpha = 1;
-                alpha = Math.max(0, Math.min(1, alpha)) * (0.3 + p.s * 0.25);
-
-                // Respawn if expired or off-screen
-                if (lifeRatio >= 1 || p.x < -30 || p.x > w + 30 || p.y < -30 || p.y > h + 30) {
-                    respawnAtEdge(p);
-                    continue;
-                }
-
-                // --- Color by speed: slow = cool blue, fast = warm white ---
-                const t = Math.min(1, (p.s - 0.5) / 1.0); // 0 = slowest, 1 = fastest
-                const r = Math.round(120 + t * 135); // 120 → 255
-                const g = Math.round(180 + t * 60);  // 180 → 240
-                const b = Math.round(255 - t * 55);  // 255 → 200
-
-                // --- Draw "wind sperm": bright head dot + fading gradient tail ---
-                const tailX = p.x - tdx * trailLen * p.s;
-                const tailY = p.y - tdy * trailLen * p.s;
-
-                // Gradient trail: head = bright, tail = transparent
-                const grad = ctx.createLinearGradient(p.x, p.y, tailX, tailY);
-                grad.addColorStop(0, `rgba(${r},${g},${b},${(alpha * 0.9).toFixed(2)})`);
-                grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-                ctx.beginPath();
-                ctx.moveTo(p.x, p.y);
-                ctx.lineTo(tailX, tailY);
-                ctx.strokeStyle = grad;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                // Head dot
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${Math.min(255, r + 20)},${Math.min(255, g + 10)},${b},${(alpha * 1.1).toFixed(2)})`;
-                ctx.fill();
-            }
-
-            animRef.current = window.setTimeout(tick, 83) as unknown as number;
+    // Time label for current frame — human-readable
+    const timeLabel = useMemo(() => {
+        if (!radarFrames.length) return '';
+        const now = Date.now() / 1000;
+        const diffMin = Math.round((radarFrames[activeFrame]?.time - now) / 60);
+        if (Math.abs(diffMin) < 3) return 'NOW';
+        if (diffMin < 0) {
+            const absMins = Math.abs(diffMin);
+            if (absMins < 60) return `-${absMins}m`;
+            return `-${(absMins / 60).toFixed(1).replace(/\.0$/, '')}h`;
         }
+        if (diffMin < 60) return `+${diffMin}m`;
+        return `+${(diffMin / 60).toFixed(1).replace(/\.0$/, '')}h`;
+    }, [radarFrames, activeFrame]);
 
-        return () => {
-            running = false;
-            clearTimeout(initTimeout);
-            clearTimeout(animRef.current);
-        };
-    }, [windSpeed, windDirection]);
-
-
-
-
-    // --- Wind for compass display ---
+    // Wind display
     const displaySpeed = useMemo(() => {
         if (windSpeed == null) return null;
         const s = units?.speed ?? 'knots';
@@ -237,77 +138,158 @@ const EssentialMapSlide: React.FC<{
     const speedUnit = units?.speed === 'mph' ? 'mph' : units?.speed === 'kmh' ? 'km/h' : 'kts';
     const windLabel = windDirection != null ? degreesToCardinal(windDirection) : '';
 
+    const isLive = activeFrame === nowIdx;
+    const progress = radarFrames.length > 1 ? activeFrame / (radarFrames.length - 1) : 0;
+
     return (
         <div className="relative w-full h-full flex flex-col">
             <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
-                {staticUrl ? (
-                    <>
-                        {/* Layer 1: Dark basemap */}
-                        <img
-                            src={staticUrl}
-                            alt="Location map"
-                            className="absolute inset-0 w-full h-full object-cover"
-                            loading="eager"
-                            draggable={false}
-                        />
-                        {/* Layer 2: Rain radar overlay */}
-                        {radarPath && tileGrid.length > 0 && (
-                            <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ opacity: 0.6 }}>
-                                {tileGrid.map(t => (
+
+                {/* Layer 1: Dark basemap */}
+                {staticUrl && (
+                    <img
+                        src={staticUrl}
+                        alt="Location map"
+                        className="absolute inset-0 w-full h-full"
+                        loading="eager"
+                        draggable={false}
+                    />
+                )}
+
+                {/* Layer 2: Looping rain radar */}
+                {radarFrames.length > 0 && tileGrid.length > 0 && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                        {radarFrames.map((frame, idx) => (
+                            <div
+                                key={frame.path}
+                                className="absolute inset-0"
+                                style={{
+                                    opacity: idx === activeFrame ? 0.65 : 0,
+                                    transition: 'opacity 400ms ease',
+                                }}
+                            >
+                                {/* Only render tiles for frames near the active one (±2) to save memory */}
+                                {(Math.abs(idx - activeFrame) <= 2 || idx === activeFrame) && tileGrid.map(t => (
                                     <img
-                                        key={`rain-${t.key}`}
-                                        src={`https://tilecache.rainviewer.com${radarPath}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`}
+                                        key={`${frame.path}-${t.key}`}
+                                        src={`https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`}
                                         alt=""
                                         className="absolute"
                                         style={{ left: t.left, top: t.top, width: tileSize, height: tileSize }}
-                                        loading="eager"
+                                        loading="lazy"
                                         draggable={false}
                                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                     />
                                 ))}
                             </div>
-                        )}
-                        {/* Layer 3: Wind particles — lightweight Canvas 2D @ 12 FPS */}
-                        <canvas
-                            ref={canvasRef}
-                            className="absolute inset-0 w-full h-full pointer-events-none"
-                        />
-                        {/* Layer 4: Vignette — dark edges for premium radar look */}
-                        <div
-                            className="absolute inset-0 pointer-events-none"
-                            style={{ background: 'radial-gradient(ellipse at 50% 50%, transparent 35%, rgba(0,0,0,0.55) 100%)' }}
-                        />
+                        ))}
+                    </div>
+                )}
 
+                {/* Layer 2.5: Coastline (CartoDB light tiles — inverted + screen blend) */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ mixBlendMode: 'screen', opacity: 0.5 }}>
+                    {tileGrid.map(t => (
+                        <img
+                            key={`coast-${t.key}`}
+                            src={`https://basemaps.cartocdn.com/light_nolabels/${zoom}/${t.tx}/${t.ty}@2x.png`}
+                            alt=""
+                            className="absolute"
+                            style={{
+                                left: t.left, top: t.top, width: tileSize, height: tileSize,
+                                filter: 'invert(1) brightness(1.5)',
+                            }}
+                            loading="eager"
+                            draggable={false}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                    ))}
+                </div>
 
-                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                            <div className="relative">
-                                <div className="w-2 h-2 rounded-full bg-sky-400" style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }} />
-                                <div className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping" style={{ animationDuration: '3s' }} />
-                            </div>
+                {/* Layer 3: Vignette */}
+                <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ background: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.6) 100%)' }}
+                />
+
+                {/* Layer 4: Location dot */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="relative">
+                        <div className="w-2 h-2 rounded-full bg-sky-400" style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }} />
+                        <div className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping" style={{ animationDuration: '3s' }} />
+                    </div>
+                </div>
+
+                {/* Layer 5: Radar timeline bar */}
+                {radarFrames.length > 1 && (
+                    <div className="absolute bottom-0 left-0 right-0 pointer-events-none px-3 pb-2.5">
+                        <div className="relative h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
+                            {/* Progress trail */}
+                            <div
+                                className="absolute inset-y-0 left-0 rounded-full"
+                                style={{
+                                    width: `${progress * 100}%`,
+                                    background: 'linear-gradient(90deg, rgba(56,189,248,0.1) 0%, rgba(56,189,248,0.4) 100%)',
+                                    transition: progress < 0.05 ? 'none' : 'width 400ms ease',
+                                }}
+                            />
+                            {/* Playhead dot */}
+                            <div
+                                className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-sky-400"
+                                style={{
+                                    left: `${progress * 100}%`,
+                                    transform: `translateX(-50%) translateY(-50%)`,
+                                    boxShadow: '0 0 6px rgba(56,189,248,0.6)',
+                                    transition: progress < 0.05 ? 'none' : 'left 400ms ease',
+                                }}
+                            />
+                            {/* "Now" marker */}
+                            {nowIdx > 0 && radarFrames.length > 1 && (
+                                <div
+                                    className="absolute top-0 bottom-0 w-px bg-white/20"
+                                    style={{ left: `${(nowIdx / (radarFrames.length - 1)) * 100}%` }}
+                                />
+                            )}
                         </div>
-                        {/* Layer 5: Wind badge — bottom-left */}
-                        {displaySpeed != null && (
-                            <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/[0.06]">
-                                {windDirection != null && (
-                                    <div className="w-3.5 h-3.5 flex items-center justify-center" style={{ transform: `rotate(${windDirection + 180}deg)` }}>
-                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                            <path d="M5 0L3 8h4L5 0z" fill="rgba(56,189,248,0.9)" />
-                                        </svg>
-                                    </div>
-                                )}
-                                <span className="text-[9px] text-white/70 font-semibold leading-none tracking-wide">
-                                    {windLabel} {displaySpeed}<span className="text-white/35 ml-0.5">{speedUnit}</span>
-                                </span>
+                    </div>
+                )}
+
+                {/* Layer 6: Time label + LIVE badge — top-left */}
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                    {isLive && (
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/20 border border-red-400/20">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                            <span className="text-[8px] text-red-300/80 font-bold tracking-wider">LIVE</span>
+                        </div>
+                    )}
+                    {timeLabel && !isLive && (
+                        <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
+                            <span className="text-[9px] text-white/50 font-mono font-semibold tabular-nums">{timeLabel}</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Layer 7: Wind badge — bottom-left */}
+                {displaySpeed != null && (
+                    <div className="absolute bottom-6 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                        {windDirection != null && (
+                            <div className="w-3.5 h-3.5 flex items-center justify-center" style={{ transform: `rotate(${windDirection + 180}deg)` }}>
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                    <path d="M5 0L3 8h4L5 0z" fill="rgba(56,189,248,0.9)" />
+                                </svg>
                             </div>
                         )}
-                        {/* Layer 6: Condition label — top-right */}
-                        {condition && (
-                            <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/[0.06]">
-                                <span className="text-[9px] text-white/50 font-medium tracking-wide">{condition}</span>
-                            </div>
-                        )}
-                    </>
-                ) : null}
+                        <span className="text-[9px] text-white/70 font-semibold leading-none tracking-wide">
+                            {windLabel} {displaySpeed}<span className="text-white/35 ml-0.5">{speedUnit}</span>
+                        </span>
+                    </div>
+                )}
+
+                {/* Layer 8: Condition — top-right */}
+                {condition && (
+                    <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
+                        <span className="text-[9px] text-white/50 font-medium tracking-wide">{condition}</span>
+                    </div>
+                )}
             </div>
         </div>
     );

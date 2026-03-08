@@ -777,8 +777,12 @@ export function useLogPageState() {
     //   2. Voyage's first entry must not be explicitly marked as land (isOnWater !== false)
 
     const careerTotals = useMemo(() => {
-        // Uses ALL entries (active + archived) from dedicated career query
-        const source = careerEntries.length > 0 ? careerEntries : state.entries;
+        // Merge career DB entries + current state entries (which include offline queue),
+        // then deduplicate by entry ID. This ensures unsync'd entries still count.
+        const combined = new Map<string, ShipLogEntry>();
+        for (const e of careerEntries) { if (e.id) combined.set(e.id, e); }
+        for (const e of state.entries) { if (e.id) combined.set(e.id, e); }
+        const source = Array.from(combined.values());
 
         // Step 1: Filter to device-only entries
         const ownEntries = source.filter(e =>
@@ -812,7 +816,7 @@ export function useLogPageState() {
             totalTimeAtSeaHrs: Math.round(timeMs / (1000 * 60 * 60) * 10) / 10,
             totalVoyages: maritimeGroups.length,
         };
-    }, [careerEntries]);
+    }, [careerEntries, state.entries]);
 
     // ── Archive handlers ─────────────────────────────────────────────────────
 

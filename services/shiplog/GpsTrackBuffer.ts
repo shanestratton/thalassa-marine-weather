@@ -195,11 +195,17 @@ export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 
         const p = points[i];
         const speedKts = (p.speed ?? 0) * MS_TO_KTS;
 
+        // ACCURACY GATE: Only allow high-quality fixes to trigger force-keeps.
+        // Low-accuracy GPS (>50m) in bad weather creates phantom heading/speed
+        // changes that lock zig-zag artifacts into the track permanently.
+        const isAccurate = (p.accuracy ?? 999) <= 50;
+
         // GPS heading (if available and moving)
         const heading = p.heading;
 
         // Turn detection: compare to last kept heading
-        if (heading !== null && heading !== undefined && speedKts > 1) {
+        // Only for accurate fixes — jittery GPS heading is meaningless
+        if (isAccurate && heading !== null && heading !== undefined && speedKts > 1) {
             if (lastKeptHeading !== null) {
                 const delta = headingDelta(heading, lastKeptHeading);
                 if (delta >= TURN_THRESHOLD_DEG) {
@@ -213,8 +219,8 @@ export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 
             }
         }
 
-        // Speed transition detection
-        if (Math.abs(speedKts - lastKeptSpeed) >= SPEED_CHANGE_THRESHOLD_KTS) {
+        // Speed transition detection (only for accurate fixes)
+        if (isAccurate && Math.abs(speedKts - lastKeptSpeed) >= SPEED_CHANGE_THRESHOLD_KTS) {
             forceKeep.add(i);
             lastKeptSpeed = speedKts;
             if (heading !== null) lastKeptHeading = heading;

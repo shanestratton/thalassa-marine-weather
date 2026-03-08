@@ -159,20 +159,20 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@transistorsoft/capacitor-background-geolocation"
 
 SPEC CHECKSUMS:
-  Capacitor: 47b825120c6b8b6d6f9f053e9350a8960d436710
-  CapacitorApp: 942306cd1acf7774a00e89a3986af3a67c8cad7a
-  CapacitorCommunityKeepAwake: 332bf035bbdf0b1c244fd492b35a8a06c8802111
+  Capacitor: 830fc6ff88e99bb5ba48350f02c01ab01ba3b2b8
+  CapacitorApp: fcd990168c3249d2c5a7ae94920a031d05789e73
+  CapacitorCommunityKeepAwake: 2dffdfe2c56a49b15bef37da2e1a7bf5a8675989
   CapacitorCordova: e8b76fd95fc1e157775abc484c59cc0de464095d
-  CapacitorFilesystem: 2db285a1ac6e475cc27cae2e1bea999000f9e2be
-  CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
-  CapacitorHaptics: 4df2c625445cef39b67ea635a21802bc92df3b82
-  CapacitorKeyboard: 867eb4b3c901d9bb5c3d0c93b546185d52484e19
-  CapacitorMlkitBarcodeScanning: d97b2398adb4a8686fce9b1c0c6f09623f1baae8
-  CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
-  CapacitorPushNotifications: 99644101c6a82036e459929b6d897ee1cb27d97f
-  CapacitorScreenOrientation: 6c3c84223ea1dd44aaa7184e2b416dd1192270d0
-  CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
-  CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
+  CapacitorFilesystem: 7d3e3df84be4f0d999a5d6baa23aeb30c2de6450
+  CapacitorGeolocation: a2009727714adfa58bf093300b15856aa59e4b7a
+  CapacitorHaptics: af524744f86b761c13306b4c88a0de6cd28e3062
+  CapacitorKeyboard: cbbe3df7194442bfd18ed4ac1d9ed0294ce579a9
+  CapacitorMlkitBarcodeScanning: b8b7b809bd651a5db9026973890e79472e6d58cb
+  CapacitorPreferences: 0fa33b3affebf12d96358b491ed7c2b39bec3270
+  CapacitorPushNotifications: 3f34fa7041f65ffb6d1aed24d7f3d5a8abf53db2
+  CapacitorScreenOrientation: 07503c9d633377427f1e122449b06b1dbc992d10
+  CapacitorShare: 8a565649d321a05a1ae8b525b2a9b4f2d92c70ce
+  CapacitorStatusBar: 7fc9bb6737a29524034dfdc51ae1f1880d972b4d
   CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleMLKit: ddd51d7dff36ff28defa69afedd9cdce684fd857
@@ -187,8 +187,8 @@ SPEC CHECKSUMS:
   MLKitVision: fa8dea9012ac59497c79ddbe9ebf32051047ac4c
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
-  TransistorsoftCapacitorBackgroundFetch: 12dc742682562c9339241d12615f27ef7dbfb88f
-  TransistorsoftCapacitorBackgroundGeolocation: bb25918e2b847d71edabdd62d84b771b05d0878f
+  TransistorsoftCapacitorBackgroundFetch: dca5fc103c8ef880dea3817c17999c0f607e46da
+  TransistorsoftCapacitorBackgroundGeolocation: 1344af3739edace9324b56a0b9e29a191a3a881c
   TSBackgroundFetch: 0afbeaae4e1132866e1d4b6e55265af26b5958ae
 
 PODFILE CHECKSUM: 76b05d2263e100c5f6e18b25c7bc13d1c7ef1a85
