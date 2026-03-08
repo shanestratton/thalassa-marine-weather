@@ -530,19 +530,19 @@ export function useWeatherLayers(
 
                     if (false && supabaseUrl) { // eslint-disable-line no-constant-condition
                         try {
-                            const bounds = map.getBounds();
+                            const bounds = map?.getBounds();
 
                             // Expand bounds by ~50% in all directions so the heatmap image extends well past the screen
                             // so when panning, you don't instantly see a hard square cutoff.
                             let body;
                             if (bounds) {
-                                const latSpan = bounds.getNorth() - bounds.getSouth();
-                                const lonSpan = bounds.getEast() - bounds.getWest();
+                                const latSpan = bounds!.getNorth() - bounds!.getSouth();
+                                const lonSpan = bounds!.getEast() - bounds!.getWest();
                                 body = {
-                                    north: bounds.getNorth() + latSpan * 0.5,
-                                    south: bounds.getSouth() - latSpan * 0.5,
-                                    east: bounds.getEast() + lonSpan * 0.5,
-                                    west: bounds.getWest() - lonSpan * 0.5,
+                                    north: bounds!.getNorth() + latSpan * 0.5,
+                                    south: bounds!.getSouth() - latSpan * 0.5,
+                                    east: bounds!.getEast() + lonSpan * 0.5,
+                                    west: bounds!.getWest() - lonSpan * 0.5,
                                 };
                             } else {
                                 body = { north: location.lat + 15, south: location.lat - 15, east: location.lon + 20, west: location.lon - 20 };
@@ -563,7 +563,7 @@ export function useWeatherLayers(
                                     forecastRendered = renderAllPrecipFrames(grid.frames);
                                     const hoursHeader = resp.headers.get('X-Hours');
                                     forecastHours = hoursHeader
-                                        ? hoursHeader.split(',').map(Number)
+                                        ? hoursHeader!.split(',').map(Number)
                                         : [0, 3, 6, 9, 12, 18, 24, 36, 48, 72].slice(0, forecastRendered.length);
 
                                     const modelHeader = resp.headers.get('X-Model') || 'GFS';
