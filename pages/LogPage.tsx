@@ -6,12 +6,16 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('LogPage');
 import {
     PlayIcon,
 
     StopIcon,
     CompassIcon,
-    WindIcon
+    WindIcon,
+    MapPinIcon
 } from '../components/Icons';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
@@ -159,7 +163,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 toast.success(`Planned route saved: ${departure.name} → ${arrival.name}`);
                 loadData(); // Refresh the log page
             } catch (err) {
-                console.error('[LogPage] Failed to save planned route:', err);
+                log.error('Failed to save planned route:', err);
                 toast.error('Failed to save planned route');
             }
         };
@@ -216,7 +220,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     ? `${startName || 'Unknown'} → ${endName}`
                     : startName || '';
                 setShareAutoTitle(title);
-            } catch (e) { console.warn('[LogPage] fallback to empty:', e); }
+            } catch (e) { log.warn('fallback to empty:', e); }
         })();
 
         // Auto-detect region from start location
@@ -231,7 +235,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     const region = parts.length > 1 ? parts.slice(1).join(', ') : parts[0];
                     setShareAutoRegion(region);
                 }
-            } catch (e) { console.warn('[LogPage] fallback to empty:', e); }
+            } catch (e) { log.warn('fallback to empty:', e); }
         })();
     }, [actionSheet, selectedVoyageId, entries]);
 
@@ -264,10 +268,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             const scopedEntries = selectedVoyageId
                                 ? filteredEntries.filter(e => e.voyageId === selectedVoyageId)
                                 : filteredEntries;
-                            const scopedDistance = scopedEntries.length > 0
-                                ? Math.max(...scopedEntries.map(e => e.cumulativeDistanceNM || 0))
-                                : 0;
-                            const speedEntries = scopedEntries.filter(e => e.speedKts);
+
+                            let scopedDistance = 0;
+                            if (selectedVoyageId) {
+                                // Single voyage: max cumulative distance
+                                scopedDistance = scopedEntries.length > 0
+                                    ? Math.max(...scopedEntries.map(e => e.cumulativeDistanceNM || 0))
+                                    : 0;
+                            } else {
+                                // All voyages: sum each voyage's max cumulative distance
+                                const voyageMap = new Map<string, number>();
+                                scopedEntries.forEach(e => {
+                                    const vid = e.voyageId || 'default';
+                                    const current = voyageMap.get(vid) || 0;
+                                    voyageMap.set(vid, Math.max(current, e.cumulativeDistanceNM || 0));
+                                });
+                                voyageMap.forEach(d => { scopedDistance += d; });
+                            }
+
+                            const speedEntries = scopedEntries.filter(e => e.speedKts && e.speedKts > 0);
                             const scopedAvgSpeed = speedEntries.length > 0
                                 ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
                                 : 0;
@@ -423,6 +442,38 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     >
                                         <StopIcon className="w-4 h-4" />
                                         Stop
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const voyageEntries = entries
+                                                    .filter((e: { voyageId: string }) => e.voyageId === currentVoyageId)
+                                                    .sort((a: { timestamp: string }, b: { timestamp: string }) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                                                const latestEntry = voyageEntries[0];
+                                                const pinLat = latestEntry?.latitude;
+                                                const pinLon = latestEntry?.longitude;
+                                                if (!pinLat || !pinLon) {
+                                                    toast.error('No GPS position available yet');
+                                                    return;
+                                                }
+                                                const mapsUrl = `https://maps.google.com/?q=${pinLat.toFixed(6)},${pinLon.toFixed(6)}`;
+                                                const message = `\u{1F4CD} My Current Position\n\nLat: ${pinLat.toFixed(4)}\u00B0  Lon: ${pinLon.toFixed(4)}\u00B0\n\nView on map: ${mapsUrl}\n\nShared via Thalassa \u{26F5}`;
+                                                if (navigator.share) {
+                                                    await navigator.share({ title: 'My Position', text: message });
+                                                } else {
+                                                    await navigator.clipboard.writeText(message);
+                                                    toast.success('Position copied to clipboard');
+                                                }
+                                            } catch (err: unknown) {
+                                                if (err instanceof Error && err.name !== 'AbortError') {
+                                                    log.warn('Share failed:', err);
+                                                }
+                                            }
+                                        }}
+                                        className="w-14 h-14 shrink-0 rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 active:scale-[0.97]"
+                                        title="Share your position"
+                                    >
+                                        <MapPinIcon className="w-5 h-5" />
                                     </button>
                                     <button
                                         onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
@@ -1413,7 +1464,7 @@ const VoyageCard: React.FC<{
                     const parts = name.split(',').map(s => s.trim()).filter(Boolean);
                     if (parts.length > 0) return parts[0];
                 }
-            } catch (e) { console.warn('[LogPage] fall through to Nominatim:', e); }
+            } catch (e) { log.warn('fall through to Nominatim:', e); }
 
             // 2. Fallback: Nominatim with progressive zoom levels (coastal/offshore positions)
             const zoomLevels = [16, 14, 10, 8, 5];
@@ -1425,7 +1476,7 @@ const VoyageCard: React.FC<{
                     const addr = data.address || {};
                     const local = addr.neighbourhood || addr.suburb || addr.village || addr.town || addr.city_district || addr.city || addr.hamlet || addr.county || null;
                     if (local) return local;
-                } catch (e) { console.warn('[LogPage]', e); continue; }
+                } catch (e) { log.warn('geocode skip:', e); continue; }
             }
             return null;
         };
@@ -1573,7 +1624,7 @@ const VoyageCard: React.FC<{
                                     const gpxXml = exportVoyageAsGPX(voyage.entries, `Planned_${startLabel || 'Route'}_to_${endLabel || 'Destination'}`);
                                     await shareGPXFile(gpxXml, `planned_route_${voyage.voyageId}.gpx`);
                                 } catch (err) {
-                                    console.error('[GPX Export]', err);
+                                    log.error('GPX Export failed:', err);
                                 }
                             }}
                             className="w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 hover:bg-white/5 transition-colors text-purple-400 hover:text-purple-300"

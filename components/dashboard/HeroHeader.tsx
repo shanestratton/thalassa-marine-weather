@@ -112,8 +112,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         <div
             className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]"
         >
-            {/* Pulsing dot keyframe — injected once */}
-            <style>{`@keyframes hh-pulse{0%,100%{opacity:1}50%{opacity:.35}}`}</style>
+            {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px]">
                 {/* LEFT: Temperature only */}

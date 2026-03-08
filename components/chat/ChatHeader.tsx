@@ -6,7 +6,7 @@ import React from 'react';
 import { ChatChannel } from '../../services/ChatService';
 import { useTheme } from '../../context/ThemeContext';
 
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'lonely_hearts' | 'find_crew' | 'marketplace';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace';
 
 export interface ChatHeaderProps {
     view: ChatView;
@@ -50,7 +50,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
                             {view === 'dm_inbox' && '✉️ Messages'}
                             {view === 'dm_thread' && `${dmPartnerName || 'DM'}`}
                             {view === 'profile' && '⚓ Sailor Profile'}
-                            {view === 'lonely_hearts' && <><span className="text-[#FF7F50]">♥</span> First Mates</>}
+
                             {view === 'find_crew' && '👥 Crew Finder'}
                             {view === 'marketplace' && '🏪 Marketplace'}
                         </h1>

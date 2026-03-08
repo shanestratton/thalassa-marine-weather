@@ -7,6 +7,9 @@
  *   - If barcode is new → show "Add New Item" form with barcode pre-filled
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('InventoryScanner');
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { InventoryService } from '../../services/InventoryService';
 import { triggerHaptic } from '../../utils/system';
@@ -216,10 +219,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         triggerHaptic('medium');
                         closeInlineScanner();
                     }
-                } catch (e) { console.warn('[InventoryScanner] frame failed:', e); }
+                } catch (e) { log.warn(' frame failed:', e); }
             }, 500);
         } catch (e) {
-            console.warn('[InventoryScanner]', e);
+            log.warn( e);
             setCameraError('Camera access denied.');
             setShowInlineScanner(false);
         }
@@ -256,7 +259,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     }
                 }
             } catch (e) {
-                console.warn('[InventoryScanner]', e);
+                log.warn( e);
                 // Detection frame failed — continue
             }
         }, 500); // Scan every 500ms
@@ -279,7 +282,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 setSheetMode('new');
             }
         } catch (e) {
-            console.warn('[InventoryScanner]', e);
+            log.warn( e);
             setNewItem(prev => ({ ...prev, barcode }));
             setSheetMode('new');
         }
@@ -303,7 +306,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             onItemSaved();
             toast.success(`Quantity ${delta > 0 ? 'increased' : 'decreased'}`);
         } catch (e) {
-            console.warn('[InventoryScanner] qty adjust failed:', e);
+            log.warn(' qty adjust failed:', e);
             toast.error('Failed to update quantity');
         }
         setSaving(false);
@@ -332,7 +335,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                 dismissSheet();
             }
         } catch (e) {
-            console.warn('[InventoryScanner] save failed:', e);
+            log.warn(' save failed:', e);
             toast.error('Failed to save item');
         }
         setSaving(false);

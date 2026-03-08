@@ -12,6 +12,9 @@
  */
 
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
 import {
     computeRoute,
@@ -99,7 +102,7 @@ export function usePassagePlanner(
         turnWaypointsRef.current = [];
 
         const map = mapRef.current;
-        if (!map) { console.warn('[Passage] No map ref'); return; }
+        if (!map) { log.warn('[Passage] No map ref'); return; }
 
         // Forward / reverse bearings (needed for both short and long route paths)
         const dLon = ((arrival.lon - departure.lon) * Math.PI) / 180;
@@ -128,7 +131,7 @@ export function usePassagePlanner(
         const VESSEL_DRAFT_M = 2.5; // IsochroneConfig default
         const minDepthM = isShortRoute ? VESSEL_DRAFT_M + 1 : null;
 
-        console.info(`[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal mode, minDepth=' + minDepthM + 'm)' : 'LONG (ocean mode, trip sandwich)'}`);
+        log.info(`[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal mode, minDepth=' + minDepthM + 'm)' : 'LONG (ocean mode, trip sandwich)'}`);
 
         // Find deep-water gates (skip for short routes)
         let depGate: { lat: number; lon: number };
@@ -161,7 +164,7 @@ export function usePassagePlanner(
                     ? { lat: arrBuoy.lat, lon: arrBuoy.lon }
                     : project(arrival.lat, arrival.lon, revBearing, FALLBACK_NM);
             } catch (err) {
-                console.warn('[SeaBuoy] Search failed or timed out, using geometric fallback:', err);
+                log.warn('[SeaBuoy] Search failed or timed out, using geometric fallback:', err);
                 // Project 50NM in 3 directions: perpendicular left, perpendicular right, and reverse.
                 // Pick the one farthest from the coast (farthest from BOTH departure and arrival).
                 const FALLBACK_DIST_NM = 50;
@@ -179,7 +182,7 @@ export function usePassagePlanner(
                         const dist = dLat * dLat + dLon * dLon;
                         if (dist > bestDist) { bestDist = dist; best = c; }
                     }
-                    console.info(`[SeaBuoy] Geometric fallback: ${best.dir} at ${FALLBACK_DIST_NM}NM`);
+                    log.info(`[SeaBuoy] Geometric fallback: ${best.dir} at ${FALLBACK_DIST_NM}NM`);
                     return { lat: best.lat, lon: best.lon };
                 };
                 depGate = findOffshoreGate(departure.lat, departure.lon, fwdBearing, arrival.lat, arrival.lon);
@@ -187,8 +190,8 @@ export function usePassagePlanner(
             }
         }
 
-        console.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
-        console.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
+        log.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
+        log.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
 
         // Great-circle passage
         const gcCoords: number[][] = [];
@@ -300,7 +303,7 @@ export function usePassagePlanner(
         if (routeSrc) {
             if (straightLineNM < 500) {
                 routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(gcCoords) } as any);
-                console.info(`[Passage] Trip Sandwich rendered (great-circle)`);
+                log.info(`[Passage] Trip Sandwich rendered (great-circle)`);
             } else {
                 routeSrc.setData({ type: 'FeatureCollection', features: [] } as any);
             }
@@ -326,7 +329,7 @@ export function usePassagePlanner(
 
         // Background: isochrone weather routing upgrade
         setTimeout(async () => {
-            console.info('[Isochrone BG] ── Background isochrone task started ──');
+            log.info('[Isochrone BG] ── Background isochrone task started ──');
             try {
                 // ── Check precompute cache first (fired from CTA press) ──
                 try {
@@ -334,7 +337,7 @@ export function usePassagePlanner(
                     const cached = getPrecomputedRoute(depGate.lat, depGate.lon, arrGate.lat, arrGate.lon);
                     if (cached && cached.routeCoordinates.length >= 2) {
                         if (computeGenRef.current !== gen) return;
-                        console.info(`[Isochrone BG] ✓ Using pre-computed route: ${cached.totalDistanceNM} NM`);
+                        log.info(`[Isochrone BG] ✓ Using pre-computed route: ${cached.totalDistanceNM} NM`);
                         isoResultRef.current = cached;
                         const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                         if (src) {
@@ -377,7 +380,7 @@ export function usePassagePlanner(
                 let windGrid = windState.grid;
 
                 if (!windGrid && map) {
-                    console.info('[Isochrone BG] Loading wind data...');
+                    log.info('[Isochrone BG] Loading wind data...');
                     await WindDataController.activate(map);
                     await new Promise(r => setTimeout(r, 500));
                     windGrid = WindStore.getState().grid;
@@ -397,7 +400,7 @@ export function usePassagePlanner(
                     windGrid.east >= routeMaxLon + 5;
 
                 if (!gridCoversRoute) {
-                    console.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
+                    log.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
                     try {
                         const supabaseUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '';
                         const supabaseKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
@@ -440,17 +443,17 @@ export function usePassagePlanner(
                                         totalHours: 1,
                                     };
                                     WindStore.setGrid(windGrid);
-                                    console.info(`[Isochrone BG] Route-covering GFS GRIB loaded: ${grib.width}×${grib.height}`);
+                                    log.info(`[Isochrone BG] Route-covering GFS GRIB loaded: ${grib.width}×${grib.height}`);
                                 }
                             }
                         }
                     } catch (err) {
-                        console.warn('[Isochrone BG] Route-covering wind fetch failed, continuing with available data:', err);
+                        log.warn('[Isochrone BG] Route-covering wind fetch failed, continuing with available data:', err);
                     }
                 }
 
                 if (!windGrid) {
-                    console.info('[Isochrone BG] No wind data — keeping great-circle');
+                    log.info('[Isochrone BG] No wind data — keeping great-circle');
                     return;
                 }
 
@@ -458,14 +461,14 @@ export function usePassagePlanner(
                 const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
                 const depTimeStr = departureTime || new Date().toISOString();
 
-                console.info('[Isochrone BG] Preloading bathymetry grid...');
+                log.info('[Isochrone BG] Preloading bathymetry grid...');
                 try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', { detail: { step: 0, closestNM: Math.round(straightLineNM), totalDistNM: Math.round(straightLineNM), elapsed: 0, frontSize: 0, phase: 'loading-bathy' } })); } catch (_) { }
                 // Use coarser 0.25° grid (stride=15) for the engine — fine 0.1° traps
                 // wavefronts in reef-enclosed areas like Townsville/GBR.
                 // pushRouteOffshore post-processing still catches land clips via 2NM sampling.
                 const bathyGrid = await preloadBathymetry(depGate, arrGate, 15);
 
-                console.info('[Isochrone BG] Running isochrone engine...');
+                log.info('[Isochrone BG] Running isochrone engine...');
                 try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', { detail: { step: 0, closestNM: Math.round(straightLineNM), totalDistNM: Math.round(straightLineNM), elapsed: 0, frontSize: 0, phase: 'computing' } })); } catch (_) { }
                 const isoConfig = minDepthM != null ? { minDepthM } : {};
                 let isoResult = await computeIsochrones(
@@ -475,10 +478,10 @@ export function usePassagePlanner(
                 if (isoResult && isoResult.routeCoordinates.length >= 2) {
                     // Stale guard: only apply if this is still the current computation
                     if (computeGenRef.current !== gen) {
-                        console.info('[Isochrone BG] Stale computation (gen mismatch) — discarding');
+                        log.info('[Isochrone BG] Stale computation (gen mismatch) — discarding');
                         return;
                     }
-                    console.info(`[Isochrone BG] ✓ Route: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h, ${isoResult.routeCoordinates.length} waypoints`);
+                    log.info(`[Isochrone BG] ✓ Route: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h, ${isoResult.routeCoordinates.length} waypoints`);
                     isoResultRef.current = isoResult;
 
                     const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
@@ -489,7 +492,7 @@ export function usePassagePlanner(
                     const depTimeStr2 = departureTime || new Date().toISOString();
                     const wps = detectTurnWaypoints(isoResult.route, depTimeStr2);
                     turnWaypointsRef.current = wps;
-                    console.info(`[Waypoints] Detected ${wps.length} waypoints (incl. DEP/ARR)`);
+                    log.info(`[Waypoints] Detected ${wps.length} waypoints (incl. DEP/ARR)`);
 
                     const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
                     if (wpSource) {
@@ -516,7 +519,7 @@ export function usePassagePlanner(
                     try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } })); } catch (_) { }
                 } else {
                     // ── Multi-leg split: try routing via an intermediate point ──
-                    console.info('[Isochrone BG] Direct route failed — attempting multi-leg split...');
+                    log.info('[Isochrone BG] Direct route failed — attempting multi-leg split...');
                     try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', { detail: { step: 0, closestNM: Math.round(straightLineNM), totalDistNM: Math.round(straightLineNM), elapsed: 0, frontSize: 0, phase: 'multi-leg' } })); } catch (_) { }
 
                     // Find intermediate: go well south (or north) of both points for open ocean
@@ -524,27 +527,27 @@ export function usePassagePlanner(
                     const intermediateLat = southernMost - 8; // 8° south of southernmost point
                     const intermediateLon = (depGate.lon + arrGate.lon) / 2;
                     const intermediate = { lat: intermediateLat, lon: intermediateLon };
-                    console.info(`[Isochrone BG] Multi-leg intermediate: ${intermediateLat.toFixed(1)}°, ${intermediateLon.toFixed(1)}°`);
+                    log.info(`[Isochrone BG] Multi-leg intermediate: ${intermediateLat.toFixed(1)}°, ${intermediateLon.toFixed(1)}°`);
 
                     // Load separate bathy grids for each leg
                     const bathyGrid1 = await preloadBathymetry(depGate, intermediate, 15);
                     const bathyGrid2 = await preloadBathymetry(intermediate, arrGate, 15);
 
                     // Run Leg 1: departure → intermediate
-                    console.info('[Isochrone BG] Running Leg 1...');
+                    log.info('[Isochrone BG] Running Leg 1...');
                     const leg1 = await computeIsochrones(
                         depGate, intermediate, depTimeStr, polar, windField, isoConfig, bathyGrid1,
                     );
 
                     // Run Leg 2: intermediate → arrival
-                    console.info('[Isochrone BG] Running Leg 2...');
+                    log.info('[Isochrone BG] Running Leg 2...');
                     const leg2DepTime = leg1?.arrivalTime || depTimeStr;
                     const leg2 = await computeIsochrones(
                         intermediate, arrGate, leg2DepTime, polar, windField, isoConfig, bathyGrid2,
                     );
 
                     if (leg1 && leg2 && leg1.routeCoordinates.length >= 2 && leg2.routeCoordinates.length >= 2) {
-                        console.info(`[Isochrone BG] ✓ Multi-leg route: Leg1=${leg1.totalDistanceNM}NM + Leg2=${leg2.totalDistanceNM}NM`);
+                        log.info(`[Isochrone BG] ✓ Multi-leg route: Leg1=${leg1.totalDistanceNM}NM + Leg2=${leg2.totalDistanceNM}NM`);
                         // Stitch the two legs together
                         const combinedCoords = [...leg1.routeCoordinates, ...leg2.routeCoordinates.slice(1)];
                         const combinedFlags = [...leg1.shallowFlags, ...leg2.shallowFlags.slice(1)];
@@ -574,7 +577,7 @@ export function usePassagePlanner(
                         }
                         try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } })); } catch (_) { }
                     } else {
-                        console.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
+                        log.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
                         const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                         if (src) {
                             src.setData({ type: 'FeatureCollection', features: [] } as any);
@@ -583,7 +586,7 @@ export function usePassagePlanner(
                     }
                 }
             } catch (err) {
-                console.warn('[Isochrone BG] Failed — keeping great-circle:', err);
+                log.warn('[Isochrone BG] Failed — keeping great-circle:', err);
                 try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } })); } catch (_) { }
             }
         }, 100);
@@ -593,7 +596,7 @@ export function usePassagePlanner(
     useEffect(() => {
         if (mapReady && showPassage && departure && arrival) {
             computePassage().catch(err => {
-                console.error('[Passage] computePassage failed:', err);
+                log.error('[Passage] computePassage failed:', err);
                 setRouteAnalysis(null);
             });
         }

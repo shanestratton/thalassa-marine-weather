@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('RoutePlanner');
 import { createPortal } from 'react-dom';
 import {
     MapPinIcon, MapIcon, RouteIcon, CalendarIcon,
@@ -210,7 +213,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                         };
                                                     }
                                                     // Navigate to MAP tab
-                                                    console.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
+                                                    log.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
                                                     setPage('map');
                                                     setTimeout(() => {
                                                         window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
@@ -399,7 +402,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                     };
                                                 }
                                             }
-                                        } catch (e) { console.warn('[RoutePlanner] non-critical:', e); }
+                                        } catch (e) { log.warn(' non-critical:', e); }
 
                                         const result = await fetchVoyagePlan(origin, destination, dummyVessel, departureDate, undefined, undefined, undefined, weatherCtx);
                                         if (result.bestDepartureWindow) {
@@ -415,7 +418,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                                             `${String(dt.getUTCHours()).padStart(2, '0')}:${String(dt.getUTCMinutes()).padStart(2, '0')}`
                                                         );
                                                     }
-                                                } catch (e) { console.warn('[RoutePlanner] fallthrough:', e); }
+                                                } catch (e) { log.warn(' fallthrough:', e); }
                                             }
 
                                             // Fallback: parse timeRange for the time only
@@ -438,7 +441,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                             setSuggestedReasoning(`${prefix}${bdw.reasoning || ''}`);
                                         }
                                     } catch (e) {
-                                        console.error('[DepartureSuggest] Error:', e);
+                                        log.error('[DepartureSuggest] Error:', e);
                                     }
                                     setSuggestingDeparture(false);
                                 }}

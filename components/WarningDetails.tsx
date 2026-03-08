@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('WarningDetails');
 import { t } from '../theme';
 import { AlertTriangleIcon, ChevronLeftIcon } from './Icons';
 import { useUI } from '../context/UIContext';
@@ -22,7 +25,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch (e) { console.warn('[WarningDetails]', e); return new Set(); }
+        } catch (e) { log.warn( e); return new Set(); }
     });
 
     const dismiss = (alert: string) => {
@@ -31,7 +34,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch (e) { console.warn('[WarningDetails] non-critical:', e); }
+        } catch (e) { log.warn(' non-critical:', e); }
     };
 
     const dismissAll = () => {
@@ -41,7 +44,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
         try {
             sessionStorage.setItem('thalassa_dismissed_alerts',
                 JSON.stringify([...newDismissed]));
-        } catch (e) { console.warn('[WarningDetails] non-critical:', e); }
+        } catch (e) { log.warn(' non-critical:', e); }
     };
 
     const activeAlerts = alerts.filter(a => isCritical(a) || !dismissed.has(a));

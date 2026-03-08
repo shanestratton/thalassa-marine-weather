@@ -128,8 +128,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                 {/* Rain glow animation when active */}
                 {isActive && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
-                        <div className="absolute -top-8 left-1/3 w-24 h-24 bg-sky-500/10 rounded-full blur-3xl animate-pulse" />
-                        <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-sky-500/10 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
+                        <div className="absolute -top-8 left-1/3 w-24 h-24 bg-sky-500/10 rounded-full blur-3xl" />
+                        <div className="absolute -bottom-4 right-1/4 w-16 h-16 bg-sky-500/10 rounded-full blur-2xl" />
                     </div>
                 )}
 
@@ -272,20 +272,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                             </svg>
                         </>
                     ) : analysis.maxIntensity < 2.5 ? (
-                        /* 🌧️ Light rain — a few subtle droplets */
+                        /* 🌧️ Light rain — static subtle droplets (no infinite animations) */
                         <svg className="absolute inset-0 w-full h-full opacity-[0.06]" viewBox="0 0 200 400">
                             {[
-                                { x: 30, y: 60, d: 0 }, { x: 70, y: 120, d: 0.3 }, { x: 120, y: 40, d: 0.6 },
-                                { x: 160, y: 100, d: 0.15 }, { x: 50, y: 200, d: 0.45 }, { x: 140, y: 180, d: 0.7 },
-                                { x: 90, y: 280, d: 0.2 }, { x: 170, y: 250, d: 0.5 }, { x: 25, y: 320, d: 0.8 },
+                                { x: 30, y: 60 }, { x: 70, y: 120 }, { x: 120, y: 40 },
+                                { x: 160, y: 100 }, { x: 50, y: 200 }, { x: 140, y: 180 },
+                                { x: 90, y: 280 }, { x: 170, y: 250 }, { x: 25, y: 320 },
                             ].map((drop, i) => (
-                                <g key={i} opacity="0.8">
-                                    <line x1={drop.x} y1={drop.y} x2={drop.x - 2} y2={drop.y + 14}
-                                        stroke="rgba(56,189,248,1)" strokeWidth="2" strokeLinecap="round">
-                                        <animate attributeName="y1" values={`${drop.y};${drop.y + 400}`} dur="3s" begin={`${drop.d}s`} repeatCount="indefinite" />
-                                        <animate attributeName="y2" values={`${drop.y + 14};${drop.y + 414}`} dur="3s" begin={`${drop.d}s`} repeatCount="indefinite" />
-                                    </line>
-                                </g>
+                                <line key={i} x1={drop.x} y1={drop.y} x2={drop.x - 2} y2={drop.y + 14}
+                                    stroke="rgba(56,189,248,1)" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
                             ))}
                         </svg>
                     ) : (
@@ -301,13 +296,9 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                 {Array.from({ length: 18 }, (_, i) => ({
                                     x: 10 + (i * 11) % 190,
                                     y: 20 + (i * 37) % 300,
-                                    d: (i * 0.15) % 1.5,
                                 })).map((drop, i) => (
                                     <line key={i} x1={drop.x} y1={drop.y} x2={drop.x - 3} y2={drop.y + 18}
-                                        stroke="rgba(56,189,248,0.9)" strokeWidth="1.5" strokeLinecap="round">
-                                        <animate attributeName="y1" values={`${drop.y};${drop.y + 400}`} dur="2s" begin={`${drop.d}s`} repeatCount="indefinite" />
-                                        <animate attributeName="y2" values={`${drop.y + 18};${drop.y + 418}`} dur="2s" begin={`${drop.d}s`} repeatCount="indefinite" />
-                                    </line>
+                                        stroke="rgba(56,189,248,0.9)" strokeWidth="1.5" strokeLinecap="round" />
                                 ))}
                             </svg>
                         </>

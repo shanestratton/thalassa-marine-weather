@@ -9,6 +9,9 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('LonelyHeartsPage');
 import {
     LonelyHeartsService,
     CrewCard,
@@ -21,6 +24,13 @@ import {
     AGE_RANGES,
     EXPERIENCE_LEVELS,
     LISTING_TYPES,
+    VIBE_OPTIONS,
+    LANGUAGE_OPTIONS,
+    SMOKING_OPTIONS,
+    DRINKING_OPTIONS,
+    PET_OPTIONS,
+    INTEREST_OPTIONS,
+    SUPER_LIKE_DAILY_LIMIT,
 } from '../services/LonelyHeartsService';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
@@ -59,6 +69,17 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const [matches, setMatches] = useState<SailorMatch[]>([]);
     const [hasSearched, setHasSearched] = useState(false);
 
+    // Block / Report
+    const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+    const [showReportModal, setShowReportModal] = useState<string | null>(null);
+    const [reportReason, setReportReason] = useState('');
+    const [showActionMenu, setShowActionMenu] = useState<string | null>(null);
+
+    // Super Like
+    const [showSuperLikeModal, setShowSuperLikeModal] = useState<CrewCard | null>(null);
+    const [superLikeMessage, setSuperLikeMessage] = useState('');
+    const [superLikeUsed, setSuperLikeUsed] = useState(false);
+
     // My Profile form
     const [profile, setProfile] = useState<Partial<CrewProfile>>({});
     const [editListingType, setEditListingType] = useState<ListingType | ''>('');
@@ -73,6 +94,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const [editAvailFrom, setEditAvailFrom] = useState('');
     const [editAvailTo, setEditAvailTo] = useState('');
     const [editBio, setEditBio] = useState('');
+    const [editVibe, setEditVibe] = useState<string[]>([]);
+    const [editLanguages, setEditLanguages] = useState<string[]>([]);
+    const [editSmoking, setEditSmoking] = useState('');
+    const [editDrinking, setEditDrinking] = useState('');
+    const [editPets, setEditPets] = useState('');
+    const [editInterests, setEditInterests] = useState<string[]>([]);
     const [editLocationCity, setEditLocationCity] = useState('');
     const [editLocationState, setEditLocationState] = useState('');
     const [editLocationCountry, setEditLocationCountry] = useState('');
@@ -119,6 +146,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         const init = async () => {
             await LonelyHeartsService.init();
             await Promise.all([loadMatches(), loadProfile()]);
+            // Load blocked users & update last active
+            const blocked = await LonelyHeartsService.getBlockedUserIds();
+            setBlockedUserIds(new Set(blocked));
+            LonelyHeartsService.updateLastActive();
+            const used = await LonelyHeartsService.hasSuperLikedToday();
+            setSuperLikeUsed(used);
             setLoading(false);
         };
         init();
@@ -176,6 +209,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             setEditAvailFrom(dp.available_from || '');
             setEditAvailTo(dp.available_to || '');
             setEditBio(dp.bio || '');
+            setEditVibe(dp.vibe || []);
+            setEditLanguages(dp.languages || []);
+            setEditSmoking(dp.smoking || '');
+            setEditDrinking(dp.drinking || '');
+            setEditPets(dp.pets || '');
+            setEditInterests(dp.interests || []);
             setEditLocationCity(dp.location_city || '');
             setEditLocationState(dp.location_state || '');
             setEditLocationCountry(dp.location_country || '');
@@ -228,6 +267,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
     // --- SAVE PROFILE ---
     const handleSaveProfile = async () => {
+        if (!currentUserId) {
+            toast.error('Sign in first — go to Vessel > Settings > Account');
+            return;
+        }
         setSaving(true);
         await LonelyHeartsService.updateCrewProfile({
             listing_type: editListingType as ListingType || null,
@@ -245,8 +288,16 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             available_from: editAvailFrom || null,
             available_to: editAvailTo || null,
             bio: editBio.trim() || null,
+            vibe: editVibe,
+            languages: editLanguages,
+            smoking: editSmoking || null,
+            drinking: editDrinking || null,
+            pets: editPets || null,
+            interests: editInterests,
             photo_url: editPhotos[0] || null,
         });
+        // Reload profile so browse tab becomes accessible immediately
+        await loadProfile();
         setSaving(false);
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
@@ -309,7 +360,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             const result = await LonelyHeartsService.recordLike(card.user_id, true);
             if (result.matched) {
                 await loadMatches();
-                window.alert(`⭐ It's a Match!\n\nYou and ${card.display_name} starred each other! You can now send them a message.`);
+                toast.success(`⭐ It's a Match! You and ${card.display_name} starred each other!`);
             }
         }
     };
@@ -322,6 +373,85 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             return next;
         });
     }, []);
+
+    // --- BLOCK / REPORT ---
+    const handleBlock = async (userId: string, displayName: string) => {
+        const success = await LonelyHeartsService.blockUser(userId);
+        if (success) {
+            setBlockedUserIds(prev => new Set([...prev, userId]));
+            setListings(prev => prev.filter(l => l.user_id !== userId));
+            toast.success(`${displayName} blocked — they won't appear in your feed`);
+        }
+        setShowActionMenu(null);
+    };
+
+    const handleReport = async () => {
+        if (!showReportModal || !reportReason.trim()) return;
+        const success = await LonelyHeartsService.reportUser(showReportModal, reportReason.trim());
+        if (success) {
+            await handleBlock(showReportModal, 'User');
+            toast.success('Report submitted — thanks for keeping the community safe');
+        }
+        setShowReportModal(null);
+        setReportReason('');
+    };
+
+    // --- SUPER LIKE ---
+    const handleSuperLike = async () => {
+        if (!showSuperLikeModal) return;
+        const result = await LonelyHeartsService.recordSuperLike(showSuperLikeModal.user_id, superLikeMessage.trim());
+        // Also mark as regular liked
+        setLikedUsers(prev => {
+            const next = new Set(prev);
+            next.add(showSuperLikeModal.user_id);
+            try { localStorage.setItem('crew_liked_users', JSON.stringify([...next])); } catch { }
+            return next;
+        });
+        setSuperLikeUsed(true);
+        if (result.matched) {
+            await loadMatches();
+            toast.success(`🌟 Super Match! You and ${showSuperLikeModal.display_name} are connected!`);
+        } else {
+            toast.success(`🌟 Super Like sent to ${showSuperLikeModal.display_name}!`);
+        }
+        setShowSuperLikeModal(null);
+        setSuperLikeMessage('');
+    };
+
+    // --- LAST ACTIVE HELPER ---
+    const getLastActiveLabel = (lastActive: string | null): { text: string; color: string } | null => {
+        if (!lastActive) return null;
+        const diff = Date.now() - new Date(lastActive).getTime();
+        const hours = diff / (1000 * 60 * 60);
+        if (hours < 1) return { text: 'Online now', color: 'text-emerald-400' };
+        if (hours < 24) return { text: 'Active today', color: 'text-emerald-400/60' };
+        if (hours < 72) return { text: 'Active this week', color: 'text-sky-400/50' };
+        if (hours < 168) return { text: 'Active recently', color: 'text-white/30' };
+        return { text: 'Been a while', color: 'text-white/20' };
+    };
+
+    // --- DM ICEBREAKERS ---
+    const getIcebreakers = (match: SailorMatch): string[] => {
+        const myInterests = editInterests.length > 0 ? editInterests : (profile?.interests || []);
+        const shared = myInterests.filter(i => match.interests.includes(i));
+        const tips: string[] = [];
+        if (shared.length > 0) {
+            const pick = shared[Math.floor(Math.random() * shared.length)];
+            tips.push(`You both love ${pick} — ask about their favourite spot!`);
+        }
+        const myVibes = editVibe.length > 0 ? editVibe : (profile?.vibe || []);
+        const sharedVibes = myVibes.filter(v => match.vibe.includes(v));
+        if (sharedVibes.length > 0) {
+            tips.push(`Shared vibe: ${sharedVibes[0]} — sounds like you'd get along!`);
+        }
+        const myLangs = editLanguages.length > 0 ? editLanguages : (profile?.languages || []);
+        const sharedLangs = myLangs.filter(l => match.languages.includes(l));
+        if (sharedLangs.length > 1) {
+            tips.push(`You both speak ${sharedLangs.length} languages — try saying hello in ${sharedLangs[1]}!`);
+        }
+        if (tips.length === 0) tips.push('Say hello — every great voyage starts with a single wave! 👋');
+        return tips.slice(0, 2);
+    };
 
     // --- CARD STACK NAVIGATION ---
     const goToNextCard = useCallback(() => {
@@ -411,13 +541,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         if (!iso) return '';
         try {
             return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-        } catch (e) { console.warn('[LonelyHeartsPage]', e); return iso; }
+        } catch (e) { log.warn(e); return iso; }
     };
 
     /** Detect sentinel end dates (2038+) that mean "open-ended" */
     const isOpenEnded = (iso: string | null) => {
         if (!iso) return true;
-        try { return new Date(iso).getFullYear() >= 2038; } catch (e) { console.warn('[LonelyHeartsPage]', e); return false; }
+        try { return new Date(iso).getFullYear() >= 2038; } catch (e) { log.warn(e); return false; }
     };
 
     // --- DELETE LISTING ---
@@ -432,6 +562,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             setEditFirstName('');
             setEditGender('');
             setEditAge('');
+            setEditVibe([]);
+            setEditLanguages([]);
+            setEditSmoking('');
+            setEditDrinking('');
+            setEditPets('');
+            setEditInterests([]);
             setEditHasPartner(false);
             setEditPartnerDetails('');
             setEditSkills([]);
@@ -460,6 +596,73 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const activeFilterCount = (filterListingType ? 1 : 0) + (filterSkills.length > 0 ? 1 : 0) + (filterExperience ? 1 : 0) + (filterRegion ? 1 : 0);
     const matchedUserIds = new Set(matches.map(m => m.user_id));
 
+    /** Calculate compatibility score (0–100) between current user's profile and a match */
+    const getCompatibility = (match: SailorMatch): { score: number; label: string; color: string } => {
+        let score = 0;
+        let possible = 0;
+
+        // Shared interests (35 pts)
+        const myInterests = editInterests.length > 0 ? editInterests : (profile?.interests || []);
+        if (myInterests.length > 0 || match.interests.length > 0) {
+            const shared = myInterests.filter(i => match.interests.includes(i)).length;
+            const total = Math.max(myInterests.length, match.interests.length);
+            score += total > 0 ? (shared / total) * 35 : 0;
+            possible += 35;
+        }
+
+        // Shared vibes (25 pts)
+        const myVibe = editVibe.length > 0 ? editVibe : (profile?.vibe || []);
+        if (myVibe.length > 0 || match.vibe.length > 0) {
+            const shared = myVibe.filter(v => match.vibe.includes(v)).length;
+            const total = Math.max(myVibe.length, match.vibe.length);
+            score += total > 0 ? (shared / total) * 25 : 0;
+            possible += 25;
+        }
+
+        // Shared languages (15 pts)
+        const myLangs = editLanguages.length > 0 ? editLanguages : (profile?.languages || []);
+        if (myLangs.length > 0 || match.languages.length > 0) {
+            const shared = myLangs.filter(l => match.languages.includes(l)).length;
+            const total = Math.max(myLangs.length, match.languages.length);
+            score += total > 0 ? (shared / total) * 15 : 0;
+            possible += 15;
+        }
+
+        // Lifestyle alignment (15 pts: 5 each for smoking/drinking/pets)
+        const mySmoking = editSmoking || profile?.smoking;
+        const myDrinking = editDrinking || profile?.drinking;
+        const myPets = editPets || profile?.pets;
+        if (mySmoking && match.smoking) { score += mySmoking === match.smoking ? 5 : 0; possible += 5; }
+        if (myDrinking && match.drinking) { score += myDrinking === match.drinking ? 5 : 0; possible += 5; }
+        if (myPets && match.pets) { score += myPets === match.pets ? 5 : 0; possible += 5; }
+
+        // Experience match (10 pts)
+        const myExp = editExperience || profile?.sailing_experience;
+        if (myExp && match.sailing_experience) {
+            const levels = ['Just Got My Sea Legs', 'Weekend Warrior', 'Coastal Cruiser', 'Liveaboard', 'Bluewater Veteran', 'Salty Dog 🧂'];
+            const myIdx = levels.indexOf(myExp);
+            const theirIdx = levels.indexOf(match.sailing_experience);
+            if (myIdx >= 0 && theirIdx >= 0) {
+                const diff = Math.abs(myIdx - theirIdx);
+                score += diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 1;
+            }
+            possible += 10;
+        }
+
+        // Normalise to percentage (if not enough data, scale up proportionally)
+        const pct = possible > 0 ? Math.round((score / possible) * 100) : 0;
+
+        // Nautical label
+        const label = pct >= 90 ? 'Perfect Storm ⚡' : pct >= 75 ? 'Smooth Sailing ⛵'
+            : pct >= 60 ? 'Fair Winds 🌤' : pct >= 40 ? 'Choppy Waters 🌊'
+                : pct >= 20 ? 'Light Breeze 💨' : 'Dead Calm 🪨';
+
+        // Color gradient
+        const color = pct >= 75 ? 'emerald' : pct >= 50 ? 'sky' : pct >= 25 ? 'amber' : 'white';
+
+        return { score: pct, label, color };
+    };
+
     // --- LOADING ---
     if (loading && listings.length === 0) {
         return (
@@ -484,9 +687,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     <button
                         key={tab.key}
                         onClick={() => {
-                            if (tab.key === 'board' && !profile?.listing_type) {
+                            if ((tab.key === 'board' || tab.key === 'matches') && !currentUserId) {
+                                toast.error('Sign in first — go to Vessel > Settings > Account');
+                                return;
+                            }
+                            if (tab.key === 'board' && !profile?.listing_type && !editListingType) {
                                 setView('my_profile');
-                                window.alert('Please create your listing first before browsing profiles.');
+                                toast.error('Create your listing first before browsing profiles');
                                 return;
                             }
                             setView(tab.key);
@@ -518,77 +725,67 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         {/* Filters — hidden after search */}
                         {!hasSearched && (
                             <>
-                                {/* Captain / Crew toggle */}
-                                <div className="flex gap-3 mb-4">
+                                {/* Looking For label */}
+                                <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-2">Looking For</p>
+                                <div className="grid grid-cols-2 gap-3 mb-4">
                                     <button
                                         onClick={() => setFilterListingType(filterListingType === 'seeking_crew' ? '' : 'seeking_crew')}
-                                        className={`flex-1 py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_crew'
+                                        className={`py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_crew'
                                             ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10'
                                             : 'bg-white/[0.02] border-white/[0.06]'
                                             }`}
                                     >
                                         <span className="text-2xl block mb-1">⚓</span>
-                                        <span className={`text-sm font-bold block ${filterListingType === 'seeking_crew' ? 'text-emerald-300' : 'text-white/70'}`}>Captain</span>
-                                        <span className="text-[11px] text-white/30 block mt-0.5">Looking for crew</span>
+                                        <span className={`text-sm font-bold block ${filterListingType === 'seeking_crew' ? 'text-emerald-300' : 'text-white/70'}`}>A Captain</span>
                                     </button>
                                     <button
                                         onClick={() => setFilterListingType(filterListingType === 'seeking_berth' ? '' : 'seeking_berth')}
-                                        className={`flex-1 py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_berth'
+                                        className={`py-4 rounded-2xl text-center transition-all border ${filterListingType === 'seeking_berth'
                                             ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10'
                                             : 'bg-white/[0.02] border-white/[0.06]'
                                             }`}
                                     >
                                         <span className="text-2xl block mb-1">🧭</span>
                                         <span className={`text-sm font-bold block ${filterListingType === 'seeking_berth' ? 'text-emerald-300' : 'text-white/70'}`}>Crew</span>
-                                        <span className="text-[11px] text-white/30 block mt-0.5">Looking for a captain</span>
                                     </button>
+                                    {['Male', 'Female'].map(g => (
+                                        <button
+                                            key={g}
+                                            onClick={() => setFilterGender(filterGender === g ? '' : g)}
+                                            className={`py-4 rounded-2xl text-center transition-all border ${filterGender === g
+                                                ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10'
+                                                : 'bg-white/[0.02] border-white/[0.06]'
+                                                }`}
+                                        >
+                                            <span className="text-2xl block mb-1">{g === 'Male' ? '♂️' : '♀️'}</span>
+                                            <span className={`text-sm font-bold block ${filterGender === g ? 'text-emerald-300' : 'text-white/70'}`}>{g}</span>
+                                        </button>
+                                    ))}
                                 </div>
 
-                                {/* Gender & Age filters — only shown after selection */}
+                                {/* Age bracket filter — shown after Captain/Crew selected */}
                                 {filterListingType && (
-                                    <div className="mb-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-4 fade-slide-down">
-                                        {/* Gender filter */}
-                                        <div>
-                                            <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Gender</p>
-                                            <div className="flex gap-2">
-                                                {['Male', 'Female'].map(g => (
-                                                    <button
-                                                        key={g}
-                                                        onClick={() => setFilterGender(filterGender === g ? '' : g)}
-                                                        className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${filterGender === g
-                                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/25'
-                                                            : 'bg-white/[0.03] text-white/60 border border-white/[0.05]'
-                                                            }`}
-                                                    >
-                                                        {g}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {/* Age bracket filter — multi-select */}
-                                        <div>
-                                            <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Age Bracket</p>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {AGE_RANGES.map(age => (
-                                                    <button
-                                                        key={age}
-                                                        onClick={() => {
-                                                            setFilterAgeRanges(prev =>
-                                                                prev.includes(age)
-                                                                    ? prev.filter(a => a !== age)
-                                                                    : [...prev, age]
-                                                            );
-                                                        }}
-                                                        className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${filterAgeRanges.includes(age)
-                                                            ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
-                                                            : 'bg-white/[0.03] text-white/60 border border-white/[0.05]'
-                                                            }`}
-                                                    >
-                                                        {age}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                    <div className="mb-4 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] fade-slide-down">
+                                        <p className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 mb-2">Age Bracket</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {AGE_RANGES.map(age => (
+                                                <button
+                                                    key={age}
+                                                    onClick={() => {
+                                                        setFilterAgeRanges(prev =>
+                                                            prev.includes(age)
+                                                                ? prev.filter(a => a !== age)
+                                                                : [...prev, age]
+                                                        );
+                                                    }}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${filterAgeRanges.includes(age)
+                                                        ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/30'
+                                                        : 'bg-white/[0.03] text-white/60 border border-white/[0.05]'
+                                                        }`}
+                                                >
+                                                    {age}
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
@@ -709,6 +906,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     const isLiked = likedUsers.has(card.user_id);
                                     const isMatched = matchedUserIds.has(card.user_id);
                                     const isMessaged = messagedUsers.has(card.user_id);
+                                    const lastActive = getLastActiveLabel(card.last_active);
                                     const cardRotation = swipeX * 0.03;
                                     const cardOpacity = 1 - Math.abs(swipeX) / 400;
                                     const exitTransform = swipeDirection === 'left' ? 'translateX(-120%) rotate(-8deg)'
@@ -777,7 +975,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 <div className="absolute bottom-0 left-0 right-0 p-5">
                                                     <div className="flex items-end justify-between">
                                                         <div>
-                                                            <h2 className="text-2xl font-black text-white mb-1">{card.display_name}</h2>
+                                                            <div className="flex items-center gap-2">
+                                                                <h2 className="text-2xl font-black text-white mb-1">{card.display_name}</h2>
+                                                                {card.is_verified && (
+                                                                    <span className="w-5 h-5 rounded-full bg-sky-500/30 border border-sky-400/40 flex items-center justify-center text-[10px] text-sky-200" title="Verified">✓</span>
+                                                                )}
+                                                            </div>
                                                             <div className="flex items-center gap-2">
                                                                 {card.listing_type && (
                                                                     <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider ${card.listing_type === 'seeking_crew'
@@ -788,6 +991,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                                     </span>
                                                                 )}
                                                                 {card.age_range && <span className="text-sm text-white/50">{card.age_range}</span>}
+                                                                {lastActive && (
+                                                                    <span className={`text-[10px] font-medium ${lastActive.color}`}>● {lastActive.text}</span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         {/* Interaction badges */}
@@ -819,6 +1025,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                     )}
                                                     {card.gender && (
                                                         <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] text-xs text-white/60 border border-white/[0.06]">{card.gender}</span>
+                                                    )}
+                                                    {card.vibe.length > 0 && (
+                                                        <span className="px-3 py-1.5 rounded-xl bg-purple-500/10 text-xs text-purple-200/70 border border-purple-500/15">{card.vibe.join(' · ')}</span>
+                                                    )}
+                                                    {card.languages.length > 0 && (
+                                                        <span className="px-3 py-1.5 rounded-xl bg-sky-500/10 text-xs text-sky-200/70 border border-sky-500/15">{card.languages.map(l => l.split(' ')[0]).join(' ')}</span>
                                                     )}
                                                 </div>
 
@@ -892,6 +1104,41 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                 >
                                                     ⭐
                                                 </button>
+                                                {/* Super Like */}
+                                                {!isLiked && !superLikeUsed && (
+                                                    <button
+                                                        onClick={() => { setShowSuperLikeModal(card); setSuperLikeMessage(''); }}
+                                                        className="w-14 rounded-2xl flex items-center justify-center text-xl transition-all active:scale-90 bg-gradient-to-r from-violet-500/20 to-pink-500/20 border border-violet-400/20 text-violet-300 hover:from-violet-500/30 hover:to-pink-500/30"
+                                                        title="Super Like — send with a message!"
+                                                    >
+                                                        ⚡
+                                                    </button>
+                                                )}
+                                                {/* Action menu (block/report) */}
+                                                <div className="relative">
+                                                    <button
+                                                        onClick={() => setShowActionMenu(showActionMenu === card.user_id ? null : card.user_id)}
+                                                        className="w-10 rounded-2xl flex items-center justify-center text-lg transition-all active:scale-90 bg-white/[0.03] border border-white/[0.06] text-white/30 hover:text-white/50"
+                                                    >
+                                                        ⋮
+                                                    </button>
+                                                    {showActionMenu === card.user_id && (
+                                                        <div className="absolute right-0 bottom-full mb-2 w-40 rounded-xl bg-slate-800 border border-white/10 shadow-2xl overflow-hidden z-50">
+                                                            <button
+                                                                onClick={() => handleBlock(card.user_id, card.display_name)}
+                                                                className="w-full px-4 py-3 text-left text-sm text-white/60 hover:bg-white/5 transition-colors"
+                                                            >
+                                                                🚫 Block
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { setShowReportModal(card.user_id); setShowActionMenu(null); }}
+                                                                className="w-full px-4 py-3 text-left text-sm text-red-400/60 hover:bg-red-500/10 transition-colors border-t border-white/[0.05]"
+                                                            >
+                                                                🚩 Report
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -1019,7 +1266,34 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         <p className="text-sm text-white/70">{selectedCard.age_range}</p>
                                     </div>
                                 )}
+                                {selectedCard.vibe.length > 0 && (
+                                    <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/10">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-purple-300/40 mb-0.5">Vibe</p>
+                                        <p className="text-sm text-purple-200/70">{selectedCard.vibe.join(' · ')}</p>
+                                    </div>
+                                )}
+                                {selectedCard.languages.length > 0 && (
+                                    <div className="p-3 rounded-xl bg-sky-500/5 border border-sky-500/10">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-sky-300/40 mb-0.5">Languages</p>
+                                        <p className="text-sm text-sky-200/70">{selectedCard.languages.join(', ')}</p>
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Lifestyle */}
+                            {(selectedCard.smoking || selectedCard.drinking || selectedCard.pets) && (
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedCard.smoking && (
+                                        <span className="px-3 py-1.5 rounded-xl bg-emerald-500/8 text-xs text-emerald-200/60 border border-emerald-500/10">🚬 {selectedCard.smoking}</span>
+                                    )}
+                                    {selectedCard.drinking && (
+                                        <span className="px-3 py-1.5 rounded-xl bg-amber-500/8 text-xs text-amber-200/60 border border-amber-500/10">🍷 {selectedCard.drinking}</span>
+                                    )}
+                                    {selectedCard.pets && (
+                                        <span className="px-3 py-1.5 rounded-xl bg-sky-500/8 text-xs text-sky-200/60 border border-sky-500/10">🐾 {selectedCard.pets}</span>
+                                    )}
+                                </div>
+                            )}
 
 
 
@@ -1233,13 +1507,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <button
                                         key={age}
                                         onClick={() => {
-                                            const current = editAge ? editAge.split(', ') : [];
-                                            const next = current.includes(age)
-                                                ? current.filter(a => a !== age)
-                                                : [...current, age];
-                                            setEditAge(next.join(', '));
+                                            // Single-select: tap to select, tap again to deselect
+                                            setEditAge(editAge === age ? '' : age);
                                         }}
-                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editAge.split(', ').includes(age)
+                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editAge === age
                                             ? 'bg-gradient-to-r from-emerald-500/25 to-sky-500/25 text-emerald-200 border border-emerald-400/25'
                                             : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
                                             }`}
@@ -1294,6 +1565,131 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                             }`}
                                     >
                                         {level}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Vibe / Sailing Style */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">⚡ Your Vibe</label>
+                            <div className="flex gap-2 flex-wrap">
+                                {VIBE_OPTIONS.map(v => (
+                                    <button
+                                        key={v}
+                                        onClick={() => setEditVibe(prev =>
+                                            prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]
+                                        )}
+                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editVibe.includes(v)
+                                            ? 'bg-gradient-to-r from-purple-500/25 to-pink-500/25 text-purple-200 border border-purple-400/25'
+                                            : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                            }`}
+                                    >
+                                        {v}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Languages */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">🗣️ Languages</label>
+                            <div className="flex gap-2 flex-wrap">
+                                {LANGUAGE_OPTIONS.map(lang => (
+                                    <button
+                                        key={lang}
+                                        onClick={() => setEditLanguages(prev =>
+                                            prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang]
+                                        )}
+                                        className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editLanguages.includes(lang)
+                                            ? 'bg-gradient-to-r from-sky-500/25 to-emerald-500/25 text-sky-200 border border-sky-400/25'
+                                            : 'bg-white/[0.03] text-white/35 border border-white/[0.05]'
+                                            }`}
+                                    >
+                                        {lang}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Lifestyle — Smoking / Drinking / Pets */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">🚢 Onboard Lifestyle</label>
+                            <div className="space-y-3">
+                                {/* Smoking */}
+                                <div>
+                                    <p className="text-[11px] text-white/30 mb-1.5">🚬 Smoking</p>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {SMOKING_OPTIONS.map(opt => (
+                                            <button
+                                                key={opt}
+                                                onClick={() => setEditSmoking(editSmoking === opt ? '' : opt)}
+                                                className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${editSmoking === opt
+                                                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/20'
+                                                    : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                    }`}
+                                            >
+                                                {opt}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {/* Drinking */}
+                                <div>
+                                    <p className="text-[11px] text-white/30 mb-1.5">🍷 Drinking</p>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {DRINKING_OPTIONS.map(opt => (
+                                            <button
+                                                key={opt}
+                                                onClick={() => setEditDrinking(editDrinking === opt ? '' : opt)}
+                                                className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${editDrinking === opt
+                                                    ? 'bg-amber-500/20 text-amber-200 border border-amber-400/20'
+                                                    : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                    }`}
+                                            >
+                                                {opt}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {/* Pets */}
+                                <div>
+                                    <p className="text-[11px] text-white/30 mb-1.5">🐾 Pets</p>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {PET_OPTIONS.map(opt => (
+                                            <button
+                                                key={opt}
+                                                onClick={() => setEditPets(editPets === opt ? '' : opt)}
+                                                className={`px-3 py-2 rounded-xl text-xs font-medium transition-all ${editPets === opt
+                                                    ? 'bg-sky-500/20 text-sky-200 border border-sky-400/20'
+                                                    : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                                    }`}
+                                            >
+                                                {opt}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Round 2: Interests (match-only) */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-1">🎭 Interests & Hobbies</label>
+                            <p className="text-[11px] text-amber-400/50 mb-3">🔒 Only shared with your matches — not visible on your public listing</p>
+                            <div className="flex gap-2 flex-wrap">
+                                {INTEREST_OPTIONS.map(interest => (
+                                    <button
+                                        key={interest}
+                                        onClick={() => setEditInterests(prev =>
+                                            prev.includes(interest) ? prev.filter(i => i !== interest) : [...prev, interest]
+                                        )}
+                                        className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${editInterests.includes(interest)
+                                            ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-200 border border-amber-400/20'
+                                            : 'bg-white/[0.03] text-white/30 border border-white/[0.05]'
+                                            }`}
+                                    >
+                                        {interest}
                                     </button>
                                 ))}
                             </div>
@@ -1582,37 +1978,75 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                {matches.map(match => (
-                                    <button
-                                        key={match.user_id}
-                                        onClick={() => onOpenDM(match.user_id, match.display_name)}
-                                        className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98]"
-                                    >
-                                        <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
-                                            {match.avatar_url ? (
-                                                <img src={match.avatar_url} alt="" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
-                                                    <span className="text-xl">⛵</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="flex-1 text-left min-w-0">
-                                            <p className="text-base font-semibold text-white/80 truncate">
-                                                {match.display_name}
-                                            </p>
-                                            <p className="text-xs text-white/60 truncate">
-                                                {match.home_port ? `📍 ${match.home_port}` : ''}
-                                            </p>
-                                            <p className="text-xs text-emerald-400/50 mt-0.5">
-                                                Connected {new Date(match.matched_at).toLocaleDateString()}
-                                            </p>
-                                        </div>
-                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-emerald-500/20 to-sky-500/20 flex items-center justify-center flex-shrink-0">
-                                            <span className="text-sm">💬</span>
-                                        </div>
-                                    </button>
-                                ))}
+                                {matches.map(match => {
+                                    const compat = getCompatibility(match);
+                                    const colorClasses = compat.color === 'emerald' ? 'text-emerald-300 border-emerald-400/30 bg-emerald-500/15'
+                                        : compat.color === 'sky' ? 'text-sky-300 border-sky-400/30 bg-sky-500/15'
+                                            : compat.color === 'amber' ? 'text-amber-300 border-amber-400/30 bg-amber-500/15'
+                                                : 'text-white/40 border-white/10 bg-white/5';
+                                    const barColor = compat.color === 'emerald' ? 'bg-emerald-400' : compat.color === 'sky' ? 'bg-sky-400' : compat.color === 'amber' ? 'bg-amber-400' : 'bg-white/20';
+                                    return (
+                                        <button
+                                            key={match.user_id}
+                                            onClick={() => onOpenDM(match.user_id, match.display_name)}
+                                            className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98]"
+                                        >
+                                            <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
+                                                {match.avatar_url ? (
+                                                    <img src={match.avatar_url} alt="" className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <div className="w-full h-full bg-gradient-to-br from-emerald-500/10 to-sky-500/10 flex items-center justify-center">
+                                                        <span className="text-xl">⛵</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 text-left min-w-0">
+                                                <p className="text-base font-semibold text-white/80 truncate">
+                                                    {match.display_name}
+                                                </p>
+                                                <p className="text-xs text-white/60 truncate">
+                                                    {match.home_port ? `📍 ${match.home_port}` : ''}
+                                                </p>
+                                                {/* Compatibility bar */}
+                                                {compat.score > 0 && (
+                                                    <div className="mt-1.5">
+                                                        <div className="flex items-center gap-2 mb-0.5">
+                                                            <span className={`text-[10px] font-bold ${compat.color === 'emerald' ? 'text-emerald-300' : compat.color === 'sky' ? 'text-sky-300' : compat.color === 'amber' ? 'text-amber-300' : 'text-white/30'}`}>{compat.score}% · {compat.label}</span>
+                                                        </div>
+                                                        <div className="w-full h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                                                            <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${compat.score}%` }} />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {/* Round 2: Interest badges */}
+                                                {match.interests.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                                        {match.interests.slice(0, 4).map(i => (
+                                                            <span key={i} className="px-2 py-0.5 rounded-full bg-amber-500/10 text-[10px] text-amber-200/60 border border-amber-500/10">{i}</span>
+                                                        ))}
+                                                        {match.interests.length > 4 && (
+                                                            <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[10px] text-white/25">+{match.interests.length - 4}</span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {/* Icebreaker tips */}
+                                                {(() => {
+                                                    const tips = getIcebreakers(match);
+                                                    return tips.length > 0 ? (
+                                                        <div className="mt-1">
+                                                            {tips.map((tip, i) => (
+                                                                <p key={i} className="text-[10px] text-violet-300/40 italic">💡 {tip}</p>
+                                                            ))}
+                                                        </div>
+                                                    ) : null;
+                                                })()}
+                                            </div>
+                                            <div className={`w-11 h-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${colorClasses}`}>
+                                                <span className="text-xs font-bold">{compat.score > 0 ? `${compat.score}%` : '💬'}</span>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -1631,6 +2065,68 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                 onCancel={() => setShowDeleteConfirm(false)}
                 destructive
             />
+
+            {/* Report Modal */}
+            {showReportModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowReportModal(null)}>
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-bold text-white/80 mb-3">🚩 Report User</h3>
+                        <p className="text-xs text-white/40 mb-4">Help us keep the community safe. What's the issue?</p>
+                        <select
+                            value={reportReason}
+                            onChange={e => setReportReason(e.target.value)}
+                            className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-4 outline-none focus:border-white/20"
+                        >
+                            <option value="">Select a reason...</option>
+                            <option value="Fake profile">Fake profile</option>
+                            <option value="Inappropriate content">Inappropriate content</option>
+                            <option value="Harassment">Harassment</option>
+                            <option value="Spam">Spam</option>
+                            <option value="Other">Other</option>
+                        </select>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowReportModal(null)} className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium">Cancel</button>
+                            <button
+                                onClick={handleReport}
+                                disabled={!reportReason}
+                                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason
+                                    ? 'bg-red-500/20 text-red-300 border border-red-500/20'
+                                    : 'bg-white/[0.03] text-white/20 cursor-not-allowed'
+                                    }`}
+                            >
+                                Submit Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Super Like Modal */}
+            {showSuperLikeModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowSuperLikeModal(null)}>
+                    <div className="bg-slate-900 border border-violet-500/20 rounded-2xl p-6 w-[90%] max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-300 to-pink-300 mb-1">⚡ Super Like</h3>
+                        <p className="text-xs text-white/40 mb-4">Send {showSuperLikeModal.display_name} a message with your star! (1 per day)</p>
+                        <textarea
+                            value={superLikeMessage}
+                            onChange={e => setSuperLikeMessage(e.target.value)}
+                            placeholder="Hey! I noticed we both love diving..."
+                            maxLength={200}
+                            className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"
+                        />
+                        <p className="text-[10px] text-white/20 text-right mb-4">{superLikeMessage.length}/200</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowSuperLikeModal(null)} className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium">Cancel</button>
+                            <button
+                                onClick={handleSuperLike}
+                                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-violet-500/30 to-pink-500/30 text-sm font-bold text-violet-200 border border-violet-400/20 transition-all active:scale-[0.97]"
+                            >
+                                ⚡ Send Super Like
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

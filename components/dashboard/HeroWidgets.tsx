@@ -27,15 +27,7 @@ import {
 import { getMoonPhase } from './WeatherHelpers';
 
 /* ── Micro-animation keyframes for metric icons ── */
-const iconAnimStyles = `
-@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:0.15}}
-@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}
-@keyframes hw-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}
-@keyframes hw-ripple{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.5px)}}
-@keyframes hw-wobble{0%,100%{transform:rotate(0deg)}20%{transform:rotate(-8deg)}40%{transform:rotate(6deg)}60%{transform:rotate(-4deg)}80%{transform:rotate(2deg)}}
-@keyframes hw-sparkle{0%,100%{transform:scale(1);opacity:0.85}50%{transform:scale(1.15);opacity:1}}
-`;
+/* ── Micro-animation keyframes moved to index.css ── */
 
 interface HeroWidgetsProps {
     data: WeatherMetrics;  // Both rows — updates with scroll
@@ -109,16 +101,6 @@ const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, 
                         <stop offset="100%" stopColor="rgba(148,163,184,0.45)" />
                     </linearGradient>
 
-                    {/* Needle glow */}
-                    <filter id="needleGlowLg" x="-100%" y="-100%" width="300%" height="300%">
-                        <feGaussianBlur in="SourceGraphic" stdDeviation="3" />
-                    </filter>
-
-                    {/* Outer ring glow */}
-                    <filter id="outerGlowLg" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur in="SourceGraphic" stdDeviation="4" />
-                    </filter>
-
                     {/* Needle gradient */}
                     <linearGradient id="needleGradLg" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f87171" />
@@ -132,10 +114,10 @@ const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, 
                     </linearGradient>
                 </defs>
 
-                {/* Outer glow ring */}
+                {/* Outer glow ring (Filter Removed to Save GPU) */}
                 <circle cx={cx} cy={cy} r={outerR + 2} fill="none"
                     stroke="rgba(94,234,212,0.15)" strokeWidth="6"
-                    filter="url(#outerGlowLg)" />
+                />
 
                 {/* Outer bezel ring — metallic */}
                 <circle cx={cx} cy={cy} r={outerR} fill="none"
@@ -213,17 +195,16 @@ const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, 
                 <g transform={`rotate(${needleRotation} ${cx} ${cy})`}
                     style={{ transition: 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                 >
-                    {/* Needle glow (behind) */}
+                    {/* Needle glow (behind) (Filter removed) */}
                     <polygon
                         points={`${cx},${cy - innerR + 8} ${cx - 5},${cy} ${cx + 5},${cy}`}
-                        fill="rgba(248,113,113,0.35)" filter="url(#needleGlowLg)"
+                        fill="rgba(248,113,113,0.35)"
                     />
 
                     {/* North needle (red) */}
                     <polygon
                         points={`${cx},${cy - innerR + 8} ${cx - 4},${cy - 2} ${cx},${cy - 6} ${cx + 4},${cy - 2}`}
                         fill="url(#needleGradLg)"
-                        style={{ filter: 'drop-shadow(0 0 4px rgba(248,113,113,0.5))' }}
                     />
 
                     {/* South needle (subtle) */}
@@ -240,7 +221,6 @@ const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, 
                     {/* Center pivot — inner dot */}
                     <circle cx={cx} cy={cy} r="2.5"
                         fill="rgba(94,234,212,0.9)"
-                        style={{ filter: 'drop-shadow(0 0 4px rgba(94,234,212,0.6))' }}
                     />
                 </g>
             </svg>
@@ -317,7 +297,7 @@ const BarometerCell: React.FC<{
         <div className="flex flex-col items-center justify-between h-full py-2 px-1 relative">
             {/* Header: icon + label + trend — locked to 12px line */}
             <div className="flex items-center gap-1 opacity-90 h-3">
-                <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400" style={{ animation: 'hw-wobble 4s ease-in-out infinite' }}><GaugeIcon className="w-3 h-3" /></span>
+                <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400"><GaugeIcon className="w-3 h-3" /></span>
                 <span className="text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">HPA</span>
                 <TrendArrow trend={trend} improving={isRising} />
             </div>
@@ -416,16 +396,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
     const isHumidityImproving = trends?.humidity === 'down'; // Lower humidity = more comfortable
 
-    const [showCompass, setShowCompass] = useState(false);
-
+    // PERF: useState kept to maintain hook order (React rules-of-hooks).
+    // Compass overlay has been removed, but deleting this useState would crash
+    // when switching between wx full/essential modes.
+    const [_showCompass] = useState(false);
     return (
         <div
             className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl"
             role="region"
             aria-label="Weather metrics dashboard"
         >
-            {/* Inject icon animation keyframes once */}
-            <style>{iconAnimStyles}</style>
 
             {/* TOP ROW: Wind, Dir, Gust, Wave, Per */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
@@ -433,7 +413,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Wind Speed */}
                 <InstrumentCell
                     label="WIND"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blow 3s ease-in-out infinite' }}><WindIcon className="w-3 h-3" /></span>}
+                    icon={<WindIcon className="w-3 h-3" />}
                     value={windSpeed}
                     unit={speedUnit}
                     trend={trends?.windSpeed}
@@ -443,15 +423,15 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Direction — standard cell, tap for compass overlay */}
                 <InstrumentCell
                     label="DIR"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-spin 8s linear infinite' }}><CompassIcon className="w-3 h-3" rotation={0} /></span>}
+                    icon={<CompassIcon className="w-3 h-3" rotation={0} />}
                     value={windDir}
-                    onClick={() => setShowCompass(true)}
+
                 />
 
                 {/* Gusts */}
                 <InstrumentCell
                     label="GUST"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blow 2.5s ease-in-out infinite 0.3s' }}><WindIcon className="w-3 h-3" /></span>}
+                    icon={<WindIcon className="w-3 h-3" />}
                     value={gustVal}
                     unit={speedUnit}
                     trend={trends?.windGust}
@@ -461,7 +441,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Wave/Swell Height — adapts to location type */}
                 <InstrumentCell
                     label={isOffshore ? 'SWELL' : 'WAVE'}
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-ripple 2.5s ease-in-out infinite' }}><WaveIcon className="w-3 h-3" /></span>}
+                    icon={<WaveIcon className="w-3 h-3" />}
                     value={waveHeight ?? '--'}
                     unit={waveUnit}
                     trend={trends?.waveHeight}
@@ -472,7 +452,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Period — wave or swell period */}
                 <InstrumentCell
                     label="PER."
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-ripple 2.5s ease-in-out infinite 0.4s' }}><WaveIcon className="w-3 h-3" /></span>}
+                    icon={<WaveIcon className="w-3 h-3" />}
                     value={wavePeriod}
                     unit="s"
                     dirDeg={swellDirDeg}
@@ -488,14 +468,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* UV */}
                 <InstrumentCell
                     label="UV"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-sparkle 3s ease-in-out infinite' }}><AnimatedSunIcon className="w-3 h-3 text-emerald-400" /></span>}
+                    icon={<SunIcon className="w-3 h-3" />}
                     value={uvVal}
                 />
 
                 {/* Visibility */}
                 <InstrumentCell
                     label="VIS"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-blink 4s ease-in-out infinite' }}><EyeIcon className="w-3 h-3" /></span>}
+                    icon={<EyeIcon className="w-3 h-3" />}
                     value={visVal}
                     unit={distUnit}
                     trend={trends?.visibility}
@@ -511,7 +491,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Humidity */}
                 <InstrumentCell
                     label="HUM"
-                    icon={<span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}><DropletIcon className="w-3 h-3" /></span>}
+                    icon={<DropletIcon className="w-3 h-3" />}
                     value={humidityVal}
                     unit="%"
                     trend={trends?.humidity}
@@ -527,47 +507,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 />
             </div>
 
-            {/* Compass Overlay Modal */}
-            {showCompass && (
-                <div
-                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 animate-in fade-in duration-200"
-                    onClick={() => setShowCompass(false)}
-                >
-                    <div
-                        className="relative flex flex-col items-center gap-3 p-4 pt-8 rounded-2xl bg-gradient-to-b from-slate-800/95 to-slate-900/98 border border-white/10 shadow-2xl"
-                        style={{ boxShadow: '0 0 60px rgba(94,234,212,0.08), 0 25px 50px rgba(0,0,0,0.5)', maxWidth: '260px', width: '90%' }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Close button — prominent X */}
-                        <button
-                            onClick={() => setShowCompass(false)}
-                            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all active:scale-95"
-                            aria-label="Close compass"
-                        >
-                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                                <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                            </svg>
-                        </button>
 
-                        {/* Title */}
-                        <div className="flex items-center gap-1.5">
-                            <CompassIcon className="w-3.5 h-3.5 text-emerald-400" rotation={0} />
-                            <span className="text-[11px] font-bold text-emerald-300/80 uppercase tracking-[0.2em]">Wind Direction</span>
-                        </div>
-
-                        {/* Compass — compact size */}
-                        <CompassWidget degrees={windDeg} size={160} />
-
-                        {/* Degrees + Cardinal readout */}
-                        <div className="flex items-baseline gap-2 pb-1">
-                            <span className="text-3xl font-light text-white tracking-tight" style={{ fontFeatureSettings: '"tnum"' }}>
-                                {windDeg}°
-                            </span>
-                            <span className="text-base font-semibold text-emerald-400/80 tracking-wider">{windDir}</span>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

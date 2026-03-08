@@ -16,6 +16,8 @@ const CREW_PROFILES_TABLE = 'sailor_crew_profiles';
 const DATING_PROFILES_TABLE = 'sailor_dating_profiles';
 const LIKES_TABLE = 'sailor_likes';
 const CHAT_PROFILES_TABLE = 'chat_profiles';
+const BLOCKS_TABLE = 'sailor_blocks';
+const REPORTS_TABLE = 'sailor_reports';
 
 /** Raw Supabase row — typed loosely since we normalize immediately */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,6 +43,14 @@ export interface CrewProfile {
     available_from: string | null;
     available_to: string | null;
     bio: string | null;
+    vibe: string[];
+    languages: string[];
+    smoking: string | null;
+    drinking: string | null;
+    pets: string | null;
+    interests: string[];
+    last_active: string | null;
+    is_verified: boolean;
     location_city: string | null;
     location_state: string | null;
     location_country: string | null;
@@ -71,6 +81,14 @@ export interface CrewCard {
     available_from: string | null;
     available_to: string | null;
     bio: string | null;
+    vibe: string[];
+    languages: string[];
+    smoking: string | null;
+    drinking: string | null;
+    pets: string | null;
+    interests: string[];
+    last_active: string | null;
+    is_verified: boolean;
     location_city: string | null;
     location_state: string | null;
     location_country: string | null;
@@ -131,6 +149,13 @@ export interface SailorMatch {
     avatar_url: string | null;
     vessel_name: string | null;
     home_port: string | null;
+    interests: string[];
+    vibe: string[];
+    languages: string[];
+    smoking: string | null;
+    drinking: string | null;
+    pets: string | null;
+    sailing_experience: string | null;
     matched_at: string;
 }
 
@@ -163,12 +188,40 @@ export const LISTING_TYPES: { key: ListingType; label: string; icon: string }[] 
     { key: 'seeking_berth', label: 'Crew', icon: '🧭' },
 ];
 
+export const VIBE_OPTIONS = [
+    '🌴 Cruisy', '⚡ Adventurous', '🏁 Competitive Racer',
+    '🏠 Liveaboard Life', '🌅 Sundowner Vibes', '🧭 Explorer',
+    '🎉 Social Butterfly', '🧘 Zen Sailor',
+];
+
+export const LANGUAGE_OPTIONS = [
+    '🇬🇧 English', '🇫🇷 French', '🇪🇸 Spanish', '🇮🇹 Italian',
+    '🇩🇪 German', '🇵🇹 Portuguese', '🇬🇷 Greek', '🇭🇷 Croatian',
+];
+
+export const SMOKING_OPTIONS = ['Non-Smoker', 'Social Smoker', 'Smoker'];
+export const DRINKING_OPTIONS = ['Non-Drinker', 'Social Drinker', 'Regular'];
+export const PET_OPTIONS = ['No Pets', '🐕 Dog Aboard', '🐈 Cat Aboard', '🐕🐈 Both'];
+
+export const SUPER_LIKE_DAILY_LIMIT = 1;
+
 export const INTEREST_OPTIONS = [
-    '⛵ Sailing', '🐟 Fishing', '🤿 Diving', '🏄 Surfing',
-    '🍳 Cooking', '🌅 Sunsets', '📖 Reading', '🎵 Music',
-    '🏔️ Adventure', '📸 Photography', '🍺 Beers', '🧘 Yoga',
-    '🏊 Swimming', '🌊 Surfing', '🗺️ Travel', '🔧 Boat Work',
-    '🎯 Racing', '🐕 Dogs', '🐈 Cats', '🌿 Nature',
+    '⛵ Sailing', '🌍 Exploring New Places', '🐟 Fishing',
+    '🤿 Diving', '🏝️ Island Hopping', '🏄 Surfing',
+    '🤿 Snorkelling', '🎯 Racing', '🪸 Reef Exploring',
+    '🏊 Swimming', '🔧 Boat Work', '🧭 Trekking',
+    '🍽️ Fine Dining', '☕ Coffee', '🍳 Cooking',
+    '🍷 Wine Time', '🍹 Cocktails', '🍺 Craft Beer',
+    '🌮 Street Food', '🎸 Live Music', '🎵 Music',
+    '🎬 Movies / TV', '💃 Dancing', '📺 Binge Watching',
+    '📸 Photography', '🎨 Art', '🎪 Festivals',
+    '📖 Reading', '🎮 Gaming', '🌅 Sunsets',
+    '🥾 Hiking', '🚶 Walking', '🏕️ Camping',
+    '🏔️ Adventure', '🗺️ Travel', '🧗 Rock Climbing',
+    '🪂 Skydiving', '🏍️ Motorbikes', '🚴 Cycling',
+    '🚗 Weekend Getaways', '🧘 Yoga', '🏋️ Gym',
+    '🌿 Nature', '🧘 Meditation', '💻 Coding', '🤖 AI',
+    '🐕 Dogs', '🐈 Cats',
 ];
 
 export const SEEKING_OPTIONS = [
@@ -236,6 +289,14 @@ class LonelyHeartsServiceClass {
             available_from: data.available_from || null,
             available_to: data.available_to || null,
             bio: data.bio || null,
+            vibe: data.vibe || [],
+            languages: data.languages || [],
+            smoking: data.smoking || null,
+            drinking: data.drinking || null,
+            pets: data.pets || null,
+            interests: data.interests || [],
+            last_active: data.last_active || null,
+            is_verified: data.is_verified || false,
             location_city: data.location_city || null,
             location_state: data.location_state || null,
             location_country: data.location_country || null,
@@ -489,6 +550,33 @@ class LonelyHeartsServiceClass {
             }
         }
 
+        // Include crew-only profiles (e.g. seed profiles without chat_profiles)
+        const chatUserIds = new Set(chatProfiles.map((p: any) => p.user_id));
+        let crewOnlyQuery = supabase
+            .from(CREW_PROFILES_TABLE)
+            .select('*')
+            .neq('user_id', this.currentUserId)
+            .not('user_id', 'in', `(${[...chatUserIds].join(',')})`)
+            .limit(30);
+
+        if (filters.listing_type) {
+            crewOnlyQuery = crewOnlyQuery.eq('listing_type', filters.listing_type);
+        }
+
+        const { data: crewOnlyProfiles } = await crewOnlyQuery;
+        if (crewOnlyProfiles) {
+            for (const cp of crewOnlyProfiles) {
+                const card = this.buildCrewCard(null, cp);
+                if (filters.skills && filters.skills.length > 0) {
+                    if (!filters.skills.some(s => (card.skills || []).includes(s))) continue;
+                }
+                if (filters.experience && card.sailing_experience !== filters.experience) continue;
+                if (filters.gender && card.gender !== filters.gender) continue;
+                if (filters.age_ranges && filters.age_ranges.length > 0 && !filters.age_ranges.includes(card.age_range || '')) continue;
+                cards.push(card);
+            }
+        }
+
         return cards.slice(0, limit);
     }
 
@@ -497,14 +585,15 @@ class LonelyHeartsServiceClass {
         return this.getCrewListings({}, limit);
     }
 
-    private buildCrewCard(chatProfile: SupabaseRow, crewProfile: SupabaseRow | null): CrewCard {
+    private buildCrewCard(chatProfile: SupabaseRow | null, crewProfile: SupabaseRow | null): CrewCard {
         const cp = crewProfile || {};
+        const chat = chatProfile || {};
         return {
-            user_id: chatProfile.user_id,
-            display_name: chatProfile.display_name || 'Anonymous Sailor',
-            avatar_url: chatProfile.avatar_url,
-            vessel_name: chatProfile.vessel_name,
-            home_port: chatProfile.home_port,
+            user_id: chat.user_id || cp.user_id,
+            display_name: chat.display_name || cp.first_name || 'Anonymous Sailor',
+            avatar_url: chat.avatar_url || cp.photo_url || null,
+            vessel_name: chat.vessel_name || null,
+            home_port: chat.home_port || (cp.location_city ? `${cp.location_city}, ${cp.location_country || ''}` : null),
             listing_type: cp.listing_type || null,
             first_name: cp.first_name || null,
             photo_url: cp.photo_url || null,
@@ -518,6 +607,14 @@ class LonelyHeartsServiceClass {
             available_from: cp.available_from || null,
             available_to: cp.available_to || null,
             bio: cp.bio || null,
+            vibe: cp.vibe || [],
+            languages: cp.languages || [],
+            smoking: cp.smoking || null,
+            drinking: cp.drinking || null,
+            pets: cp.pets || null,
+            interests: cp.interests || [],
+            last_active: cp.last_active || null,
+            is_verified: cp.is_verified || false,
             location_city: cp.location_city || null,
             location_state: cp.location_state || null,
             location_country: cp.location_country || null,
@@ -665,8 +762,19 @@ class LonelyHeartsServiceClass {
             for (const dp of datingProfiles) datingMap.set(dp.user_id, dp);
         }
 
+        // Also fetch crew profiles for interests (Round 2)
+        const { data: crewProfiles } = await supabase
+            .from(CREW_PROFILES_TABLE)
+            .select('user_id, interests, vibe, languages, smoking, drinking, pets, sailing_experience')
+            .in('user_id', Array.from(mutualIds));
+        const crewMap = new Map<string, any>();
+        if (crewProfiles) {
+            for (const cp of crewProfiles) crewMap.set(cp.user_id, cp);
+        }
+
         return profiles.map((p: any) => {
             const dp = datingMap.get(p.user_id);
+            const cp = crewMap.get(p.user_id);
             return {
                 user_id: p.user_id,
                 display_name: p.display_name || 'Anonymous Sailor',
@@ -675,6 +783,13 @@ class LonelyHeartsServiceClass {
                 avatar_url: p.avatar_url,
                 vessel_name: p.vessel_name,
                 home_port: p.home_port,
+                interests: cp?.interests || [],
+                vibe: cp?.vibe || [],
+                languages: cp?.languages || [],
+                smoking: cp?.smoking || null,
+                drinking: cp?.drinking || null,
+                pets: cp?.pets || null,
+                sailing_experience: cp?.sailing_experience || null,
                 matched_at: matchDates.get(p.user_id) || '',
             };
         }).sort((a: SailorMatch, b: SailorMatch) =>
@@ -686,6 +801,98 @@ class LonelyHeartsServiceClass {
     async getMatchCount(): Promise<number> {
         const matches = await this.getMatches();
         return matches.length;
+    }
+
+    // ─── BLOCK & REPORT ─────────────────────────────
+
+    /** Block a user (hides them from your browse) */
+    async blockUser(targetId: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+        const { error } = await supabase
+            .from(BLOCKS_TABLE)
+            .upsert({ blocker_id: this.currentUserId, blocked_id: targetId }, { onConflict: 'blocker_id,blocked_id' });
+        return !error;
+    }
+
+    /** Unblock a user */
+    async unblockUser(targetId: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+        const { error } = await supabase
+            .from(BLOCKS_TABLE)
+            .delete()
+            .eq('blocker_id', this.currentUserId)
+            .eq('blocked_id', targetId);
+        return !error;
+    }
+
+    /** Get IDs of users this person has blocked */
+    async getBlockedUserIds(): Promise<string[]> {
+        if (!supabase || !this.currentUserId) return [];
+        const { data } = await supabase
+            .from(BLOCKS_TABLE)
+            .select('blocked_id')
+            .eq('blocker_id', this.currentUserId);
+        return data?.map((d: any) => d.blocked_id) || [];
+    }
+
+    /** Report a user */
+    async reportUser(targetId: string, reason: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+        const { error } = await supabase
+            .from(REPORTS_TABLE)
+            .insert({
+                reporter_id: this.currentUserId,
+                reported_id: targetId,
+                reason,
+                created_at: new Date().toISOString(),
+            });
+        return !error;
+    }
+
+    // ─── SUPER LIKE ─────────────────────────────────
+
+    /** Record a super like with an optional message */
+    async recordSuperLike(targetId: string, message: string): Promise<{ matched: boolean }> {
+        if (!supabase || !this.currentUserId) return { matched: false };
+
+        // Record the like first
+        const result = await this.recordLike(targetId, true);
+
+        // Store the super-like message
+        await supabase
+            .from(LIKES_TABLE)
+            .update({ super_like_message: message })
+            .eq('liker_id', this.currentUserId)
+            .eq('liked_id', targetId);
+
+        return result;
+    }
+
+    /** Check if user has used their daily super like */
+    async hasSuperLikedToday(): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return true;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const { data } = await supabase
+            .from(LIKES_TABLE)
+            .select('id')
+            .eq('liker_id', this.currentUserId)
+            .not('super_like_message', 'is', null)
+            .gte('created_at', today.toISOString());
+
+        return (data?.length || 0) >= SUPER_LIKE_DAILY_LIMIT;
+    }
+
+    // ─── LAST ACTIVE ────────────────────────────────
+
+    /** Update the current user's last_active timestamp */
+    async updateLastActive(): Promise<void> {
+        if (!supabase || !this.currentUserId) return;
+        await supabase
+            .from(CREW_PROFILES_TABLE)
+            .update({ last_active: new Date().toISOString() })
+            .eq('user_id', this.currentUserId);
     }
 }
 

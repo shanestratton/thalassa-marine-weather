@@ -13,6 +13,9 @@
  */
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('PassageCanvas');
 import SpatiotemporalMap from './SpatiotemporalMap';
 import TemporalScrubber from './TemporalScrubber';
 import PassageHUD from './PassageHUD';
@@ -244,7 +247,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             toast.success('GPX route exported');
             setTimeout(() => setSaveState('idle'), 3000);
         } catch (err) {
-            console.error('[4DMap] GPX export error:', err);
+            log.error('[4DMap] GPX export error:', err);
             setSaveState('error');
             toast.error('Failed to export GPX');
             setTimeout(() => setSaveState('idle'), 2000);
@@ -289,7 +292,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 setTimeout(() => setLogbookState('idle'), 2000);
             }
         } catch (err) {
-            console.error('[4DMap] Save to logbook error:', err);
+            log.error('[4DMap] Save to logbook error:', err);
             setLogbookState('error');
             toast.error('Failed to save route');
             setTimeout(() => setLogbookState('idle'), 2000);
@@ -348,12 +351,12 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                             west: grib.west, east: grib.east,
                             totalHours: 1,
                         });
-                        console.info(`[4DCanvas] Wind grid loaded: ${grib.width}×${grib.height}, bounds=[${grib.south},${grib.north}]×[${grib.west},${grib.east}]`);
+                        log.info(`[4DCanvas] Wind grid loaded: ${grib.width}×${grib.height}, bounds=[${grib.south},${grib.north}]×[${grib.west},${grib.east}]`);
                         return;
                     }
                 }
             } catch (err) {
-                console.warn('[4DCanvas] GFS edge function failed, trying fallback:', err);
+                log.warn('[4DCanvas] GFS edge function failed, trying fallback:', err);
             }
 
             // Fallback: try WW3 + global Open-Meteo

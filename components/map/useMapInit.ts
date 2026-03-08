@@ -7,6 +7,9 @@
  */
 
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('useMapInit');
 import mapboxgl from 'mapbox-gl';
 import { LocationStore, useLocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
@@ -153,6 +156,29 @@ export function useMapInit(opts: UseMapInitOptions) {
             }
 
             setMapReady(true);
+
+            // ── Coastline outline — always on top of weather layers ──
+            // Uses the built-in 'water' source-layer from the composite vector tileset
+            // to draw a thin white line at land/sea boundaries. This ensures geographic
+            // context is never lost under heavy rain/cloud overlays.
+            if (!map.getLayer('coastline-outline')) {
+                map.addLayer({
+                    id: 'coastline-outline',
+                    type: 'line',
+                    source: 'composite',
+                    'source-layer': 'water',
+                    paint: {
+                        'line-color': 'rgba(255, 255, 255, 0.45)',
+                        'line-width': [
+                            'interpolate', ['linear'], ['zoom'],
+                            2, 0.4,
+                            5, 0.8,
+                            8, 1.2,
+                            12, 1.5,
+                        ],
+                    },
+                });
+            }
 
             const styleLayers = map.getStyle()?.layers || [];
             let firstSymbolId: string | undefined;
@@ -347,16 +373,16 @@ export function useMapInit(opts: UseMapInitOptions) {
             map.addLayer({ id: 'grib-bounds-fill', type: 'fill', source: 'grib-bounds', paint: { 'fill-color': '#8b5cf6', 'fill-opacity': 0.08 } });
             map.addLayer({ id: 'grib-bounds-line', type: 'line', source: 'grib-bounds', paint: { 'line-color': '#8b5cf6', 'line-width': 2, 'line-dasharray': [4, 4], 'line-opacity': 0.5 } });
 
-            // ── Coastline overlays ──
+            // ── Coastline overlays (brighter for visibility under weather layers) ──
             map.addLayer({
                 id: 'coastline-stroke',
                 type: 'line',
                 source: 'composite',
                 'source-layer': 'water',
                 paint: {
-                    'line-color': '#94a3b8',
+                    'line-color': 'rgba(255, 255, 255, 0.55)',
                     'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 5, 0.8, 10, 1.2, 14, 1.5],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 6, 0.7, 12, 0.85],
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.6, 6, 0.8, 12, 0.9],
                 },
             });
 
@@ -499,7 +525,7 @@ export function usePickerMode(
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, name || fallback);
             } catch (e) {
-                console.warn('[MapHub]', e);
+                log.warn('[MapHub]', e);
                 const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
                 onLocationSelect?.(lat, lng, fallback);
             }

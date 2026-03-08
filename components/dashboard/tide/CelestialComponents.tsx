@@ -1,4 +1,7 @@
 import React from 'react';
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('CelestialComponents');
 import { ArrowUpIcon, ArrowDownIcon } from '../../Icons';
 
 // --- MOON LOGIC ---
@@ -122,7 +125,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             const d = new Date(t);
             if (isNaN(d.getTime())) return t;
             return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-        } catch (e) { console.warn('[CelestialComponents]', e); return t; }
+        } catch (e) { log.warn( e); return t; }
     };
 
     const sunrise = formatTimeStr(rawSunrise);
@@ -217,19 +220,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
                         stroke="rgba(255,255,255,0.5)"
                         strokeWidth="2"
                         className="transition-all duration-1000"
-                    >
-                        {isDay && <animate attributeName="r" values="6;7;6" dur="3s" repeatCount="indefinite" />}
-                    </circle>
-
-                    <defs>
-                        <filter id="sunGlow" x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                            <feMerge>
-                                <feMergeNode in="coloredBlur" />
-                                <feMergeNode in="SourceGraphic" />
-                            </feMerge>
-                        </filter>
-                    </defs>
+                    />
                 </svg>
             </div>
 

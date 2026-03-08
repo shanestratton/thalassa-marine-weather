@@ -1,5 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('OnboardingWizard');
 import { toast } from './Toast';
 import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel, PolarData } from '../types';
 import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon, AnchorIcon } from './Icons';
@@ -129,7 +132,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     });
                 }
             } catch (e) {
-                console.warn('[OnboardingWizard]', e);
+                log.warn(e);
                 /* Reverse geocode failed — fall back to WP coordinate format */
                 setTempLocation(prev => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
@@ -647,23 +650,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             </div>
                         </div>
 
-                        <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center mb-6 border border-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.1)]">
-                            <div>
-                                <span className="text-gray-200 font-bold block">Forecast Model</span>
-                                <span className="text-xs text-gray-500">Source for weather data</span>
-                            </div>
-                            <select
-                                value={preferredModel}
-                                onChange={(e) => setPreferredModel(e.target.value as WeatherModel)}
-                                className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-sky-500 text-right"
-                            >
-                                <option value="best_match">Auto (Best Match)</option>
-                                <option value="ecmwf_ifs04">ECMWF (Europe)</option>
-                                <option value="gfs_seamless">GFS (USA)</option>
-                                <option value="icon_seamless">ICON (Global)</option>
-                                <option value="bom_access_global">BOM (Aus)</option>
-                            </select>
-                        </div>
 
                         <button onClick={handleFinish} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20">
                             Launch Dashboard

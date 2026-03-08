@@ -14,62 +14,9 @@
  */
 import React, { useEffect, useRef } from 'react';
 
-// ── Inject keyframes once ──
-const STYLE_ID = 'animated-icon-keyframes';
-if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = `
-        @keyframes icon-wind-blow {
-            0%, 100% { transform: rotate(0deg); }
-            25% { transform: rotate(-8deg); }
-            75% { transform: rotate(6deg); }
-        }
-        @keyframes icon-rain-fall {
-            0% { transform: translateY(-2px); opacity: 0; }
-            40% { opacity: 1; }
-            100% { transform: translateY(4px); opacity: 0; }
-        }
-        @keyframes icon-sun-pulse {
-            0%, 100% { transform: scale(1); opacity: 0.8; }
-            50% { transform: scale(1.15); opacity: 1; }
-        }
-        @keyframes icon-sun-rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        @keyframes icon-wave-undulate {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-2px); }
-        }
-        @keyframes icon-cloud-drift {
-            0%, 100% { transform: translateX(0px); }
-            50% { transform: translateX(3px); }
-        }
-        @keyframes icon-compass-wobble {
-            0% { transform: rotate(-15deg); }
-            30% { transform: rotate(10deg); }
-            60% { transform: rotate(-5deg); }
-            80% { transform: rotate(3deg); }
-            100% { transform: rotate(0deg); }
-        }
-        @keyframes icon-fade-in {
-            from { opacity: 0; transform: scale(0.85); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        .anim-icon { animation: icon-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
-        .anim-wind { animation: icon-wind-blow 2s ease-in-out infinite; transform-origin: center; }
-        .anim-rain-1 { animation: icon-rain-fall 1.2s ease-in infinite; }
-        .anim-rain-2 { animation: icon-rain-fall 1.2s ease-in 0.3s infinite; }
-        .anim-rain-3 { animation: icon-rain-fall 1.2s ease-in 0.6s infinite; }
-        .anim-sun-core { animation: icon-sun-pulse 3s ease-in-out infinite; }
-        .anim-sun-rays { animation: icon-sun-rotate 20s linear infinite; transform-origin: center; }
-        .anim-wave { animation: icon-wave-undulate 2s ease-in-out infinite; }
-        .anim-cloud { animation: icon-cloud-drift 3s ease-in-out infinite; }
-        .anim-compass { animation: icon-compass-wobble 0.8s cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: center; }
-    `;
-    document.head.appendChild(style);
-}
+// ── All keyframes moved to index.css to prevent CSSOM thrashing ──
+// Classes: .anim-icon, .anim-wind, .anim-rain-1/2/3, .anim-sun-core,
+//          .anim-sun-rays, .anim-wave, .anim-cloud, .anim-compass
 
 interface AnimatedIconProps {
     className?: string;

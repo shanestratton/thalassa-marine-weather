@@ -1,5 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('TideAndVessel');
 import { Card } from './shared/Card';
 import { PowerBoatIcon, SailBoatIcon, TideCurveIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, GaugeIcon, ClockIcon, MoonIcon, SunIcon, EyeIcon, StarIcon } from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
@@ -269,7 +272,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
             const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
             return h + (m / 60);
         } catch (e) {
-            console.warn('[TideAndVessel]', e);
+            log.warn(e);
             /* Invalid timeZone or Intl unavailable — fall back to local device time */
             return date.getHours() + (date.getMinutes() / 60);
         }
@@ -620,7 +623,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
 export const TideGraph = TideGraphOriginal;
 
-export const TideWidget = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: TideGUIDetails, customTime?: number, showAllDayEvents?: boolean }) => {
+const TideWidgetComponent = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: TideGUIDetails, customTime?: number, showAllDayEvents?: boolean }) => {
     return (
         <Card key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'} className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4" role="figure" aria-labelledby="tide-chart-title" aria-describedby="tide-chart-desc">
             {/* Header */}
@@ -644,8 +647,9 @@ export const TideWidget = ({ tides, hourlyTides, tideHourly, units, timeZone, mo
         </Card>
     );
 };
+export const TideWidget = React.memo(TideWidgetComponent);
 
-export const SunMoonWidget = ({ current, units, timeZone, lat }: { current: WeatherMetrics, units: UnitPreferences, timeZone?: string, lat?: number }) => {
+const SunMoonWidgetComponent = ({ current, units, timeZone, lat }: { current: WeatherMetrics, units: UnitPreferences, timeZone?: string, lat?: number }) => {
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col gap-4">
             {/* Header */}
@@ -679,8 +683,9 @@ export const SunMoonWidget = ({ current, units, timeZone, lat }: { current: Weat
         </Card>
     );
 };
+export const SunMoonWidget = React.memo(SunMoonWidgetComponent);
 
-export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, vesselStatus: VesselStatus }) => {
+const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile, vesselStatus: VesselStatus }) => {
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
@@ -729,7 +734,7 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
                         {csf && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize</span>
-                                <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(2)}</span>
+                                <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(1)}</span>
                             </div>
                         )}
                     </>
@@ -738,9 +743,10 @@ export const VesselWidget = ({ vessel, vesselStatus }: { vessel: VesselProfile, 
         </Card>
     );
 };
+export const VesselWidget = React.memo(VesselWidgetComponent);
 
 // --- LEGACY EXPORT FOR BACKWARD COMPAT (DEPRECATED) ---
-export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles, tides, hourlyTides, tideHourly, units, timeZone, modelUsed, isLandlocked, lat }: { vessel: VesselProfile, current: WeatherMetrics, vesselStatus: VesselStatus, statusStyles: VesselStatusStyles, tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, isLandlocked?: boolean, lat?: number }) => {
+const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyles, tides, hourlyTides, tideHourly, units, timeZone, modelUsed, isLandlocked, lat }: { vessel: VesselProfile, current: WeatherMetrics, vesselStatus: VesselStatus, statusStyles: VesselStatusStyles, tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, isLandlocked?: boolean, lat?: number }) => {
 
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
@@ -882,7 +888,7 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
                                 {csf && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                         <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize Risk</span>
-                                        <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(2)}</span>
+                                        <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(1)}</span>
                                     </div>
                                 )}
                                 {dlr && (
@@ -905,3 +911,4 @@ export const VesselStatusWidget = ({ vessel, current, vesselStatus, statusStyles
         </div>
     );
 };
+export const VesselStatusWidget = React.memo(VesselStatusWidgetComponent);

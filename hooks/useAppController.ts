@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('useAppController');
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
@@ -193,7 +196,7 @@ export const useAppController = () => {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
             } catch (e) {
-                console.warn('[useAppController]', e);
+                log.warn( e);
                 // Geocode failed — fall through
             }
         }

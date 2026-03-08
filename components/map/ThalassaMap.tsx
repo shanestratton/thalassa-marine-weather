@@ -1,4 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('ThalassaMap');
 import Map, { ViewStateChangeEvent, NavigationControl, MapRef } from 'react-map-gl/maplibre';
 import type { StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -205,7 +208,7 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.addLayer(windLayer as any, beforeLayerId);
         } catch (e) {
-            console.error('[ThalassaMap] Failed to add WindParticleLayer:', e);
+            log.error(' Failed to add WindParticleLayer:', e);
         }
 
         feedWindData();

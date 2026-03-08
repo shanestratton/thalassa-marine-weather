@@ -12,6 +12,9 @@
  *   bg-slate-950, flex-col, scroll area, fixed bottom CTA
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('EquipmentList');
 import { createPortal } from 'react-dom';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 import { LocalEquipmentService } from '../../services/vessel/LocalEquipmentService';
@@ -329,7 +332,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         try {
             setItems(LocalEquipmentService.getAll());
         } catch (e) {
-            console.error('Failed to load equipment:', e);
+            log.error('Failed to load equipment:', e);
             toast.error('Failed to load equipment');
         } finally {
             setLoading(false);
@@ -392,7 +395,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             toast.success('Equipment registered');
             flash();
         } catch (e) {
-            console.error('Failed to add equipment:', e);
+            log.error('Failed to add equipment:', e);
             toast.error('Failed to add equipment');
         }
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
@@ -416,7 +419,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             try {
                 await LocalEquipmentService.delete(id);
             } catch (e) {
-                console.warn('[EquipmentList] delete failed:', e);
+                log.warn(' delete failed:', e);
                 toast.error('Failed to delete equipment');
                 setItems(prev => [...prev, item]);
             }
@@ -470,7 +473,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             toast.success('Equipment updated');
             flash();
         } catch (e) {
-            console.error('Failed to update equipment:', e);
+            log.error('Failed to update equipment:', e);
             toast.error('Failed to update equipment');
         }
     }, [selectedItem, newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);

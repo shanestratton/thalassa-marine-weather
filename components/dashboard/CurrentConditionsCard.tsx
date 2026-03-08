@@ -43,24 +43,22 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
 
     return (
         <div className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl transition-all duration-300">
-            {/* Animation keyframes */}
-            <style>{`@keyframes hw-blink{0%,90%,100%{opacity:1}95%{opacity:.15}}@keyframes hw-blow{0%,100%{transform:rotate(0deg)}25%{transform:rotate(8deg)}75%{transform:rotate(-6deg)}}@keyframes hw-drip{0%,100%{transform:translateY(0)}50%{transform:translateY(1.5px)}}`}</style>
+            {/* Keyframes moved to index.css */}
+
             {/* Single row: 5 key metrics — clean, minimal, no redundancy with header */}
             <div className="grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
                 {/* Wind */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <span style={{ display: 'inline-flex', animation: 'hw-blow 3s ease-in-out infinite' }}>
-                            <svg
-                                className="w-3 h-3 text-emerald-400"
-                                style={{ transform: `rotate(${windRotation + 180}deg)` }}
-                                viewBox="0 0 24 24"
-                                fill="currentColor"
-                            >
-                                <path d="M12 2L8 10h8L12 2z" />
-                                <rect x="10" y="10" width="4" height="12" />
-                            </svg>
-                        </span>
+                        <svg
+                            className="w-3 h-3 text-emerald-400"
+                            style={{ transform: `rotate(${windRotation + 180}deg)` }}
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                        >
+                            <path d="M12 2L8 10h8L12 2z" />
+                            <rect x="10" y="10" width="4" height="12" />
+                        </svg>
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">{windDir}</span>
                     </div>
                     <div className="flex items-baseline mt-1">
@@ -81,9 +79,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
                 {/* Visibility */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <span style={{ display: 'inline-flex', animation: 'hw-blink 4s ease-in-out infinite' }}>
-                            <EyeIcon className="w-3 h-3 text-emerald-400" />
-                        </span>
+                        <EyeIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Vis</span>
                     </div>
                     <div className="flex items-baseline mt-1">
@@ -95,9 +91,7 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
                 {/* Humidity */}
                 <div className="flex flex-col items-center justify-center">
                     <div className="flex items-center gap-1">
-                        <span style={{ display: 'inline-flex', animation: 'hw-drip 2s ease-in-out infinite' }}>
-                            <DropletIcon className="w-3 h-3 text-emerald-400" />
-                        </span>
+                        <DropletIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">HUM</span>
                     </div>
                     <span className="text-2xl font-mono font-medium text-ivory tracking-tight mt-1">{humidity}</span>

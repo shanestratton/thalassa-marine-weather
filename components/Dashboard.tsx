@@ -1,5 +1,8 @@
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('Dashboard');
 import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
 import { ClockIcon } from './Icons';
@@ -136,7 +139,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     }, 5 * 60 * 1000);
                     return () => { cancelled = true; clearInterval(rainTimer); };
                 }
-            } catch (e) { console.warn('[Dashboard] corrupted cache, continue with fresh fetch:', e); }
+            } catch (e) { log.warn('corrupted cache, continue with fresh fetch:', e); }
         }
 
         // Initial fetch
@@ -291,7 +294,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             const set = new Date(d); set.setHours(sH, sM, 0, 0);
             return d >= rise && d < set;
         } catch (e) {
-            console.warn('[Dashboard]', e);
+            log.warn('Data fetch error:', e);
             const h = new Date(widgetCardTime).getHours();
             return h >= 6 && h < 18;
         }
@@ -493,7 +496,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         <div className="absolute inset-0">
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
                             {/* App Header height is ~108px. With 18px gap (was 10px + 8px extra), top should be 126px */}
-                            <div className="flex-shrink-0 z-[120] w-full max-w-2xl mx-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}>
+                            <div className="flex-shrink-0 z-[120] w-full max-w-4xl mx-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}>
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
@@ -509,6 +512,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                 setActiveDay(0);
                                                 setActiveHour(0);
                                                 setActiveDayData(null);
+                                                // Reset horizontal scroll to live position
+                                                setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
                                             }
                                         }}
                                     />
@@ -516,10 +521,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300 max-w-2xl mx-auto" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)' }}></div>
+                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300 max-w-4xl mx-auto" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)' }}></div>
 
                             {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (126 + 40 + 7 = 173) */}
-                            <div className="fixed left-0 right-0 z-[110] px-4 max-w-2xl mx-auto" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}>
+                            <div className="fixed left-0 right-0 z-[110] px-4 max-w-4xl mx-auto" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}>
                                 <HeroHeader
                                     data={safeActive}
                                     units={units}
@@ -537,6 +542,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             setActiveDay(0);
                                             setActiveHour(0);
                                             setActiveDayData(null);
+                                            // Reset horizontal scroll to live position
+                                            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
                                         }
                                     }}
                                 />
@@ -546,12 +553,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243) */}
                             <div
-                                className="fixed left-0 right-0 z-[110] px-4 max-w-2xl mx-auto transition-all duration-300 ease-in-out"
+                                className="fixed left-0 right-0 z-[110] px-4 max-w-4xl mx-auto transition-all duration-300 ease-in-out"
                                 style={{
                                     top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
                                     opacity: !isExpanded ? 1 : 0,
                                     transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: !isExpanded ? 'auto' : 'none',
+                                    visibility: !isExpanded ? 'visible' : 'hidden',
                                 }}
                             >
                                 <CurrentConditionsCard
@@ -569,6 +577,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     opacity: isExpanded ? 1 : 0,
                                     transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
                                     pointerEvents: isExpanded ? 'auto' : 'none',
+                                    visibility: isExpanded ? 'visible' : 'hidden',
                                 }}
                             >
                                 <HeroWidgets
@@ -589,7 +598,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
                                 Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
-                            <div className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0 max-w-2xl mx-auto" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                            <div className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0 max-w-4xl mx-auto" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
                                 {/* STATIC RAIN FORECAST — always visible */}
                                 <div className="shrink-0 px-4">
                                     <RainForecastCard
@@ -626,7 +635,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
                             {isExpanded && (
-                                <div className="fixed left-0 right-0 z-[125] flex justify-center max-w-2xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                                <div className="fixed left-0 right-0 z-[125] flex justify-center max-w-4xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
                                     <div className="flex gap-[3px] px-4 py-1">
                                         {Array.from({ length: 24 }).map((_, i) => (
                                             <div
@@ -646,7 +655,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Hero container bottom is 120px. 
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
-                            <div className="fixed left-0 right-0 z-[125] px-4 max-w-2xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}>
+                            <div className="fixed left-0 right-0 z-[125] px-4 max-w-4xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}>
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}

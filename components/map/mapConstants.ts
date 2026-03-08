@@ -63,22 +63,4 @@ export function getWindColor(kts: number): string {
     return 'rgba(178, 64, 76, 0.90)';                   // Storm+ - warm red
 }
 
-// CSS keyframes for pin/location animations
-export const MAP_ANIMATIONS_CSS = `
-    @keyframes pinBounce {
-        0% { transform: rotate(-45deg) translateY(-20px) scale(0.5); opacity: 0; }
-        60% { transform: rotate(-45deg) translateY(2px) scale(1.1); }
-        100% { transform: rotate(-45deg) translateY(0) scale(1); opacity: 1; }
-    }
-    @keyframes locPulse {
-        0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
-        70% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
-        100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
-    }
-    .loc-dot {
-        width: 8px; height: 8px; border-radius: 50%;
-        background: #3b82f6; border: 1.5px solid #fff;
-        animation: locPulse 2s infinite;
-        box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
-    }
-`;
+/* Animation keyframes moved to index.css */

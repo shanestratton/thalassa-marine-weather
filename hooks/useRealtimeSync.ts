@@ -13,6 +13,9 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('useRealtimeSync');
 import { supabase } from '../services/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -50,13 +53,13 @@ export function useRealtimeSync(
                     },
                     (_payload) => {
                         // Another client changed this table — reload our data
-                        console.log(`[Realtime] ${table} changed — syncing`);
+                        log.debug(`[Realtime] ${table} changed — syncing`);
                         onSyncRef.current();
                     },
                 )
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
-                        console.log(`[Realtime] Listening on ${table}`);
+                        log.debug(`[Realtime] Listening on ${table}`);
                     }
                 });
         }, 300);
@@ -99,7 +102,7 @@ export function useRealtimeSyncMulti(
                             table: table,
                         },
                         (_payload) => {
-                            console.log(`[Realtime] ${table} changed — syncing`);
+                            log.debug(`[Realtime] ${table} changed — syncing`);
                             onSyncRef.current();
                         },
                     )

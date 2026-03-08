@@ -91,7 +91,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(({
                         {showAttachMenu && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
-                                <div className="absolute bottom-12 left-0 z-50 w-52 rounded-2xl bg-slate-900/98 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
+                                <div className="absolute bottom-12 left-0 z-50 w-52 rounded-2xl bg-black border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
                                     <button onClick={onOpenPinDrop} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors text-left">
                                         <span className="text-lg">📍</span>
                                         <div>

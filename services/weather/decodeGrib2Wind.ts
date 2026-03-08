@@ -315,3 +315,138 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
         west: isFullGlobe ? -180 : normLon(lonMin),
     };
 }
+
+// ── Multi-hour decoder ────────────────────────────────────────
+
+import type { WindGrid } from './windField';
+
+/**
+ * Decode a concatenated GRIB2 buffer containing N forecast hours.
+ * Each forecast hour has 2 messages (UGRD, VGRD).
+ * Returns a full WindGrid with arrays of U/V/speed per hour,
+ * ready for WindParticleLayer.setGrid().
+ */
+export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
+    if (buffer.byteLength < 32) {
+        throw new Error(`GRIB2 buffer too small: ${buffer.byteLength} bytes`);
+    }
+
+    // Parse all messages
+    const messages: Grib2Message[] = [];
+    let offset = 0;
+    const view = new DataView(buffer);
+
+    while (offset < buffer.byteLength - 16) {
+        // Find next GRIB magic
+        if (view.getUint32(offset, false) !== GRIB_MAGIC) {
+            offset++;
+            continue;
+        }
+        try {
+            const { msg, nextOffset } = parseGrib2Message(buffer, offset);
+            messages.push(msg);
+            offset = nextOffset;
+        } catch (_) {
+            offset++;
+        }
+    }
+
+    if (messages.length < 2) {
+        throw new Error(`[GRIB2-Wind] Only ${messages.length} messages found, need at least 2 (UGRD+VGRD)`);
+    }
+
+    // Pair messages: every 2 consecutive = one forecast hour (UGRD, VGRD)
+    const numHours = Math.floor(messages.length / 2);
+    const w = messages[0].width;
+    const h = messages[0].height;
+    const size = w * h;
+
+    const uArrays: Float32Array[] = [];
+    const vArrays: Float32Array[] = [];
+    const speedArrays: Float32Array[] = [];
+
+    const msgU0 = messages[0];
+    const lonMin = Math.min(msgU0.lon1, msgU0.lon2);
+    const lonMax = Math.max(msgU0.lon1, msgU0.lon2);
+    const lonSpan = lonMax - lonMin;
+    const isFullGlobe = lonSpan >= 359;
+    const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+    const needsFlip = msgU0.lat1 > msgU0.lat2;
+
+    for (let hr = 0; hr < numHours; hr++) {
+        const rawU = messages[hr * 2];
+        const rawV = messages[hr * 2 + 1];
+
+        let uData = rawU.data;
+        let vData = rawV.data;
+
+        // Flip rows if north-first
+        if (needsFlip) {
+            uData = new Float32Array(size);
+            vData = new Float32Array(size);
+            for (let row = 0; row < h; row++) {
+                const src = row * w;
+                const dst = (h - 1 - row) * w;
+                uData.set(rawU.data.subarray(src, src + w), dst);
+                vData.set(rawV.data.subarray(src, src + w), dst);
+            }
+        }
+
+        // Circular shift for full-globe
+        if (isFullGlobe) {
+            const halfW = Math.floor(w / 2);
+            const uShifted = new Float32Array(size);
+            const vShifted = new Float32Array(size);
+            for (let row = 0; row < h; row++) {
+                const base = row * w;
+                uShifted.set(uData.subarray(base + halfW, base + w), base);
+                vShifted.set(vData.subarray(base + halfW, base + w), base);
+                uShifted.set(uData.subarray(base, base + halfW), base + (w - halfW));
+                vShifted.set(vData.subarray(base, base + halfW), base + (w - halfW));
+            }
+            uData = uShifted;
+            vData = vShifted;
+        }
+
+        uArrays.push(uData);
+        vArrays.push(vData);
+
+        // Compute speed
+        const speed = new Float32Array(size);
+        for (let i = 0; i < size; i++) {
+            speed[i] = Math.sqrt(uData[i] * uData[i] + vData[i] * vData[i]);
+        }
+        speedArrays.push(speed);
+    }
+
+    // Build lat/lon arrays
+    const north = Math.max(msgU0.lat1, msgU0.lat2);
+    const south = Math.min(msgU0.lat1, msgU0.lat2);
+    const eastDeg = isFullGlobe ? 180 : normLon(lonMax);
+    const westDeg = isFullGlobe ? -180 : normLon(lonMin);
+
+    const lats: number[] = [];
+    const lons: number[] = [];
+    const dy = h > 1 ? (north - south) / (h - 1) : 0;
+    const dx = w > 1 ? (eastDeg - westDeg) / (w - 1) : 0;
+    for (let r = 0; r < h; r++) lats.push(south + r * dy);
+    for (let c = 0; c < w; c++) lons.push(westDeg + c * dx);
+
+    console.info(`[GRIB2-Wind] Decoded ${numHours} forecast hours, ${w}×${h}, bounds=[${south.toFixed(1)},${north.toFixed(1)}]×[${westDeg.toFixed(1)},${eastDeg.toFixed(1)}]`);
+
+    return {
+        u: uArrays,
+        v: vArrays,
+        speed: speedArrays,
+        width: w,
+        height: h,
+        lats,
+        lons,
+        north,
+        south,
+        east: eastDeg,
+        west: westDeg,
+        totalHours: numHours,
+    };
+}
+

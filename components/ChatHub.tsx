@@ -5,6 +5,9 @@
  * Segmented control at the top toggles between the two views.
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('ChatHub');
 import { ChatPage } from './ChatPage';
 import { MarketplaceThread } from './MarketplaceThread';
 import { MarketplaceService, type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
@@ -83,7 +86,7 @@ export const ChatHub: React.FC = () => {
                         otherPartyId,
                     });
                 } catch (e) {
-            console.warn('[ChatHub]', e);
+            log.warn( e);
                     // Skip failed listing lookups
                 }
             }
@@ -91,7 +94,7 @@ export const ChatHub: React.FC = () => {
             setConversations(convos);
             setUnreadMarketplace(convos.filter(c => c.unread > 0).length);
         } catch (e) {
-            console.error('Failed to load marketplace conversations:', e);
+            log.error('Failed to load marketplace conversations:', e);
         } finally {
             setLoading(false);
         }

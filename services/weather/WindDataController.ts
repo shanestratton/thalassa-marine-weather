@@ -150,36 +150,14 @@ export const WindDataController = {
             if (res.ok) {
                 const buffer = await res.arrayBuffer();
                 if (buffer.byteLength > 200) {
-                    const { decodeGrib2Wind } = await import('./decodeGrib2Wind');
-                    const grib = decodeGrib2Wind(buffer);
-
-                    // Convert DecodedGrib2Wind → WindGrid
-                    const size = grib.width * grib.height;
-                    const speedArr = new Float32Array(size);
-                    for (let i = 0; i < size; i++) {
-                        speedArr[i] = Math.sqrt(grib.u[i] * grib.u[i] + grib.v[i] * grib.v[i]);
-                    }
-                    const uniqueLats: number[] = [];
-                    const uniqueLons: number[] = [];
-                    const latStep = (grib.north - grib.south) / (grib.height - 1);
-                    const lonStep = (grib.east - grib.west) / (grib.width - 1);
-                    for (let r = 0; r < grib.height; r++) uniqueLats.push(grib.south + r * latStep);
-                    for (let c = 0; c < grib.width; c++) uniqueLons.push(grib.west + c * lonStep);
-
-                    const grid: WindGrid = {
-                        u: [grib.u], v: [grib.v], speed: [speedArr],
-                        width: grib.width, height: grib.height,
-                        lats: uniqueLats, lons: uniqueLons,
-                        north: grib.north, south: grib.south,
-                        west: grib.west, east: grib.east,
-                        totalHours: 1,
-                    };
+                    const { decodeGrib2WindMultiHour } = await import('./decodeGrib2Wind');
+                    const grid = decodeGrib2WindMultiHour(buffer);
 
                     lastFetchedBounds = {
                         north, south, west, east, zoom: currentZoom,
                     };
                     WindStore.setGrid(grid);
-                    console.info(`[WindController] GFS GRIB loaded: ${grib.width}×${grib.height} grid`);
+                    console.info(`[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours`);
                     return;
                 }
             }

@@ -9,6 +9,9 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('useLogPageState');
 import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
 import { supabase } from '../services/supabase';
@@ -311,7 +314,7 @@ export function useLogPageState() {
                     if (mounted) await loadData();
                 }, 1500);
             } catch (e) {
-                console.warn('[useLogPageState]', e);
+                log.warn('Init failed:', e);
                 /* Init or load failure — stop spinner to show empty state */
                 if (mounted) dispatch({ type: 'DONE_LOADING' });
             } finally {
@@ -439,7 +442,7 @@ export function useLogPageState() {
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
         try {
             await ShipLogService.stopTracking();
-        } catch (e) { console.warn('[useLogPageState] swallow:', e); }
+        } catch (e) { log.warn('swallow:', e); }
         // Clear the guard, then reload to pick up final state
         stoppingRef.current = false;
         await loadData();
@@ -532,7 +535,7 @@ export function useLogPageState() {
                 return;
             }
         } catch (e) {
-            console.warn('[useLogPageState] shared track check failed:', e);
+            log.warn('shared track check failed:', e);
         }
 
         // Soft-delete: remove from UI, UndoToast owns the 5s countdown
@@ -579,7 +582,7 @@ export function useLogPageState() {
                 return; // Wait for user to confirm via UI
             }
         } catch (e) {
-            console.warn('[useLogPageState] shared track check failed:', e);
+            log.warn('shared track check failed:', e);
         }
 
         // No shared tracks — proceed directly
@@ -747,13 +750,26 @@ export function useLogPageState() {
         return targetEntries.some(e => e.source && e.source !== 'device');
     }, [state.entries, state.selectedVoyageId]);
 
-    const totalDistance = filteredEntries.length > 0
-        ? Math.max(...filteredEntries.map(e => e.cumulativeDistanceNM || 0))
-        : 0;
+    // Total distance: sum each voyage's max cumulative distance
+    const totalDistance = useMemo(() => {
+        const voyageMap = new Map<string, number>();
+        filteredEntries.forEach(e => {
+            const vid = e.voyageId || 'default';
+            const current = voyageMap.get(vid) || 0;
+            voyageMap.set(vid, Math.max(current, e.cumulativeDistanceNM || 0));
+        });
+        let total = 0;
+        voyageMap.forEach(d => { total += d; });
+        return total;
+    }, [filteredEntries]);
 
-    const avgSpeed = filteredEntries.length > 0
-        ? filteredEntries.filter(e => e.speedKts).reduce((sum, e) => sum + (e.speedKts || 0), 0) / filteredEntries.filter(e => e.speedKts).length
-        : 0;
+    // Average speed: across all entries with speed > 0
+    const avgSpeed = useMemo(() => {
+        const withSpeed = filteredEntries.filter(e => e.speedKts && e.speedKts > 0);
+        return withSpeed.length > 0
+            ? withSpeed.reduce((sum, e) => sum + (e.speedKts || 0), 0) / withSpeed.length
+            : 0;
+    }, [filteredEntries]);
 
     // ── Career Totals ───────────────────────────────────────────────────────
     // Only counts the user's own maritime voyages:

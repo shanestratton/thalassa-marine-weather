@@ -14,6 +14,9 @@
  */
 
 import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('TrackMapViewer');
 import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -200,7 +203,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                             await cache.put(cacheKey, new Response(JSON.stringify(windData)));
                         } catch (_) { }
                     } else {
-                        console.warn('[TrackMapViewer] Wind fetch HTTP', res.status);
+                        log.warn(' Wind fetch HTTP', res.status);
                     }
                 } catch (_) {
                     // Try cache
@@ -225,12 +228,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     });
                     vLayer.addTo(mapInstanceRef.current);
                     velocityLayerRef.current = vLayer;
-                    console.info('[TrackMapViewer] Wind velocity layer loaded ✓');
+                    log.info(' Wind velocity layer loaded ✓');
                 } else {
-                    console.warn('[TrackMapViewer] No wind data received');
+                    log.warn(' No wind data received');
                 }
             } catch (err) {
-                console.warn('[TrackMapViewer] Wind layer failed:', err);
+                log.warn(' Wind layer failed:', err);
             }
         }, 1000);
 
