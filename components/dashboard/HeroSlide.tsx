@@ -156,6 +156,7 @@ const EssentialMapSlide: React.FC<{
                     />
                 )}
 
+
                 {/* Layer 2: Looping rain radar */}
                 {radarFrames.length > 0 && tileGrid.length > 0 && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -185,25 +186,6 @@ const EssentialMapSlide: React.FC<{
                         ))}
                     </div>
                 )}
-
-                {/* Layer 2.5: Coastline (CartoDB light tiles — inverted + screen blend) */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ mixBlendMode: 'screen', opacity: 0.5 }}>
-                    {tileGrid.map(t => (
-                        <img
-                            key={`coast-${t.key}`}
-                            src={`https://basemaps.cartocdn.com/light_nolabels/${zoom}/${t.tx}/${t.ty}@2x.png`}
-                            alt=""
-                            className="absolute"
-                            style={{
-                                left: t.left, top: t.top, width: tileSize, height: tileSize,
-                                filter: 'invert(1) brightness(1.5)',
-                            }}
-                            loading="eager"
-                            draggable={false}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                    ))}
-                </div>
 
                 {/* Layer 3: Vignette */}
                 <div
