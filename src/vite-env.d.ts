@@ -15,6 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_WORLD_TIDES_API_KEY: string
   readonly VITE_TRANSISTOR_LICENSE_KEY: string
   readonly VITE_DISTANCE_TOOLS_KEY: string
+  readonly VITE_RAINBOW_API_KEY: string
 
   // Standard Vite Environment Variables
   readonly BASE_URL: string

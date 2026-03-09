@@ -19,7 +19,7 @@ import { WindDataController } from '../../services/weather/WindDataController';
 import { useLocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { type WeatherLayer, STATIC_TILES, getTileUrl, getWindColor } from './mapConstants';
-import type { PrecipHeatmapResult } from '../../services/weather/PrecipHeatmapRenderer';
+// PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /**
  * useWeatherLayers — all weather overlay state + side effects.
@@ -51,15 +51,12 @@ export function useWeatherLayers(
         radarPath?: string;
         /** Unix timestamp (radar only) */
         radarTime?: number;
-        /** GFS forecast hour offset (forecast only) */
-        forecastHour?: number;
-        /** Index into precipRenderedRef (forecast only) */
-        precipFrameIdx?: number;
+        /** Rainbow.ai XYZ tile URL template (forecast only) — contains {z}/{x}/{y} */
+        forecastTileUrl?: string;
         /** Label for the scrubber */
         label: string;
     }
     const unifiedFramesRef = useRef<UnifiedRainFrame[]>([]);
-    const precipRenderedRef = useRef<PrecipHeatmapResult[]>([]);
     const [rainFrameIndex, setRainFrameIndex] = useState(0);
     const [rainFrameCount, setRainFrameCount] = useState(0);
     const [rainPlaying, setRainPlaying] = useState(false);
@@ -341,23 +338,51 @@ export function useWeatherLayers(
 
             rainBufferRef.current = nextBuf;
 
-        } else if (frame.type === 'forecast' && frame.precipFrameIdx != null) {
-            // Show forecast heatmap, hide both radar buffers
-            ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
-                try {
-                    if (m.getLayer(id)) m.removeLayer(id);
-                    if (m.getSource(id)) m.removeSource(id);
-                } catch (_) { }
-            });
-            const rendered = precipRenderedRef.current;
-            const r = rendered[frame.precipFrameIdx];
-            if (r) {
-                const coordinates = r.coordinates;
-                if (m.getLayer('precip-heatmap-layer')) {
-                    m.setLayoutProperty('precip-heatmap-layer', 'visibility', 'visible');
-                    (m.getSource('precip-heatmap') as mapboxgl.ImageSource).updateImage({ url: r.dataUrl, coordinates });
+        } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
+            // Rainbow.ai forecast tiles — same A/B crossfade as radar
+            const nextBuf = rainBufferRef.current === 'a' ? 'b' : 'a';
+            const oldId = `rain-buf-${rainBufferRef.current}`;
+            const newId = `rain-buf-${nextBuf}`;
+
+            try {
+                if (m.getSource(newId)) {
+                    try { m.removeLayer(newId); } catch (_) { }
+                    m.removeSource(newId);
                 }
-            }
+            } catch (_) { }
+
+            m.addSource(newId, {
+                type: 'raster',
+                tiles: [frame.forecastTileUrl],
+                tileSize: 256, minzoom: 2, maxzoom: 12,
+            });
+            m.addLayer({
+                id: newId, type: 'raster', source: newId,
+                paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 300, delay: 0 }, 'raster-fade-duration': 0 },
+            }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
+
+            requestAnimationFrame(() => {
+                if (!m.getLayer(newId)) return;
+                m.setPaintProperty(newId, 'raster-opacity', 0.75);
+                if (m.getLayer(oldId)) {
+                    m.setPaintProperty(oldId, 'raster-opacity', 0);
+                }
+            });
+
+            rainFadeTimerRef.current = setTimeout(() => {
+                try {
+                    if (m.getLayer(oldId)) m.removeLayer(oldId);
+                    if (m.getSource(oldId)) m.removeSource(oldId);
+                } catch (_) { }
+            }, 400);
+
+            // Clean up legacy layers
+            try {
+                if (m.getLayer('weather-tiles')) m.removeLayer('weather-tiles');
+                if (m.getSource('weather-tiles')) m.removeSource('weather-tiles');
+            } catch (_) { }
+
+            rainBufferRef.current = nextBuf;
         }
     }, [rainFrameIndex, activeLayer, rainReady]);
 
@@ -521,64 +546,25 @@ export function useWeatherLayers(
                     const nowcast: { path: string; time: number }[] = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. GFS precip forecast — DISABLED pending rainbow.io response
-                    // Re-enable by removing the `if (false)` guard below.
-                    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-                    const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
-                    let forecastRendered: PrecipHeatmapResult[] = [];
-                    let forecastHours: number[] = [];
+                    // 2. Rainbow.ai forecast tiles (1km res, up to +4h in 10-min intervals)
+                    const rainbowKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RAINBOW_API_KEY) || '';
+                    let rainbowSnapshot: number | null = null;
+                    const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
 
-                    if (false && supabaseUrl) { // eslint-disable-line no-constant-condition
+                    if (rainbowKey) {
                         try {
-                            const bounds = map?.getBounds();
-
-                            // Expand bounds by ~50% in all directions so the heatmap image extends well past the screen
-                            // so when panning, you don't instantly see a hard square cutoff.
-                            let body;
-                            if (bounds) {
-                                const latSpan = bounds!.getNorth() - bounds!.getSouth();
-                                const lonSpan = bounds!.getEast() - bounds!.getWest();
-                                body = {
-                                    north: bounds!.getNorth() + latSpan * 0.5,
-                                    south: bounds!.getSouth() - latSpan * 0.5,
-                                    east: bounds!.getEast() + lonSpan * 0.5,
-                                    west: bounds!.getWest() - lonSpan * 0.5,
-                                };
+                            const snapResp = await fetch(`https://api.rainbow.ai/tiles/v1/snapshot?token=${rainbowKey}`);
+                            if (snapResp.ok) {
+                                const snapData = await snapResp.json();
+                                rainbowSnapshot = snapData.snapshot || null;
+                                log.info(`Rainbow.ai snapshot: ${rainbowSnapshot}`);
                             } else {
-                                body = { north: location.lat + 15, south: location.lat - 15, east: location.lon + 20, west: location.lon - 20 };
-                            }
-
-                            const resp = await fetch(`${supabaseUrl}/functions/v1/fetch-precip-grid`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}) },
-                                body: JSON.stringify(body),
-                            });
-
-                            if (resp.ok) {
-                                const buffer = await resp.arrayBuffer();
-                                if (buffer.byteLength >= 200) {
-                                    const { decodeGrib2Precip } = await import('../../services/weather/decodeGrib2Precip');
-                                    const grid = decodeGrib2Precip(buffer);
-                                    const { renderAllPrecipFrames } = await import('../../services/weather/PrecipHeatmapRenderer');
-                                    forecastRendered = renderAllPrecipFrames(grid.frames);
-                                    const hoursHeader = resp.headers.get('X-Hours');
-                                    forecastHours = hoursHeader
-                                        ? hoursHeader!.split(',').map(Number)
-                                        : [0, 3, 6, 9, 12, 18, 24, 36, 48, 72].slice(0, forecastRendered.length);
-
-                                    const modelHeader = resp.headers.get('X-Model') || 'GFS';
-                                    log.info(`${modelHeader} forecast: ${forecastRendered.length} frames loaded (${forecastHours.join(',')}h)`);
-                                }
-                            } else {
-                                const errBody = await resp.text();
-                                log.error(`fetch-precip-grid returned ${resp.status}:`, errBody);
+                                log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
                             }
                         } catch (err) {
-                            log.warn('GFS forecast failed, using radar only:', err);
+                            log.warn('Rainbow.ai snapshot fetch failed, using radar only:', err);
                         }
                     }
-
-                    precipRenderedRef.current = forecastRendered;
 
                     // 3. Build unified timeline
                     const unified: UnifiedRainFrame[] = [];
@@ -599,14 +585,13 @@ export function useWeatherLayers(
                     const nowIdx = Math.max(0, past.length - 1);
                     rainNowIdxRef.current = nowIdx;
 
-                    // Add forecast frames (skip hour 0 since radar covers "now")
-                    for (let i = 0; i < forecastRendered.length; i++) {
-                        const h = forecastHours[i] ?? (i * 3);
-                        if (h === 0) continue; // radar already covers now
-                        let label: string;
-                        if (h < 24) label = `+${h}h`;
-                        else label = `+${h}h`;
-                        unified.push({ type: 'forecast', forecastHour: h, precipFrameIdx: i, label });
+                    // Add Rainbow.ai forecast frames
+                    if (rainbowSnapshot) {
+                        for (const mins of RAINBOW_FORECAST_MINUTES) {
+                            const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
+                            const tileUrl = `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`;
+                            unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
+                        }
                     }
 
                     unifiedFramesRef.current = unified;
@@ -631,20 +616,12 @@ export function useWeatherLayers(
                         }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
                     }
 
-                    // Pre-create the forecast heatmap source (hidden initially)
-                    if (forecastRendered.length > 0) {
-                        const r = forecastRendered[0];
-                        const coordinates = r.coordinates;
-                        m.addSource('precip-heatmap', { type: 'image', url: r.dataUrl, coordinates });
-                        m.addLayer({
-                            id: 'precip-heatmap-layer', type: 'raster', source: 'precip-heatmap',
-                            paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 0, 'raster-opacity-transition': { duration: 300, delay: 0 } },
-                            layout: { visibility: 'none' },
-                        });
-                    }
+                    // Rainbow.ai forecast tiles are loaded on-demand via A/B buffer
+                    // (no pre-creation needed — same pattern as radar tiles)
 
                     setRainReady(true);
-                    log.info(`Unified timeline: ${unified.length} frames (${allRadar.length} radar + ${forecastRendered.length} forecast)`);
+                    const forecastCount = rainbowSnapshot ? RAINBOW_FORECAST_MINUTES.length : 0;
+                    log.info(`Unified timeline: ${unified.length} frames (${allRadar.length} radar + ${forecastCount} Rainbow.ai forecast)`);
                 } catch (err) {
                     log.error('Error loading unified rain data:', err);
                 } finally {
@@ -658,14 +635,14 @@ export function useWeatherLayers(
                 try {
                     const m = mapRef.current;
                     // Clean up all rain-related layers
-                    ['precip-heatmap-layer', 'rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
+                    ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
                         try { if (m?.getLayer(id)) m.removeLayer(id); } catch (_) { }
                     });
-                    ['precip-heatmap', 'rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
+                    ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
                         try { if (m?.getSource(id)) m.removeSource(id); } catch (_) { }
                     });
                 } catch (_) { }
-                precipRenderedRef.current = [];
+
                 unifiedFramesRef.current = [];
                 setRainFrameCount(0);
                 setRainReady(false);
