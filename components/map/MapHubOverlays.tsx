@@ -71,7 +71,7 @@ export const WindSpeedLegend: React.FC = () => (
 
 // ── Layer Legend Strip ──
 export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpeed: number }> = ({ activeLayer, windMaxSpeed }) => {
-    if (activeLayer === 'none' || activeLayer === 'sea' || activeLayer === 'satellite' || activeLayer === 'velocity') return null;
+    if (activeLayer === 'none' || activeLayer === 'rain' || activeLayer === 'sea' || activeLayer === 'satellite' || activeLayer === 'velocity') return null;
 
     const legends: Record<string, { gradient: string; labels: { text: string; pos: string }[] }> = {
         rain: {
