@@ -593,10 +593,10 @@ export function useWeatherLayers(
                             const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
                             const forecastSecs = mins * 60;
                             // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
-                            // color=1 = TWC palette (matches RainViewer scheme 4)
+                            // color=2 = Dark Sky palette (closest match to RainViewer scheme 4)
                             const tileUrl = isDev
-                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=1`
-                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=1`;
+                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=2`
+                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=2`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }
