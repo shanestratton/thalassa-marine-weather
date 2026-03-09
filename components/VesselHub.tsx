@@ -8,11 +8,12 @@
  */
 import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
-
+import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount } from '../services/CrewService';
+import { AdminPanel } from './AdminPanel';
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;
@@ -39,6 +40,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
+    const [showAdminPanel, setShowAdminPanel] = useState(false);
 
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
@@ -308,8 +310,29 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     </button>
                 </div>
 
+                {/* Admin Panel — admin-only */}
+                {ChatService.isAdmin() && (
+                    <div className="bg-white/[0.03] border border-amber-500/10 rounded-xl overflow-hidden mt-3">
+                        <button
+                            onClick={() => { triggerHaptic('medium'); setShowAdminPanel(true); }}
+                            className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
+                        >
+                            <div className="p-1.5 bg-amber-500/10 rounded-lg">
+                                <span className="text-sm">👑</span>
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-amber-400">Admin Panel</p>
+                                <p className="text-[11px] text-gray-500">Manage roles, mute & block users</p>
+                            </div>
+                            <ChevronRight />
+                        </button>
+                    </div>
+                )}
 
             </div>
+
+            {/* Admin Panel Modal */}
+            <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
         </div>
     );
 };
