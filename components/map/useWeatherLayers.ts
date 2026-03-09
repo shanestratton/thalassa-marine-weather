@@ -57,6 +57,8 @@ export function useWeatherLayers(
         label: string;
     }
     const unifiedFramesRef = useRef<UnifiedRainFrame[]>([]);
+    /** Ref to cancel stale sourcedata listeners when scrubbing fast */
+    const rainSourceListenerRef = useRef<((e: mapboxgl.MapSourceDataEvent) => void) | null>(null);
     const [rainFrameIndex, setRainFrameIndex] = useState(0);
     const [rainFrameCount, setRainFrameCount] = useState(0);
     const [rainPlaying, setRainPlaying] = useState(false);
@@ -279,10 +281,14 @@ export function useWeatherLayers(
         if (rainFrameIndex >= frames.length) return;
         const frame = frames[rainFrameIndex];
 
-        // Clear any pending fade timer
+        // Clear any pending fade timer and stale sourcedata listener
         if (rainFadeTimerRef.current) {
             clearTimeout(rainFadeTimerRef.current);
             rainFadeTimerRef.current = null;
+        }
+        if (rainSourceListenerRef.current) {
+            m.off('sourcedata', rainSourceListenerRef.current);
+            rainSourceListenerRef.current = null;
         }
 
         if (frame.type === 'radar' && frame.radarPath) {
@@ -381,16 +387,19 @@ export function useWeatherLayers(
             const onSourceData = (e: mapboxgl.MapSourceDataEvent) => {
                 if (e.sourceId === newId && m.isSourceLoaded(newId)) {
                     m.off('sourcedata', onSourceData);
+                    rainSourceListenerRef.current = null;
                     performCrossfade();
                 }
             };
+            rainSourceListenerRef.current = onSourceData;
             m.on('sourcedata', onSourceData);
 
-            // Fallback: if tiles don't load in 3s, crossfade anyway
+            // Fallback: if tiles don't load in 1.5s, crossfade anyway
             rainFadeTimerRef.current = setTimeout(() => {
                 m.off('sourcedata', onSourceData);
+                rainSourceListenerRef.current = null;
                 performCrossfade();
-            }, 3000);
+            }, 1500);
 
             // Clean up legacy layers
             try {
