@@ -488,14 +488,26 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         const item = deletedItem;
         setDeletedItem(null);
         try {
-            await DiaryService.deleteEntry(item.id);
+            const ok = await DiaryService.deleteEntry(item.id);
+            if (!ok) {
+                // Delete returned false (e.g. Supabase not ready) — retry once
+                log.warn('Delete returned false, retrying...');
+                const retry = await DiaryService.deleteEntry(item.id);
+                if (!retry) {
+                    log.warn('Delete retry failed, restoring entry');
+                    toast.error('Failed to delete — try again');
+                    setEntries(prev => [...prev, item]);
+                    deletedIdRef.current = null;
+                    return;
+                }
+            }
         } catch (e) {
             log.warn(' delete failed:', e);
             toast.error('Failed to delete entry');
             // Restore on failure
             setEntries(prev => [...prev, item]);
         }
-        // Clear pending-delete ref after API call completes
+        // Clear pending-delete ref after successful delete
         deletedIdRef.current = null;
     };
 
