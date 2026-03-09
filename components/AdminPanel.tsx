@@ -312,8 +312,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                             aria-selected={tab === t}
                             role="tab"
                             className={`flex-1 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all min-h-[44px] ${tab === t
-                                    ? 'bg-white/[0.08] border border-white/[0.12] text-white'
-                                    : 'bg-white/[0.02] border border-white/[0.04] text-white/40'
+                                ? 'bg-white/[0.08] border border-white/[0.12] text-white'
+                                : 'bg-white/[0.02] border border-white/[0.04] text-white/40'
                                 }`}
                         >
                             {label}
@@ -331,15 +331,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                         <div className="px-4 pt-4 pb-2 flex gap-2.5">
                             <div className="flex-1 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
                                 <p className="text-lg font-bold text-amber-400">{adminCount}</p>
-                                <p className="text-[10px] text-amber-400/60 uppercase tracking-wider">Admins</p>
+                                <p className="text-[11px] text-amber-400/60 uppercase tracking-wider">Admins</p>
                             </div>
                             <div className="flex-1 px-3 py-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-center">
                                 <p className="text-lg font-bold text-sky-400">{modCount}</p>
-                                <p className="text-[10px] text-sky-400/60 uppercase tracking-wider">Mods</p>
+                                <p className="text-[11px] text-sky-400/60 uppercase tracking-wider">Mods</p>
                             </div>
                             <div className="flex-1 px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-center">
                                 <p className="text-lg font-bold text-red-400">{blockedCount}</p>
-                                <p className="text-[10px] text-red-400/60 uppercase tracking-wider">Blocked</p>
+                                <p className="text-[11px] text-red-400/60 uppercase tracking-wider">Blocked</p>
                             </div>
                         </div>
 
@@ -371,7 +371,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                                 )}
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs font-semibold text-white/80">{req.display_name}</p>
-                                                    <p className="text-[10px] text-purple-400/50">wants to join <span className="font-bold text-purple-400/70">{req.channel_name}</span></p>
+                                                    <p className="text-[11px] text-purple-400/50">wants to join <span className="font-bold text-purple-400/70">{req.channel_name}</span></p>
                                                 </div>
                                             </div>
                                             {req.message && <p className="text-[11px] text-white/40 italic px-1">"{req.message}"</p>}
@@ -430,14 +430,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-1.5">
                                                         <span className="text-sm font-semibold text-white/80 truncate">{user.display_name}</span>
-                                                        {isMe && <span className="text-[9px] text-sky-400 font-bold">(You)</span>}
+                                                        {isMe && <span className="text-[11px] text-sky-400 font-bold">(You)</span>}
                                                     </div>
                                                     {user.vessel_name && <p className="text-[11px] text-white/40 truncate">⛵ {user.vessel_name}</p>}
                                                 </div>
                                                 <div className="flex items-center gap-1.5">
-                                                    {user.is_blocked && <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded-full">BLOCKED</span>}
-                                                    {isMuted && <span className="text-[9px] font-bold text-orange-400 bg-orange-500/15 px-1.5 py-0.5 rounded-full">MUTED</span>}
-                                                    <span className={`px-2 py-1 rounded-full border text-[10px] font-bold ${roleStyle.bg} ${roleStyle.text}`}>{roleStyle.label}</span>
+                                                    {user.is_blocked && <span className="text-[11px] font-bold text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded-full">BLOCKED</span>}
+                                                    {isMuted && <span className="text-[11px] font-bold text-orange-400 bg-orange-500/15 px-1.5 py-0.5 rounded-full">MUTED</span>}
+                                                    <span className={`px-2 py-1 rounded-full border text-[11px] font-bold ${roleStyle.bg} ${roleStyle.text}`}>{roleStyle.label}</span>
                                                 </div>
                                             </button>
 
@@ -477,7 +477,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                             )}
                                             {isExpanded && isMe && (
                                                 <div className="px-3.5 pb-3 pt-2 border-t border-white/[0.04]">
-                                                    <p className="text-[10px] text-white/30 text-center">You cannot modify your own role</p>
+                                                    <p className="text-[11px] text-white/30 text-center">You cannot modify your own role</p>
                                                 </div>
                                             )}
                                         </div>
@@ -509,8 +509,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-1.5">
                                                         <p className="text-sm font-bold text-white/80">{ch.name}</p>
-                                                        {ch.is_private && <span className="text-[8px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">PRIVATE</span>}
-                                                        {ch.parent_id && <span className="text-[8px] font-bold text-white/30 bg-white/[0.05] px-1.5 py-0.5 rounded-full">SUB</span>}
+                                                        {ch.is_private && <span className="text-[11px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">PRIVATE</span>}
+                                                        {ch.parent_id && <span className="text-[11px] font-bold text-white/30 bg-white/[0.05] px-1.5 py-0.5 rounded-full">SUB</span>}
                                                     </div>
                                                     <p className="text-[11px] text-white/40 truncate">{ch.description}</p>
                                                 </div>
@@ -542,11 +542,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-1.5">
                                                     <p className="text-sm font-semibold text-white/70">{ch.name}</p>
-                                                    {ch.is_private && <span className="text-[8px] font-bold text-purple-400/60 bg-purple-500/10 px-1 py-0.5 rounded-full">PRIVATE</span>}
-                                                    {ch.parent_id && <span className="text-[8px] font-bold text-white/25 bg-white/[0.04] px-1 py-0.5 rounded-full">SUB</span>}
+                                                    {ch.is_private && <span className="text-[11px] font-bold text-purple-400/60 bg-purple-500/10 px-1 py-0.5 rounded-full">PRIVATE</span>}
+                                                    {ch.parent_id && <span className="text-[11px] font-bold text-white/25 bg-white/[0.04] px-1 py-0.5 rounded-full">SUB</span>}
                                                 </div>
                                             </div>
-                                            <button onClick={() => handleDeleteChannel(ch.id)} aria-label={`Delete ${ch.name}`} className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/15 text-[10px] font-bold text-red-400 active:scale-95 hover:bg-red-500/20 transition-colors min-h-[40px]">🗑️ Delete</button>
+                                            <button onClick={() => handleDeleteChannel(ch.id)} aria-label={`Delete ${ch.name}`} className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/15 text-[11px] font-bold text-red-400 active:scale-95 hover:bg-red-500/20 transition-colors min-h-[44px]">🗑️ Delete</button>
                                         </div>
                                     ))}
                                 </div>
@@ -577,15 +577,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className={`text-xs font-bold ${meta.color}`}>{meta.label}</span>
-                                                <span className="text-[10px] text-white/30">by</span>
-                                                <span className="text-[10px] font-semibold text-white/60">{entry.actor_name}</span>
+                                                <span className="text-[11px] text-white/30">by</span>
+                                                <span className="text-[11px] font-semibold text-white/60">{entry.actor_name}</span>
                                             </div>
                                             {entry.details && Object.keys(entry.details).length > 0 && (
-                                                <p className="text-[10px] text-white/30 mt-0.5">
+                                                <p className="text-[11px] text-white/30 mt-0.5">
                                                     {Object.entries(entry.details).map(([k, v]) => `${k}: ${v}`).join(' · ')}
                                                 </p>
                                             )}
-                                            <p className="text-[9px] text-white/20 mt-0.5">{timeStr}</p>
+                                            <p className="text-[11px] text-white/20 mt-0.5">{timeStr}</p>
                                         </div>
                                     </div>
                                 );
