@@ -45,6 +45,7 @@ import { useChatDMs } from '../hooks/chat/useChatDMs';
 import { usePinDrop } from '../hooks/chat/usePinDrop';
 import { useTrackSharing } from '../hooks/chat/useTrackSharing';
 import { useChatProfile } from '../hooks/chat/useChatProfile';
+import { useChatProposals } from '../hooks/chat/useChatProposals';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -123,23 +124,34 @@ export const ChatPage: React.FC = () => {
     // Mod
     const [isFirstVisit, setIsFirstVisit] = useState(true);
 
-    // Moderation
-    const [reportingMsg, setReportingMsg] = useState<ChatMessage | null>(null);
-    const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>('inappropriate');
-    const [reportSent, setReportSent] = useState(false);
-    const [showProposalForm, setShowProposalForm] = useState(false);
-    const [proposalName, setProposalName] = useState('');
-    const [proposalDesc, setProposalDesc] = useState('');
-    const [proposalIcon, setProposalIcon] = useState('🏝️');
-    const [proposalSent, setProposalSent] = useState(false);
-    const [proposalIsPrivate, setProposalIsPrivate] = useState(false);
-    const [proposalParentId, setProposalParentId] = useState<string | null>(null);
+    // Role checks (needed before hook calls that depend on isAdmin)
+    const isMod = ChatService.isMod();
+    const isAdmin = ChatService.isAdmin();
+    const isModerator = ChatService.isModerator();
+    const isMuted = ChatService.isMuted();
+    const mutedUntil = ChatService.getMutedUntil();
 
-    // Private channel state
-    const [memberChannelIds, setMemberChannelIds] = useState<Set<string>>(new Set());
-    const [joinRequestChannel, setJoinRequestChannel] = useState<ChatChannel | null>(null);
-    const [joinRequestMessage, setJoinRequestMessage] = useState('');
-    const [joinRequestSent, setJoinRequestSent] = useState(false);
+    // --- Extracted Hook: Proposals + Private Channels + Report ---
+    const proposalHook = useChatProposals({ channels, setChannels, isAdmin });
+    const {
+        showProposalForm, setShowProposalForm,
+        proposalName, setProposalName,
+        proposalDesc, setProposalDesc,
+        proposalIcon, setProposalIcon,
+        proposalSent,
+        proposalIsPrivate, setProposalIsPrivate,
+        proposalParentId, setProposalParentId,
+        memberChannelIds,
+        joinRequestChannel, setJoinRequestChannel,
+        joinRequestMessage, setJoinRequestMessage,
+        joinRequestSent,
+        reportingMsg, setReportingMsg,
+        reportReason, setReportReason,
+        reportSent, setReportSent,
+        handleProposeChannel,
+        handleRequestAccess,
+        handleSubmitJoinRequest,
+    } = proposalHook;
 
 
 
@@ -324,82 +336,12 @@ export const ChatPage: React.FC = () => {
         const userId = (await ChatService.getCurrentUser())?.id;
         if (!userId) return;
         await reportMessage(reportingMsg.id, userId, reportReason);
-        // Auto-trigger Gemini re-check on the reported message
         moderateMessage(reportingMsg.id, reportingMsg.message, reportingMsg.user_id, reportingMsg.channel_id).catch(() => { });
         setReportSent(true);
         setTimeout(() => { setReportingMsg(null); setReportSent(false); }, 1500);
     };
 
-    const handleProposeChannel = async () => {
-        if (!proposalName.trim()) return;
-
-        let ok = false;
-        if (isAdmin) {
-            // Admins create instantly — no pending review needed
-            const ch = await ChatService.createChannel(
-                proposalName.trim(), proposalDesc.trim() || 'A new channel',
-                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
-            );
-            ok = !!ch;
-            // Refresh channel list
-            if (ok) {
-                const updated = await ChatService.getChannels();
-                setChannels(updated);
-            }
-        } else {
-            // Non-admins propose — goes to pending for admin approval
-            ok = await ChatService.proposeChannel(
-                proposalName.trim(), proposalDesc.trim() || 'A new channel',
-                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
-            );
-        }
-
-        if (ok) {
-            setProposalSent(true);
-            toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
-            setTimeout(() => {
-                setShowProposalForm(false); setProposalSent(false);
-                setProposalName(''); setProposalDesc('');
-                setProposalIsPrivate(false); setProposalParentId(null);
-            }, 2000);
-        } else {
-            toast.error('Failed to submit — please try again');
-        }
-    };
-
-    // Load private channel memberships
-    const loadMemberChannels = async () => {
-        const ids = new Set<string>();
-        for (const ch of channels) {
-            if (ch.is_private) {
-                const isMember = await ChatService.isChannelMember(ch.id);
-                if (isMember) ids.add(ch.id);
-            }
-        }
-        setMemberChannelIds(ids);
-    };
-
-    React.useEffect(() => {
-        if (channels.length > 0) loadMemberChannels();
-    }, [channels]);
-
-    const handleRequestAccess = (ch: ChatChannel) => {
-        setJoinRequestChannel(ch);
-        setJoinRequestMessage('');
-        setJoinRequestSent(false);
-    };
-
-    const handleSubmitJoinRequest = async () => {
-        if (!joinRequestChannel) return;
-        const ok = await ChatService.requestJoinChannel(joinRequestChannel.id, joinRequestMessage);
-        if (ok) {
-            setJoinRequestSent(true);
-            toast.success(`Request sent to ${joinRequestChannel.name}!`);
-            setTimeout(() => setJoinRequestChannel(null), 2000);
-        } else {
-            toast.error('Failed to send request — you may already have a pending request');
-        }
-    };
+    // Proposals, private channels, and join requests now provided by useChatProposals hook
 
     // Profile photo upload, getAvatar, and profile save now provided by useChatProfile hook
 
@@ -460,12 +402,6 @@ export const ChatPage: React.FC = () => {
         else if (view === 'marketplace') { setView('channels'); }
         else if (view === 'admin_panel') { setView('channels'); }
     };
-
-    const isMod = ChatService.isMod();
-    const isAdmin = ChatService.isAdmin();
-    const isModerator = ChatService.isModerator();
-    const isMuted = ChatService.isMuted();
-    const mutedUntil = ChatService.getMutedUntil();
 
     // pinnedMessages now provided by useChatMessages hook
     const regularMessages = messages.filter(m => !m.is_pinned);

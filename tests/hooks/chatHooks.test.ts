@@ -22,6 +22,8 @@ const {
     mockBatchFetchAvatars, mockClientFilter, mockTriggerHaptic,
     mockGetAvatarUrl, mockDestroy, mockClearDisplayNameCache,
     mockRemoveProfilePhoto, mockUpdateProfile, mockUploadProfilePhoto,
+    mockCreateChannel, mockProposeChannel, mockIsChannelMember,
+    mockRequestJoinChannel, mockToastSuccess, mockToastError,
 } = vi.hoisted(() => ({
     mockInitialize: vi.fn().mockResolvedValue(undefined),
     mockGetChannels: vi.fn().mockResolvedValue([]),
@@ -50,6 +52,12 @@ const {
     mockRemoveProfilePhoto: vi.fn().mockResolvedValue(true),
     mockUpdateProfile: vi.fn().mockResolvedValue(true),
     mockUploadProfilePhoto: vi.fn().mockResolvedValue({ success: true, url: 'https://example.com/avatar.jpg' }),
+    mockCreateChannel: vi.fn().mockResolvedValue({ id: 'new-ch' }),
+    mockProposeChannel: vi.fn().mockResolvedValue(true),
+    mockIsChannelMember: vi.fn().mockResolvedValue(false),
+    mockRequestJoinChannel: vi.fn().mockResolvedValue(true),
+    mockToastSuccess: vi.fn(),
+    mockToastError: vi.fn(),
 }));
 
 vi.mock('../../services/ChatService', () => ({
@@ -74,6 +82,10 @@ vi.mock('../../services/ChatService', () => ({
         getAvatarUrl: mockGetAvatarUrl,
         destroy: mockDestroy,
         clearDisplayNameCache: mockClearDisplayNameCache,
+        createChannel: mockCreateChannel,
+        proposeChannel: mockProposeChannel,
+        isChannelMember: mockIsChannelMember,
+        requestJoinChannel: mockRequestJoinChannel,
     },
     DEFAULT_CHANNELS: [],
 }));
@@ -99,6 +111,11 @@ vi.mock('../../utils/system', () => ({
 import { useChatMessages } from '../../hooks/chat/useChatMessages';
 import { useChatDMs } from '../../hooks/chat/useChatDMs';
 import { useChatProfile } from '../../hooks/chat/useChatProfile';
+import { useChatProposals } from '../../hooks/chat/useChatProposals';
+
+vi.mock('../../components/Toast', () => ({
+    toast: { success: mockToastSuccess, error: mockToastError },
+}));
 
 // --- Test Helpers ---
 const noop = () => { };
@@ -461,3 +478,165 @@ describe('useChatProfile', () => {
         expect(result.current.getAvatar('unknown')).toBeNull();
     });
 });
+
+// ═══════════════════════════════════════
+
+describe('useChatProposals', () => {
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    const defaultProposalOpts = {
+        channels: [] as any[],
+        setChannels: vi.fn(),
+        isAdmin: false,
+    };
+
+    it('initializes with empty proposal state', () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+        expect(result.current.showProposalForm).toBe(false);
+        expect(result.current.proposalName).toBe('');
+        expect(result.current.proposalSent).toBe(false);
+        expect(result.current.memberChannelIds.size).toBe(0);
+    });
+
+    it('handleProposeChannel — non-admin submits proposal', async () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+
+        act(() => result.current.setProposalName('New Channel'));
+        await act(() => result.current.handleProposeChannel());
+
+        expect(mockProposeChannel).toHaveBeenCalled();
+        expect(mockCreateChannel).not.toHaveBeenCalled();
+        expect(result.current.proposalSent).toBe(true);
+    });
+
+    it('handleProposeChannel — admin creates instantly', async () => {
+        const opts = { ...defaultProposalOpts, isAdmin: true };
+        const { result } = renderHook(() => useChatProposals(opts));
+
+        act(() => result.current.setProposalName('Admin Channel'));
+        await act(() => result.current.handleProposeChannel());
+
+        expect(mockCreateChannel).toHaveBeenCalled();
+        expect(mockProposeChannel).not.toHaveBeenCalled();
+    });
+
+    it('handleProposeChannel — empty name is no-op', async () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+        await act(() => result.current.handleProposeChannel());
+        expect(mockProposeChannel).not.toHaveBeenCalled();
+    });
+
+    it('handleProposeChannel — failure shows error toast', async () => {
+        mockProposeChannel.mockResolvedValueOnce(false);
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+
+        act(() => result.current.setProposalName('Bad Channel'));
+        await act(() => result.current.handleProposeChannel());
+
+        expect(mockToastError).toHaveBeenCalledWith('Failed to submit — please try again');
+    });
+
+    it('handleRequestAccess sets join request state', () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+        const ch = { id: 'ch-private', name: 'VIP' } as any;
+
+        act(() => result.current.handleRequestAccess(ch));
+
+        expect(result.current.joinRequestChannel).toEqual(ch);
+        expect(result.current.joinRequestMessage).toBe('');
+    });
+
+    it('handleSubmitJoinRequest calls service and shows success', async () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+        const ch = { id: 'ch-private', name: 'VIP' } as any;
+
+        act(() => result.current.handleRequestAccess(ch));
+        act(() => result.current.setJoinRequestMessage('Let me in!'));
+        await act(() => result.current.handleSubmitJoinRequest());
+
+        expect(mockRequestJoinChannel).toHaveBeenCalledWith('ch-private', 'Let me in!');
+        expect(mockToastSuccess).toHaveBeenCalled();
+    });
+
+    it('handleSubmitJoinRequest — no channel is no-op', async () => {
+        const { result } = renderHook(() => useChatProposals(defaultProposalOpts));
+        await act(() => result.current.handleSubmitJoinRequest());
+        expect(mockRequestJoinChannel).not.toHaveBeenCalled();
+    });
+});
+
+// ═══════════════════════════════════════
+
+describe('useChatMessages — edge cases', () => {
+    beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
+
+    it('sendChannelMessage with empty text is no-op', async () => {
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => result.current.setActiveChannel({ id: 'ch-1', name: 'G' } as any));
+        await act(() => result.current.sendChannelMessage());
+        expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
+    it('sendChannelMessage with bypassFilter skips client filter', async () => {
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => {
+            result.current.setActiveChannel({ id: 'ch-1', name: 'G' } as any);
+            result.current.setMessageText('risky text');
+        });
+        await act(() => result.current.sendChannelMessage(true));
+        expect(mockClientFilter).not.toHaveBeenCalled();
+        expect(mockSendMessage).toHaveBeenCalled();
+    });
+
+    it('openChannel cleans up previous subscription', async () => {
+        const unsub = vi.fn();
+        mockSubscribeToChannel.mockReturnValueOnce(unsub);
+
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+
+        await act(() => result.current.openChannel({ id: 'ch-1', name: 'A' } as any));
+        await act(() => result.current.openChannel({ id: 'ch-2', name: 'B' } as any));
+
+        expect(unsub).toHaveBeenCalled();
+    });
+
+    it('sendChannelMessage without activeChannel is no-op', async () => {
+        const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
+        act(() => result.current.setMessageText('orphaned'));
+        await act(() => result.current.sendChannelMessage());
+        expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+});
+
+// ═══════════════════════════════════════
+
+describe('useChatDMs — edge cases', () => {
+    beforeEach(() => { vi.clearAllMocks(); });
+
+    it('sendDMMessage without partner is no-op', async () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        act(() => result.current.setDmText('orphan'));
+        await act(() => result.current.sendDMMessage());
+        expect(mockSendDM).not.toHaveBeenCalled();
+    });
+
+    it('sendDMMessage with empty text is no-op', async () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        act(() => result.current.setDmPartner({ id: 'u1', name: 'A' }));
+        await act(() => result.current.sendDMMessage());
+        expect(mockSendDM).not.toHaveBeenCalled();
+    });
+
+    it('handleBlockUser without partner is no-op', async () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        await act(() => result.current.handleBlockUser());
+        expect(mockBlockUser).not.toHaveBeenCalled();
+    });
+
+    it('handleUnblockUser without partner is no-op', async () => {
+        const { result } = renderHook(() => useChatDMs(defaultDMOpts));
+        await act(() => result.current.handleUnblockUser());
+        expect(mockUnblockUser).not.toHaveBeenCalled();
+    });
+});
+
