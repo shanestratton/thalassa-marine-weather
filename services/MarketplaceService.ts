@@ -26,7 +26,7 @@ export type ListingCategory = 'Boats' | 'Outboards' | 'Electronics' | 'Sails' | 
 export type ListingCondition = 'New' | 'Like New' | 'Used - Good' | 'Used - Fair' | 'Needs Repair';
 export type ListingStatus = 'available' | 'pending' | 'sold';
 
-export const LISTING_CATEGORIES: ListingCategory[] = ['Boats', 'Outboards', 'Electronics', 'Sails', 'Rigging', 'Hardware', 'Safety', 'Misc'];
+export const LISTING_CATEGORIES: ListingCategory[] = ['Boats', 'Electronics', 'Hardware', 'Misc', 'Outboards', 'Rigging', 'Safety', 'Sails'];
 export const LISTING_CONDITIONS: ListingCondition[] = ['New', 'Like New', 'Used - Good', 'Used - Fair', 'Needs Repair'];
 
 export const CATEGORY_ICONS: Record<ListingCategory, string> = {
