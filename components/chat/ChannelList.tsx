@@ -221,85 +221,150 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                     >
                         <span className="text-xs text-white/30">➕ Propose a new channel</span>
                     </button>
-                ) : (
-                    <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 fade-slide-down">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-sky-400/50">📋 Channel Proposal</p>
-                        <p className="text-[11px] text-white/25">Submitted to admins for approval. You'll moderate it!</p>
+                ) : (() => {
+                    // Multi-step proposal wizard
+                    const [proposalStep, setProposalStep] = React.useState(1);
+                    const canProceed1 = proposalName.trim().length > 0;
 
-                        {/* Icon + Name */}
-                        <div className="flex gap-2">
-                            <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏖️" aria-label="Channel icon" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-2.5 text-center text-lg min-h-[44px]" maxLength={2} />
-                            <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" aria-label="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
-                        </div>
-
-                        {/* Description */}
-                        <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" aria-label="Channel description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
-
-                        {/* Parent channel selector */}
-                        <div>
-                            <p className="text-[11px] text-white/30 mb-1 px-1">Parent Channel (optional — makes it a sub-channel)</p>
-                            <div className="flex gap-1.5 flex-wrap">
-                                <button
-                                    onClick={() => setProposalParentId(null)}
-                                    className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${!proposalParentId
-                                        ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                        : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
-                                        }`}
-                                >
-                                    📌 Top-Level
-                                </button>
-                                {parentOptions.map(p => (
-                                    <button
-                                        key={p.id}
-                                        onClick={() => setProposalParentId(p.id)}
-                                        className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${proposalParentId === p.id
-                                            ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
-                                            }`}
-                                    >
-                                        {p.icon} {p.name}
-                                    </button>
-                                ))}
+                    return (
+                        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-4 fade-slide-down">
+                            {/* Step indicator */}
+                            <div className="flex items-center gap-2">
+                                <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-sky-400/50">📋 Step {proposalStep} of 3</p>
+                                <div className="flex-1" />
+                                <div className="flex gap-1">
+                                    {[1, 2, 3].map(s => (
+                                        <div key={s} className={`w-2 h-2 rounded-full transition-all duration-200 ${s === proposalStep ? 'bg-sky-400 scale-110' : s < proposalStep ? 'bg-sky-400/40' : 'bg-white/[0.08]'}`} />
+                                    ))}
+                                </div>
                             </div>
-                        </div>
 
-                        {/* Public / Private toggle */}
-                        <div className="flex gap-1.5">
-                            <button
-                                onClick={() => setProposalIsPrivate(false)}
-                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${!proposalIsPrivate
-                                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
-                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
-                                    }`}
-                            >
-                                🌊 Public
-                            </button>
-                            <button
-                                onClick={() => setProposalIsPrivate(true)}
-                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${proposalIsPrivate
-                                    ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
-                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
-                                    }`}
-                            >
-                                🔒 Private
-                            </button>
-                        </div>
+                            {/* Step 1: Name & Description */}
+                            {proposalStep === 1 && (
+                                <div className="space-y-3 fade-slide-down">
+                                    <p className="text-sm font-semibold text-white/70">What's your channel about?</p>
+                                    <div className="flex gap-2">
+                                        <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏖️" aria-label="Channel icon" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-2.5 text-center text-lg min-h-[44px]" maxLength={2} />
+                                        <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" aria-label="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
+                                    </div>
+                                    <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description (optional)" aria-label="Channel description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
+                                    <div className="flex gap-2">
+                                        <button onClick={() => { setShowProposalForm(false); setProposalParentId(null); }} aria-label="Cancel" className="flex-1 py-3 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]">Cancel</button>
+                                        <button onClick={() => setProposalStep(2)} disabled={!canProceed1} aria-label="Next step" className="flex-1 py-3 rounded-xl bg-sky-500/15 text-xs text-sky-400 font-semibold hover:bg-sky-500/25 disabled:opacity-30 transition-colors min-h-[44px]">Next →</button>
+                                    </div>
+                                </div>
+                            )}
 
-                        {proposalIsPrivate && (
-                            <p className="text-[11px] text-purple-400/50 px-1">
-                                Private channels require approval to join. You'll moderate who gets in.
-                            </p>
-                        )}
+                            {/* Step 2: Options */}
+                            {proposalStep === 2 && (
+                                <div className="space-y-3 fade-slide-down">
+                                    <p className="text-sm font-semibold text-white/70">Channel settings</p>
 
-                        {/* Submit / Cancel */}
-                        <div className="flex gap-2">
-                            <button onClick={() => { setShowProposalForm(false); setProposalParentId(null); }} aria-label="Cancel proposal" className="flex-1 py-3 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]">Cancel</button>
-                            <button onClick={onProposeChannel} disabled={!proposalName.trim()} aria-label="Submit channel proposal" className="flex-1 py-3 rounded-xl bg-sky-500/15 text-xs text-sky-400 font-semibold hover:bg-sky-500/25 disabled:opacity-30 transition-colors min-h-[44px]">
-                                {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
-                            </button>
+                                    {/* Parent channel selector */}
+                                    <div>
+                                        <p className="text-[11px] text-white/30 mb-1.5 px-1">Parent Channel</p>
+                                        <div className="flex gap-1.5 flex-wrap">
+                                            <button
+                                                onClick={() => setProposalParentId(null)}
+                                                className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${!proposalParentId
+                                                    ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                                    : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                                    }`}
+                                            >
+                                                📌 Top-Level
+                                            </button>
+                                            {parentOptions.map(p => (
+                                                <button
+                                                    key={p.id}
+                                                    onClick={() => setProposalParentId(p.id)}
+                                                    className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${proposalParentId === p.id
+                                                        ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                                        : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                                        }`}
+                                                >
+                                                    {p.icon} {p.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Public / Private toggle */}
+                                    <div>
+                                        <p className="text-[11px] text-white/30 mb-1.5 px-1">Visibility</p>
+                                        <div className="flex gap-1.5">
+                                            <button
+                                                onClick={() => setProposalIsPrivate(false)}
+                                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${!proposalIsPrivate
+                                                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
+                                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                                    }`}
+                                            >
+                                                🌊 Public
+                                            </button>
+                                            <button
+                                                onClick={() => setProposalIsPrivate(true)}
+                                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${proposalIsPrivate
+                                                    ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
+                                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                                    }`}
+                                            >
+                                                🔒 Private
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {proposalIsPrivate && (
+                                        <p className="text-[11px] text-purple-400/50 px-1">
+                                            Private channels require approval to join. You'll moderate who gets in.
+                                        </p>
+                                    )}
+
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setProposalStep(1)} aria-label="Go back" className="flex-1 py-3 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]">← Back</button>
+                                        <button onClick={() => setProposalStep(3)} aria-label="Review" className="flex-1 py-3 rounded-xl bg-sky-500/15 text-xs text-sky-400 font-semibold hover:bg-sky-500/25 transition-colors min-h-[44px]">Review →</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Step 3: Review & Submit */}
+                            {proposalStep === 3 && (
+                                <div className="space-y-3 fade-slide-down">
+                                    <p className="text-sm font-semibold text-white/70">Review your channel</p>
+
+                                    {/* Preview card */}
+                                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="text-xl">{proposalIcon || '💬'}</span>
+                                            <div>
+                                                <p className="text-sm font-bold text-white/80">{proposalName}</p>
+                                                <p className="text-[11px] text-white/40">{proposalDesc || 'No description'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-1.5">
+                                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${proposalIsPrivate ? 'text-purple-400/70 bg-purple-500/10' : 'text-sky-400/70 bg-sky-500/10'}`}>
+                                                {proposalIsPrivate ? '🔒 Private' : '🌊 Public'}
+                                            </span>
+                                            <span className="text-[11px] font-bold text-white/30 bg-white/[0.04] px-2 py-0.5 rounded-full">
+                                                {proposalParentId ? `Sub of ${parentOptions.find(p => p.id === proposalParentId)?.name || '?'}` : '📌 Top-Level'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <p className="text-[11px] text-white/25 text-center">
+                                        {isAdmin ? 'This channel will be created instantly.' : 'Submitted to admins for approval. You\'ll moderate it!'}
+                                    </p>
+
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setProposalStep(2)} aria-label="Go back" className="flex-1 py-3 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]">← Back</button>
+                                        <button onClick={onProposeChannel} disabled={!proposalName.trim()} aria-label="Submit channel proposal" className="flex-1 py-3 rounded-xl bg-sky-500/15 text-xs text-sky-400 font-semibold hover:bg-sky-500/25 disabled:opacity-30 transition-colors min-h-[44px]">
+                                            {proposalSent ? '✓ Submitted!' : isAdmin ? '⚡ Create Channel' : '📋 Submit for Review'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
             </div>
         </div>
     );

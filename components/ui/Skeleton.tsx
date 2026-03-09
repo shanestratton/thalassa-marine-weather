@@ -138,3 +138,42 @@ export const SkeletonVoyageList: React.FC = () => (
         ))}
     </div>
 );
+
+// Chat message list skeleton — alternating left/right bubbles
+export const SkeletonMessageList: React.FC = () => (
+    <div className="px-4 py-3 space-y-3 animate-in fade-in duration-300">
+        {[
+            { side: 'left', w: 'w-3/5', lines: 2 },
+            { side: 'right', w: 'w-2/5', lines: 1 },
+            { side: 'left', w: 'w-4/5', lines: 3 },
+            { side: 'right', w: 'w-1/2', lines: 1 },
+            { side: 'left', w: 'w-3/5', lines: 2 },
+            { side: 'right', w: 'w-2/5', lines: 2 },
+        ].map((msg, i) => (
+            <div
+                key={i}
+                className={`flex ${msg.side === 'right' ? 'justify-end' : 'justify-start'} stagger-item`}
+                style={{ animationDelay: `${i * 60}ms` }}
+            >
+                <div className={`${msg.w} max-w-[80%]`}>
+                    {msg.side === 'left' && (
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <Skeleton className="w-6 h-6 !rounded-full" />
+                            <Skeleton className="h-3 w-16" />
+                        </div>
+                    )}
+                    <div className={`rounded-2xl p-3.5 ${msg.side === 'right'
+                            ? 'bg-sky-500/[0.06] border border-sky-500/[0.08] rounded-br-lg'
+                            : 'bg-white/[0.03] border border-white/[0.03] rounded-bl-lg'
+                        }`}>
+                        <div className="space-y-1.5">
+                            {Array.from({ length: msg.lines }).map((_, j) => (
+                                <Skeleton key={j} className={`h-3 ${j === msg.lines - 1 ? 'w-3/4' : 'w-full'}`} />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        ))}
+    </div>
+);
