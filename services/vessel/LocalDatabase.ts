@@ -43,6 +43,8 @@ const TABLE_FILES: Record<string, string> = {
     maintenance_history: 'vessel_maintenance_history.json',
     equipment_register: 'vessel_equipment_register.json',
     ship_documents: 'vessel_ship_documents.json',
+    checklists: 'vessel_checklists.json',
+    checklist_runs: 'vessel_checklist_runs.json',
 };
 
 const SYNC_QUEUE_FILE = 'vessel_sync_queue.json';
@@ -80,7 +82,7 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
 
         return JSON.parse(contents.data as string) as T;
     } catch (e) {
-            console.warn('[LocalDatabase]', e);
+        console.warn('[LocalDatabase]', e);
         return fallback;
     }
 }
