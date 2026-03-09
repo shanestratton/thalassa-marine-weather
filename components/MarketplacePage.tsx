@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from './Toast';
 import {
     MarketplaceService,
     MarketplaceListing,
@@ -27,7 +28,20 @@ import { t } from '../theme';
 import { SlideToAction } from './ui/SlideToAction';
 import { triggerHaptic } from '../utils/system';
 
+// --- CONSTANTS ---
+const MAX_PHOTOS = 20; // Pro users get 20 photos
+
 // --- HELPERS ---
+
+/** Haversine distance in nautical miles between two lat/lon pairs */
+const haversineNm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 3440.065; // Earth radius in nm
+    const toRad = (d: number) => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+};
 
 const timeAgo = (dateStr: string): string => {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -100,10 +114,11 @@ interface ListingCardProps {
     onMessageSeller: (listing: MarketplaceListing) => void;
     onMarkSold: (id: string) => void;
     onDelete: (id: string) => void;
+    onFlagLocation?: (listing: MarketplaceListing) => void;
     isNew?: boolean;
 }
 
-const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSeller, onMarkSold, onDelete, isNew }) => {
+const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSeller, onMarkSold, onDelete, onFlagLocation, isNew }) => {
     const [expanded, setExpanded] = useState(false);
     const [imageIdx, setImageIdx] = useState(0);
     const [showActions, setShowActions] = useState(false);
@@ -201,6 +216,15 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                             )}
                             <span className="ml-auto">{timeAgo(listing.created_at)}</span>
                         </div>
+                        {/* Report suspicious location — buyer only */}
+                        {!isOwn && listing.location_name && onFlagLocation && (
+                            <button
+                                onClick={() => onFlagLocation(listing)}
+                                className="mt-1.5 text-[10px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
+                            >
+                                ⚠️ Not the seller's actual location?
+                            </button>
+                        )}
 
                         {/* Divider */}
                         <div className="h-px bg-white/[0.06] my-3" />
@@ -296,7 +320,9 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [currency, setCurrency] = useState<string>('AUD');
     const [category, setCategory] = useState<ListingCategory | null>(null);
     const [condition, setCondition] = useState<string | null>(null);
-    const [locationName, setLocationName] = useState('');
+    const [locCountry, setLocCountry] = useState('');
+    const [locState, setLocState] = useState('');
+    const [locSuburb, setLocSuburb] = useState('');
     const [images, setImages] = useState<File[]>([]);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
@@ -304,22 +330,55 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [step, setStep] = useState<'details' | 'photos'>('details');
     const [gpsLat, setGpsLat] = useState<number | null>(null);
     const [gpsLon, setGpsLon] = useState<number | null>(null);
+    const [locationWarning, setLocationWarning] = useState<string | null>(null);
+    const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
-    // Get GPS on open
+    // Get GPS + auto-fill location on open
     useEffect(() => {
         if (!isOpen) return;
         const pos = BgGeoManager.getLastPosition();
         if (pos) {
             setGpsLat(pos.latitude);
             setGpsLon(pos.longitude);
+            autoFilledLocRef.current = { lat: pos.latitude, lon: pos.longitude };
+            // Reverse-geocode to auto-fill Country / State / Suburb
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json&zoom=10`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data?.address) {
+                        setLocCountry(data.address.country || '');
+                        setLocState(data.address.state || data.address.region || '');
+                        setLocSuburb(data.address.suburb || data.address.town || data.address.city || data.address.village || '');
+                    }
+                })
+                .catch(() => { /* best effort */ });
         }
     }, [isOpen]);
+
+    /** Check if user-edited location is suspiciously far from GPS */
+    const checkLocationDistance = useCallback(async (country: string, state: string, suburb: string) => {
+        if (!autoFilledLocRef.current) { setLocationWarning(null); return; }
+        const query = [suburb, state, country].filter(Boolean).join(', ');
+        if (!query) { setLocationWarning(null); return; }
+        try {
+            const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`);
+            const results = await r.json();
+            if (results?.[0]) {
+                const dist = haversineNm(autoFilledLocRef.current.lat, autoFilledLocRef.current.lon, parseFloat(results[0].lat), parseFloat(results[0].lon));
+                if (dist > 100) {
+                    setLocationWarning(`⚠️ This location is ~${Math.round(dist)}nm from your current GPS position. Buyers may see this as suspicious.`);
+                } else {
+                    setLocationWarning(null);
+                }
+            }
+        } catch { setLocationWarning(null); }
+    }, []);
 
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
-        const newImages = [...images, ...files].slice(0, 4);
+        const newImages = [...images, ...files].slice(0, MAX_PHOTOS);
         setImages(newImages);
         // Generate previews
         const previews: string[] = [];
@@ -338,7 +397,9 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
     const reset = () => {
         setTitle(''); setDescription(''); setPrice(''); setCurrency('AUD');
-        setCategory(null); setCondition(null); setLocationName('');
+        setCategory(null); setCondition(null);
+        setLocCountry(''); setLocState(''); setLocSuburb('');
+        setLocationWarning(null); autoFilledLocRef.current = null;
         setImages([]); setImagePreviews([]); setStep('details');
         setError(null); setSubmitting(false);
     };
@@ -362,7 +423,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             images: images.length > 0 ? images : undefined,
             latitude: gpsLat || undefined,
             longitude: gpsLon || undefined,
-            location_name: locationName.trim() || undefined,
+            location_name: [locSuburb.trim(), locState.trim(), locCountry.trim()].filter(Boolean).join(', ') || undefined,
         };
 
         const result = await MarketplaceService.createListing(input);
@@ -424,6 +485,38 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Location (Country / State / Suburb — privacy safe, auto-filled from GPS) */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                            Location {gpsLat ? '(auto-filled from GPS)' : ''}
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                value={locCountry}
+                                onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
+                                placeholder="Country"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                            <input
+                                value={locState}
+                                onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
+                                placeholder="State"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                            <input
+                                value={locSuburb}
+                                onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
+                                placeholder="Suburb"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                        </div>
+                        {locationWarning && (
+                            <div className="mt-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400 leading-relaxed">
+                                {locationWarning}
+                            </div>
+                        )}
                     </div>
 
                     {/* Title */}
@@ -493,27 +586,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         </div>
                     </div>
 
-                    {/* Location */}
-                    <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
-                            Location {gpsLat ? '(GPS auto-filled)' : ''}
-                        </label>
-                        <input
-                            value={locationName}
-                            onChange={e => setLocationName(e.target.value)}
-                            placeholder="e.g. Scarborough Marina, QLD"
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                        />
-                        {gpsLat && (
-                            <p className="text-[11px] text-white/60 mt-1">
-                                📍 {gpsLat.toFixed(4)}, {gpsLon?.toFixed(4)}
-                            </p>
-                        )}
-                    </div>
+
 
                     {/* Photos */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to 4)</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to {MAX_PHOTOS})</label>
                         <div className="flex gap-2 flex-wrap">
                             {imagePreviews.map((url, i) => (
                                 <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10">
@@ -524,7 +601,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     >✕</button>
                                 </div>
                             ))}
-                            {images.length < 4 && (
+                            {images.length < MAX_PHOTOS && (
                                 <button
                                     onClick={() => fileRef.current?.click()}
                                     className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
@@ -655,6 +732,16 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
         }), 2000);
     };
 
+    const handleFlagLocation = async (listing: MarketplaceListing) => {
+        // DM the seller with a polite heads-up
+        const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
+        await ChatService.sendDM(
+            listing.seller_id,
+            `Hi ${sellerFirst}, a buyer has flagged that the listed location for "${listing.title}" may not match your actual area. If this is intentional, no worries — just letting you know! 🙏`
+        );
+        toast.success('Location flagged — seller has been notified');
+    };
+
     return (
         <div className="flex flex-col h-full bg-slate-950">
             {/* ═══════ HEADER ═══════ */}
@@ -720,6 +807,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                             onMessageSeller={handleMessageSeller}
                             onMarkSold={handleMarkSold}
                             onDelete={handleDelete}
+                            onFlagLocation={handleFlagLocation}
                             isNew={newListingIds.has(listing.id)}
                         />
                     ))
