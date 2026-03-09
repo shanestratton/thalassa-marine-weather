@@ -97,6 +97,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         }
     };
 
+    const handleUnmute = async (userId: string) => {
+        const ok = await ChatService.unmuteUser(userId);
+        if (ok) {
+            setUsers(prev => prev.map(u => u.user_id === userId ? { ...u, muted_until: null } : u));
+        }
+    };
+
     // ── Count by role ──
     const adminCount = users.filter(u => u.role === 'admin').length;
     const modCount = users.filter(u => u.role === 'moderator').length;
@@ -229,22 +236,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                                                 </button>
                                             </div>
 
-                                            {/* Mute */}
-                                            <div className="flex gap-1.5">
-                                                <input
-                                                    value={muteHours}
-                                                    onChange={e => setMuteHours(e.target.value.replace(/\D/g, ''))}
-                                                    placeholder="Hours"
-                                                    inputMode="numeric"
-                                                    className="w-20 px-2.5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none"
-                                                />
+                                            {/* Mute / Unmute */}
+                                            {isMuted ? (
                                                 <button
-                                                    onClick={() => handleMute(user.user_id)}
-                                                    className="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-[10px] font-bold text-orange-400 uppercase tracking-wider active:scale-95"
+                                                    onClick={() => handleUnmute(user.user_id)}
+                                                    className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95"
                                                 >
-                                                    🔇 Mute for {muteHours || '?'} hrs
+                                                    🔊 Unmute User
                                                 </button>
-                                            </div>
+                                            ) : (
+                                                <div className="flex gap-1.5">
+                                                    <input
+                                                        value={muteHours}
+                                                        onChange={e => setMuteHours(e.target.value.replace(/\D/g, ''))}
+                                                        placeholder="Hours"
+                                                        inputMode="numeric"
+                                                        className="w-20 px-2.5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none"
+                                                    />
+                                                    <button
+                                                        onClick={() => handleMute(user.user_id)}
+                                                        className="flex-1 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-[10px] font-bold text-orange-400 uppercase tracking-wider active:scale-95"
+                                                    >
+                                                        🔇 Mute for {muteHours || '?'} hrs
+                                                    </button>
+                                                </div>
+                                            )}
 
                                             {/* Block / Unblock */}
                                             {user.is_blocked ? (
