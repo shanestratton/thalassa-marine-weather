@@ -124,18 +124,19 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                     )}
                     <button
                         onClick={() => handleChannelClick(ch)}
-                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-2.5' : 'p-3.5'} rounded-2xl transition-all duration-200 active:scale-[0.98] ${isPrivateLocked
-                                ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
-                                : isSub
-                                    ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
-                                    : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
+                        aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
+                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 active:scale-[0.98] min-h-[${isSub ? '48' : '56'}px] ${isPrivateLocked
+                            ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
+                            : isSub
+                                ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
+                                : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
                             }`}
                         style={!isSub ? { animationDelay: `${index * 40}ms` } : undefined}
                     >
                         {/* Icon */}
                         <div className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-gradient-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${ch.is_private
-                                ? 'from-purple-500/[0.12] to-indigo-500/[0.05] border-purple-500/20'
-                                : 'from-white/[0.06] to-white/[0.02] border-white/[0.05]'
+                            ? 'from-purple-500/[0.12] to-indigo-500/[0.05] border-purple-500/20'
+                            : 'from-white/[0.06] to-white/[0.02] border-white/[0.05]'
                             }`}>
                             {ch.is_private ? '🔒' : getChannelIcon(ch)}
                         </div>
@@ -158,7 +159,9 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             {!isSub && hasSubs && (
                                 <button
                                     onClick={(e) => toggleExpand(ch.id, e)}
-                                    className="w-6 h-6 rounded-full bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center transition-all"
+                                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${getChannelName(ch)} sub-channels`}
+                                    aria-expanded={isExpanded}
+                                    className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
                                 >
                                     <span className={`text-white/40 text-[10px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
                                 </button>
@@ -213,9 +216,10 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                 {!showProposalForm ? (
                     <button
                         onClick={() => setShowProposalForm(true)}
-                        className="w-full p-3 rounded-2xl border border-dashed border-white/[0.06] hover:border-sky-500/20 hover:bg-sky-500/[0.03] text-center transition-all duration-200 active:scale-[0.98]"
+                        aria-label="Propose a new channel"
+                        className="w-full p-4 rounded-2xl border border-dashed border-white/[0.06] hover:border-sky-500/20 hover:bg-sky-500/[0.03] text-center transition-all duration-200 active:scale-[0.98] min-h-[52px]"
                     >
-                        <span className="text-[11px] text-white/25">➕ Propose a new channel</span>
+                        <span className="text-xs text-white/30">➕ Propose a new channel</span>
                     </button>
                 ) : (
                     <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 fade-slide-down">
@@ -224,12 +228,12 @@ export const ChannelList: React.FC<ChannelListProps> = ({
 
                         {/* Icon + Name */}
                         <div className="flex gap-2">
-                            <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏝️" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-1.5 text-center text-lg" maxLength={2} />
-                            <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                            <input value={proposalIcon} onChange={e => setProposalIcon(e.target.value)} placeholder="🏖️" aria-label="Channel icon" className="w-12 bg-white/[0.04] border border-white/[0.06] rounded-lg px-2 py-2.5 text-center text-lg min-h-[44px]" maxLength={2} />
+                            <input value={proposalName} onChange={e => setProposalName(e.target.value)} placeholder="Channel name" aria-label="Channel name" className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
                         </div>
 
                         {/* Description */}
-                        <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30" />
+                        <input value={proposalDesc} onChange={e => setProposalDesc(e.target.value)} placeholder="Short description" aria-label="Channel description" className="w-full bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 min-h-[44px]" />
 
                         {/* Parent channel selector */}
                         <div>
@@ -237,9 +241,9 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             <div className="flex gap-1.5 flex-wrap">
                                 <button
                                     onClick={() => setProposalParentId(null)}
-                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${!proposalParentId
-                                            ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                    className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${!proposalParentId
+                                        ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                        : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
                                         }`}
                                 >
                                     📌 Top-Level
@@ -248,9 +252,9 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                                     <button
                                         key={p.id}
                                         onClick={() => setProposalParentId(p.id)}
-                                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${proposalParentId === p.id
-                                                ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                                : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                        className={`px-3 py-2.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${proposalParentId === p.id
+                                            ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
                                             }`}
                                     >
                                         {p.icon} {p.name}
@@ -263,18 +267,18 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                         <div className="flex gap-1.5">
                             <button
                                 onClick={() => setProposalIsPrivate(false)}
-                                className={`flex-1 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all active:scale-95 ${!proposalIsPrivate
-                                        ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
-                                        : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${!proposalIsPrivate
+                                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
+                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
                                     }`}
                             >
                                 🌊 Public
                             </button>
                             <button
                                 onClick={() => setProposalIsPrivate(true)}
-                                className={`flex-1 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all active:scale-95 ${proposalIsPrivate
-                                        ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
-                                        : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                className={`flex-1 py-3 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[44px] ${proposalIsPrivate
+                                    ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
+                                    : 'bg-white/[0.04] border-white/[0.06] text-white/40'
                                     }`}
                             >
                                 🔒 Private
@@ -289,8 +293,8 @@ export const ChannelList: React.FC<ChannelListProps> = ({
 
                         {/* Submit / Cancel */}
                         <div className="flex gap-2">
-                            <button onClick={() => { setShowProposalForm(false); setProposalParentId(null); }} className="flex-1 py-2 rounded-lg bg-white/[0.03] text-[11px] text-white/60 hover:bg-white/[0.06] transition-colors">Cancel</button>
-                            <button onClick={onProposeChannel} disabled={!proposalName.trim()} className="flex-1 py-2 rounded-lg bg-sky-500/15 text-[11px] text-sky-400 hover:bg-sky-500/25 disabled:opacity-30 transition-colors">
+                            <button onClick={() => { setShowProposalForm(false); setProposalParentId(null); }} aria-label="Cancel proposal" className="flex-1 py-3 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors min-h-[44px]">Cancel</button>
+                            <button onClick={onProposeChannel} disabled={!proposalName.trim()} aria-label="Submit channel proposal" className="flex-1 py-3 rounded-xl bg-sky-500/15 text-xs text-sky-400 font-semibold hover:bg-sky-500/25 disabled:opacity-30 transition-colors min-h-[44px]">
                                 {proposalSent ? '✓ Submitted!' : 'Submit for Review'}
                             </button>
                         </div>
