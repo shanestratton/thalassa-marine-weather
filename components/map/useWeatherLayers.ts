@@ -339,7 +339,8 @@ export function useWeatherLayers(
             rainBufferRef.current = nextBuf;
 
         } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
-            // Rainbow.ai forecast tiles — same A/B crossfade as radar
+            // Rainbow.ai forecast tiles — load-aware crossfade
+            // Keep old frame visible until new tiles are loaded
             const nextBuf = rainBufferRef.current === 'a' ? 'b' : 'a';
             const oldId = `rain-buf-${rainBufferRef.current}`;
             const newId = `rain-buf-${nextBuf}`;
@@ -361,20 +362,35 @@ export function useWeatherLayers(
                 paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 300, delay: 0 }, 'raster-fade-duration': 0 },
             }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
 
-            requestAnimationFrame(() => {
+            // Wait for tiles to load, then crossfade
+            const performCrossfade = () => {
                 if (!m.getLayer(newId)) return;
                 m.setPaintProperty(newId, 'raster-opacity', 0.75);
                 if (m.getLayer(oldId)) {
                     m.setPaintProperty(oldId, 'raster-opacity', 0);
                 }
-            });
+                rainFadeTimerRef.current = setTimeout(() => {
+                    try {
+                        if (m.getLayer(oldId)) m.removeLayer(oldId);
+                        if (m.getSource(oldId)) m.removeSource(oldId);
+                    } catch (_) { }
+                }, 400);
+            };
 
+            // Listen for tiles loaded, then crossfade
+            const onSourceData = (e: mapboxgl.MapSourceDataEvent) => {
+                if (e.sourceId === newId && m.isSourceLoaded(newId)) {
+                    m.off('sourcedata', onSourceData);
+                    performCrossfade();
+                }
+            };
+            m.on('sourcedata', onSourceData);
+
+            // Fallback: if tiles don't load in 3s, crossfade anyway
             rainFadeTimerRef.current = setTimeout(() => {
-                try {
-                    if (m.getLayer(oldId)) m.removeLayer(oldId);
-                    if (m.getSource(oldId)) m.removeSource(oldId);
-                } catch (_) { }
-            }, 400);
+                m.off('sourcedata', onSourceData);
+                performCrossfade();
+            }, 3000);
 
             // Clean up legacy layers
             try {
