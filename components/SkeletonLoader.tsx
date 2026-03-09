@@ -10,7 +10,8 @@ export const SkeletonDashboard = () => {
                 <div className="w-12 h-12 bg-sky-500/20 rounded-xl flex items-center justify-center mb-3 border border-sky-500/30 shadow-lg shadow-sky-500/10">
                     <WindIcon className="w-7 h-7 text-sky-400 animate-pulse" />
                 </div>
-                <span className="text-xs font-bold text-sky-300 uppercase tracking-[0.2em] animate-pulse">Initializing Thalassa...</span>
+                <span className="text-xs font-bold text-sky-300 uppercase tracking-[0.2em] animate-pulse">Loading Marine Data...</span>
+                <span className="text-[10px] text-white/30 mt-1">Weather · Tides · Sea State</span>
             </div>
 
             {/* Hero Section Skeleton */}

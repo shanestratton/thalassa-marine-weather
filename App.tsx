@@ -21,6 +21,7 @@ import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
+import { ChatService } from './services/ChatService';
 
 
 
@@ -77,6 +78,17 @@ const App: React.FC = () => {
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew' || currentView === 'checklists';
+
+    // Unread DM count for Chat tab badge
+    const [chatUnread, setChatUnread] = useState(0);
+    useEffect(() => {
+        const poll = () => ChatService.getUnreadDMCount().then(n => setChatUnread(n)).catch(() => { });
+        poll();
+        const timer = setInterval(poll, 30000);
+        return () => clearInterval(timer);
+    }, []);
+    // Clear badge when viewing chat
+    useEffect(() => { if (currentView === 'chat') setChatUnread(0); }, [currentView]);
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -322,7 +334,7 @@ const App: React.FC = () => {
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew' || currentView === 'checklists' || currentView === 'vessel'}>
+                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew' || currentView === 'checklists' || currentView === 'vessel'}>
                         <main className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -462,7 +474,7 @@ const App: React.FC = () => {
                         <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
                             <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
-                            <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} />
+                            <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} badge={chatUnread > 0 ? chatUnread : undefined} />
                             <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Vessel" active={isVesselView} onClick={() => setPage('vessel')} />
                         </div>
                     </div>

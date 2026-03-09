@@ -811,6 +811,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </p>
                             </div>
                         </div>
+
+                        {/* Rain intensity legend */}
+                        <div className="mt-1.5 flex items-center gap-1.5 px-1">
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Light</span>
+                            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{
+                                background: 'linear-gradient(to right, rgba(0,72,120,0.9), rgba(0,150,210,0.9), rgba(56,190,230,0.9), rgba(130,220,235,0.9), rgba(250,235,0,0.9), rgba(250,180,0,0.9), rgba(200,0,0,0.95), rgba(143,0,0,1))',
+                            }} />
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Heavy</span>
+                        </div>
                     </div>
                 );
             })()}
