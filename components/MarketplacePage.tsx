@@ -716,11 +716,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     return (
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
-                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
+                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06]">
+                {/* Header — sticky at top of modal */}
+                <div className="shrink-0 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06] rounded-t-3xl">
                     <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/60 font-medium">Cancel</button>
                     <h2 className="text-sm font-bold text-white">{isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}</h2>
                     <button
@@ -732,7 +732,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
                 </div>
 
-                <div className="px-5 py-4 space-y-5">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
                     {/* Error */}
                     {error && (
                         <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
@@ -756,6 +756,18 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Title */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">{isBoat ? 'Listing Title' : 'Title'}</label>
+                        <input
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
+                            maxLength={100}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                        />
                     </div>
 
                     {/* Location (Country / State / Suburb — privacy safe, auto-filled from GPS) */}
@@ -788,18 +800,6 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 {locationWarning}
                             </div>
                         )}
-                    </div>
-
-                    {/* Title */}
-                    <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">{isBoat ? 'Listing Title' : 'Title'}</label>
-                        <input
-                            value={title}
-                            onChange={e => setTitle(e.target.value)}
-                            placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
-                            maxLength={100}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                        />
                     </div>
 
                     {/* ═══ BOAT-SPECIFIC FIELDS ═══ */}
@@ -1055,7 +1055,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
 
                     {/* Bottom spacing for iOS safe area */}
-                    <div className="h-8" />
+                    <div style={{ height: 'max(2rem, env(safe-area-inset-bottom))' }} />
                 </div>
             </div>
         </div>
