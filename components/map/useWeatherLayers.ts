@@ -546,7 +546,9 @@ export function useWeatherLayers(
                     const nowcast: { path: string; time: number }[] = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. Rainbow.ai forecast tiles (1km res, up to +4h in 10-min intervals)
+                    // 2. Rainbow.ai forecast tiles (1km res)
+                    // Note: available forecast range depends on subscription tier.
+                    // Extend this array as more offsets become available.
                     const rainbowKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RAINBOW_API_KEY) || '';
                     let rainbowSnapshot: number | null = null;
                     const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
@@ -591,13 +593,15 @@ export function useWeatherLayers(
                     rainNowIdxRef.current = nowIdx;
 
                     // Add Rainbow.ai forecast frames
+                    // forecast_time is in SECONDS (not minutes!)
                     if (rainbowSnapshot) {
                         for (const mins of RAINBOW_FORECAST_MINUTES) {
                             const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
+                            const forecastSecs = mins * 60;
                             // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
                             const tileUrl = isDev
-                                ? `/api/rainbow/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`
-                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`;
+                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}`
+                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }
