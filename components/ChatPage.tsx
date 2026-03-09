@@ -257,47 +257,54 @@ export const ChatPage: React.FC = () => {
     const poiMapInstance = useRef<any>(null);
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
+    const channelUnsubRef = useRef<(() => void) | null>(null);
+    const dmPartnerRef = useRef(dmPartner);
+
+    // Keep dmPartnerRef in sync so the DM subscription callback always has fresh data
+    useEffect(() => { dmPartnerRef.current = dmPartner; }, [dmPartner]);
 
     // --- INIT ---
     useEffect(() => {
-        // FAST PATH: Show channels immediately (from cache or defaults)
-        // Don't wait for auth — channels are public data
-        loadChannels().then((chs) => {
-            // ── Auto-restore channel if returning from pin-view map ──
+        const init = async () => {
+            // FAST PATH: Show channels immediately (from cache or defaults)
+            const chs = await loadChannels();
+
+            // Auto-restore channel if returning from pin-view map
             const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
             if (returnChannelId) {
                 sessionStorage.removeItem('chat_return_to_channel');
                 const ch = chs.find(c => c.id === returnChannelId);
-                if (ch) {
-                    // Re-open the channel the user was viewing before the pin tap
-                    openChannel(ch);
-                }
+                if (ch) openChannel(ch);
             }
 
-            // Auth + profile load in background — non-blocking
-            ChatService.initialize().then(async () => {
+            // Auth + profile load — sequential, readable
+            try {
+                await ChatService.initialize();
                 loadUnreadCount();
+
                 // Refresh channels from network (might have new ones)
                 const fresh = await ChatService.getChannels();
                 if (fresh.length > 0) setChannels(fresh);
 
                 // Load chat profile
-                ChatService.getCurrentUser().then(async (user) => {
-                    if (user) {
-                        const profile = await getProfile(user.id);
-                        if (profile) {
-                            setProfileDisplayName(profile.display_name || '');
-                            setProfileVesselName(profile.vessel_name || settings.vessel?.name || '');
-                            setProfileLookingForLove(profile.looking_for_love || false);
-                            if (profile.avatar_url) setMyAvatarUrl(profile.avatar_url);
-                        } else {
-                            setProfileVesselName(settings.vessel?.name || '');
-                        }
-                        setProfileLoaded(true);
+                const user = await ChatService.getCurrentUser();
+                if (user) {
+                    const profile = await getProfile(user.id);
+                    if (profile) {
+                        setProfileDisplayName(profile.display_name || '');
+                        setProfileVesselName(profile.vessel_name || settings.vessel?.name || '');
+                        setProfileLookingForLove(profile.looking_for_love || false);
+                        if (profile.avatar_url) setMyAvatarUrl(profile.avatar_url);
+                    } else {
+                        setProfileVesselName(settings.vessel?.name || '');
                     }
-                });
-            });
-        });
+                    setProfileLoaded(true);
+                }
+            } catch (e) {
+                log.warn('Init auth/profile failed:', e);
+            }
+        };
+        init();
 
         const visited = localStorage.getItem('crew_talk_visited');
         if (visited) setIsFirstVisit(false);
@@ -305,7 +312,8 @@ export const ChatPage: React.FC = () => {
         const unsub = ChatService.subscribeToDMs((dm) => {
             setUnreadDMs(prev => prev + 1);
             setDmThread(prev => {
-                if (dmPartner && dm.sender_id === dmPartner.id) {
+                const partner = dmPartnerRef.current;
+                if (partner && dm.sender_id === partner.id) {
                     return [...prev, dm];
                 }
                 return prev;
@@ -314,6 +322,7 @@ export const ChatPage: React.FC = () => {
 
         return () => {
             unsub();
+            channelUnsubRef.current?.();
             ChatService.destroy();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -374,7 +383,9 @@ export const ChatPage: React.FC = () => {
 
         setLoading(false);
 
-        ChatService.subscribeToChannel(channel.id, (newMsg) => {
+        // Unsubscribe from previous channel before subscribing to new one
+        channelUnsubRef.current?.();
+        channelUnsubRef.current = ChatService.subscribeToChannel(channel.id, (newMsg) => {
             setMessages(prev => {
                 // Check if this is our own message arriving from realtime — replace optimistic
                 const optimisticIdx = prev.findIndex(
@@ -413,7 +424,7 @@ export const ChatPage: React.FC = () => {
         setMessageText('');
 
         const optimistic: ChatMessage = {
-            id: `opt-${Date.now()}`,
+            id: `opt-${crypto.randomUUID()}`,
             channel_id: activeChannel.id,
             user_id: 'self',
             display_name: 'You',
@@ -570,7 +581,7 @@ export const ChatPage: React.FC = () => {
 
         setMessageText('');
         const optimistic: ChatMessage = {
-            id: `opt-${Date.now()}`,
+            id: `opt-${crypto.randomUUID()}`,
             channel_id: activeChannel.id,
             user_id: 'self',
             display_name: 'You',
@@ -663,7 +674,7 @@ export const ChatPage: React.FC = () => {
                 setShowTrackPicker(false);
 
                 const optimistic: ChatMessage = {
-                    id: `opt-${Date.now()}`,
+                    id: `opt-${crypto.randomUUID()}`,
                     channel_id: activeChannel.id,
                     user_id: 'self',
                     display_name: 'You',
@@ -734,7 +745,7 @@ export const ChatPage: React.FC = () => {
         // Send as regular message
         setMessageText('');
         const optimistic: ChatMessage = {
-            id: `opt-${Date.now()}`,
+            id: `opt-${crypto.randomUUID()}`,
             channel_id: activeChannel.id,
             user_id: 'self',
             display_name: 'You',
@@ -881,6 +892,7 @@ export const ChatPage: React.FC = () => {
             vessel_name: profileVesselName.trim() || undefined,
             looking_for_love: profileLookingForLove,
         });
+        ChatService.clearDisplayNameCache(); // Invalidate so next message uses updated name
         setProfileSaving(false);
         setProfileSaved(true);
         // Brief success feedback, then return to channel list
@@ -920,7 +932,7 @@ export const ChatPage: React.FC = () => {
         setDmText('');
 
         const optimistic: DirectMessage = {
-            id: `opt-${Date.now()}`,
+            id: `opt-${crypto.randomUUID()}`,
             sender_id: 'self',
             recipient_id: dmPartner.id,
             sender_name: 'You',
