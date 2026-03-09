@@ -586,17 +586,17 @@ export function useWeatherLayers(
                     const nowIdx = Math.max(0, past.length - 1);
                     rainNowIdxRef.current = nowIdx;
 
-                    // Add Rainbow.ai forecast frames
                     // forecast_time is in SECONDS (not minutes!)
+                    // Use raw dBZ tiles (color=dbz_u8) so we can apply custom raster-color
+                    // matching RainViewer scheme 4 exactly
                     if (rainbowSnapshot) {
                         for (const mins of RAINBOW_FORECAST_MINUTES) {
                             const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
                             const forecastSecs = mins * 60;
                             // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
-                            // color=2 = Dark Sky palette (closest match to RainViewer scheme 4)
                             const tileUrl = isDev
-                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=2`
-                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=2`;
+                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=dbz_u8`
+                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=dbz_u8`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }
@@ -624,7 +624,27 @@ export function useWeatherLayers(
                     }
 
                     // Pre-create ALL Rainbow.ai forecast layers (hidden)
-                    // This way scrubbing just toggles visibility — zero loading delay
+                    // Uses raw dBZ tiles + raster-color to match RainViewer scheme 4 exactly
+                    // dBZ encoding: pixel value 12 = no rain, 13-83 = light→heavy precip
+                    // Colour ramp: transparent → blue → cyan → yellow → orange → red
+                    const RAINVIEWER_COLOR_RAMP: mapboxgl.Expression = [
+                        'interpolate', ['linear'],
+                        ['raster-value'],
+                        // Normalized: pixel/255. dBZ 12 = 0.047, 83 = 0.325
+                        0.047, 'rgba(0,0,0,0)',         // ≤12: transparent (no rain)
+                        0.052, 'rgba(0,72,120,0.8)',     // ~13: deep blue (light drizzle)
+                        0.078, 'rgba(0,120,180,0.8)',    // ~20: medium blue
+                        0.110, 'rgba(0,150,210,0.8)',    // ~28: bright blue
+                        0.137, 'rgba(56,190,230,0.85)',  // ~35: cyan
+                        0.165, 'rgba(130,220,235,0.85)', // ~42: light cyan
+                        0.196, 'rgba(250,235,0,0.9)',    // ~50: yellow
+                        0.220, 'rgba(250,210,0,0.9)',    // ~56: yellow-orange
+                        0.247, 'rgba(250,180,0,0.9)',    // ~63: orange
+                        0.275, 'rgba(250,120,0,0.95)',   // ~70: dark orange
+                        0.302, 'rgba(200,0,0,0.95)',     // ~77: red
+                        0.325, 'rgba(143,0,0,1)',        // ~83: dark red (extreme)
+                    ];
+
                     const forecastFrames = unified.filter(f => f.type === 'forecast');
                     for (let i = 0; i < forecastFrames.length; i++) {
                         const ff = forecastFrames[i];
@@ -637,7 +657,14 @@ export function useWeatherLayers(
                         });
                         m.addLayer({
                             id: srcId, type: 'raster', source: srcId,
-                            paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 200, delay: 0 }, 'raster-fade-duration': 0 },
+                            paint: {
+                                'raster-opacity': 0,
+                                'raster-opacity-transition': { duration: 200, delay: 0 },
+                                'raster-fade-duration': 0,
+                                'raster-color': RAINVIEWER_COLOR_RAMP,
+                                'raster-color-mix': [1, 0, 0, 0],  // Use red channel as value (R=G=B in grayscale)
+                                'raster-color-range': [0, 1],
+                            },
                         }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
                     }
                     log.info(`Pre-created ${forecastFrames.length} Rainbow.ai forecast layers`);
