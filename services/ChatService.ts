@@ -35,6 +35,8 @@ export interface ChatChannel {
     region: string | null;
     icon: string;
     is_global: boolean;
+    is_private: boolean;
+    owner_id: string | null;
     created_at: string;
 }
 
@@ -80,6 +82,19 @@ export interface UserRoleEntry {
     is_blocked: boolean;
 }
 
+export interface JoinRequest {
+    id: string;
+    channel_id: string;
+    channel_name?: string;
+    user_id: string;
+    display_name?: string;
+    avatar_url?: string | null;
+    message: string;
+    status: 'pending' | 'approved' | 'rejected';
+    reviewed_by: string | null;
+    created_at: string;
+}
+
 export interface DMConversation {
     user_id: string;
     display_name: string;
@@ -102,13 +117,13 @@ interface QueuedMessage {
 
 // --- PRE-SEEDED CHANNELS ---
 export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
-    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true },
-    { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true },
-    { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true },
-    { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true },
-    { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true },
-    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true },
-    { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true },
+    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true, is_private: false, owner_id: null },
+    { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true, is_private: false, owner_id: null },
+    { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true, is_private: false, owner_id: null },
+    { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true, is_private: false, owner_id: null },
+    { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true, is_private: false, owner_id: null },
+    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true, is_private: false, owner_id: null },
+    { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true, is_private: false, owner_id: null },
 ];
 
 // --- SERVICE ---
@@ -705,11 +720,13 @@ class ChatServiceClass {
     // --- CHANNEL MANAGEMENT ---
     // Admins: create/delete channels directly
     // Mods: propose channels → admin must approve
+    // Private channels: require membership, join via request
 
     /** Admin or Moderator: create a channel instantly */
-    async createChannel(name: string, description: string, icon: string, region?: string): Promise<ChatChannel | null> {
+    async createChannel(name: string, description: string, icon: string, isPrivate = false, region?: string): Promise<ChatChannel | null> {
         if (!supabase || !this.isMod()) return null;
 
+        const user = (await supabase.auth.getUser()).data.user;
         const { data, error } = await supabase
             .from(CHANNELS_TABLE)
             .insert({
@@ -718,20 +735,33 @@ class ChatServiceClass {
                 icon,
                 region: region || null,
                 is_global: !region,
+                is_private: isPrivate,
+                owner_id: user?.id || null,
                 status: 'active',
             })
             .select()
             .single();
 
-        if (error) return null;
+        if (error || !data) return null;
+
+        // Auto-add creator as first member of private channels
+        if (isPrivate && user) {
+            await supabase.from('channel_members').insert({
+                channel_id: data.id,
+                user_id: user.id,
+            });
+        }
+
         return data as ChatChannel;
     }
 
-    /** Mod: propose a new channel (goes to 'pending' — needs admin approval) */
-    async proposeChannel(name: string, description: string, icon: string, region?: string): Promise<boolean> {
-        if (!supabase || !this.isMod()) return false;
+    /** Anyone can propose a channel (goes to 'pending' — admin approves) */
+    async proposeChannel(name: string, description: string, icon: string, isPrivate = false, region?: string): Promise<boolean> {
+        if (!supabase) return false;
 
         const user = (await supabase.auth.getUser()).data.user;
+        if (!user) return false;
+
         const { error } = await supabase
             .from(CHANNELS_TABLE)
             .insert({
@@ -740,8 +770,10 @@ class ChatServiceClass {
                 icon,
                 region: region || null,
                 is_global: !region,
+                is_private: isPrivate,
+                owner_id: user.id,
                 status: 'pending',
-                proposed_by: user?.id || null,
+                proposed_by: user.id,
             });
 
         return !error;
@@ -750,12 +782,31 @@ class ChatServiceClass {
     /** Admin: approve a pending channel proposal */
     async approveChannel(channelId: string): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
+
+        // Get channel info to check if private + get owner
+        const { data: channel } = await supabase
+            .from(CHANNELS_TABLE)
+            .select('owner_id, is_private')
+            .eq('id', channelId)
+            .single();
+
         const { error } = await supabase
             .from(CHANNELS_TABLE)
             .update({ status: 'active' })
             .eq('id', channelId)
             .eq('status', 'pending');
-        return !error;
+
+        if (error) return false;
+
+        // Auto-add owner as first member of private channels
+        if (channel?.is_private && channel?.owner_id) {
+            await supabase.from('channel_members').insert({
+                channel_id: channelId,
+                user_id: channel.owner_id,
+            });
+        }
+
+        return true;
     }
 
     /** Admin: reject a pending channel proposal */
@@ -795,6 +846,143 @@ class ChatServiceClass {
             .from(CHANNELS_TABLE)
             .delete()
             .eq('id', channelId);
+        return !error;
+    }
+
+    // --- PRIVATE CHANNEL MEMBERSHIP ---
+
+    /** Check if current user is a member of a private channel */
+    async isChannelMember(channelId: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+        // Admins can access all channels
+        if (this.isAdmin()) return true;
+        const { data } = await supabase
+            .from('channel_members')
+            .select('user_id')
+            .eq('channel_id', channelId)
+            .eq('user_id', this.currentUserId)
+            .single();
+        return !!data;
+    }
+
+    /** Submit a join request for a private channel */
+    async requestJoinChannel(channelId: string, message: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+
+        // Check if already a member
+        const isMember = await this.isChannelMember(channelId);
+        if (isMember) return false;
+
+        // Check if already has a pending request
+        const { data: existing } = await supabase
+            .from('channel_join_requests')
+            .select('id')
+            .eq('channel_id', channelId)
+            .eq('user_id', this.currentUserId)
+            .eq('status', 'pending')
+            .single();
+        if (existing) return false; // Already pending
+
+        const { error } = await supabase
+            .from('channel_join_requests')
+            .insert({
+                channel_id: channelId,
+                user_id: this.currentUserId,
+                message: message.trim() || 'I would like to join this channel.',
+                status: 'pending',
+            });
+
+        return !error;
+    }
+
+    /** Get current user's join request status for a channel */
+    async getMyJoinRequestStatus(channelId: string): Promise<'none' | 'pending' | 'approved' | 'rejected'> {
+        if (!supabase || !this.currentUserId) return 'none';
+        const { data } = await supabase
+            .from('channel_join_requests')
+            .select('status')
+            .eq('channel_id', channelId)
+            .eq('user_id', this.currentUserId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+        return (data?.status as 'pending' | 'approved' | 'rejected') || 'none';
+    }
+
+    /** Admin/owner: get pending join requests (optionally for a specific channel) */
+    async getJoinRequests(channelId?: string): Promise<JoinRequest[]> {
+        if (!supabase || !this.isMod()) return [];
+
+        let query = supabase
+            .from('channel_join_requests')
+            .select('*')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: true });
+
+        if (channelId) {
+            query = query.eq('channel_id', channelId);
+        }
+
+        const { data: requests } = await query;
+        if (!requests || requests.length === 0) return [];
+
+        // Enrich with user display names and channel names
+        const userIds = [...new Set(requests.map((r: any) => r.user_id))];
+        const channelIds = [...new Set(requests.map((r: any) => r.channel_id))];
+
+        const [{ data: profiles }, { data: channels }] = await Promise.all([
+            supabase.from('chat_profiles').select('user_id, display_name, avatar_url').in('user_id', userIds),
+            supabase.from(CHANNELS_TABLE).select('id, name').in('id', channelIds),
+        ]);
+
+        const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+        const channelMap = new Map((channels || []).map((c: any) => [c.id, c.name]));
+
+        return requests.map((r: any) => ({
+            ...r,
+            display_name: profileMap.get(r.user_id)?.display_name || 'Unknown',
+            avatar_url: profileMap.get(r.user_id)?.avatar_url || null,
+            channel_name: channelMap.get(r.channel_id) || 'Unknown',
+        })) as JoinRequest[];
+    }
+
+    /** Admin/owner: approve a join request — adds user to channel_members */
+    async approveJoinRequest(requestId: string): Promise<boolean> {
+        if (!supabase || !this.isMod()) return false;
+
+        // Get request details
+        const { data: request } = await supabase
+            .from('channel_join_requests')
+            .select('channel_id, user_id')
+            .eq('id', requestId)
+            .single();
+
+        if (!request) return false;
+
+        // Update request status
+        const { error: updateErr } = await supabase
+            .from('channel_join_requests')
+            .update({ status: 'approved', reviewed_by: this.currentUserId })
+            .eq('id', requestId);
+
+        if (updateErr) return false;
+
+        // Add to channel members
+        await supabase.from('channel_members').upsert({
+            channel_id: request.channel_id,
+            user_id: request.user_id,
+        }, { onConflict: 'channel_id,user_id' });
+
+        return true;
+    }
+
+    /** Admin/owner: reject a join request */
+    async rejectJoinRequest(requestId: string): Promise<boolean> {
+        if (!supabase || !this.isMod()) return false;
+        const { error } = await supabase
+            .from('channel_join_requests')
+            .update({ status: 'rejected', reviewed_by: this.currentUserId })
+            .eq('id', requestId);
         return !error;
     }
 

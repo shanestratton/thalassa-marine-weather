@@ -118,6 +118,13 @@ export const ChatPage: React.FC = () => {
     const [proposalDesc, setProposalDesc] = useState('');
     const [proposalIcon, setProposalIcon] = useState('🏝️');
     const [proposalSent, setProposalSent] = useState(false);
+    const [proposalIsPrivate, setProposalIsPrivate] = useState(false);
+
+    // Private channel state
+    const [memberChannelIds, setMemberChannelIds] = useState<Set<string>>(new Set());
+    const [joinRequestChannel, setJoinRequestChannel] = useState<ChatChannel | null>(null);
+    const [joinRequestMessage, setJoinRequestMessage] = useState('');
+    const [joinRequestSent, setJoinRequestSent] = useState(false);
 
     // Loading
     const [loading, setLoading] = useState(true);
@@ -736,10 +743,41 @@ export const ChatPage: React.FC = () => {
 
     const handleProposeChannel = async () => {
         if (!proposalName.trim()) return;
-        const ok = await ChatService.proposeChannel(proposalName.trim(), proposalDesc.trim() || 'A new channel', proposalIcon);
+        const ok = await ChatService.proposeChannel(proposalName.trim(), proposalDesc.trim() || 'A new channel', proposalIcon, proposalIsPrivate);
         if (ok) {
             setProposalSent(true);
-            setTimeout(() => { setShowProposalForm(false); setProposalSent(false); setProposalName(''); setProposalDesc(''); }, 2000);
+            setTimeout(() => { setShowProposalForm(false); setProposalSent(false); setProposalName(''); setProposalDesc(''); setProposalIsPrivate(false); }, 2000);
+        }
+    };
+
+    // Load private channel memberships
+    const loadMemberChannels = async () => {
+        const ids = new Set<string>();
+        for (const ch of channels) {
+            if (ch.is_private) {
+                const isMember = await ChatService.isChannelMember(ch.id);
+                if (isMember) ids.add(ch.id);
+            }
+        }
+        setMemberChannelIds(ids);
+    };
+
+    React.useEffect(() => {
+        if (channels.length > 0) loadMemberChannels();
+    }, [channels]);
+
+    const handleRequestAccess = (ch: ChatChannel) => {
+        setJoinRequestChannel(ch);
+        setJoinRequestMessage('');
+        setJoinRequestSent(false);
+    };
+
+    const handleSubmitJoinRequest = async () => {
+        if (!joinRequestChannel) return;
+        const ok = await ChatService.requestJoinChannel(joinRequestChannel.id, joinRequestMessage);
+        if (ok) {
+            setJoinRequestSent(true);
+            setTimeout(() => setJoinRequestChannel(null), 2000);
         }
     };
 
@@ -1071,6 +1109,7 @@ export const ChatPage: React.FC = () => {
                     <ChannelList
                         channels={channels}
                         onOpenChannel={openChannel}
+                        onRequestAccess={handleRequestAccess}
                         isMod={isMod}
                         showProposalForm={showProposalForm}
                         setShowProposalForm={setShowProposalForm}
@@ -1080,16 +1119,67 @@ export const ChatPage: React.FC = () => {
                         setProposalName={setProposalName}
                         proposalDesc={proposalDesc}
                         setProposalDesc={setProposalDesc}
+                        proposalIsPrivate={proposalIsPrivate}
+                        setProposalIsPrivate={setProposalIsPrivate}
                         proposalSent={proposalSent}
                         onProposeChannel={handleProposeChannel}
                         isAdmin={isAdmin}
                         onOpenAdmin={() => setView('admin_panel')}
+                        memberChannelIds={memberChannelIds}
                     />
                 )}
 
                 {/* ══════ ADMIN PANEL ══════ */}
                 {view === 'admin_panel' && !loading && (
                     <AdminPanel isOpen={true} onClose={() => setView('channels')} />
+                )}
+
+                {/* ══════ JOIN REQUEST MODAL ══════ */}
+                {joinRequestChannel && (
+                    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={() => setJoinRequestChannel(null)}>
+                        <div
+                            className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
+                                    🔒
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-white">Request Access</h3>
+                                    <p className="text-[11px] text-purple-400/60">{joinRequestChannel.name} — Private Channel</p>
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-white/50">
+                                This is a private channel. Write a message to the channel owner explaining why you'd like to join.
+                            </p>
+
+                            <textarea
+                                value={joinRequestMessage}
+                                onChange={e => setJoinRequestMessage(e.target.value)}
+                                placeholder="Why do you want to join this channel?"
+                                rows={3}
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none"
+                            />
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setJoinRequestChannel(null)}
+                                    className="flex-1 py-2.5 rounded-xl bg-white/[0.04] text-xs text-white/60 font-medium"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSubmitJoinRequest}
+                                    disabled={joinRequestSent}
+                                    className="flex-1 py-2.5 rounded-xl bg-purple-500/20 border border-purple-500/30 text-xs text-purple-400 font-bold active:scale-95 disabled:opacity-50"
+                                >
+                                    {joinRequestSent ? '✓ Request Sent!' : '🙏 Submit Request'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {/* ══════ MESSAGE VIEW ══════ */}
