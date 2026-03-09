@@ -11,7 +11,7 @@
  * - Admin-only visibility
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChatService, ChatRole, UserRoleEntry } from '../services/ChatService';
+import { ChatService, ChatRole, UserRoleEntry, JoinRequest } from '../services/ChatService';
 import { triggerHaptic } from '../utils/system';
 
 // ── Props ──
@@ -37,11 +37,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     const [search, setSearch] = useState('');
     const [actionUserId, setActionUserId] = useState<string | null>(null);
     const [muteHours, setMuteHours] = useState('');
+    const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
 
     const loadUsers = useCallback(async () => {
         setLoading(true);
-        const data = await ChatService.listAllUsersWithRoles();
-        setUsers(data);
+        const [userData, requestData] = await Promise.all([
+            ChatService.listAllUsersWithRoles(),
+            ChatService.getJoinRequests(),
+        ]);
+        setUsers(userData);
+        setJoinRequests(requestData);
         setLoading(false);
     }, []);
 
@@ -110,6 +115,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     const modCount = users.filter(u => u.role === 'moderator').length;
     const blockedCount = users.filter(u => u.is_blocked).length;
 
+    const handleApproveJoinRequest = async (requestId: string) => {
+        triggerHaptic('medium');
+        const ok = await ChatService.approveJoinRequest(requestId);
+        if (ok) setJoinRequests(prev => prev.filter(r => r.id !== requestId));
+    };
+
+    const handleRejectJoinRequest = async (requestId: string) => {
+        triggerHaptic('light');
+        const ok = await ChatService.rejectJoinRequest(requestId);
+        if (ok) setJoinRequests(prev => prev.filter(r => r.id !== requestId));
+    };
+
     return (
         <div className="flex flex-col h-full">
             {/* ── Header with back chevron ── */}
@@ -158,6 +175,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                         className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                     />
                 </div>
+
+                {/* Pending Join Requests */}
+                {joinRequests.length > 0 && (
+                    <div className="px-4 pb-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-purple-400/60 mb-2 px-1">🙏 Join Requests ({joinRequests.length})</p>
+                        <div className="space-y-2">
+                            {joinRequests.map(req => (
+                                <div key={req.id} className="rounded-xl border border-purple-500/15 bg-purple-500/[0.03] p-3 space-y-2">
+                                    <div className="flex items-center gap-2.5">
+                                        {req.avatar_url ? (
+                                            <img src={req.avatar_url} className="w-8 h-8 rounded-full object-cover border border-white/10" alt="" />
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white">
+                                                {(req.display_name || '?')[0].toUpperCase()}
+                                            </div>
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-white/80">{req.display_name}</p>
+                                            <p className="text-[10px] text-purple-400/50">wants to join <span className="font-bold text-purple-400/70">{req.channel_name}</span></p>
+                                        </div>
+                                    </div>
+                                    {req.message && (
+                                        <p className="text-[11px] text-white/40 italic px-1">"{req.message}"</p>
+                                    )}
+                                    <div className="flex gap-1.5">
+                                        <button
+                                            onClick={() => handleRejectJoinRequest(req.id)}
+                                            className="flex-1 py-1.5 rounded-lg bg-red-500/10 border border-red-500/15 text-[10px] font-bold text-red-400 active:scale-95"
+                                        >
+                                            ❌ Reject
+                                        </button>
+                                        <button
+                                            onClick={() => handleApproveJoinRequest(req.id)}
+                                            className="flex-1 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-[10px] font-bold text-emerald-400 active:scale-95"
+                                        >
+                                            ✅ Approve
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* User list */}
                 <div className="px-4 space-y-2">
