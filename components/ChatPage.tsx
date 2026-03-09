@@ -42,7 +42,8 @@ import { ChatProfileView } from './chat/ChatProfileView';
 import { ChatHeader } from './chat/ChatHeader';
 import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
 import { ReportModal, PinDropSheet, PoiPickerSheet, TrackPickerSheet, TrackDisclaimerModal } from './chat/ChatAttachmentSheets';
-import { SkeletonChannelList } from './ui/Skeleton';
+import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
+import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -1098,177 +1099,184 @@ export const ChatPage: React.FC = () => {
             )}
 
             {/* ═══════════════════ CONTENT ═══════════════════ */}
-            <div key={view} className="flex-1 overflow-y-auto overscroll-contain chat-view-enter">
-                {loading && (
-                    <div className="pb-24">
-                        <SkeletonChannelList />
-                        <div className="flex justify-center pt-2">
-                            <span className="text-xs text-white/40">{loadingStatus}</span>
-                        </div>
-                    </div>
-                )}
-
-                {/* ══════ FIND CREW BOARD ══════ */}
-                {view === 'find_crew' && !loading && (
-                    <LonelyHeartsPage
-                        onOpenDM={(userId, name) => {
-                            openDMThread(userId, name);
-                        }}
-                    />
-                )}
-                {/* ══════ MARKETPLACE ══════ */}
-                {view === 'marketplace' && !loading && (
-                    <MarketplacePage
-                        onBack={() => setView('channels')}
-                        onOpenDM={(sellerId, sellerName) => {
-                            openDMThread(sellerId, sellerName);
-                        }}
-                    />
-                )}
-
-                {/* ══════ FULL-PAGE PROFILE ══════ */}
-                {view === 'profile' && !loading && (
-                    <ChatProfileView
-                        myAvatarUrl={myAvatarUrl}
-                        uploadProgress={uploadProgress}
-                        uploadError={uploadError}
-                        profileDisplayName={profileDisplayName}
-                        setProfileDisplayName={setProfileDisplayName}
-                        profileVesselName={profileVesselName}
-                        setProfileVesselName={setProfileVesselName}
-                        profileSaving={profileSaving}
-                        profileSaved={profileSaved}
-                        vesselPlaceholder={settings.vessel?.name || ''}
-                        fileInputRef={fileInputRef}
-                        onSaveProfile={handleSaveProfile}
-                        onRemovePhoto={handleRemovePhoto}
-                    />
-                )}
-
-                {/* ══════ CHANNEL LIST ══════ */}
-                {view === 'channels' && !loading && (
-                    <ChannelList
-                        channels={channels}
-                        onOpenChannel={openChannel}
-                        onRequestAccess={handleRequestAccess}
-                        isMod={isMod}
-                        showProposalForm={showProposalForm}
-                        setShowProposalForm={setShowProposalForm}
-                        proposalIcon={proposalIcon}
-                        setProposalIcon={setProposalIcon}
-                        proposalName={proposalName}
-                        setProposalName={setProposalName}
-                        proposalDesc={proposalDesc}
-                        setProposalDesc={setProposalDesc}
-                        proposalIsPrivate={proposalIsPrivate}
-                        setProposalIsPrivate={setProposalIsPrivate}
-                        proposalSent={proposalSent}
-                        onProposeChannel={handleProposeChannel}
-                        isAdmin={isAdmin}
-                        onOpenAdmin={() => setView('admin_panel')}
-                        memberChannelIds={memberChannelIds}
-                        proposalParentId={proposalParentId}
-                        setProposalParentId={setProposalParentId}
-                    />
-                )}
-
-                {/* ══════ ADMIN PANEL ══════ */}
-                {view === 'admin_panel' && !loading && (
-                    <AdminPanel isOpen={true} onClose={() => setView('channels')} />
-                )}
-
-                {/* ══════ JOIN REQUEST MODAL ══════ */}
-                {joinRequestChannel && (
-                    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={() => setJoinRequestChannel(null)}>
-                        <div
-                            className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
-                            onClick={e => e.stopPropagation()}
-                            role="dialog"
-                            aria-modal="true"
-                            aria-label={`Request access to ${joinRequestChannel.name}`}
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
-                                    🔒
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-bold text-white">Request Access</h3>
-                                    <p className="text-[11px] text-purple-400/60">{joinRequestChannel.name} — Private Channel</p>
-                                </div>
-                            </div>
-
-                            <p className="text-xs text-white/50">
-                                This is a private channel. Write a message to the channel owner explaining why you'd like to join.
-                            </p>
-
-                            <textarea
-                                value={joinRequestMessage}
-                                onChange={e => setJoinRequestMessage(e.target.value)}
-                                placeholder="Why do you want to join this channel?"
-                                aria-label="Join request message"
-                                rows={3}
-                                className="w-full px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
-                            />
-
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setJoinRequestChannel(null)}
-                                    aria-label="Cancel request"
-                                    className="flex-1 py-3 rounded-xl bg-white/[0.04] text-sm text-white/60 font-medium min-h-[48px]"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSubmitJoinRequest}
-                                    disabled={joinRequestSent}
-                                    aria-label="Submit join request"
-                                    className="flex-1 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 text-sm text-purple-400 font-bold active:scale-95 disabled:opacity-50 min-h-[48px]"
-                                >
-                                    {joinRequestSent ? '✓ Request Sent!' : '🙏 Submit Request'}
-                                </button>
+            <ChatErrorBoundary>
+                <div key={view} className="flex-1 overflow-y-auto overscroll-contain chat-view-enter">
+                    {loading && view === 'channels' && (
+                        <div className="pb-24">
+                            <SkeletonChannelList />
+                            <div className="flex justify-center pt-2">
+                                <span className="text-xs text-white/40">{loadingStatus}</span>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                    {loading && view === 'messages' && (
+                        <div className="pb-24">
+                            <SkeletonMessageList />
+                        </div>
+                    )}
 
-                {/* ══════ MESSAGE VIEW ══════ */}
-                {view === 'messages' && !loading && (
-                    <ChatMessageList
-                        messages={messages}
-                        pinnedMessages={pinnedMessages}
-                        isMod={isMod}
-                        isAdmin={isAdmin}
-                        isModerator={isModerator}
-                        likedMessages={likedMessages}
-                        showModMenu={showModMenu}
-                        showRankTooltip={showRankTooltip}
-                        importingTrackId={importingTrackId}
-                        getAvatar={getAvatar}
-                        onOpenDMThread={openDMThread}
-                        onMarkHelpful={handleMarkHelpful}
-                        onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
-                        onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
-                        onDeleteMessage={handleDeleteMessage}
-                        onPinMessage={handlePinMessage}
-                        onMuteUser={handleMuteUser}
-                        onBlockUser={handleBlockUserPlatform}
-                        onMakeAdmin={handleMakeAdmin}
-                        onSetRankTooltip={setShowRankTooltip}
-                        onShowTrackDisclaimer={setShowTrackDisclaimer}
-                        messageEndRef={messageEndRef}
-                    />
-                )}
+                    {/* ══════ FIND CREW BOARD ══════ */}
+                    {view === 'find_crew' && !loading && (
+                        <LonelyHeartsPage
+                            onOpenDM={(userId, name) => {
+                                openDMThread(userId, name);
+                            }}
+                        />
+                    )}
+                    {/* ══════ MARKETPLACE ══════ */}
+                    {view === 'marketplace' && !loading && (
+                        <MarketplacePage
+                            onBack={() => setView('channels')}
+                            onOpenDM={(sellerId, sellerName) => {
+                                openDMThread(sellerId, sellerName);
+                            }}
+                        />
+                    )}
 
-                {/* ══════ DM INBOX ══════ */}
-                {view === 'dm_inbox' && !loading && (
-                    <ChatDMInbox conversations={dmConversations} onOpenThread={openDMThread} />
-                )}
+                    {/* ══════ FULL-PAGE PROFILE ══════ */}
+                    {view === 'profile' && !loading && (
+                        <ChatProfileView
+                            myAvatarUrl={myAvatarUrl}
+                            uploadProgress={uploadProgress}
+                            uploadError={uploadError}
+                            profileDisplayName={profileDisplayName}
+                            setProfileDisplayName={setProfileDisplayName}
+                            profileVesselName={profileVesselName}
+                            setProfileVesselName={setProfileVesselName}
+                            profileSaving={profileSaving}
+                            profileSaved={profileSaved}
+                            vesselPlaceholder={settings.vessel?.name || ''}
+                            fileInputRef={fileInputRef}
+                            onSaveProfile={handleSaveProfile}
+                            onRemovePhoto={handleRemovePhoto}
+                        />
+                    )}
 
-                {/* ══════ DM THREAD ══════ */}
-                {view === 'dm_thread' && !loading && (
-                    <ChatDMThread thread={dmThread} partnerName={dmPartner?.name} />
-                )}
-            </div>
+                    {/* ══════ CHANNEL LIST ══════ */}
+                    {view === 'channels' && !loading && (
+                        <ChannelList
+                            channels={channels}
+                            onOpenChannel={openChannel}
+                            onRequestAccess={handleRequestAccess}
+                            isMod={isMod}
+                            showProposalForm={showProposalForm}
+                            setShowProposalForm={setShowProposalForm}
+                            proposalIcon={proposalIcon}
+                            setProposalIcon={setProposalIcon}
+                            proposalName={proposalName}
+                            setProposalName={setProposalName}
+                            proposalDesc={proposalDesc}
+                            setProposalDesc={setProposalDesc}
+                            proposalIsPrivate={proposalIsPrivate}
+                            setProposalIsPrivate={setProposalIsPrivate}
+                            proposalSent={proposalSent}
+                            onProposeChannel={handleProposeChannel}
+                            isAdmin={isAdmin}
+                            onOpenAdmin={() => setView('admin_panel')}
+                            memberChannelIds={memberChannelIds}
+                            proposalParentId={proposalParentId}
+                            setProposalParentId={setProposalParentId}
+                        />
+                    )}
+
+                    {/* ══════ ADMIN PANEL ══════ */}
+                    {view === 'admin_panel' && !loading && (
+                        <AdminPanel isOpen={true} onClose={() => setView('channels')} />
+                    )}
+
+                    {/* ══════ JOIN REQUEST MODAL ══════ */}
+                    {joinRequestChannel && (
+                        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={() => setJoinRequestChannel(null)}>
+                            <div
+                                className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
+                                onClick={e => e.stopPropagation()}
+                                role="dialog"
+                                aria-modal="true"
+                                aria-label={`Request access to ${joinRequestChannel.name}`}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
+                                        🔒
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-white">Request Access</h3>
+                                        <p className="text-[11px] text-purple-400/60">{joinRequestChannel.name} — Private Channel</p>
+                                    </div>
+                                </div>
+
+                                <p className="text-xs text-white/50">
+                                    This is a private channel. Write a message to the channel owner explaining why you'd like to join.
+                                </p>
+
+                                <textarea
+                                    value={joinRequestMessage}
+                                    onChange={e => setJoinRequestMessage(e.target.value)}
+                                    placeholder="Why do you want to join this channel?"
+                                    aria-label="Join request message"
+                                    rows={3}
+                                    className="w-full px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
+                                />
+
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setJoinRequestChannel(null)}
+                                        aria-label="Cancel request"
+                                        className="flex-1 py-3 rounded-xl bg-white/[0.04] text-sm text-white/60 font-medium min-h-[48px]"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSubmitJoinRequest}
+                                        disabled={joinRequestSent}
+                                        aria-label="Submit join request"
+                                        className="flex-1 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 text-sm text-purple-400 font-bold active:scale-95 disabled:opacity-50 min-h-[48px]"
+                                    >
+                                        {joinRequestSent ? '✓ Request Sent!' : '🙏 Submit Request'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ══════ MESSAGE VIEW ══════ */}
+                    {view === 'messages' && !loading && (
+                        <ChatMessageList
+                            messages={messages}
+                            pinnedMessages={pinnedMessages}
+                            isMod={isMod}
+                            isAdmin={isAdmin}
+                            isModerator={isModerator}
+                            likedMessages={likedMessages}
+                            showModMenu={showModMenu}
+                            showRankTooltip={showRankTooltip}
+                            importingTrackId={importingTrackId}
+                            getAvatar={getAvatar}
+                            onOpenDMThread={openDMThread}
+                            onMarkHelpful={handleMarkHelpful}
+                            onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
+                            onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
+                            onDeleteMessage={handleDeleteMessage}
+                            onPinMessage={handlePinMessage}
+                            onMuteUser={handleMuteUser}
+                            onBlockUser={handleBlockUserPlatform}
+                            onMakeAdmin={handleMakeAdmin}
+                            onSetRankTooltip={setShowRankTooltip}
+                            onShowTrackDisclaimer={setShowTrackDisclaimer}
+                            messageEndRef={messageEndRef}
+                        />
+                    )}
+
+                    {/* ══════ DM INBOX ══════ */}
+                    {view === 'dm_inbox' && !loading && (
+                        <ChatDMInbox conversations={dmConversations} onOpenThread={openDMThread} />
+                    )}
+
+                    {/* ══════ DM THREAD ══════ */}
+                    {view === 'dm_thread' && !loading && (
+                        <ChatDMThread thread={dmThread} partnerName={dmPartner?.name} />
+                    )}
+                </div>
+            </ChatErrorBoundary>
 
             {/* ═══════════ REPORT MODAL ═══════════ */}
             {reportingMsg && (
