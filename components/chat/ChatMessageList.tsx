@@ -97,7 +97,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                 )}
 
                 {/* Messages list */}
-                <div className="flex-1 px-4 py-3 space-y-1">
+                <div className="flex-1 px-4 py-3 space-y-1" role="list" aria-label="Channel messages">
                     {regularMessages.length === 0 && (
                         <div className="flex-1 flex flex-col items-center justify-center py-28">
                             <div className="relative mb-8">
@@ -143,6 +143,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                     {/* Avatar */}
                                     <button
                                         onClick={() => !isSelf && onOpenDMThread(msg.user_id, msg.display_name)}
+                                        aria-label={isSelf ? 'Your avatar' : `Message ${msg.display_name}`}
                                         className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
                                         title={isSelf ? undefined : `DM ${msg.display_name}`}
                                     >
@@ -211,14 +212,15 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                                 </p>
                                                                 <button
                                                                     onClick={() => exportPinAsGPX(pin.lat, pin.lng, pin.caption)}
-                                                                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/15 active:scale-95 transition-transform"
+                                                                    aria-label="Export pin as GPX"
+                                                                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/15 active:scale-95 transition-transform min-h-[36px]"
                                                                 >
-                                                                    <span className="text-[10px]">📥</span>
-                                                                    <span className="text-[10px] font-bold text-sky-300 uppercase">GPX</span>
+                                                                    <span className="text-[11px]">📥</span>
+                                                                    <span className="text-[11px] font-bold text-sky-300 uppercase">GPX</span>
                                                                 </button>
                                                             </div>
                                                             {isPoi && (
-                                                                <p className="text-[10px] text-purple-400/50 mt-1.5 uppercase tracking-wider font-bold">
+                                                                <p className="text-[11px] text-purple-400/50 mt-1.5 uppercase tracking-wider font-bold">
                                                                     ⚠️ Shared place — not the user's location
                                                                 </p>
                                                             )}
@@ -255,13 +257,15 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                 <button
                                                     onClick={() => onMarkHelpful(msg.id)}
                                                     disabled={likedMessages.has(msg.id)}
-                                                    className={`text-sm transition-colors flex items-center gap-1 active:scale-95 ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
+                                                    aria-label={`Mark as helpful${msg.helpful_count > 0 ? `, ${msg.helpful_count} found helpful` : ''}`}
+                                                    className={`text-sm transition-colors flex items-center gap-1 active:scale-95 min-h-[36px] ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
                                                 >
                                                     {likedMessages.has(msg.id) ? '✅' : '👍'} Helpful{msg.helpful_count > 0 && ` (${msg.helpful_count})`}
                                                 </button>
                                                 <button
                                                     onClick={() => onReportMsg(msg)}
-                                                    className="text-sm text-white/10 hover:text-amber-400/60 transition-colors"
+                                                    aria-label="Report message"
+                                                    className="text-sm text-white/10 hover:text-amber-400/60 transition-colors min-h-[36px]"
                                                 >
                                                     🚩 Report
                                                 </button>
@@ -279,10 +283,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                         {/* Mod menu */}
                                         {showModMenu === msg.id && isMod && (
                                             <div className="mt-2 p-2.5 rounded-xl bg-slate-800/90 border border-white/[0.08] space-y-1 fade-slide-down shadow-2xl">
-                                                <button onClick={() => onDeleteMessage(msg.id)} className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
+                                                <button onClick={() => onDeleteMessage(msg.id)} aria-label="Delete message" className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]">
                                                     🗑 Delete message
                                                 </button>
-                                                <button onClick={() => onPinMessage(msg.id, msg.is_pinned)} className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
+                                                <button onClick={() => onPinMessage(msg.id, msg.is_pinned)} aria-label={msg.is_pinned ? 'Unpin message' : 'Pin message'} className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]">
                                                     {msg.is_pinned ? '📌 Unpin' : '📌 Pin message'}
                                                 </button>
                                                 <div className="h-px bg-white/[0.04] my-1" />
@@ -292,7 +296,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                         <button
                                                             key={hrs}
                                                             onClick={() => onMuteUser(msg.user_id, hrs)}
-                                                            className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/10 transition-colors"
+                                                            className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[36px]"
                                                         >
                                                             {label}
                                                         </button>
@@ -302,10 +306,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                 {isModerator && (
                                                     <>
                                                         <div className="h-px bg-white/[0.04] my-1" />
-                                                        <button onClick={() => onBlockUser(msg.user_id, msg.display_name)} className="w-full text-left text-[11px] text-red-500/80 hover:bg-red-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
+                                                        <button onClick={() => onBlockUser(msg.user_id, msg.display_name)} aria-label={`Block ${msg.display_name}`} className="w-full text-left text-[11px] text-red-500/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]">
                                                             🚫 Block {msg.display_name}
                                                         </button>
-                                                        <button onClick={() => onMakeAdmin(msg.user_id, msg.display_name)} className="w-full text-left text-[11px] text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-1.5 rounded-lg transition-colors">
+                                                        <button onClick={() => onMakeAdmin(msg.user_id, msg.display_name)} aria-label={`Make ${msg.display_name} admin`} className="w-full text-left text-[11px] text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]">
                                                             👑 Make Admin
                                                         </button>
                                                     </>
