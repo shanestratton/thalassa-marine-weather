@@ -119,6 +119,7 @@ export const ChatPage: React.FC = () => {
     const [proposalIcon, setProposalIcon] = useState('🏝️');
     const [proposalSent, setProposalSent] = useState(false);
     const [proposalIsPrivate, setProposalIsPrivate] = useState(false);
+    const [proposalParentId, setProposalParentId] = useState<string | null>(null);
 
     // Private channel state
     const [memberChannelIds, setMemberChannelIds] = useState<Set<string>>(new Set());
@@ -743,10 +744,10 @@ export const ChatPage: React.FC = () => {
 
     const handleProposeChannel = async () => {
         if (!proposalName.trim()) return;
-        const ok = await ChatService.proposeChannel(proposalName.trim(), proposalDesc.trim() || 'A new channel', proposalIcon, proposalIsPrivate);
+        const ok = await ChatService.proposeChannel(proposalName.trim(), proposalDesc.trim() || 'A new channel', proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined);
         if (ok) {
             setProposalSent(true);
-            setTimeout(() => { setShowProposalForm(false); setProposalSent(false); setProposalName(''); setProposalDesc(''); setProposalIsPrivate(false); }, 2000);
+            setTimeout(() => { setShowProposalForm(false); setProposalSent(false); setProposalName(''); setProposalDesc(''); setProposalIsPrivate(false); setProposalParentId(null); }, 2000);
         }
     };
 
@@ -1126,6 +1127,8 @@ export const ChatPage: React.FC = () => {
                         isAdmin={isAdmin}
                         onOpenAdmin={() => setView('admin_panel')}
                         memberChannelIds={memberChannelIds}
+                        proposalParentId={proposalParentId}
+                        setProposalParentId={setProposalParentId}
                     />
                 )}
 
