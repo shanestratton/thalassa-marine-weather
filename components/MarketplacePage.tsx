@@ -384,7 +384,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     return (
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
-                className="w-full max-w-lg bg-slate-900/98 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
+                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
@@ -662,7 +662,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
 
 
                 {/* Category chips */}
-                <div className="px-3 pb-2.5 -mt-0.5 flex flex-wrap gap-2">
+                <div className="px-3 pt-2 pb-2.5 flex flex-wrap gap-2">
                     <button
                         onClick={() => handleCategoryFilter(null)}
                         className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${!activeCategory
