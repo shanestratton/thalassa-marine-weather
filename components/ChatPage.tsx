@@ -18,7 +18,7 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('ChatPage');
 import { ChatService, ChatChannel, ChatMessage, DirectMessage, DMConversation, DEFAULT_CHANNELS } from '../services/ChatService';
 import { clientFilter, reportMessage, type ClientFilterResult } from '../services/ContentModerationService';
-import { uploadProfilePhoto, batchFetchAvatars, getCachedAvatar, removeProfilePhoto, getProfile, updateProfile } from '../services/ProfilePhotoService';
+import { batchFetchAvatars } from '../services/ProfilePhotoService';
 import { LonelyHeartsPage } from './LonelyHeartsPage';
 
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -44,6 +44,7 @@ import { useChatMessages } from '../hooks/chat/useChatMessages';
 import { useChatDMs } from '../hooks/chat/useChatDMs';
 import { usePinDrop } from '../hooks/chat/usePinDrop';
 import { useTrackSharing } from '../hooks/chat/useTrackSharing';
+import { useChatProfile } from '../hooks/chat/useChatProfile';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -213,18 +214,21 @@ export const ChatPage: React.FC = () => {
         };
     }, [view]);
 
-    // Profile Photos
-    const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
-    const [showPhotoUpload, setShowPhotoUpload] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<string | null>(null);
-    const [uploadError, setUploadError] = useState<string | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [profileDisplayName, setProfileDisplayName] = useState('');
-    const [profileVesselName, setProfileVesselName] = useState('');
-    const [profileLoaded, setProfileLoaded] = useState(false);
-    const [profileSaving, setProfileSaving] = useState(false);
-    const [profileSaved, setProfileSaved] = useState(false);
-    const [profileLookingForLove, setProfileLookingForLove] = useState(false);
+    // --- Extracted Hook: Profile ---
+    const profileHook = useChatProfile({ avatarMap, setView: setView as (v: string) => void });
+    const {
+        myAvatarUrl, setMyAvatarUrl,
+        showPhotoUpload, setShowPhotoUpload,
+        uploadProgress, uploadError,
+        fileInputRef,
+        profileDisplayName, setProfileDisplayName,
+        profileVesselName, setProfileVesselName,
+        profileLoaded, setProfileLoaded,
+        profileSaving, profileSaved,
+        profileLookingForLove, setProfileLookingForLove,
+        loadProfile, handleFileSelect, handleRemovePhoto, handleSaveProfile,
+        getAvatar,
+    } = profileHook;
 
     // --- Extracted Hooks: Pin Drop + Track Sharing ---
     const pinDrop = usePinDrop({ activeChannel, setMessages, setMessageText, messageEndRef });
@@ -276,20 +280,7 @@ export const ChatPage: React.FC = () => {
                 const fresh = await ChatService.getChannels();
                 if (fresh.length > 0) setChannels(fresh);
 
-                // Load chat profile
-                const user = await ChatService.getCurrentUser();
-                if (user) {
-                    const profile = await getProfile(user.id);
-                    if (profile) {
-                        setProfileDisplayName(profile.display_name || '');
-                        setProfileVesselName(profile.vessel_name || settings.vessel?.name || '');
-                        setProfileLookingForLove(profile.looking_for_love || false);
-                        if (profile.avatar_url) setMyAvatarUrl(profile.avatar_url);
-                    } else {
-                        setProfileVesselName(settings.vessel?.name || '');
-                    }
-                    setProfileLoaded(true);
-                }
+                await loadProfile();
             } catch (e) {
                 log.warn('Init auth/profile failed:', e);
             }
@@ -326,13 +317,7 @@ export const ChatPage: React.FC = () => {
 
     // openChannel and sendChannelMessage now provided by useChatMessages hook
 
-    // Pin drop, POI, track sharing, and import now provided by usePinDrop + useTrackSharing hooks
-
-    const getStaticMapUrl = (lat: number, lng: number, zoom = 13, w = 600, h = 200) => {
-        const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-        if (!token || token.length < 10) return '';
-        return `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/static/pin-l+38bdf8(${lng},${lat})/${lng},${lat},${zoom},0/${w}x${h}@2x?access_token=${token}`;
-    };
+    // getStaticMapUrl imported from chatUtils
 
     const handleReport = async () => {
         if (!reportingMsg) return;
@@ -416,54 +401,7 @@ export const ChatPage: React.FC = () => {
         }
     };
 
-    // --- PHOTO UPLOAD ---
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setUploadError(null);
-        setUploadProgress('Starting...');
-
-        const result = await uploadProfilePhoto(file, (step) => setUploadProgress(step));
-
-        if (result.success && result.url) {
-            setMyAvatarUrl(result.url);
-            setUploadProgress(null);
-            setShowPhotoUpload(false);
-        } else {
-            setUploadError(result.error || 'Upload failed');
-            setUploadProgress(null);
-        }
-
-        // Reset file input
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-
-    const handleRemovePhoto = async () => {
-        await removeProfilePhoto();
-        setMyAvatarUrl(null);
-        setShowPhotoUpload(false);
-    };
-
-    // getAvatar — kept inline because it needs myAvatarUrl from profile state
-    const getAvatar = (userId: string): string | null => {
-        if (userId === 'self') return myAvatarUrl;
-        return avatarMap.get(userId) || getCachedAvatar(userId) || null;
-    };
-
-    const handleSaveProfile = async () => {
-        setProfileSaving(true);
-        await updateProfile({
-            display_name: profileDisplayName.trim() || undefined,
-            vessel_name: profileVesselName.trim() || undefined,
-            looking_for_love: profileLookingForLove,
-        });
-        ChatService.clearDisplayNameCache(); // Invalidate so next message uses updated name
-        setProfileSaving(false);
-        setProfileSaved(true);
-        // Brief success feedback, then return to channel list
-        setTimeout(() => { setProfileSaved(false); setView('channels'); }, 1200);
-    };
+    // Profile photo upload, getAvatar, and profile save now provided by useChatProfile hook
 
     // DM actions, block/unblock, and mod actions now provided by useChatMessages + useChatDMs hooks
 
