@@ -305,7 +305,7 @@ export function useWeatherLayers(
             m.addSource(newId, {
                 type: 'raster',
                 tiles: [`https://tilecache.rainviewer.com${frame.radarPath}/256/{z}/{x}/{y}/4/1_1.png`],
-                tileSize: 256, minzoom: 2, maxzoom: 12,
+                tileSize: 256, minzoom: 2, maxzoom: 7,
             });
             m.addLayer({
                 id: newId, type: 'raster', source: newId,
@@ -636,7 +636,7 @@ export function useWeatherLayers(
                         m.addSource('weather-tiles', {
                             type: 'raster',
                             tiles: [`https://tilecache.rainviewer.com${startFrame.path}/256/{z}/{x}/{y}/4/1_1.png`],
-                            tileSize: 256, minzoom: 2, maxzoom: 12,
+                            tileSize: 256, minzoom: 2, maxzoom: 7,
                         });
                         m.addLayer({
                             id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
