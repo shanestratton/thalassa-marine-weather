@@ -188,16 +188,25 @@ export const LayerFABMenu: React.FC<{
                     { key: 'pressure', label: 'Synoptic', icon: '🌀' },
                     { key: 'sea', label: 'Sea Marks', icon: '⚓' },
                     { key: 'satellite', label: 'Satellite', icon: '🛰️' },
-                ] as const).map(layer => (
-                    <button
-                        key={layer.key}
-                        onClick={() => { setActiveLayer(layer.key); setShowLayerMenu(false); triggerHaptic('light'); }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${activeLayer === layer.key ? 'bg-sky-500/20 text-sky-400' : 'text-gray-400 hover:bg-white/5'}`}
-                    >
-                        <span className="text-xl">{layer.icon}</span>
-                        <span className="text-sm font-bold">{layer.label}</span>
-                    </button>
-                ))}
+                ] as const).map(layer => {
+                    const isActive = activeLayer === layer.key;
+                    return (
+                        <button
+                            key={layer.key}
+                            onClick={() => { setActiveLayer(layer.key); setShowLayerMenu(false); triggerHaptic('light'); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                        >
+                            <span className="text-xl">{layer.icon}</span>
+                            <span className="text-sm font-bold flex-1">{layer.label}</span>
+                            {isActive && layer.key !== 'none' && (
+                                <span className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Active</span>
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
             </div>
         )}
     </div>

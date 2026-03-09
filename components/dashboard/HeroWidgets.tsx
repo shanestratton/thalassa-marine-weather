@@ -261,9 +261,15 @@ const InstrumentCell: React.FC<{
     tealHeading?: boolean;
     dirDeg?: number | null; // Optional directional arrow
     onClick?: () => void;
-}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick }) => {
+    tooltip?: string; // Long-press / hover explanation
+}> = ({ label, icon, value, unit, trend, improving, tealHeading = true, dirDeg, onClick, tooltip }) => {
     return (
-        <div className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`} onClick={onClick}>
+        <div
+            className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
+            onClick={onClick}
+            title={tooltip}
+            aria-label={tooltip ? `${label}: ${value}${unit ? ' ' + unit : ''}. ${tooltip}` : undefined}
+        >
             {/* Header: icon + label + trend — locked to a single 12px line */}
             <div className="flex items-center gap-1 opacity-90 h-3">
                 <span className={`w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden ${tealHeading ? 'text-emerald-400' : 'text-amber-400'}`}>{icon}</span>
@@ -418,6 +424,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit={speedUnit}
                     trend={trends?.windSpeed}
                     improving={isWindImproving}
+                    tooltip="Sustained wind speed — average over 10 minutes"
                 />
 
                 {/* Direction — standard cell, tap for compass overlay */}
@@ -436,6 +443,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit={speedUnit}
                     trend={trends?.windGust}
                     improving={isGustImproving}
+                    tooltip="Peak gust speed — sudden short bursts above sustained wind"
                 />
 
                 {/* Wave/Swell Height — adapts to location type */}
@@ -447,6 +455,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     trend={trends?.waveHeight}
                     improving={isWaveImproving}
                     dirDeg={swellDirDeg}
+                    tooltip={isOffshore ? 'Open-ocean swell height — long-period waves from distant storms' : 'Significant wave height — average of tallest third of waves'}
                 />
 
                 {/* Period — wave or swell period */}
@@ -470,6 +479,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     label="UV"
                     icon={<SunIcon className="w-3 h-3" />}
                     value={uvVal}
+                    tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
                 />
 
                 {/* Visibility */}
@@ -480,6 +490,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit={distUnit}
                     trend={trends?.visibility}
                     improving={isVisImproving}
+                    tooltip="Visibility — horizontal distance at which objects can be clearly seen"
                 />
 
                 {/* Pressure — custom barometer cell with inline trend */}
@@ -496,6 +507,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     unit="%"
                     trend={trends?.humidity}
                     improving={isHumidityImproving}
+                    tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
                 />
 
                 {/* Rain */}
@@ -504,6 +516,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                     value={rainValue}
                     unit={rainUnit}
+                    tooltip={isLive ? 'Total rainfall today — accumulated precipitation in 24 hours' : 'Chance of precipitation during this hour'}
                 />
             </div>
 
