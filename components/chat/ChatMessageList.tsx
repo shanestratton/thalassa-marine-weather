@@ -64,6 +64,18 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
     const { setPage } = useUI();
     const regularMessages = messages.filter(m => !m.is_pinned);
 
+    // Real online status — users who posted in the last 15 minutes
+    const recentlyActiveUsers = React.useMemo(() => {
+        const cutoff = Date.now() - 15 * 60 * 1000;
+        const active = new Set<string>();
+        for (const m of messages) {
+            if (m.user_id !== 'self' && new Date(m.created_at).getTime() > cutoff) {
+                active.add(m.user_id);
+            }
+        }
+        return active;
+    }, [messages]);
+
     /** Date separator label — "Today", "Yesterday", or "Mon 3 Mar" */
     const getDateLabel = (dateStr: string): string => {
         const d = new Date(dateStr);
@@ -204,14 +216,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                         </div>
                                                     )}
                                                 </button>
-                                                {/* Online status dot — deterministic from user_id */}
-                                                {!isSelf && !isDeleted && (() => {
-                                                    let hash = 0;
-                                                    for (let c = 0; c < msg.user_id.length; c++) hash = ((hash << 5) - hash) + msg.user_id.charCodeAt(c);
-                                                    return (hash & 0xFF) > 100; // ~60% chance "online"
-                                                })() && (
-                                                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 status-pulse" aria-label="Online" />
-                                                    )}
+                                                {/* Online status dot — based on real message recency (last 15min) */}
+                                                {!isSelf && !isDeleted && recentlyActiveUsers.has(msg.user_id) && (
+                                                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 status-pulse" aria-label="Recently active" />
+                                                )}
                                             </div>
                                         )}
 
