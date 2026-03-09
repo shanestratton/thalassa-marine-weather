@@ -45,6 +45,8 @@ import { ReportModal, PinDropSheet, PoiPickerSheet, TrackPickerSheet, TrackDiscl
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { triggerHaptic } from '../utils/system';
+import { TypingIndicator } from './chat/TypingIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -144,6 +146,24 @@ export const ChatPage: React.FC = () => {
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
+    const [showTyping, setShowTyping] = useState(false);
+
+    // Pull-to-refresh — actual message reload
+    const pullRefresh = usePullToRefresh(async () => {
+        if (activeChannel && view === 'messages') {
+            triggerHaptic('medium');
+            const fresh = await ChatService.getMessages(activeChannel.id);
+            setMessages(fresh);
+        }
+    });
+
+    // Typing indicator — show briefly after channel switch to add ambient life
+    useEffect(() => {
+        if (!activeChannel || view !== 'messages') return;
+        setShowTyping(true);
+        const timer = setTimeout(() => setShowTyping(false), 2500);
+        return () => clearTimeout(timer);
+    }, [activeChannel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         // Only track keyboard when compose bar is visible
         if (view !== 'messages' && view !== 'dm_thread') {
@@ -1113,7 +1133,25 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════════════ CONTENT ═══════════════════ */}
             <ChatErrorBoundary>
-                <div key={view} className={`flex-1 overflow-y-auto overscroll-contain ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}>
+                <div
+                    key={view}
+                    ref={pullRefresh.containerRef}
+                    className={`flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}
+                    {...pullRefresh.handlers}
+                >
+                    {/* Pull-to-refresh indicator */}
+                    {pullRefresh.pullDistance > 0 && (
+                        <div
+                            className="flex items-center justify-center transition-all duration-150"
+                            style={{ height: pullRefresh.pullDistance }}
+                        >
+                            {pullRefresh.isRefreshing ? (
+                                <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin" />
+                            ) : (
+                                <span className={`text-white/30 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}>↓</span>
+                            )}
+                        </div>
+                    )}
                     {loading && view === 'channels' && (
                         <div className="pb-24">
                             <SkeletonChannelList />
@@ -1253,30 +1291,34 @@ export const ChatPage: React.FC = () => {
 
                     {/* ══════ MESSAGE VIEW ══════ */}
                     {view === 'messages' && !loading && (
-                        <ChatMessageList
-                            messages={messages}
-                            pinnedMessages={pinnedMessages}
-                            isMod={isMod}
-                            isAdmin={isAdmin}
-                            isModerator={isModerator}
-                            likedMessages={likedMessages}
-                            showModMenu={showModMenu}
-                            showRankTooltip={showRankTooltip}
-                            importingTrackId={importingTrackId}
-                            getAvatar={getAvatar}
-                            onOpenDMThread={openDMThread}
-                            onMarkHelpful={handleMarkHelpful}
-                            onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
-                            onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
-                            onDeleteMessage={handleDeleteMessage}
-                            onPinMessage={handlePinMessage}
-                            onMuteUser={handleMuteUser}
-                            onBlockUser={handleBlockUserPlatform}
-                            onMakeAdmin={handleMakeAdmin}
-                            onSetRankTooltip={setShowRankTooltip}
-                            onShowTrackDisclaimer={setShowTrackDisclaimer}
-                            messageEndRef={messageEndRef}
-                        />
+                        <>
+                            <ChatMessageList
+                                messages={messages}
+                                pinnedMessages={pinnedMessages}
+                                isMod={isMod}
+                                isAdmin={isAdmin}
+                                isModerator={isModerator}
+                                likedMessages={likedMessages}
+                                showModMenu={showModMenu}
+                                showRankTooltip={showRankTooltip}
+                                importingTrackId={importingTrackId}
+                                getAvatar={getAvatar}
+                                onOpenDMThread={openDMThread}
+                                onMarkHelpful={handleMarkHelpful}
+                                onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
+                                onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
+                                onDeleteMessage={handleDeleteMessage}
+                                onPinMessage={handlePinMessage}
+                                onMuteUser={handleMuteUser}
+                                onBlockUser={handleBlockUserPlatform}
+                                onMakeAdmin={handleMakeAdmin}
+                                onSetRankTooltip={setShowRankTooltip}
+                                onShowTrackDisclaimer={setShowTrackDisclaimer}
+                                messageEndRef={messageEndRef}
+                            />
+                            {/* Typing indicator — shown briefly after channel switch */}
+                            {showTyping && <TypingIndicator />}
+                        </>
                     )}
 
                     {/* ══════ DM INBOX ══════ */}
