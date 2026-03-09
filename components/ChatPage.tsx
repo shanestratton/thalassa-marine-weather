@@ -744,10 +744,35 @@ export const ChatPage: React.FC = () => {
 
     const handleProposeChannel = async () => {
         if (!proposalName.trim()) return;
-        const ok = await ChatService.proposeChannel(proposalName.trim(), proposalDesc.trim() || 'A new channel', proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined);
+
+        let ok = false;
+        if (isAdmin) {
+            // Admins create instantly — no pending review needed
+            const ch = await ChatService.createChannel(
+                proposalName.trim(), proposalDesc.trim() || 'A new channel',
+                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
+            );
+            ok = !!ch;
+            // Refresh channel list
+            if (ok) {
+                const updated = await ChatService.getChannels();
+                setChannels(updated);
+            }
+        } else {
+            // Non-admins propose — goes to pending for admin approval
+            ok = await ChatService.proposeChannel(
+                proposalName.trim(), proposalDesc.trim() || 'A new channel',
+                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
+            );
+        }
+
         if (ok) {
             setProposalSent(true);
-            setTimeout(() => { setShowProposalForm(false); setProposalSent(false); setProposalName(''); setProposalDesc(''); setProposalIsPrivate(false); setProposalParentId(null); }, 2000);
+            setTimeout(() => {
+                setShowProposalForm(false); setProposalSent(false);
+                setProposalName(''); setProposalDesc('');
+                setProposalIsPrivate(false); setProposalParentId(null);
+            }, 2000);
         }
     };
 

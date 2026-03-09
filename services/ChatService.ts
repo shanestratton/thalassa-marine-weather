@@ -218,6 +218,7 @@ class ChatServiceClass {
         const { data, error } = await supabase
             .from(CHANNELS_TABLE)
             .select('*')
+            .eq('status', 'active')
             .order('is_global', { ascending: false })
             .order('name');
 
@@ -664,6 +665,7 @@ class ChatServiceClass {
             .from(ROLES_TABLE)
             .update({ muted_until: null })
             .eq('user_id', userId);
+        if (!error) this.logAudit('unmute_user', userId);
         return !error;
     }
 
@@ -689,6 +691,7 @@ class ChatServiceClass {
                 is_blocked: false,
             }, { onConflict: 'user_id' });
 
+        if (!error) this.logAudit('set_role', userId, { role });
         return !error;
     }
 
@@ -705,6 +708,7 @@ class ChatServiceClass {
                 is_blocked: true,
                 muted_until: null,
             }, { onConflict: 'user_id' });
+        if (!error) this.logAudit('block_user', userId, { action: 'blocked' });
         return !error;
     }
 
@@ -715,7 +719,50 @@ class ChatServiceClass {
             .from(ROLES_TABLE)
             .update({ is_blocked: false })
             .eq('user_id', userId);
+        if (!error) this.logAudit('unblock_user', userId, { action: 'unblocked' });
         return !error;
+    }
+
+    // --- AUDIT TRAIL ---
+    // Logs all admin actions for accountability — catches rogue admins
+
+    /** Log an admin action to the audit trail */
+    async logAudit(action: string, targetId: string | null, details?: Record<string, any>): Promise<void> {
+        if (!supabase || !this.currentUserId) return;
+        try {
+            await supabase.from('admin_audit_log').insert({
+                actor_id: this.currentUserId,
+                action,
+                target_id: targetId,
+                details: details || {},
+            });
+        } catch (e) { /* non-blocking — audit should never break the flow */ }
+    }
+
+    /** Get recent audit log entries (admin-only) */
+    async getAuditLog(limit = 50): Promise<any[]> {
+        if (!supabase || !this.isAdmin()) return [];
+        const { data: entries } = await supabase
+            .from('admin_audit_log')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (!entries || entries.length === 0) return [];
+
+        // Enrich with actor names
+        const actorIds = [...new Set(entries.map((e: any) => e.actor_id))];
+        const { data: profiles } = await supabase
+            .from('chat_profiles')
+            .select('user_id, display_name')
+            .in('user_id', actorIds);
+
+        const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p.display_name]));
+
+        return entries.map((e: any) => ({
+            ...e,
+            actor_name: profileMap.get(e.actor_id) || 'Unknown',
+        }));
     }
 
     // --- CHANNEL MANAGEMENT ---
@@ -809,6 +856,7 @@ class ChatServiceClass {
             });
         }
 
+        this.logAudit('approve_channel', channelId);
         return true;
     }
 
@@ -820,6 +868,7 @@ class ChatServiceClass {
             .delete()
             .eq('id', channelId)
             .eq('status', 'pending');
+        if (!error) this.logAudit('reject_channel', channelId);
         return !error;
     }
 
@@ -845,10 +894,13 @@ class ChatServiceClass {
 
     async deleteChannel(channelId: string): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
+        // Get channel name for audit log
+        const { data: ch } = await supabase.from(CHANNELS_TABLE).select('name').eq('id', channelId).single();
         const { error } = await supabase
             .from(CHANNELS_TABLE)
             .delete()
             .eq('id', channelId);
+        if (!error) this.logAudit('delete_channel', channelId, { channel_name: ch?.name });
         return !error;
     }
 
