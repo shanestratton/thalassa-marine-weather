@@ -662,7 +662,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
 
 
                 {/* Category chips */}
-                <div className="px-3 pb-2.5 -mt-0.5 overflow-x-auto flex gap-2 scrollbar-hide">
+                <div className="px-3 pb-2.5 -mt-0.5 flex flex-wrap gap-2">
                     <button
                         onClick={() => handleCategoryFilter(null)}
                         className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${!activeCategory
@@ -706,15 +706,9 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                     <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
                         <div className="text-3xl mb-4">⚓</div>
                         <h3 className="text-lg font-bold text-white/80 mb-2">No Gear Listed Yet</h3>
-                        <p className="text-xs text-white/60 mb-6 max-w-xs leading-relaxed">
+                        <p className="text-xs text-white/60 mb-2 max-w-xs leading-relaxed">
                             Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here.
                         </p>
-                        <button
-                            onClick={() => setShowCreate(true)}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-sky-500 text-xs font-bold text-white uppercase tracking-wider shadow-lg shadow-sky-500/20 active:scale-95 transition-transform"
-                        >
-                            🏪 List Something for Sale
-                        </button>
                     </div>
                 ) : (
                     /* Listing cards */
