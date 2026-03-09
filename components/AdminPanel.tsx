@@ -1,11 +1,12 @@
 /**
- * AdminPanel — Role management panel for Thalassa admins.
+ * AdminPanel — Full-page role management view for Thalassa admins.
+ * Renders as a page within the Chat section (like channels/marketplace).
  *
  * Features:
  * - List all registered users with their current roles
  * - Promote/demote: member ↔ moderator ↔ admin
  * - Block/unblock users permanently
- * - Mute users for N hours
+ * - Mute/unmute users
  * - Search/filter users
  * - Admin-only visibility
  */
@@ -13,7 +14,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChatService, ChatRole, UserRoleEntry } from '../services/ChatService';
 import { triggerHaptic } from '../utils/system';
 
-// ── Types ──
+// ── Props ──
 
 interface AdminPanelProps {
     isOpen: boolean;
@@ -104,26 +105,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    // ── Count by role ──
+    // ── Stats ──
     const adminCount = users.filter(u => u.role === 'admin').length;
     const modCount = users.filter(u => u.role === 'moderator').length;
     const blockedCount = users.filter(u => u.is_blocked).length;
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
-            <div
-                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto"
-                onClick={e => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06]">
-                    <button onClick={onClose} className="text-xs text-white/60 font-medium">Close</button>
-                    <h2 className="text-sm font-bold text-white">👑 Admin Panel</h2>
-                    <span className="text-[10px] text-white/40">{users.length} users</span>
+        <div className="flex flex-col h-full">
+            {/* ── Header with back chevron ── */}
+            <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-slate-900/95 border-b border-white/[0.06]">
+                <button
+                    onClick={onClose}
+                    className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+                >
+                    <svg className="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div className="flex items-center gap-2 flex-1">
+                    <span className="text-lg">👑</span>
+                    <div>
+                        <h2 className="text-sm font-bold text-amber-400">Admin Panel</h2>
+                        <p className="text-[10px] text-white/40">{users.length} registered users</p>
+                    </div>
                 </div>
+            </div>
 
+            {/* ── Content (scrollable) ── */}
+            <div className="flex-1 overflow-y-auto pb-24">
                 {/* Stats row */}
-                <div className="px-5 pt-4 pb-2 flex gap-3">
+                <div className="px-4 pt-4 pb-2 flex gap-2.5">
                     <div className="flex-1 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
                         <p className="text-lg font-bold text-amber-400">{adminCount}</p>
                         <p className="text-[10px] text-amber-400/60 uppercase tracking-wider">Admins</p>
@@ -139,7 +150,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 {/* Search */}
-                <div className="px-5 py-2">
+                <div className="px-4 py-2">
                     <input
                         value={search}
                         onChange={e => setSearch(e.target.value)}
@@ -149,7 +160,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 {/* User list */}
-                <div className="px-5 pb-8 space-y-2">
+                <div className="px-4 space-y-2">
                     {loading ? (
                         <div className="text-center py-8 text-white/40 text-sm">Loading users...</div>
                     ) : filteredUsers.length === 0 ? (

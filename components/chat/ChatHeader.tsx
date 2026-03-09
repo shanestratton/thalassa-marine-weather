@@ -6,7 +6,7 @@ import React from 'react';
 import { ChatChannel } from '../../services/ChatService';
 import { useTheme } from '../../context/ThemeContext';
 
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace' | 'admin_panel';
 
 export interface ChatHeaderProps {
     view: ChatView;

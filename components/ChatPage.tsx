@@ -51,7 +51,7 @@ import {
 } from './chat/chatUtils';
 
 // --- TYPES ---
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace';
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace' | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';
@@ -114,7 +114,6 @@ export const ChatPage: React.FC = () => {
     const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>('inappropriate');
     const [reportSent, setReportSent] = useState(false);
     const [showProposalForm, setShowProposalForm] = useState(false);
-    const [showAdminPanel, setShowAdminPanel] = useState(false);
     const [proposalName, setProposalName] = useState('');
     const [proposalDesc, setProposalDesc] = useState('');
     const [proposalIcon, setProposalIcon] = useState('🏝️');
@@ -936,6 +935,7 @@ export const ChatPage: React.FC = () => {
 
         else if (view === 'find_crew') { setView('channels'); }
         else if (view === 'marketplace') { setView('channels'); }
+        else if (view === 'admin_panel') { setView('channels'); }
     };
 
     const isMod = ChatService.isMod();
@@ -1083,12 +1083,14 @@ export const ChatPage: React.FC = () => {
                         proposalSent={proposalSent}
                         onProposeChannel={handleProposeChannel}
                         isAdmin={isAdmin}
-                        onOpenAdmin={() => setShowAdminPanel(true)}
+                        onOpenAdmin={() => setView('admin_panel')}
                     />
                 )}
 
-                {/* ══════ ADMIN PANEL MODAL ══════ */}
-                <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
+                {/* ══════ ADMIN PANEL ══════ */}
+                {view === 'admin_panel' && !loading && (
+                    <AdminPanel isOpen={true} onClose={() => setView('channels')} />
+                )}
 
                 {/* ══════ MESSAGE VIEW ══════ */}
                 {view === 'messages' && !loading && (
