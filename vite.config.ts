@@ -37,6 +37,12 @@ export default defineConfig(({ mode }) => {
             'X-Billing-Token': getKey('VITE_DISTANCE_TOOLS_KEY'),
           },
         },
+        // Proxy Rainbow.ai API to avoid CORS in local dev
+        '/api/rainbow': {
+          target: 'https://api.rainbow.ai',
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/api\/rainbow/, '/tiles/v1'),
+        },
       },
     },
     plugins: [react()],
