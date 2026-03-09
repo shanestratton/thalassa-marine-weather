@@ -21,17 +21,10 @@ import { clientFilter, reportMessage, type ClientFilterResult } from '../service
 import { uploadProfilePhoto, batchFetchAvatars, getCachedAvatar, removeProfilePhoto, getProfile, updateProfile } from '../services/ProfilePhotoService';
 import { LonelyHeartsPage } from './LonelyHeartsPage';
 
-import { BgGeoManager } from '../services/BgGeoManager';
-import { PinService, SavedPin } from '../services/PinService';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
-import { ShipLogService } from '../services/ShipLogService';
-import { TrackSharingService } from '../services/TrackSharingService';
-import { ShipLogEntry } from '../types';
-import { importGPXToEntries } from '../services/gpxService';
 import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
-import { GpsService } from '../services/GpsService';
 import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
 import { AdminPanel } from './AdminPanel';
@@ -49,6 +42,8 @@ import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useChatMessages } from '../hooks/chat/useChatMessages';
 import { useChatDMs } from '../hooks/chat/useChatDMs';
+import { usePinDrop } from '../hooks/chat/usePinDrop';
+import { useTrackSharing } from '../hooks/chat/useTrackSharing';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -231,33 +226,32 @@ export const ChatPage: React.FC = () => {
     const [profileSaved, setProfileSaved] = useState(false);
     const [profileLookingForLove, setProfileLookingForLove] = useState(false);
 
-    // Pin drop / Track share / POI
-    const [showAttachMenu, setShowAttachMenu] = useState(false);
-    const [showPinSheet, setShowPinSheet] = useState(false);
-    const [showPoiSheet, setShowPoiSheet] = useState(false);
-    const [pinLat, setPinLat] = useState(0);
-    const [pinLng, setPinLng] = useState(0);
-    const [pinCaption, setPinCaption] = useState('');
-    const [pinLoading, setPinLoading] = useState(false);
-    const [savedPins, setSavedPins] = useState<SavedPin[]>([]);
+    // --- Extracted Hooks: Pin Drop + Track Sharing ---
+    const pinDrop = usePinDrop({ activeChannel, setMessages, setMessageText, messageEndRef });
+    const {
+        showAttachMenu, setShowAttachMenu,
+        showPinSheet, setShowPinSheet,
+        showPoiSheet, setShowPoiSheet,
+        pinLat, setPinLat, pinLng, setPinLng,
+        pinCaption, setPinCaption,
+        pinLoading, savedPins,
+        poiMapRef,
+        openPinDrop, sendPin,
+        openPoiPicker, sendPoi,
+    } = pinDrop;
 
-    // Track sharing
-    const [showTrackPicker, setShowTrackPicker] = useState(false);
-    const [voyageList, setVoyageList] = useState<{ voyageId: string; entryCount: number; distance: number; startTime: string; endTime: string; entries: ShipLogEntry[] }[]>([]);
-    const [trackSharing, setTrackSharing] = useState(false);
-    const [trackLoadingVoyages, setTrackLoadingVoyages] = useState(false);
-
-    // Track import from chat
-    const [importingTrackId, setImportingTrackId] = useState<string | null>(null);
-    const [trackImportStatus, setTrackImportStatus] = useState<string | null>(null);
-    const [showTrackDisclaimer, setShowTrackDisclaimer] = useState<{ trackId: string; title: string } | null>(null);
+    const trackSharingHook = useTrackSharing({ activeChannel, setMessages, messageEndRef, setShowAttachMenu });
+    const {
+        showTrackPicker, setShowTrackPicker,
+        voyageList, trackSharing: isTrackSharing,
+        trackLoadingVoyages,
+        importingTrackId, trackImportStatus,
+        showTrackDisclaimer, setShowTrackDisclaimer,
+        openTrackPicker, sendTrack, handleImportTrack,
+    } = trackSharingHook;
 
     // Refs
     const inputRef = useRef<HTMLInputElement>(null);
-    const poiMapRef = useRef<HTMLDivElement>(null);
-    const poiMapInstance = useRef<any>(null);
-    const poiMarkerRef = useRef<any>(null);
-    const poiMapInitialized = useRef(false);
 
     // --- INIT ---
     useEffect(() => {
@@ -332,329 +326,12 @@ export const ChatPage: React.FC = () => {
 
     // openChannel and sendChannelMessage now provided by useChatMessages hook
 
-    // --- PIN DROP ---
-    const openPinDrop = async () => {
-        setShowAttachMenu(false);
-        setPinLoading(true);
-        setPinCaption('');
-        setShowPinSheet(true);
+    // Pin drop, POI, track sharing, and import now provided by usePinDrop + useTrackSharing hooks
 
-        // Load saved pins from Supabase
-        PinService.getMyPins(15).then(pins => setSavedPins(pins)).catch(() => { });
-
-        // Get GPS position
-        try {
-            const pos = BgGeoManager.getLastPosition();
-            if (pos) {
-                setPinLat(pos.latitude);
-                setPinLng(pos.longitude);
-            } else {
-                // Fallback: try fresh position
-                const freshPos = await BgGeoManager.getFreshPosition(60000, 10);
-                if (freshPos) {
-                    setPinLat(freshPos.latitude);
-                    setPinLng(freshPos.longitude);
-                } else {
-                    // Default to Sydney Harbour
-                    setPinLat(-33.8568);
-                    setPinLng(151.2153);
-                }
-            }
-        } catch (e) {
-            log.warn('GPS fallback:', e);
-            setPinLat(-33.8568);
-            setPinLng(151.2153);
-        }
-        setPinLoading(false);
-    };
-
-    // Static map URL helper for Drop a Pin
     const getStaticMapUrl = (lat: number, lng: number, zoom = 13, w = 600, h = 200) => {
         const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
         if (!token || token.length < 10) return '';
         return `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/static/pin-l+38bdf8(${lng},${lat})/${lng},${lat},${zoom},0/${w}x${h}@2x?access_token=${token}`;
-    };
-
-    // Open POI picker (Share Point of Interest)
-    const openPoiPicker = () => {
-        setShowAttachMenu(false);
-        setShowPoiSheet(true);
-        setPinCaption('');
-        // Start at current GPS if available
-        setPinLoading(true);
-        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 }).then((pos) => {
-            if (pos) {
-                setPinLat(pos.latitude);
-                setPinLng(pos.longitude);
-            } else {
-                setPinLat(-27.4698);
-                setPinLng(153.0251);
-            }
-            setPinLoading(false);
-        });
-    };
-
-    // Initialize Mapbox GL map for POI picker
-    useEffect(() => {
-        if (!showPoiSheet || pinLoading || !poiMapRef.current) return;
-        if (poiMapInitialized.current) return;
-        poiMapInitialized.current = true;
-
-        // Inject Mapbox GL CSS if not already present
-        if (!document.querySelector('link[href*="mapbox-gl"]')) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = 'https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css';
-            document.head.appendChild(link);
-        }
-
-        import('mapbox-gl').then((mapboxgl) => {
-            if (!poiMapRef.current || poiMapInstance.current) return;
-
-            const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-            if (!token || token.length < 10) return;
-
-            mapboxgl.default.accessToken = token;
-
-            const map = new mapboxgl.default.Map({
-                container: poiMapRef.current,
-                style: 'mapbox://styles/mapbox/navigation-night-v1',
-                center: [pinLng, pinLat],
-                zoom: 12,
-                attributionControl: false,
-            });
-
-            // Add navigation controls
-            map.addControl(new mapboxgl.default.NavigationControl({ showCompass: false }), 'top-right');
-
-            // Create draggable marker
-            const marker = new mapboxgl.default.Marker({ color: '#38bdf8', draggable: true })
-                .setLngLat([pinLng, pinLat])
-                .addTo(map);
-            poiMarkerRef.current = marker;
-
-            marker.on('dragend', () => {
-                const lngLat = marker.getLngLat();
-                setPinLat(lngLat.lat);
-                setPinLng(lngLat.lng);
-            });
-
-            // Tap map to move marker
-            map.on('click', (e) => {
-                marker.setLngLat(e.lngLat);
-                setPinLat(e.lngLat.lat);
-                setPinLng(e.lngLat.lng);
-            });
-
-            poiMapInstance.current = map;
-        });
-    }, [showPoiSheet, pinLoading]);
-
-    // Cleanup Mapbox GL map when POI sheet closes
-    useEffect(() => {
-        if (!showPoiSheet && poiMapInstance.current) {
-            poiMapInstance.current.remove();
-            poiMapInstance.current = null;
-            poiMarkerRef.current = null;
-            poiMapInitialized.current = false;
-        }
-    }, [showPoiSheet]);
-
-    // Send POI (reuses the same pin format)
-    const sendPoi = async () => {
-        if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[POI] ${pinCaption.trim() || 'Point of interest'}`;
-        setShowPoiSheet(false);
-        setPinCaption('');
-
-        setMessageText('');
-        const optimistic: ChatMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            channel_id: activeChannel.id,
-            user_id: 'self',
-            display_name: 'You',
-            message: text,
-            is_question: false,
-            helpful_count: 0,
-            is_pinned: false,
-            deleted_at: null,
-            created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, optimistic]);
-        await ChatService.sendMessage(activeChannel.id, text, false);
-
-        PinService.savePin({
-            latitude: pinLat,
-            longitude: pinLng,
-            caption: pinCaption.trim() || 'Point of interest',
-        }).catch(() => { });
-
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-    };
-
-    // Open track picker — loads user's voyages grouped by voyageId
-    const openTrackPicker = async () => {
-        setShowAttachMenu(false);
-        setShowTrackPicker(true);
-        setTrackLoadingVoyages(true);
-        try {
-            const entries = await ShipLogService.getLogEntries(500);
-            // ── Provenance filter: only show device-recorded voyages ──
-            // Imported/community tracks cannot be re-shared
-            const deviceEntries = entries.filter((e: ShipLogEntry) => !e.source || e.source === 'device');
-            // Group by voyageId
-            const grouped = new Map<string, ShipLogEntry[]>();
-            for (const e of deviceEntries) {
-                if (!e.voyageId) continue;
-                const arr = grouped.get(e.voyageId) || [];
-                arr.push(e);
-                grouped.set(e.voyageId, arr);
-            }
-            const list = Array.from(grouped.entries())
-                .map(([voyageId, entries]) => {
-                    const sorted = entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                    const last = sorted[sorted.length - 1];
-                    // Prefer cumulativeDistanceNM, fallback to summing individual distanceNM
-                    let dist = last.cumulativeDistanceNM || 0;
-                    if (dist === 0) {
-                        dist = sorted.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
-                    }
-                    return {
-                        voyageId,
-                        entryCount: sorted.length,
-                        distance: Math.round(dist * 10) / 10,
-                        startTime: sorted[0].timestamp,
-                        endTime: last.timestamp,
-                        entries: sorted,
-                    };
-                })
-                .filter(v => v.entryCount >= 2) // Need at least 2 points for a track
-                .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-            setVoyageList(list);
-        } catch (e) {
-            log.warn('Track picker load failed:', e);
-            setVoyageList([]);
-        } finally {
-            setTrackLoadingVoyages(false);
-        }
-    };
-
-    // Share a specific voyage to the chat
-    const sendTrack = async (voyage: typeof voyageList[0]) => {
-        if (!activeChannel || trackSharing) return;
-        setTrackSharing(true);
-        try {
-            const startDate = new Date(voyage.startTime).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-            const title = `Voyage ${startDate} — ${voyage.distance}nm`;
-
-            // Share via TrackSharingService (stores GPX in Supabase)
-            const shared = await TrackSharingService.shareTrack(voyage.entries, {
-                title,
-                description: `${voyage.entryCount} waypoints, ${voyage.distance}nm`,
-                tags: [],
-                category: 'coastal',
-                region: '',
-            });
-
-            if (shared) {
-                // Send track message to chat
-                const text = `${TRACK_PREFIX}${shared.id}|${title}`;
-                setShowTrackPicker(false);
-
-                const optimistic: ChatMessage = {
-                    id: `opt-${crypto.randomUUID()}`,
-                    channel_id: activeChannel.id,
-                    user_id: 'self',
-                    display_name: 'You',
-                    message: text,
-                    is_question: false,
-                    helpful_count: 0,
-                    is_pinned: false,
-                    deleted_at: null,
-                    created_at: new Date().toISOString(),
-                };
-                setMessages(prev => [...prev, optimistic]);
-                await ChatService.sendMessage(activeChannel.id, text, false);
-                setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-            }
-        } catch (err) {
-            log.error('Failed to share track:', err);
-        } finally {
-            setTrackSharing(false);
-        }
-    };
-
-    // Import a shared track from chat into user's logs
-    const handleImportTrack = async (trackId: string, title: string) => {
-        setShowTrackDisclaimer(null);
-        setImportingTrackId(trackId);
-        setTrackImportStatus(null);
-        try {
-            setTrackImportStatus('⏳ Downloading track…');
-            const gpxData = await TrackSharingService.downloadTrack(trackId, true);
-            if (!gpxData) {
-                setTrackImportStatus('❌ Download failed — no data returned');
-                return;
-            }
-            setTrackImportStatus('⏳ Parsing GPX data…');
-            let entries;
-            try {
-                entries = importGPXToEntries(gpxData);
-            } catch (parseErr) {
-                log.error('GPX parse failed:', parseErr);
-                setTrackImportStatus('❌ Invalid GPX data — cannot parse');
-                return;
-            }
-            if (entries.length === 0) {
-                setTrackImportStatus('❌ No valid entries in track');
-                return;
-            }
-            // Stamp as community download
-            entries.forEach((e: Record<string, unknown>) => { e.source = 'community_download'; });
-            setTrackImportStatus(`⏳ Saving ${entries.length} entries…`);
-            const { savedCount } = await ShipLogService.importGPXVoyage(entries);
-            setTrackImportStatus(`✅ Imported "${title}" — ${savedCount} entries`);
-        } catch (err) {
-            log.error('Track import failed:', err);
-            const msg = err instanceof Error ? err.message : 'Unknown error';
-            setTrackImportStatus(`❌ Import failed — ${msg}`);
-        } finally {
-            setImportingTrackId(null);
-            setTimeout(() => setTrackImportStatus(null), 5000);
-        }
-    };
-
-    const sendPin = async () => {
-        if (!activeChannel) return;
-        const text = `${PIN_PREFIX}${pinLat.toFixed(6)},${pinLng.toFixed(6)}|[LOC] ${pinCaption.trim() || 'My Location'}`;
-        setShowPinSheet(false);
-        setPinCaption('');
-
-        // Send as regular message
-        setMessageText('');
-        const optimistic: ChatMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            channel_id: activeChannel.id,
-            user_id: 'self',
-            display_name: 'You',
-            message: text,
-            is_question: false,
-            helpful_count: 0,
-            is_pinned: false,
-            deleted_at: null,
-            created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, optimistic]);
-        await ChatService.sendMessage(activeChannel.id, text, false);
-
-        // Save pin to Supabase for history
-        PinService.savePin({
-            latitude: pinLat,
-            longitude: pinLng,
-            caption: pinCaption.trim() || 'Dropped a pin',
-        }).catch(() => { });
-
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
 
     const handleReport = async () => {
@@ -1184,7 +861,7 @@ export const ChatPage: React.FC = () => {
                 <TrackPickerSheet
                     voyageList={voyageList}
                     trackLoadingVoyages={trackLoadingVoyages}
-                    trackSharing={trackSharing}
+                    trackSharing={isTrackSharing}
                     onSendTrack={sendTrack}
                     onClose={() => setShowTrackPicker(false)}
                 />
