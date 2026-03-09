@@ -138,6 +138,7 @@ class ChatServiceClass {
     private blocked: boolean = false;
     private initPromise: Promise<void> | null = null;
     private ownerUserId: string | null = null;  // Founding admin — immutable
+    private cachedDisplayName: string | null = null; // Cached to avoid per-message DB lookup
 
     // --- INIT ---
 
@@ -264,21 +265,26 @@ class ChatServiceClass {
             return null;
         }
 
-        // Check chat_profiles for custom display name first
-        let displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Sailor';
-        const { data: profile } = await supabase
-            .from('chat_profiles')
-            .select('display_name')
-            .eq('user_id', user.id)
-            .single();
-        if (profile?.display_name) displayName = profile.display_name;
+        // Use cached display name — avoids per-message DB roundtrip
+        let displayName = this.cachedDisplayName;
+        if (!displayName) {
+            displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Sailor';
+            const { data: profile } = await supabase
+                .from('chat_profiles')
+                .select('display_name')
+                .eq('user_id', user.id)
+                .single();
+            if (profile?.display_name) displayName = profile.display_name;
+            this.cachedDisplayName = displayName;
+        }
+        const resolvedName = displayName!; // Guaranteed non-null after branch above
 
         const { data, error } = await supabase
             .from(MESSAGES_TABLE)
             .insert({
                 channel_id: channelId,
                 user_id: user.id,
-                display_name: displayName,
+                display_name: resolvedName,
                 message: text,
                 is_question: isQuestion,
                 helpful_count: 0,
@@ -301,7 +307,7 @@ class ChatServiceClass {
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {
-            this.pushSOSNotification(channelId, user.id, displayName, text, data.id).catch(() => { });
+            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch(() => { });
         }
 
         return msg;
@@ -1158,6 +1164,12 @@ class ChatServiceClass {
             supabase.removeChannel(this.dmSubscription);
             this.dmSubscription = null;
         }
+        this.cachedDisplayName = null;
+    }
+
+    /** Clear cached display name — call after profile update */
+    clearDisplayNameCache(): void {
+        this.cachedDisplayName = null;
     }
 }
 
