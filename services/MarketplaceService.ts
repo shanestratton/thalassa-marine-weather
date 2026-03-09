@@ -22,19 +22,21 @@ const MAX_IMAGE_PX = 1200;
 
 // --- TYPES ---
 
-export type ListingCategory = 'Electronics' | 'Sails' | 'Rigging' | 'Hardware' | 'Safety' | 'Misc';
+export type ListingCategory = 'Boats' | 'Outboards' | 'Electronics' | 'Sails' | 'Rigging' | 'Hardware' | 'Safety' | 'Misc';
 export type ListingCondition = 'New' | 'Like New' | 'Used - Good' | 'Used - Fair' | 'Needs Repair';
 export type ListingStatus = 'available' | 'pending' | 'sold';
 
-export const LISTING_CATEGORIES: ListingCategory[] = ['Electronics', 'Sails', 'Rigging', 'Hardware', 'Safety', 'Misc'];
+export const LISTING_CATEGORIES: ListingCategory[] = ['Boats', 'Outboards', 'Electronics', 'Sails', 'Rigging', 'Hardware', 'Safety', 'Misc'];
 export const LISTING_CONDITIONS: ListingCondition[] = ['New', 'Like New', 'Used - Good', 'Used - Fair', 'Needs Repair'];
 
 export const CATEGORY_ICONS: Record<ListingCategory, string> = {
+    'Boats': '⛵',
+    'Outboards': '🚤',
     'Electronics': '📡',
-    'Sails': '⛵',
+    'Sails': '🪂',
     'Rigging': '🔗',
     'Hardware': '🔩',
-    'Safety': '🛟',
+    'Safety': '🛱',
     'Misc': '📦',
 };
 
