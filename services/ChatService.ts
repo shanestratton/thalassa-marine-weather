@@ -20,6 +20,9 @@ const CHANNELS_TABLE = 'chat_channels';
 const MESSAGES_TABLE = 'chat_messages';
 const DM_TABLE = 'chat_direct_messages';
 const ROLES_TABLE = 'chat_roles';
+
+// --- PLATFORM OWNER (founding admin — cannot be demoted, blocked, or muted) ---
+const PLATFORM_OWNER_EMAIL = 'shane.stratton@gmail.com';
 const DM_BLOCKS_TABLE = 'dm_blocks';
 const CHANNELS_CACHE_KEY = 'thalassa_chat_channels_v1';
 
@@ -118,6 +121,7 @@ class ChatServiceClass {
     private mutedUntil: Date | null = null;
     private blocked: boolean = false;
     private initPromise: Promise<void> | null = null;
+    private ownerUserId: string | null = null;  // Founding admin — immutable
 
     // --- INIT ---
 
@@ -134,6 +138,10 @@ class ChatServiceClass {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
             this.currentUserId = user.id;
+            // Detect platform owner
+            if (user.email === PLATFORM_OWNER_EMAIL) {
+                this.ownerUserId = user.id;
+            }
             // Run role load + offline sync in parallel
             await Promise.all([
                 this.loadUserRole(),
@@ -618,6 +626,8 @@ class ChatServiceClass {
 
     async muteUser(userId: string, hours: number): Promise<boolean> {
         if (!supabase || !this.isMod()) return false;
+        // Owner cannot be muted
+        if (this.isOwnerProtected(userId)) return false;
         const mutedUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 
         const { error } = await supabase
@@ -631,11 +641,28 @@ class ChatServiceClass {
         return !error;
     }
 
+    /** Unmute a user — removes mute immediately */
+    async unmuteUser(userId: string): Promise<boolean> {
+        if (!supabase || !this.isMod()) return false;
+        const { error } = await supabase
+            .from(ROLES_TABLE)
+            .update({ muted_until: null })
+            .eq('user_id', userId);
+        return !error;
+    }
+
+    /** Check if a user is the platform owner (immutable admin) */
+    isOwnerProtected(userId: string): boolean {
+        return this.ownerUserId !== null && userId === this.ownerUserId;
+    }
+
     async setRole(userId: string, role: ChatRole): Promise<boolean> {
         // Only admins can promote/demote roles
         if (!supabase || !this.isAdmin()) return false;
         // Cannot demote yourself
         if (userId === this.currentUserId && role !== 'admin') return false;
+        // Owner is untouchable — cannot be demoted by rogue admins
+        if (this.isOwnerProtected(userId) && role !== 'admin') return false;
 
         const { error } = await supabase
             .from(ROLES_TABLE)
@@ -652,6 +679,8 @@ class ChatServiceClass {
     /** Admin-only: permanently block a user from the platform */
     async blockUserPlatform(userId: string): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
+        // Owner cannot be blocked
+        if (this.isOwnerProtected(userId)) return false;
         const { error } = await supabase
             .from(ROLES_TABLE)
             .upsert({
