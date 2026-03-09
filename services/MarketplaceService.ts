@@ -17,7 +17,7 @@ const LISTINGS_TABLE = 'marketplace_listings';
 const MESSAGES_TABLE = 'marketplace_messages';
 const PROFILES_TABLE = 'chat_profiles';
 const IMAGES_BUCKET = 'marketplace-images';
-const MAX_LISTING_IMAGES = 4;
+const MAX_LISTING_IMAGES = 20;
 const MAX_IMAGE_PX = 1200;
 
 // --- TYPES ---
@@ -50,6 +50,7 @@ export interface MarketplaceListing {
     images: string[];
     location_name: string | null;
     status: ListingStatus;
+    sold_at: string | null;
     created_at: string;
     updated_at: string;
     distance_nm?: number; // Only present on geo-filtered results
@@ -118,7 +119,21 @@ class MarketplaceServiceClass {
         const { data, error } = await query;
         if (error || !data) return [];
 
-        return this.enrichWithProfiles(data);
+        // Also fetch recently-sold listings (48h) to show SOLD overlay
+        let soldListings: any[] = [];
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        let soldQuery = supabase
+            .from(LISTINGS_TABLE)
+            .select('*')
+            .eq('status', 'sold')
+            .gte('sold_at', twoDaysAgo)
+            .order('sold_at', { ascending: false })
+            .limit(10);
+        if (category) soldQuery = soldQuery.eq('category', category);
+        const { data: soldData } = await soldQuery;
+        if (soldData) soldListings = soldData;
+
+        return this.enrichWithProfiles([...data, ...soldListings]);
     }
 
     /**
@@ -250,7 +265,12 @@ class MarketplaceServiceClass {
      * Mark a listing as sold.
      */
     async markSold(id: string): Promise<boolean> {
-        return this.updateListing(id, { status: 'sold' });
+        if (!supabase) return false;
+        const { error } = await supabase
+            .from(LISTINGS_TABLE)
+            .update({ status: 'sold', sold_at: new Date().toISOString() })
+            .eq('id', id);
+        return !error;
     }
 
     /**
@@ -388,6 +408,7 @@ class MarketplaceServiceClass {
             images: r.images || [],
             location_name: r.location_name,
             status: r.status,
+            sold_at: r.sold_at || null,
             created_at: r.created_at,
             updated_at: r.updated_at,
             distance_nm: r.distance_nm != null ? Math.round(r.distance_nm * 10) / 10 : undefined,
