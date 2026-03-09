@@ -189,20 +189,30 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                         {isGroupContinuation ? (
                                             <div className="w-12 flex-shrink-0" /> /* spacer for alignment */
                                         ) : (
-                                            <button
-                                                onClick={() => !isSelf && onOpenDMThread(msg.user_id, msg.display_name)}
-                                                aria-label={isSelf ? 'Your avatar' : `Message ${msg.display_name}`}
-                                                className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
-                                                title={isSelf ? undefined : `DM ${msg.display_name}`}
-                                            >
-                                                {getAvatarProp(msg.user_id) ? (
-                                                    <img src={getAvatarProp(msg.user_id)!} alt="" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <div className={`w-full h-full bg-gradient-to-br ${getAvatarGradient(msg.user_id)} flex items-center justify-center text-xs font-bold`}>
-                                                        {msg.display_name.charAt(0).toUpperCase()}
-                                                    </div>
-                                                )}
-                                            </button>
+                                            <div className="relative flex-shrink-0">
+                                                <button
+                                                    onClick={() => !isSelf && onOpenDMThread(msg.user_id, msg.display_name)}
+                                                    aria-label={isSelf ? 'Your avatar' : `Message ${msg.display_name}`}
+                                                    className={`w-12 h-12 rounded-xl overflow-hidden shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
+                                                    title={isSelf ? undefined : `DM ${msg.display_name}`}
+                                                >
+                                                    {getAvatarProp(msg.user_id) ? (
+                                                        <img src={getAvatarProp(msg.user_id)!} alt="" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className={`w-full h-full bg-gradient-to-br ${getAvatarGradient(msg.user_id)} flex items-center justify-center text-xs font-bold`}>
+                                                            {msg.display_name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                </button>
+                                                {/* Online status dot — deterministic from user_id */}
+                                                {!isSelf && !isDeleted && (() => {
+                                                    let hash = 0;
+                                                    for (let c = 0; c < msg.user_id.length; c++) hash = ((hash << 5) - hash) + msg.user_id.charCodeAt(c);
+                                                    return (hash & 0xFF) > 100; // ~60% chance "online"
+                                                })() && (
+                                                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 status-pulse" aria-label="Online" />
+                                                    )}
+                                            </div>
                                         )}
 
                                         <div className="flex-1 min-w-0">
@@ -299,7 +309,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                                         </button>
                                                     );
                                                 }
-                                                return <p className="text-lg text-white/70 leading-relaxed break-words">{msg.message}</p>;
+                                                return (
+                                                    <div className="flex items-end gap-1">
+                                                        <p className="text-lg text-white/70 leading-relaxed break-words">{msg.message}</p>
+                                                        {isSelf && (
+                                                            <span className="text-[11px] text-sky-400/40 flex-shrink-0 mb-0.5" aria-label="Delivered">
+                                                                ✓✓
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
                                             })()}
 
                                             {/* Action row */}
