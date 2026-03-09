@@ -47,6 +47,8 @@ import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { triggerHaptic } from '../utils/system';
 import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useChatMessages } from '../hooks/chat/useChatMessages';
+import { useChatDMs } from '../hooks/chat/useChatDMs';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -94,27 +96,38 @@ export const ChatPage: React.FC = () => {
     const [view, setView] = useState<ChatView>('channels');
     const [navDirection, setNavDirection] = useState<'forward' | 'back'>('forward');
     const [channels, setChannels] = useState<ChatChannel[]>([]);
-    const [activeChannel, setActiveChannel] = useState<ChatChannel | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [dmConversations, setDmConversations] = useState<DMConversation[]>([]);
-    const [dmThread, setDmThread] = useState<DirectMessage[]>([]);
-    const [dmPartner, setDmPartner] = useState<{ id: string; name: string } | null>(null);
-    const [isUserBlocked, setIsUserBlocked] = useState(false);
-    const [showBlockConfirm, setShowBlockConfirm] = useState(false);
-    const [unreadDMs, setUnreadDMs] = useState(0);
 
-    // Compose
-    const [messageText, setMessageText] = useState('');
-    const [isQuestion, setIsQuestion] = useState(false);
-    const [dmText, setDmText] = useState('');
+    // Loading — must be declared before hooks since they receive setLoading
+    const [loading, setLoading] = useState(true);
+    const [loadingStatus, setLoadingStatus] = useState('Connecting to Crew Talk…');
+
+    // --- Extracted Hooks ---
+    const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
+    const {
+        messages, setMessages, activeChannel, setActiveChannel,
+        messageText, setMessageText, isQuestion, setIsQuestion,
+        filterWarning, setFilterWarning,
+        showModMenu, setShowModMenu, showRankTooltip, setShowRankTooltip,
+        avatarMap, setAvatarMap, pinnedMessages, likedMessages,
+        messageEndRef,
+        openChannel, sendChannelMessage,
+        handleMarkHelpful, handleDeleteMessage, handlePinMessage, handleMuteUser,
+        cleanup: cleanupMessages,
+    } = chatMessages;
+
+    const chatDMs = useChatDMs({ setView: setView as (v: string) => void, setNavDirection, setLoading });
+    const {
+        dmConversations, dmThread, setDmThread, dmPartner, setDmPartner,
+        dmText, setDmText, isUserBlocked,
+        showBlockConfirm, setShowBlockConfirm, unreadDMs,
+        subscribe: subscribeDMs, openDMInbox, openDMThread,
+        sendDMMessage, handleBlockUser, handleUnblockUser, loadUnreadCount,
+    } = chatDMs;
 
     // Mod
-    const [showModMenu, setShowModMenu] = useState<string | null>(null);
     const [isFirstVisit, setIsFirstVisit] = useState(true);
-    const [showRankTooltip, setShowRankTooltip] = useState<string | null>(null);
 
     // Moderation
-    const [filterWarning, setFilterWarning] = useState<ClientFilterResult | null>(null);
     const [reportingMsg, setReportingMsg] = useState<ChatMessage | null>(null);
     const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>('inappropriate');
     const [reportSent, setReportSent] = useState(false);
@@ -132,17 +145,7 @@ export const ChatPage: React.FC = () => {
     const [joinRequestMessage, setJoinRequestMessage] = useState('');
     const [joinRequestSent, setJoinRequestSent] = useState(false);
 
-    // Loading
-    const [loading, setLoading] = useState(true);
-    const [loadingStatus, setLoadingStatus] = useState('Connecting to Crew Talk…');
 
-    // Helpful button per-user guard (persisted across sessions)
-    const [likedMessages, setLikedMessages] = useState<Set<string>>(() => {
-        try {
-            const stored = localStorage.getItem('chat_liked_messages');
-            return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch (e) { log.warn('localStorage parse:', e); return new Set(); }
-    });
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -216,7 +219,6 @@ export const ChatPage: React.FC = () => {
     }, [view]);
 
     // Profile Photos
-    const [avatarMap, setAvatarMap] = useState<Map<string, string>>(new Map());
     const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
     const [showPhotoUpload, setShowPhotoUpload] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -251,17 +253,11 @@ export const ChatPage: React.FC = () => {
     const [showTrackDisclaimer, setShowTrackDisclaimer] = useState<{ trackId: string; title: string } | null>(null);
 
     // Refs
-    const messageEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const poiMapRef = useRef<HTMLDivElement>(null);
     const poiMapInstance = useRef<any>(null);
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
-    const channelUnsubRef = useRef<(() => void) | null>(null);
-    const dmPartnerRef = useRef(dmPartner);
-
-    // Keep dmPartnerRef in sync so the DM subscription callback always has fresh data
-    useEffect(() => { dmPartnerRef.current = dmPartner; }, [dmPartner]);
 
     // --- INIT ---
     useEffect(() => {
@@ -309,20 +305,11 @@ export const ChatPage: React.FC = () => {
         const visited = localStorage.getItem('crew_talk_visited');
         if (visited) setIsFirstVisit(false);
 
-        const unsub = ChatService.subscribeToDMs((dm) => {
-            setUnreadDMs(prev => prev + 1);
-            setDmThread(prev => {
-                const partner = dmPartnerRef.current;
-                if (partner && dm.sender_id === partner.id) {
-                    return [...prev, dm];
-                }
-                return prev;
-            });
-        });
+        const unsub = subscribeDMs();
 
         return () => {
             unsub();
-            channelUnsubRef.current?.();
+            cleanupMessages();
             ChatService.destroy();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -341,108 +328,9 @@ export const ChatPage: React.FC = () => {
         return result;
     };
 
-    const loadUnreadCount = async () => {
-        const count = await ChatService.getUnreadDMCount();
-        setUnreadDMs(count);
-    };
 
-    // --- CHANNEL ACTIONS ---
-    const openChannel = async (channel: ChatChannel) => {
-        // Find Crew gets the crew board page
-        if (channel.name === 'Find Crew') {
-            setNavDirection('forward');
-            setView('find_crew');
-            return;
-        }
-        // Marketplace gets the gear exchange page
-        if (channel.name === 'Marketplace') {
-            setNavDirection('forward');
-            setView('marketplace');
-            return;
-        }
-        setActiveChannel(channel);
-        setNavDirection('forward');
-        setView('messages');
-        // Persist last channel for tab-switch recovery
-        localStorage.setItem('chat_last_channel', channel.id);
-        setLoading(true);
-        const msgs = await ChatService.getMessages(channel.id);
-        setMessages(msgs);
 
-        // Batch-fetch avatars for all message authors
-        const userIds = [...new Set(msgs.map(m => m.user_id).filter(id => id !== 'self'))];
-        if (userIds.length > 0) {
-            batchFetchAvatars(userIds).then(map => {
-                setAvatarMap(prev => {
-                    const next = new Map(prev);
-                    map.forEach((url, id) => next.set(id, url));
-                    return next;
-                });
-            });
-        }
-
-        setLoading(false);
-
-        // Unsubscribe from previous channel before subscribing to new one
-        channelUnsubRef.current?.();
-        channelUnsubRef.current = ChatService.subscribeToChannel(channel.id, (newMsg) => {
-            setMessages(prev => {
-                // Check if this is our own message arriving from realtime — replace optimistic
-                const optimisticIdx = prev.findIndex(
-                    m => m.id.startsWith('opt-') && m.user_id === 'self' && m.message === newMsg.message
-                );
-                if (optimisticIdx >= 0) {
-                    // Replace optimistic with real message
-                    const next = [...prev];
-                    next[optimisticIdx] = newMsg;
-                    return next;
-                }
-                // Standard dedup for UPDATE events
-                if (prev.find(m => m.id === newMsg.id)) {
-                    return prev.map(m => m.id === newMsg.id ? newMsg : m);
-                }
-                return [...prev, newMsg];
-            });
-        });
-
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    };
-
-    const sendChannelMessage = async (bypassFilter = false) => {
-        if (!messageText.trim() || !activeChannel) return;
-        const text = messageText.trim();
-
-        // Layer 1: Client-side filter check (pre-send)
-        if (!bypassFilter) {
-            const check = clientFilter(text);
-            if (check.blocked || check.warning) {
-                setFilterWarning(check);
-                return; // Don't send — show warning first
-            }
-        }
-        setFilterWarning(null);
-        setMessageText('');
-
-        const optimistic: ChatMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            channel_id: activeChannel.id,
-            user_id: 'self',
-            display_name: 'You',
-            message: text,
-            is_question: isQuestion,
-            helpful_count: 0,
-            is_pinned: false,
-            deleted_at: null,
-            created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, optimistic]);
-        setIsQuestion(false);
-
-        // Message posts instantly; Gemini checks async (Layer 2)
-        await ChatService.sendMessage(activeChannel.id, text, isQuestion);
-        triggerHaptic('light');
-        setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-    };
+    // openChannel and sendChannelMessage now provided by useChatMessages hook
 
     // --- PIN DROP ---
     const openPinDrop = async () => {
@@ -880,6 +768,7 @@ export const ChatPage: React.FC = () => {
         setShowPhotoUpload(false);
     };
 
+    // getAvatar — kept inline because it needs myAvatarUrl from profile state
     const getAvatar = (userId: string): string | null => {
         if (userId === 'self') return myAvatarUrl;
         return avatarMap.get(userId) || getCachedAvatar(userId) || null;
@@ -899,92 +788,7 @@ export const ChatPage: React.FC = () => {
         setTimeout(() => { setProfileSaved(false); setView('channels'); }, 1200);
     };
 
-    // --- DM ACTIONS ---
-    const openDMInbox = async () => {
-        setNavDirection('forward');
-        setView('dm_inbox');
-        setLoading(true);
-        const convs = await ChatService.getDMConversations();
-        setDmConversations(convs);
-        setLoading(false);
-    };
-
-    const openDMThread = async (userId: string, name: string) => {
-        setDmPartner({ id: userId, name });
-        setNavDirection('forward');
-        setView('dm_thread');
-        setShowBlockConfirm(false);
-        setLoading(true);
-        // Check block status + load thread in parallel
-        const [thread, blocked] = await Promise.all([
-            ChatService.getDMThread(userId),
-            ChatService.isBlocked(userId),
-        ]);
-        setDmThread(thread);
-        setIsUserBlocked(blocked);
-        setLoading(false);
-        setUnreadDMs(prev => Math.max(0, prev - 1));
-    };
-
-    const sendDMMessage = async () => {
-        if (!dmText.trim() || !dmPartner) return;
-        const text = dmText.trim();
-        setDmText('');
-
-        const optimistic: DirectMessage = {
-            id: `opt-${crypto.randomUUID()}`,
-            sender_id: 'self',
-            recipient_id: dmPartner.id,
-            sender_name: 'You',
-            message: text,
-            read: true,
-            created_at: new Date().toISOString(),
-        };
-        setDmThread(prev => [...prev, optimistic]);
-        triggerHaptic('light');
-        const result = await ChatService.sendDM(dmPartner.id, text);
-        if (result === 'blocked') {
-            // Remove optimistic message and show blocked state
-            setDmThread(prev => prev.filter(m => m.id !== optimistic.id));
-            setIsUserBlocked(true);
-        }
-    };
-
-    // --- BLOCK / UNBLOCK ---
-    const handleBlockUser = async () => {
-        if (!dmPartner) return;
-        const ok = await ChatService.blockUser(dmPartner.id);
-        if (ok) {
-            setIsUserBlocked(true);
-            setShowBlockConfirm(false);
-        }
-    };
-
-    const handleUnblockUser = async () => {
-        if (!dmPartner) return;
-        const ok = await ChatService.unblockUser(dmPartner.id);
-        if (ok) setIsUserBlocked(false);
-    };
-
-    // --- MOD ACTIONS ---
-    const handleDeleteMessage = useCallback(async (msgId: string) => {
-        await ChatService.deleteMessage(msgId);
-        triggerHaptic('heavy');
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, deleted_at: new Date().toISOString() } : m));
-        setShowModMenu(null);
-    }, []);
-
-    const handlePinMessage = useCallback(async (msgId: string, pinned: boolean) => {
-        await ChatService.pinMessage(msgId, !pinned);
-        triggerHaptic('medium');
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, is_pinned: !pinned } : m));
-        setShowModMenu(null);
-    }, []);
-
-    const handleMuteUser = useCallback(async (userId: string, hours: number) => {
-        await ChatService.muteUser(userId, hours);
-        setShowModMenu(null);
-    }, []);
+    // DM actions, block/unblock, and mod actions now provided by useChatMessages + useChatDMs hooks
 
     // Confirm dialog state for mod actions
     const [confirmAction, setConfirmAction] = useState<{
@@ -1022,19 +826,7 @@ export const ChatPage: React.FC = () => {
         });
     }, []);
 
-    const handleMarkHelpful = useCallback(async (msgId: string) => {
-        // Prevent multiple likes per user per message
-        if (likedMessages.has(msgId)) return;
-        await ChatService.markHelpful(msgId);
-        triggerHaptic('light');
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, helpful_count: m.helpful_count + 1 } : m));
-        setLikedMessages(prev => {
-            const next = new Set(prev);
-            next.add(msgId);
-            try { localStorage.setItem('chat_liked_messages', JSON.stringify([...next])); } catch (e) { console.warn('[ChatPage]', e); }
-            return next;
-        });
-    }, [likedMessages]);
+    // handleMarkHelpful now provided by useChatMessages hook
 
     const dismissWelcome = () => {
         setIsFirstVisit(false);
@@ -1060,7 +852,7 @@ export const ChatPage: React.FC = () => {
     const isMuted = ChatService.isMuted();
     const mutedUntil = ChatService.getMutedUntil();
 
-    const pinnedMessages = messages.filter(m => m.is_pinned && !m.deleted_at);
+    // pinnedMessages now provided by useChatMessages hook
     const regularMessages = messages.filter(m => !m.is_pinned);
 
     // --- RENDER ---
