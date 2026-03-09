@@ -125,7 +125,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
-                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 active:scale-[0.98] min-h-[${isSub ? '48' : '56'}px] ${isPrivateLocked
+                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 card-press stagger-item min-h-[${isSub ? '48' : '56'}px] ${isPrivateLocked
                             ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
                             : isSub
                                 ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'

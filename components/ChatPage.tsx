@@ -44,6 +44,7 @@ import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
 import { ReportModal, PinDropSheet, PoiPickerSheet, TrackPickerSheet, TrackDisclaimerModal } from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
+import { triggerHaptic } from '../utils/system';
 
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -408,6 +409,7 @@ export const ChatPage: React.FC = () => {
 
         // Message posts instantly; Gemini checks async (Layer 2)
         await ChatService.sendMessage(activeChannel.id, text, isQuestion);
+        triggerHaptic('light');
         setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     };
 
@@ -907,6 +909,7 @@ export const ChatPage: React.FC = () => {
             created_at: new Date().toISOString(),
         };
         setDmThread(prev => [...prev, optimistic]);
+        triggerHaptic('light');
         const result = await ChatService.sendDM(dmPartner.id, text);
         if (result === 'blocked') {
             // Remove optimistic message and show blocked state
@@ -934,12 +937,14 @@ export const ChatPage: React.FC = () => {
     // --- MOD ACTIONS ---
     const handleDeleteMessage = useCallback(async (msgId: string) => {
         await ChatService.deleteMessage(msgId);
+        triggerHaptic('heavy');
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, deleted_at: new Date().toISOString() } : m));
         setShowModMenu(null);
     }, []);
 
     const handlePinMessage = useCallback(async (msgId: string, pinned: boolean) => {
         await ChatService.pinMessage(msgId, !pinned);
+        triggerHaptic('medium');
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, is_pinned: !pinned } : m));
         setShowModMenu(null);
     }, []);
@@ -989,6 +994,7 @@ export const ChatPage: React.FC = () => {
         // Prevent multiple likes per user per message
         if (likedMessages.has(msgId)) return;
         await ChatService.markHelpful(msgId);
+        triggerHaptic('light');
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, helpful_count: m.helpful_count + 1 } : m));
         setLikedMessages(prev => {
             const next = new Set(prev);
