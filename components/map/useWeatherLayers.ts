@@ -550,10 +550,15 @@ export function useWeatherLayers(
                     const rainbowKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RAINBOW_API_KEY) || '';
                     let rainbowSnapshot: number | null = null;
                     const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
+                    // Dev: use Vite proxy to bypass CORS. Prod (Capacitor native): direct API call.
+                    const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV;
+                    const snapshotUrl = isDev
+                        ? `/api/rainbow/snapshot?token=${rainbowKey}`
+                        : `https://api.rainbow.ai/tiles/v1/snapshot?token=${rainbowKey}`;
 
                     if (rainbowKey) {
                         try {
-                            const snapResp = await fetch(`https://api.rainbow.ai/tiles/v1/snapshot?token=${rainbowKey}`);
+                            const snapResp = await fetch(snapshotUrl);
                             if (snapResp.ok) {
                                 const snapData = await snapResp.json();
                                 rainbowSnapshot = snapData.snapshot || null;
@@ -589,7 +594,10 @@ export function useWeatherLayers(
                     if (rainbowSnapshot) {
                         for (const mins of RAINBOW_FORECAST_MINUTES) {
                             const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
-                            const tileUrl = `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`;
+                            // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
+                            const tileUrl = isDev
+                                ? `/api/rainbow/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`
+                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${mins}/{z}/{x}/{y}?token=${rainbowKey}`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }
