@@ -57,9 +57,8 @@ export function useWeatherLayers(
         label: string;
     }
     const unifiedFramesRef = useRef<UnifiedRainFrame[]>([]);
-    /** Ref to cancel stale sourcedata listeners when scrubbing fast */
-    const rainSourceListenerRef = useRef<((e: mapboxgl.MapSourceDataEvent) => void) | null>(null);
-    /** Track which forecast layer index is currently visible */
+    /** Track which radar/forecast layer index is currently visible */
+    const visibleRadarIdxRef = useRef<number | null>(null);
     const visibleForecastIdxRef = useRef<number | null>(null);
     const [rainFrameIndex, setRainFrameIndex] = useState(0);
     const [rainFrameCount, setRainFrameCount] = useState(0);
@@ -270,9 +269,7 @@ export function useWeatherLayers(
         return () => clearInterval(timer);
     }, [rainPlaying, activeLayer, rainFrameCount]);
 
-    // Unified rain frame swap: crossfade between frames for smooth transitions
-    // Uses A/B buffer pattern — two alternating layers, crossfading opacity
-    const rainBufferRef = useRef<'a' | 'b'>('a');
+    // Unified rain frame swap: toggle visibility on pre-loaded layers
     const rainFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -283,19 +280,17 @@ export function useWeatherLayers(
         if (rainFrameIndex >= frames.length) return;
         const frame = frames[rainFrameIndex];
 
-        // Clear any pending fade timer and stale sourcedata listener
+        // Clear any pending fade timer
         if (rainFadeTimerRef.current) {
             clearTimeout(rainFadeTimerRef.current);
             rainFadeTimerRef.current = null;
         }
-        if (rainSourceListenerRef.current) {
-            m.off('sourcedata', rainSourceListenerRef.current);
-            rainSourceListenerRef.current = null;
-        }
 
         if (frame.type === 'radar' && frame.radarPath) {
-            // Hide forecast heatmap
-            if (m.getLayer('precip-heatmap-layer')) m.setLayoutProperty('precip-heatmap-layer', 'visibility', 'none');
+            // Pre-loaded radar — just toggle visibility
+            const radarFrames = frames.filter(f => f.type === 'radar');
+            const rdIdx = radarFrames.indexOf(frame);
+            const prevRdIdx = visibleRadarIdxRef.current;
 
             // Hide any visible forecast layer
             if (visibleForecastIdxRef.current !== null) {
@@ -304,71 +299,36 @@ export function useWeatherLayers(
                 visibleForecastIdxRef.current = null;
             }
 
-            // A/B crossfade: create new buffer, fade out old
-            const nextBuf = rainBufferRef.current === 'a' ? 'b' : 'a';
-            const oldId = `rain-buf-${rainBufferRef.current}`;
-            const newId = `rain-buf-${nextBuf}`;
+            // Hide previous radar layer
+            if (prevRdIdx !== null && prevRdIdx !== rdIdx) {
+                const prevId = `radar-${prevRdIdx}`;
+                try { if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0); } catch (_) { }
+            }
 
-            // Add new buffer layer (starts transparent, fades in)
-            try {
-                if (m.getSource(newId)) {
-                    try { m.removeLayer(newId); } catch (_) { }
-                    m.removeSource(newId);
-                }
-            } catch (_) { }
-
-            m.addSource(newId, {
-                type: 'raster',
-                tiles: [`https://tilecache.rainviewer.com${frame.radarPath}/256/{z}/{x}/{y}/4/1_1.png`],
-                tileSize: 256, minzoom: 2, maxzoom: 7,
-            });
-            m.addLayer({
-                id: newId, type: 'raster', source: newId,
-                paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 300, delay: 0 }, 'raster-fade-duration': 0 },
-            }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
-
-            // Small delay to let source initialize, then fade in new + fade out old
-            requestAnimationFrame(() => {
-                if (!m.getLayer(newId)) return;
-                m.setPaintProperty(newId, 'raster-opacity', 0.75);
-                // Fade out old buffer
-                if (m.getLayer(oldId)) {
-                    m.setPaintProperty(oldId, 'raster-opacity', 0);
-                }
-            });
-
-            // Clean up old buffer after transition completes
-            rainFadeTimerRef.current = setTimeout(() => {
-                try {
-                    if (m.getLayer(oldId)) m.removeLayer(oldId);
-                    if (m.getSource(oldId)) m.removeSource(oldId);
-                } catch (_) { }
-            }, 400);
-
-            // Also clean up legacy 'weather-tiles' if present from init
-            try {
-                if (m.getLayer('weather-tiles')) m.removeLayer('weather-tiles');
-                if (m.getSource('weather-tiles')) m.removeSource('weather-tiles');
-            } catch (_) { }
-
-            rainBufferRef.current = nextBuf;
+            // Show current radar layer
+            if (rdIdx >= 0) {
+                const layerId = `radar-${rdIdx}`;
+                try { if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75); } catch (_) { }
+                visibleRadarIdxRef.current = rdIdx;
+            }
 
         } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
-            // Rainbow.ai pre-loaded forecast — just toggle visibility
-            // Find the forecast frame index within the forecast frames
+            // Pre-loaded forecast — just toggle visibility
             const forecastFrames = frames.filter(f => f.type === 'forecast');
             const fcIdx = forecastFrames.indexOf(frame);
-            const prevIdx = visibleForecastIdxRef.current;
+            const prevFcIdx = visibleForecastIdxRef.current;
 
-            // Hide all radar A/B buffers + weather-tiles
-            ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
-                try { if (m.getLayer(id)) m.setPaintProperty(id, 'raster-opacity', 0); } catch (_) { }
-            });
+            // Hide any visible radar layer
+            if (visibleRadarIdxRef.current !== null) {
+                const rdId = `radar-${visibleRadarIdxRef.current}`;
+                try { if (m.getLayer(rdId)) m.setPaintProperty(rdId, 'raster-opacity', 0); } catch (_) { }
+                visibleRadarIdxRef.current = null;
+            }
 
             // Hide previous forecast layer
-            if (prevIdx !== null && prevIdx !== fcIdx) {
-                const prevLayerId = `rainbow-fc-${prevIdx}`;
-                try { if (m.getLayer(prevLayerId)) m.setPaintProperty(prevLayerId, 'raster-opacity', 0); } catch (_) { }
+            if (prevFcIdx !== null && prevFcIdx !== fcIdx) {
+                const prevId = `rainbow-fc-${prevFcIdx}`;
+                try { if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0); } catch (_) { }
             }
 
             // Show current forecast layer
@@ -385,13 +345,16 @@ export function useWeatherLayers(
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        // Remove existing weather layer (including rain A/B buffers)
-        ['weather-tiles', 'rain-buf-a', 'rain-buf-b'].forEach(id => {
-            try {
-                if (map.getLayer(id)) map.removeLayer(id);
-                if (map.getSource(id)) map.removeSource(id);
-            } catch (_) { }
-        });
+        // Remove existing weather layers (pre-loaded radar + forecast)
+        for (let i = 0; i < 30; i++) {
+            ['radar-', 'rainbow-fc-'].forEach(prefix => {
+                const id = `${prefix}${i}`;
+                try {
+                    if (map.getLayer(id)) map.removeLayer(id);
+                    if (map.getSource(id)) map.removeSource(id);
+                } catch (_) { }
+            });
+        }
         if (map.getLayer('wind-labels')) map.removeLayer('wind-labels');
         if (map.getSource('wind-labels')) map.removeSource('wind-labels');
         windMarkersRef.current.forEach(mk => mk.remove());
@@ -591,7 +554,11 @@ export function useWeatherLayers(
                     // matching RainViewer scheme 4 exactly
                     if (rainbowSnapshot) {
                         for (const mins of RAINBOW_FORECAST_MINUTES) {
-                            const label = mins < 60 ? `+${mins}m` : `+${Math.round(mins / 60 * 10) / 10}h`.replace('.0h', 'h');
+                            // Format: +10m, +1h, +1h 20m, +2h 30m
+                            let label: string;
+                            if (mins < 60) label = `+${mins}m`;
+                            else if (mins % 60 === 0) label = `+${mins / 60}h`;
+                            else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
                             const forecastSecs = mins * 60;
                             // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
                             const tileUrl = isDev
@@ -609,19 +576,27 @@ export function useWeatherLayers(
                     if (!mapRef.current) return;
                     const m = mapRef.current;
 
-                    // Add initial radar tile source
-                    const startFrame = allRadar[nowIdx];
-                    if (startFrame) {
-                        m.addSource('weather-tiles', {
+                    // Pre-create ALL radar layers (hidden) — same instant approach as forecast
+                    const radarFrames = unified.filter(f => f.type === 'radar');
+                    for (let i = 0; i < radarFrames.length; i++) {
+                        const rf = radarFrames[i];
+                        if (!rf.radarPath) continue;
+                        const srcId = `radar-${i}`;
+                        m.addSource(srcId, {
                             type: 'raster',
-                            tiles: [`https://tilecache.rainviewer.com${startFrame.path}/256/{z}/{x}/{y}/4/1_1.png`],
+                            tiles: [`https://tilecache.rainviewer.com${rf.radarPath}/256/{z}/{x}/{y}/4/1_1.png`],
                             tileSize: 256, minzoom: 2, maxzoom: 7,
                         });
                         m.addLayer({
-                            id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
-                            paint: { 'raster-opacity': 0.75 },
+                            id: srcId, type: 'raster', source: srcId,
+                            paint: {
+                                'raster-opacity': i === nowIdx ? 0.75 : 0,
+                                'raster-opacity-transition': { duration: 200, delay: 0 },
+                                'raster-fade-duration': 0,
+                            },
                         }, m.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
                     }
+                    log.info(`Pre-created ${radarFrames.length} radar layers`);
 
                     // Pre-create ALL Rainbow.ai forecast layers (hidden)
                     // Uses raw dBZ tiles + raster-color to match RainViewer scheme 4 exactly
@@ -684,18 +659,13 @@ export function useWeatherLayers(
                 if (rainFadeTimerRef.current) { clearTimeout(rainFadeTimerRef.current); rainFadeTimerRef.current = null; }
                 try {
                     const m = mapRef.current;
-                    // Clean up all rain-related layers (radar + forecast)
-                    ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
-                        try { if (m?.getLayer(id)) m.removeLayer(id); } catch (_) { }
-                    });
-                    ['rain-buf-a', 'rain-buf-b', 'weather-tiles'].forEach(id => {
-                        try { if (m?.getSource(id)) m.removeSource(id); } catch (_) { }
-                    });
-                    // Clean up pre-created forecast layers
+                    // Clean up pre-created radar + forecast layers
                     for (let i = 0; i < 30; i++) {
-                        const id = `rainbow-fc-${i}`;
-                        try { if (m?.getLayer(id)) m.removeLayer(id); } catch (_) { }
-                        try { if (m?.getSource(id)) m.removeSource(id); } catch (_) { }
+                        ['radar-', 'rainbow-fc-'].forEach(prefix => {
+                            const id = `${prefix}${i}`;
+                            try { if (m?.getLayer(id)) m.removeLayer(id); } catch (_) { }
+                            try { if (m?.getSource(id)) m.removeSource(id); } catch (_) { }
+                        });
                     }
                 } catch (_) { }
 

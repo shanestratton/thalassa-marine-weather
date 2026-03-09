@@ -718,65 +718,102 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ UNIFIED RAIN + FORECAST SCRUBBER ═══ */}
-            {!isPinView && weather.activeLayer === 'rain' && weather.rainReady && weather.rainFrameCount > 1 && (
-                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
-                        <button
-                            onClick={() => { weather.setRainPlaying(!weather.rainPlaying); triggerHaptic('light'); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 shrink-0 active:scale-90 transition-transform"
-                        >
-                            <span className="text-sm">{weather.rainPlaying ? '⏸' : '▶️'}</span>
-                        </button>
+            {!isPinView && weather.activeLayer === 'rain' && weather.rainReady && weather.rainFrameCount > 1 && (() => {
+                const nowIdx = weather.rainNowIdxRef.current;
+                const total = Math.max(1, weather.rainFrameCount - 1);
+                const nowPct = (nowIdx / total) * 100;
+                const curPct = (weather.rainFrameIndex / total) * 100;
+                const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
+                const isForecast = curFrame?.type === 'forecast';
+                const curLabel = curFrame?.label ?? '--';
+                return (
+                    <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
+                        <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                            <button
+                                onClick={() => { weather.setRainPlaying(!weather.rainPlaying); triggerHaptic('light'); }}
+                                className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 shrink-0 active:scale-90 transition-transform"
+                            >
+                                <span className="text-sm">{weather.rainPlaying ? '⏸' : '▶️'}</span>
+                            </button>
 
-                        <div
-                            className="flex-1 relative h-10 flex items-center cursor-pointer"
-                            style={{ touchAction: 'none' }}
-                            onPointerDown={e => {
-                                e.preventDefault(); e.stopPropagation();
-                                (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                                const idx = Math.round(ratio * (weather.rainFrameCount - 1));
-                                weather.setRainPlaying(false);
-                                weather.setRainFrameIndex(idx);
-                                triggerHaptic('light');
-                            }}
-                            onPointerMove={e => {
-                                if (e.buttons === 0) return;
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                                const idx = Math.round(ratio * (weather.rainFrameCount - 1));
-                                weather.setRainPlaying(false);
-                                weather.setRainFrameIndex(idx);
-                            }}
-                        >
-                            <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
-                                <div className="absolute inset-y-0 left-0 bg-emerald-500/40 rounded-full" style={{ width: `${(weather.rainFrameIndex / Math.max(1, weather.rainFrameCount - 1)) * 100}%` }} />
-                            </div>
-                            {/* Now marker pip */}
-                            {weather.rainNowIdxRef.current > 0 && weather.rainNowIdxRef.current < weather.rainFrameCount - 1 && (
-                                <div
-                                    className="absolute top-1/2 w-0.5 h-4 bg-white/40 pointer-events-none"
-                                    style={{ left: `${(weather.rainNowIdxRef.current / Math.max(1, weather.rainFrameCount - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
-                                />
-                            )}
                             <div
-                                className="absolute top-1/2 w-5 h-5 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/30 border-2 border-white/40 pointer-events-none"
-                                style={{ left: `${(weather.rainFrameIndex / Math.max(1, weather.rainFrameCount - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
-                            />
-                        </div>
+                                className="flex-1 relative h-10 flex items-center cursor-pointer"
+                                style={{ touchAction: 'none' }}
+                                onPointerDown={e => {
+                                    e.preventDefault(); e.stopPropagation();
+                                    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                    const idx = Math.round(ratio * (weather.rainFrameCount - 1));
+                                    weather.setRainPlaying(false);
+                                    weather.setRainFrameIndex(idx);
+                                    triggerHaptic('light');
+                                }}
+                                onPointerMove={e => {
+                                    if (e.buttons === 0) return;
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                    const idx = Math.round(ratio * (weather.rainFrameCount - 1));
+                                    weather.setRainPlaying(false);
+                                    weather.setRainFrameIndex(idx);
+                                }}
+                            >
+                                {/* Dual-colour track: emerald for radar (past), amber for forecast (future) */}
+                                <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+                                    {/* Radar progress (emerald) */}
+                                    <div className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
+                                        style={{
+                                            width: `${Math.min(curPct, nowPct)}%`,
+                                            background: 'rgba(52, 211, 153, 0.5)',
+                                        }}
+                                    />
+                                    {/* Forecast progress (amber) — only shows past Now */}
+                                    {isForecast && (
+                                        <div className="absolute inset-y-0 rounded-full transition-[width] duration-75"
+                                            style={{
+                                                left: `${nowPct}%`,
+                                                width: `${curPct - nowPct}%`,
+                                                background: 'rgba(251, 191, 36, 0.5)',
+                                            }}
+                                        />
+                                    )}
+                                </div>
 
-                        <div className="shrink-0 text-right min-w-[52px]">
-                            <p className="text-xs font-black text-white">
-                                {weather.unifiedFramesRef.current[weather.rainFrameIndex]?.label ?? '--'}
-                            </p>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                                {weather.unifiedFramesRef.current[weather.rainFrameIndex]?.type === 'forecast' ? 'Forecast' : 'Radar'}
-                            </p>
+                                {/* NOW diamond marker */}
+                                {nowIdx > 0 && nowIdx < weather.rainFrameCount - 1 && (
+                                    <div className="absolute top-1/2 pointer-events-none flex flex-col items-center"
+                                        style={{ left: `${nowPct}%`, transform: 'translate(-50%, -50%)' }}
+                                    >
+                                        <div className="w-2.5 h-2.5 bg-white rounded-sm rotate-45 shadow-md shadow-white/20 border border-white/60" />
+                                    </div>
+                                )}
+
+                                {/* Scrubber thumb — colour matches current mode */}
+                                <div
+                                    className="absolute top-1/2 w-5 h-5 rounded-full shadow-lg border-2 border-white/40 pointer-events-none transition-colors duration-200"
+                                    style={{
+                                        left: `${curPct}%`,
+                                        transform: 'translate(-50%, -50%)',
+                                        background: isForecast ? '#fbbf24' : '#34d399',
+                                        boxShadow: isForecast ? '0 4px 12px rgba(251,191,36,0.3)' : '0 4px 12px rgba(52,211,153,0.3)',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Time label + type badge */}
+                            <div className="shrink-0 text-right min-w-[58px]">
+                                <p className="text-xs font-black text-white leading-tight">
+                                    {curLabel === 'Now' ? 'Now' : curLabel}
+                                </p>
+                                <p className={`text-[9px] font-black uppercase tracking-widest leading-tight mt-0.5 ${isForecast ? 'text-amber-400' : 'text-emerald-400/70'
+                                    }`}>
+                                    {isForecast ? '⬤ Forecast' : 'Radar'}
+                                </p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div >
     );
 };
