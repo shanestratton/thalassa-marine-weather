@@ -24,6 +24,8 @@ import {
 import { ChatService } from '../services/ChatService';
 import { BgGeoManager } from '../services/BgGeoManager';
 import { t } from '../theme';
+import { SlideToAction } from './ui/SlideToAction';
+import { triggerHaptic } from '../utils/system';
 
 // --- HELPERS ---
 
@@ -657,15 +659,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
         <div className="flex flex-col h-full bg-slate-950">
             {/* ═══════ HEADER ═══════ */}
             <div className="sticky top-0 z-20 bg-slate-950/95 border-b border-white/[0.06]">
-                {/* Nav bar */}
-                <div className="flex items-center justify-end px-4 py-2">
-                    <button
-                        onClick={() => setShowCreate(true)}
-                        className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-transform"
-                    >
-                        + Sell
-                    </button>
-                </div>
+
 
                 {/* Category chips */}
                 <div className="px-3 pb-2.5 -mt-0.5 overflow-x-auto flex gap-2 scrollbar-hide">
@@ -738,15 +732,22 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                 )}
             </div>
 
-            {/* Floating sell button (visible when scrolled) */}
-            {!showCreate && listings.length > 0 && (
-                <button
-                    onClick={() => setShowCreate(true)}
-                    className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 shadow-xl shadow-sky-500/30 flex items-center justify-center text-2xl active:scale-90 transition-transform border border-sky-400/30"
-                >
-                    +
-                </button>
-            )}
+            {/* Slide to add listing CTA */}
+            <div className="shrink-0 px-4 pt-2 bg-slate-950" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                <SlideToAction
+                    label="Slide to List Something for Sale"
+                    thumbIcon={
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                    }
+                    onConfirm={() => {
+                        triggerHaptic('medium');
+                        setShowCreate(true);
+                    }}
+                    theme="sky"
+                />
+            </div>
 
             {/* Create listing modal */}
             <CreateListingModal
