@@ -1478,6 +1478,26 @@ body,
   animation: chatSlideBack 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Typing indicator — bouncing dots */
+@keyframes typingBounce {
+
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.3;
+  }
+
+  40% {
+    transform: translateY(-4px);
+    opacity: 0.8;
+  }
+}
+
+.typing-dot {
+  animation: typingBounce 1.4s ease-in-out infinite;
+}
+
 /* ── Empty State Animations ── */
 @keyframes emptyStateBob {
 

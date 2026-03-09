@@ -8,7 +8,7 @@
  * - Loading state on confirm button
  * - Accessible keyboard and screen reader support
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 interface ConfirmDialogProps {
     /** Whether the dialog is visible */
@@ -40,6 +40,32 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     onCancel,
 }) => {
     const [loading, setLoading] = useState(false);
+    const cancelRef = useRef<HTMLButtonElement>(null);
+    const confirmRef = useRef<HTMLButtonElement>(null);
+
+    // Focus trap: auto-focus cancel, cycle tab between buttons, Escape to close
+    useEffect(() => {
+        if (!isOpen) return;
+        cancelRef.current?.focus();
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { onCancel(); return; }
+            if (e.key !== 'Tab') return;
+
+            const focusable = [cancelRef.current, confirmRef.current].filter(Boolean) as HTMLElement[];
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+
+            if (e.shiftKey) {
+                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+            } else {
+                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onCancel]);
 
     const handleConfirm = useCallback(async () => {
         setLoading(true);
@@ -87,12 +113,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
                 <div className="flex gap-3">
                     <button
+                        ref={cancelRef}
                         onClick={onCancel}
-                        className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 hover:bg-white/10 transition-colors active:scale-[0.97]"
+                        className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 hover:bg-white/10 transition-colors active:scale-[0.97] min-h-[44px]"
                     >
                         {cancelLabel}
                     </button>
                     <button
+                        ref={confirmRef}
                         onClick={handleConfirm}
                         disabled={loading}
                         className={`flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
