@@ -122,10 +122,22 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                         const isSelf = msg.user_id === 'self';
                         const rank = getCrewRank(msg.helpful_count);
 
+                        // Message grouping — consecutive same-user messages within 5 minutes cluster
+                        const prevMsg = i > 0 ? regularMessages[i - 1] : null;
+                        const isGroupContinuation = !!(
+                            prevMsg &&
+                            !prevMsg.deleted_at &&
+                            !isDeleted &&
+                            prevMsg.user_id === msg.user_id &&
+                            !msg.is_question &&
+                            !prevMsg.is_question &&
+                            (new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime()) < 5 * 60 * 1000
+                        );
+
                         return (
                             <div
                                 key={msg.id}
-                                className={`msg-enter group relative py-2 ${msg.is_question && !isDeleted ? 'question-glow bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2' : ''
+                                className={`msg-enter group relative ${isGroupContinuation ? 'py-0.5' : 'py-2'} ${msg.is_question && !isDeleted ? 'question-glow bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2' : ''
                                     }`}
                                 style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
                             >
@@ -140,44 +152,50 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                 )}
 
                                 <div className="flex items-start gap-2.5">
-                                    {/* Avatar */}
-                                    <button
-                                        onClick={() => !isSelf && onOpenDMThread(msg.user_id, msg.display_name)}
-                                        aria-label={isSelf ? 'Your avatar' : `Message ${msg.display_name}`}
-                                        className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
-                                        title={isSelf ? undefined : `DM ${msg.display_name}`}
-                                    >
-                                        {getAvatarProp(msg.user_id) ? (
-                                            <img src={getAvatarProp(msg.user_id)!} alt="" className="w-full h-full object-cover" />
-                                        ) : (
-                                            <div className={`w-full h-full bg-gradient-to-br ${getAvatarGradient(msg.user_id)} flex items-center justify-center text-xs font-bold`}>
-                                                {msg.display_name.charAt(0).toUpperCase()}
-                                            </div>
-                                        )}
-                                    </button>
+                                    {/* Avatar — hidden for grouped continuation messages */}
+                                    {isGroupContinuation ? (
+                                        <div className="w-12 flex-shrink-0" /> /* spacer for alignment */
+                                    ) : (
+                                        <button
+                                            onClick={() => !isSelf && onOpenDMThread(msg.user_id, msg.display_name)}
+                                            aria-label={isSelf ? 'Your avatar' : `Message ${msg.display_name}`}
+                                            className={`w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg hover:scale-105 transition-transform duration-150 ${!isSelf ? 'cursor-pointer' : 'cursor-default'}`}
+                                            title={isSelf ? undefined : `DM ${msg.display_name}`}
+                                        >
+                                            {getAvatarProp(msg.user_id) ? (
+                                                <img src={getAvatarProp(msg.user_id)!} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className={`w-full h-full bg-gradient-to-br ${getAvatarGradient(msg.user_id)} flex items-center justify-center text-xs font-bold`}>
+                                                    {msg.display_name.charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                        </button>
+                                    )}
 
                                     <div className="flex-1 min-w-0">
-                                        {/* Name row */}
-                                        <div className="flex items-center gap-1.5 mb-0.5">
-                                            <span className={`text-base font-bold ${isSelf ? 'text-sky-400' : 'text-white/80'}`}>{msg.display_name}</span>
-                                            <button
-                                                className="relative"
-                                                onMouseEnter={() => onSetRankTooltip(msg.id)}
-                                                onMouseLeave={() => onSetRankTooltip(null)}
-                                                onClick={() => onSetRankTooltip(showRankTooltip === msg.id ? null : msg.id)}
-                                            >
-                                                <span className="text-[11px]">{rank.badge}</span>
-                                                {showRankTooltip === msg.id && (
-                                                    <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
-                                                        {rank.title} • {msg.helpful_count} helpful
-                                                    </span>
+                                        {/* Name row — hidden for grouped continuation messages */}
+                                        {!isGroupContinuation && (
+                                            <div className="flex items-center gap-1.5 mb-0.5">
+                                                <span className={`text-base font-bold ${isSelf ? 'text-sky-400' : 'text-white/80'}`}>{msg.display_name}</span>
+                                                <button
+                                                    className="relative"
+                                                    onMouseEnter={() => onSetRankTooltip(msg.id)}
+                                                    onMouseLeave={() => onSetRankTooltip(null)}
+                                                    onClick={() => onSetRankTooltip(showRankTooltip === msg.id ? null : msg.id)}
+                                                >
+                                                    <span className="text-[11px]">{rank.badge}</span>
+                                                    {showRankTooltip === msg.id && (
+                                                        <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-slate-700 text-[11px] text-white/70 whitespace-nowrap z-10 shadow-xl">
+                                                            {rank.title} • {msg.helpful_count} helpful
+                                                        </span>
+                                                    )}
+                                                </button>
+                                                {isMod && msg.user_id !== 'self' && (
+                                                    <span className="text-[11px] opacity-30">🛡️</span>
                                                 )}
-                                            </button>
-                                            {isMod && msg.user_id !== 'self' && (
-                                                <span className="text-[11px] opacity-30">🛡️</span>
-                                            )}
-                                            <span className="text-sm text-white/60 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
-                                        </div>
+                                                <span className="text-sm text-white/60 ml-auto tabular-nums">{timeAgo(msg.created_at)}</span>
+                                            </div>
+                                        )}
 
                                         {/* Message body */}
                                         {isDeleted ? (
