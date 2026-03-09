@@ -24,9 +24,12 @@ import {
 } from '../services/MarketplaceService';
 import { ChatService } from '../services/ChatService';
 import { BgGeoManager } from '../services/BgGeoManager';
+import { SellerRatingService, SellerReputation } from '../services/SellerRatingService';
 import { t } from '../theme';
 import { SlideToAction } from './ui/SlideToAction';
+import { UndoToast } from './ui/UndoToast';
 import { triggerHaptic } from '../utils/system';
+import { useSwipeable } from '../hooks/useSwipeable';
 
 // --- CONSTANTS ---
 const MAX_PHOTOS = 20; // Pro users get 20 photos
@@ -123,181 +126,293 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
     const [imageIdx, setImageIdx] = useState(0);
     const [showActions, setShowActions] = useState(false);
 
+    // Swipe-to-delete (owner only)
+    const { swipeOffset, isSwiping, resetSwipe, ref: swipeRef } = useSwipeable();
+
+    const isOwnerSwipeable = isOwn;
+
+    // Seller reputation
+    const [reputation, setReputation] = useState<SellerReputation | null>(null);
+    const [showRateModal, setShowRateModal] = useState(false);
+    const [rateStars, setRateStars] = useState(5);
+    const [rateComment, setRateComment] = useState('');
+    const [hasRated, setHasRated] = useState(false);
+
+    useEffect(() => {
+        SellerRatingService.getSellerReputation(listing.seller_id).then(setReputation);
+        if (listing.status === 'sold') {
+            SellerRatingService.hasRated(listing.id).then(setHasRated);
+        }
+    }, [listing.seller_id, listing.id, listing.status]);
+
+    const handleSubmitRating = async () => {
+        const result = await SellerRatingService.rateSeller(listing.id, listing.seller_id, rateStars, rateComment);
+        if (result) {
+            setHasRated(true);
+            setShowRateModal(false);
+            // Refresh reputation
+            SellerRatingService.getSellerReputation(listing.seller_id).then(setReputation);
+        }
+    };
+
     const hasImages = listing.images.length > 0;
 
     return (
-        <div className={`mx-3 mb-3 ${isNew ? 'listing-enter' : ''}`}>
-            <div className={`relative rounded-2xl overflow-hidden border ${t.border.default} bg-white/[0.04] shadow-lg`}>
-                {/* Subtle gradient bg */}
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-700/20 via-transparent to-slate-800/30 pointer-events-none" />
-
-                <div className="relative">
-                    {/* Image Section */}
-                    {hasImages && (
-                        <div className="relative w-full aspect-[16/10] overflow-hidden bg-slate-800/50">
-                            <img
-                                src={listing.images[imageIdx]}
-                                alt={listing.title}
-                                className="w-full h-full object-cover"
-                                loading="lazy"
-                            />
-                            {/* Image pagination dots */}
-                            {listing.images.length > 1 && (
-                                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                                    {listing.images.map((_, i) => (
-                                        <button
-                                            key={i}
-                                            onClick={(e) => { e.stopPropagation(); setImageIdx(i); }}
-                                            className={`w-1.5 h-1.5 rounded-full transition-all ${i === imageIdx ? 'bg-white w-4' : 'bg-white/40'}`}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                            {/* Category badge */}
-                            <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
-                                {CATEGORY_ICONS[listing.category]} {listing.category}
-                            </div>
-                            {/* Condition badge */}
-                            <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
-                                {listing.condition}
-                            </div>
+        <div className={`mx-3 mb-3 transition-all duration-300 ${isNew ? 'animate-in slide-in-from-top-4 fade-in' : ''}`}>
+            <div className="relative overflow-hidden rounded-2xl">
+                {/* Delete button revealed on swipe (owner only) */}
+                {isOwnerSwipeable && (
+                    <div
+                        className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                        onClick={() => { resetSwipe(); onDelete(listing.id); }}
+                    >
+                        <div className="text-center text-white">
+                            <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            <span className="text-[10px] font-bold uppercase">Delete</span>
                         </div>
-                    )}
-
-                    {/* Content */}
-                    <div className="p-3.5">
-                        {/* If no image, show category inline */}
-                        {!hasImages && (
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className={`px-2 py-0.5 rounded-full bg-white/[0.06] border ${t.border.default} text-[11px] font-bold text-white/70 uppercase tracking-wider`}>
-                                    {CATEGORY_ICONS[listing.category]} {listing.category}
-                                </span>
-                                <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
-                                    {listing.condition}
-                                </span>
-                            </div>
-                        )}
-
-                        {/* Title + Price row */}
-                        <div className="flex items-start justify-between gap-3">
-                            <h3 className="text-sm font-semibold text-white leading-snug flex-1">{listing.title}</h3>
-                            <span className="text-lg font-bold text-emerald-400 whitespace-nowrap tracking-tight">
-                                {formatPrice(listing.price, listing.currency)}
-                            </span>
-                        </div>
-
-                        {/* Description (expandable) */}
-                        {listing.description && (
-                            <button
-                                onClick={() => setExpanded(!expanded)}
-                                className="text-left mt-1.5"
-                            >
-                                <p className={`text-xs text-white/60 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
-                                    {listing.description}
-                                </p>
-                                {listing.description.length > 100 && (
-                                    <span className="text-[11px] text-sky-400 font-medium">{expanded ? 'Less' : 'More'}</span>
-                                )}
-                            </button>
-                        )}
-
-                        {/* Location + Distance + Time */}
-                        <div className="flex items-center gap-2 mt-2.5 text-[11px] text-white/60">
-                            {listing.location_name && (
-                                <span className="flex items-center gap-1">
-                                    <span className="text-white/60">📍</span>
-                                    {listing.location_name}
-                                </span>
-                            )}
-                            {listing.distance_nm != null && (
-                                <span className="text-sky-400/70 font-medium">
-                                    {listing.distance_nm}nm away
-                                </span>
-                            )}
-                            <span className="ml-auto">{timeAgo(listing.created_at)}</span>
-                        </div>
-                        {/* Report suspicious location — buyer only */}
-                        {!isOwn && listing.location_name && onFlagLocation && (
-                            <button
-                                onClick={() => onFlagLocation(listing)}
-                                className="mt-1.5 text-[10px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
-                            >
-                                ⚠️ Not the seller's actual location?
-                            </button>
-                        )}
-
-                        {/* Divider */}
-                        <div className="h-px bg-white/[0.06] my-3" />
-
-                        {/* Seller info + CTA row */}
-                        <div className="flex items-center justify-between">
-                            {/* Seller */}
-                            <div className="flex items-center gap-2.5">
-                                {listing.seller_avatar ? (
-                                    <img src={listing.seller_avatar} className="w-8 h-8 rounded-full object-cover border border-white/10" alt="" />
-                                ) : (
-                                    <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(listing.seller_id)} flex items-center justify-center text-[11px] font-bold text-white shadow-inner`}>
-                                        {(listing.seller_name || '?')[0].toUpperCase()}
-                                    </div>
-                                )}
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-semibold text-white/80">{(listing.seller_name || 'Sailor').split(' ')[0]}</span>
-                                    {listing.seller_vessel && (
-                                        <span className="text-[11px] text-white/60 flex items-center gap-0.5">
-                                            ⛵ {listing.seller_vessel}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* CTA */}
-                            {isOwn ? (
-                                <div className="flex items-center gap-2">
-                                    {listing.status === 'available' && (
-                                        <button
-                                            onClick={() => onMarkSold(listing.id)}
-                                            className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95 transition-transform"
-                                        >
-                                            Mark Sold
-                                        </button>
-                                    )}
-                                    <button
-                                        onClick={() => setShowActions(!showActions)}
-                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/60"
-                                    >
-                                        ⋯
-                                    </button>
-                                </div>
-                            ) : (
-                                <button
-                                    onClick={() => onMessageSeller(listing)}
-                                    className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
-                                >
-                                    💬 Message
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Own listing actions dropdown */}
-                        {showActions && isOwn && (
-                            <div className="mt-2 flex gap-2">
-                                <button
-                                    onClick={() => { onDelete(listing.id); setShowActions(false); }}
-                                    className="flex-1 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] font-bold text-red-400 uppercase tracking-wider active:scale-95"
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* SOLD overlay */}
-                {listing.status === 'sold' && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                        <span className="text-2xl font-black text-white/80 uppercase tracking-[0.3em] -rotate-12">SOLD</span>
                     </div>
                 )}
+                <div
+                    className={`relative border border-white/[0.06] rounded-2xl bg-slate-800/40 overflow-hidden ${listing.status === 'sold' ? 'opacity-60' : ''} transition-transform ${isSwiping ? '' : 'duration-200'}`}
+                    ref={isOwnerSwipeable ? swipeRef : undefined}
+                    style={isOwnerSwipeable ? { transform: `translateX(-${swipeOffset}px)` } : undefined}
+                >    {/* Subtle gradient bg */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-700/20 via-transparent to-slate-800/30 pointer-events-none" />
+
+                    <div className="relative">
+                        {/* Image Section */}
+                        {hasImages && (
+                            <div className="relative w-full aspect-[16/10] overflow-hidden bg-slate-800/50">
+                                <img
+                                    src={listing.images[imageIdx]}
+                                    alt={listing.title}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                />
+                                {/* Image pagination dots */}
+                                {listing.images.length > 1 && (
+                                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                                        {listing.images.map((_, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={(e) => { e.stopPropagation(); setImageIdx(i); }}
+                                                className={`w-1.5 h-1.5 rounded-full transition-all ${i === imageIdx ? 'bg-white w-4' : 'bg-white/40'}`}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                                {/* Category badge */}
+                                <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/50 border border-white/10 text-[11px] font-bold text-white/90 uppercase tracking-wider">
+                                    {CATEGORY_ICONS[listing.category]} {listing.category}
+                                </div>
+                                {/* Condition badge */}
+                                <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
+                                    {listing.condition}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Content */}
+                        <div className="p-3.5">
+                            {/* If no image, show category inline */}
+                            {!hasImages && (
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className={`px-2 py-0.5 rounded-full bg-white/[0.06] border ${t.border.default} text-[11px] font-bold text-white/70 uppercase tracking-wider`}>
+                                        {CATEGORY_ICONS[listing.category]} {listing.category}
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${getConditionColor(listing.condition)}`}>
+                                        {listing.condition}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* Title + Price row */}
+                            <div className="flex items-start justify-between gap-3">
+                                <h3 className="text-sm font-semibold text-white leading-snug flex-1">{listing.title}</h3>
+                                <span className="text-lg font-bold text-emerald-400 whitespace-nowrap tracking-tight">
+                                    {formatPrice(listing.price, listing.currency)}
+                                </span>
+                            </div>
+
+                            {/* Description (expandable) */}
+                            {listing.description && (
+                                <button
+                                    onClick={() => setExpanded(!expanded)}
+                                    className="text-left mt-1.5"
+                                >
+                                    <p className={`text-xs text-white/60 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
+                                        {listing.description}
+                                    </p>
+                                    {listing.description.length > 100 && (
+                                        <span className="text-[11px] text-sky-400 font-medium">{expanded ? 'Less' : 'More'}</span>
+                                    )}
+                                </button>
+                            )}
+
+                            {/* Location + Distance + Time */}
+                            <div className="flex items-center gap-2 mt-2.5 text-[11px] text-white/60">
+                                {listing.location_name && (
+                                    <span className="flex items-center gap-1">
+                                        <span className="text-white/60">📍</span>
+                                        {listing.location_name}
+                                    </span>
+                                )}
+                                {listing.distance_nm != null && (
+                                    <span className="text-sky-400/70 font-medium">
+                                        {listing.distance_nm}nm away
+                                    </span>
+                                )}
+                                <span className="ml-auto">{timeAgo(listing.created_at)}</span>
+                            </div>
+                            {/* Report suspicious location — buyer only */}
+                            {!isOwn && listing.location_name && onFlagLocation && (
+                                <button
+                                    onClick={() => onFlagLocation(listing)}
+                                    className="mt-1.5 text-[10px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
+                                >
+                                    ⚠️ Not the seller's actual location?
+                                </button>
+                            )}
+
+                            {/* Divider */}
+                            <div className="h-px bg-white/[0.06] my-3" />
+
+                            {/* Seller info + CTA row */}
+                            <div className="flex items-center justify-between">
+                                {/* Seller */}
+                                <div className="flex items-center gap-2.5">
+                                    {listing.seller_avatar ? (
+                                        <img src={listing.seller_avatar} className="w-8 h-8 rounded-full object-cover border border-white/10" alt="" />
+                                    ) : (
+                                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(listing.seller_id)} flex items-center justify-center text-[11px] font-bold text-white shadow-inner`}>
+                                            {(listing.seller_name || '?')[0].toUpperCase()}
+                                        </div>
+                                    )}
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-xs font-semibold text-white/80">{(listing.seller_name || 'Sailor').split(' ')[0]}</span>
+                                            {reputation && reputation.total_ratings > 0 && (
+                                                <span className="text-[10px] text-amber-400 flex items-center gap-0.5">
+                                                    ★ {reputation.avg_stars}
+                                                    <span className="text-white/40">({reputation.total_ratings})</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                        {listing.seller_vessel && (
+                                            <span className="text-[11px] text-white/60 flex items-center gap-0.5">
+                                                ⛵ {listing.seller_vessel}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* CTA */}
+                                {isOwn ? (
+                                    <div className="flex items-center gap-2">
+                                        {listing.status === 'available' && (
+                                            <button
+                                                onClick={() => onMarkSold(listing.id)}
+                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95 transition-transform"
+                                            >
+                                                Mark Sold
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => setShowActions(!showActions)}
+                                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/60"
+                                        >
+                                            ⋯
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => onMessageSeller(listing)}
+                                        className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
+                                    >
+                                        💬 Message
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Own listing actions dropdown */}
+                            {showActions && isOwn && (
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        onClick={() => { onDelete(listing.id); setShowActions(false); }}
+                                        className="flex-1 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-[11px] font-bold text-red-400 uppercase tracking-wider active:scale-95"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Rate Seller — buyer only, sold listings only */}
+                            {!isOwn && listing.status === 'sold' && !hasRated && (
+                                <button
+                                    onClick={() => setShowRateModal(true)}
+                                    className="mt-2 w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-400 uppercase tracking-wider active:scale-95 transition-transform"
+                                >
+                                    ⭐ Rate This Seller
+                                </button>
+                            )}
+                            {!isOwn && hasRated && listing.status === 'sold' && (
+                                <p className="mt-2 text-[10px] text-emerald-400/60 text-center">✅ You've rated this seller</p>
+                            )}
+
+                            {/* Inline rating modal */}
+                            {showRateModal && (
+                                <div className="mt-3 p-3 rounded-xl bg-white/[0.04] border border-white/10 space-y-3">
+                                    <p className="text-[11px] font-bold text-white/70 uppercase tracking-wider">Rate Seller</p>
+                                    <div className="flex justify-center gap-1">
+                                        {[1, 2, 3, 4, 5].map(s => (
+                                            <button
+                                                key={s}
+                                                onClick={() => setRateStars(s)}
+                                                className={`text-2xl transition-transform active:scale-90 ${s <= rateStars ? 'text-amber-400' : 'text-white/20'}`}
+                                            >
+                                                ★
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <textarea
+                                        value={rateComment}
+                                        onChange={e => setRateComment(e.target.value)}
+                                        placeholder="Optional comment..."
+                                        rows={2}
+                                        maxLength={300}
+                                        className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/30 outline-none focus:border-amber-500/40 transition-colors resize-none"
+                                    />
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setShowRateModal(false)}
+                                            className="flex-1 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[11px] font-bold text-white/60 uppercase tracking-wider active:scale-95"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleSubmitRating}
+                                            className="flex-1 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold text-amber-400 uppercase tracking-wider active:scale-95"
+                                        >
+                                            Submit
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* SOLD overlay */}
+                    {listing.status === 'sold' && (
+                        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center pointer-events-none">
+                            <span className="text-2xl font-black text-white/80 uppercase tracking-[0.3em] -rotate-12">SOLD</span>
+                            {listing.sold_at && (
+                                <span className="text-[10px] text-white/50 mt-1">Auto-removes in {Math.max(0, Math.ceil((new Date(listing.sold_at).getTime() + 48 * 3600000 - Date.now()) / 3600000))}h</span>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -648,6 +763,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
     const [activeCategory, setActiveCategory] = useState<ListingCategory | null>(null);
     const [showCreate, setShowCreate] = useState(false);
     const [newListingIds, setNewListingIds] = useState<Set<string>>(new Set());
+    const [deletedListing, setDeletedListing] = useState<MarketplaceListing | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
     const feedRef = useRef<HTMLDivElement>(null);
 
@@ -715,11 +831,35 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
         }
     };
 
-    const handleDelete = async (id: string) => {
-        const ok = await MarketplaceService.deleteListing(id);
-        if (ok) {
-            setListings(prev => prev.filter(l => l.id !== id));
+    // ── Soft-delete with undo ──
+    const handleDelete = (id: string) => {
+        const listing = listings.find(l => l.id === id);
+        if (!listing) return;
+        triggerHaptic('medium');
+        // Remove from UI immediately
+        setListings(prev => prev.filter(l => l.id !== id));
+        setDeletedListing(listing);
+    };
+
+    // Called by UndoToast after 5s — performs the actual API delete
+    const handleDismissDelete = async () => {
+        if (!deletedListing) return;
+        const listing = deletedListing;
+        setDeletedListing(null);
+        try {
+            await MarketplaceService.deleteListing(listing.id);
+        } catch {
+            toast.error('Failed to delete listing');
+            setListings(prev => [listing, ...prev]);
         }
+    };
+
+    const handleUndoDelete = () => {
+        if (deletedListing) {
+            setListings(prev => [deletedListing, ...prev]);
+            toast.success('Listing restored');
+        }
+        setDeletedListing(null);
     };
 
     const handleCreated = (listing: MarketplaceListing) => {
@@ -838,6 +978,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
                 onCreated={handleCreated}
             />
 
+            {/* Undo toast for delete */}
+            <UndoToast
+                isOpen={!!deletedListing}
+                message={`"${deletedListing?.title}" deleted`}
+                onUndo={handleUndoDelete}
+                onDismiss={handleDismissDelete}
+            />
 
         </div>
     );
