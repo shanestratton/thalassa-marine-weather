@@ -146,7 +146,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                             <div className="flex items-center gap-1.5">
                                 <p className={`${isSub ? 'text-sm' : 'text-lg'} font-semibold text-white/85 group-hover:text-white transition-colors`}>{getChannelName(ch)}</p>
                                 {ch.is_private && (
-                                    <span className="text-[8px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">PRIVATE</span>
+                                    <span className="text-[11px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">PRIVATE</span>
                                 )}
                             </div>
                             <p className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 truncate ${isSub ? '' : 'mt-0.5'}`}>
@@ -163,7 +163,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                                     aria-expanded={isExpanded}
                                     className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
                                 >
-                                    <span className={`text-white/40 text-[10px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                                    <span className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
                                 </button>
                             )}
                             <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
@@ -237,7 +237,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
 
                         {/* Parent channel selector */}
                         <div>
-                            <p className="text-[10px] text-white/30 mb-1 px-1">Parent Channel (optional — makes it a sub-channel)</p>
+                            <p className="text-[11px] text-white/30 mb-1 px-1">Parent Channel (optional — makes it a sub-channel)</p>
                             <div className="flex gap-1.5 flex-wrap">
                                 <button
                                     onClick={() => setProposalParentId(null)}
@@ -286,7 +286,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                         </div>
 
                         {proposalIsPrivate && (
-                            <p className="text-[10px] text-purple-400/50 px-1">
+                            <p className="text-[11px] text-purple-400/50 px-1">
                                 Private channels require approval to join. You'll moderate who gets in.
                             </p>
                         )}
