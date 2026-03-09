@@ -21,6 +21,14 @@ import {
     LISTING_CONDITIONS,
     CATEGORY_ICONS,
     CreateListingInput,
+    BoatDetails,
+    HullMaterial,
+    EngineType,
+    FuelType,
+    HULL_MATERIALS,
+    ENGINE_TYPES,
+    FUEL_TYPES,
+    BOAT_FEATURES,
 } from '../services/MarketplaceService';
 import { ChatService } from '../services/ChatService';
 import { BgGeoManager } from '../services/BgGeoManager';
@@ -231,10 +239,90 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                             {/* Title + Price row */}
                             <div className="flex items-start justify-between gap-3">
                                 <h3 className="text-sm font-semibold text-white leading-snug flex-1">{listing.title}</h3>
-                                <span className="text-lg font-bold text-emerald-400 whitespace-nowrap tracking-tight">
-                                    {formatPrice(listing.price, listing.currency)}
-                                </span>
+                                <div className="text-right shrink-0">
+                                    <span className="text-lg font-bold text-emerald-400 whitespace-nowrap tracking-tight">
+                                        {formatPrice(listing.price, listing.currency)}
+                                    </span>
+                                    {listing.boat_details?.price_reduced && listing.boat_details?.original_price && (
+                                        <div className="flex items-center gap-1 justify-end mt-0.5">
+                                            <span className="text-[10px] text-white/40 line-through">{formatPrice(listing.boat_details.original_price, listing.currency)}</span>
+                                            <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded-full uppercase">Reduced</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
+
+                            {/* \u2550\u2550\u2550 BOAT SPECS GRID \u2550\u2550\u2550 */}
+                            {listing.boat_details && listing.category === 'Boats' && (() => {
+                                const b = listing.boat_details!;
+                                return (
+                                    <>
+                                        {/* Make/Model/Year headline */}
+                                        {(b.make || b.model || b.year) && (
+                                            <div className="mt-2 flex items-center gap-2 text-xs">
+                                                {(b.make || b.model) && (
+                                                    <span className="font-bold text-white/80">{[b.make, b.model].filter(Boolean).join(' ')}</span>
+                                                )}
+                                                {b.year && <span className="text-white/50">{b.year}</span>}
+                                                {b.surveyed && (
+                                                    <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full">\u2705 Surveyed</span>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Spec chips row */}
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {b.loa_ft && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.loa_ft}ft</span>
+                                            )}
+                                            {b.beam_ft && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">B: {b.beam_ft}ft</span>
+                                            )}
+                                            {b.draft_ft && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">D: {b.draft_ft}ft</span>
+                                            )}
+                                            {b.hull_material && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.hull_material}</span>
+                                            )}
+                                            {b.engine_type && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-medium text-sky-300/80">{b.engine_type}</span>
+                                            )}
+                                            {(b.engine_make || b.engine_hp) && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-medium text-sky-300/80">
+                                                    {[b.engine_make, b.engine_hp ? `${b.engine_hp}HP` : ''].filter(Boolean).join(' ')}
+                                                </span>
+                                            )}
+                                            {b.engine_hours != null && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] font-medium text-amber-300/80">{b.engine_hours.toLocaleString()}hrs</span>
+                                            )}
+                                            {b.fuel_type && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.fuel_type}</span>
+                                            )}
+                                            {b.berths && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.berths} berths</span>
+                                            )}
+                                            {b.cabins && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.cabins} cabin{b.cabins > 1 ? 's' : ''}</span>
+                                            )}
+                                            {b.heads && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">{b.heads} head{b.heads > 1 ? 's' : ''}</span>
+                                            )}
+                                        </div>
+
+                                        {/* Feature tags */}
+                                        {b.features && b.features.length > 0 && (
+                                            <div className="mt-1.5 flex flex-wrap gap-1">
+                                                {b.features.slice(0, expanded ? undefined : 6).map(f => (
+                                                    <span key={f} className="px-1.5 py-0.5 rounded bg-emerald-500/8 border border-emerald-500/15 text-[9px] font-medium text-emerald-400/70">{f}</span>
+                                                ))}
+                                                {!expanded && b.features.length > 6 && (
+                                                    <button onClick={() => setExpanded(true)} className="text-[9px] text-sky-400 font-medium">+{b.features.length - 6} more</button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
 
                             {/* Description (expandable) */}
                             {listing.description && (
@@ -327,12 +415,27 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                         </button>
                                     </div>
                                 ) : (
-                                    <button
-                                        onClick={() => onMessageSeller(listing)}
-                                        className="px-4 py-2 rounded-xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
-                                    >
-                                        💬 Message
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => onMessageSeller(listing)}
+                                            className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
+                                        >
+                                            💬 Message
+                                        </button>
+                                        {listing.category === 'Boats' && listing.status === 'available' && (
+                                            <button
+                                                onClick={() => {
+                                                    const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
+                                                    const text = `Hi ${sellerFirst}! I'd like to make an offer on your "${listing.title}" (${formatPrice(listing.price, listing.currency)}). What's your best price?`;
+                                                    ChatService.sendDM(listing.seller_id, text);
+                                                    if (onMessageSeller) onMessageSeller(listing);
+                                                }}
+                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-[11px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95 transition-all"
+                                            >
+                                                💰 Offer
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 
@@ -449,6 +552,28 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
 
+    // ── Boat-specific state ──
+    const [boatMake, setBoatMake] = useState('');
+    const [boatModel, setBoatModel] = useState('');
+    const [boatYear, setBoatYear] = useState('');
+    const [boatLoa, setBoatLoa] = useState('');
+    const [boatBeam, setBoatBeam] = useState('');
+    const [boatDraft, setBoatDraft] = useState('');
+    const [boatHull, setBoatHull] = useState<HullMaterial | null>(null);
+    const [boatEngineType, setBoatEngineType] = useState<EngineType | null>(null);
+    const [boatEngineMake, setBoatEngineMake] = useState('');
+    const [boatHp, setBoatHp] = useState('');
+    const [boatHours, setBoatHours] = useState('');
+    const [boatFuel, setBoatFuel] = useState<FuelType | null>(null);
+    const [boatBerths, setBoatBerths] = useState('');
+    const [boatCabins, setBoatCabins] = useState('');
+    const [boatHeads, setBoatHeads] = useState('');
+    const [boatRego, setBoatRego] = useState('');
+    const [boatSurveyed, setBoatSurveyed] = useState(false);
+    const [boatFeatures, setBoatFeatures] = useState<string[]>([]);
+
+    const isBoat = category === 'Boats';
+
     // Get GPS + auto-fill location on open
     useEffect(() => {
         if (!isOpen) return;
@@ -517,6 +642,13 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
         setLocationWarning(null); autoFilledLocRef.current = null;
         setImages([]); setImagePreviews([]); setStep('details');
         setError(null); setSubmitting(false);
+        // Boat fields
+        setBoatMake(''); setBoatModel(''); setBoatYear(''); setBoatLoa('');
+        setBoatBeam(''); setBoatDraft(''); setBoatHull(null);
+        setBoatEngineType(null); setBoatEngineMake(''); setBoatHp('');
+        setBoatHours(''); setBoatFuel(null); setBoatBerths('');
+        setBoatCabins(''); setBoatHeads(''); setBoatRego('');
+        setBoatSurveyed(false); setBoatFeatures([]);
     };
 
     const handleSubmit = async () => {
@@ -540,6 +672,30 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             longitude: gpsLon || undefined,
             location_name: [locSuburb.trim(), locState.trim(), locCountry.trim()].filter(Boolean).join(', ') || undefined,
         };
+
+        // Attach boat details if Boats category
+        if (isBoat) {
+            input.boat_details = {
+                make: boatMake.trim() || undefined,
+                model: boatModel.trim() || undefined,
+                year: boatYear ? parseInt(boatYear) : undefined,
+                loa_ft: boatLoa ? parseFloat(boatLoa) : undefined,
+                beam_ft: boatBeam ? parseFloat(boatBeam) : undefined,
+                draft_ft: boatDraft ? parseFloat(boatDraft) : undefined,
+                hull_material: boatHull || undefined,
+                engine_type: boatEngineType || undefined,
+                engine_make: boatEngineMake.trim() || undefined,
+                engine_hp: boatHp ? parseInt(boatHp) : undefined,
+                engine_hours: boatHours ? parseInt(boatHours) : undefined,
+                fuel_type: boatFuel || undefined,
+                berths: boatBerths ? parseInt(boatBerths) : undefined,
+                cabins: boatCabins ? parseInt(boatCabins) : undefined,
+                heads: boatHeads ? parseInt(boatHeads) : undefined,
+                rego_number: boatRego.trim() || undefined,
+                surveyed: boatSurveyed || undefined,
+                features: boatFeatures.length > 0 ? boatFeatures : undefined,
+            };
+        }
 
         const result = await MarketplaceService.createListing(input);
         setSubmitting(false);
@@ -566,7 +722,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Header */}
                 <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06]">
                     <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/60 font-medium">Cancel</button>
-                    <h2 className="text-sm font-bold text-white">List Gear for Sale</h2>
+                    <h2 className="text-sm font-bold text-white">{isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}</h2>
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
@@ -636,15 +792,173 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Title */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Title</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">{isBoat ? 'Listing Title' : 'Title'}</label>
                         <input
                             value={title}
                             onChange={e => setTitle(e.target.value)}
-                            placeholder="e.g. Raymarine Axiom 12 MFD"
+                            placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
                             maxLength={100}
                             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                         />
                     </div>
+
+                    {/* ═══ BOAT-SPECIFIC FIELDS ═══ */}
+                    {isBoat && (
+                        <>
+                            {/* Make & Model */}
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Make</label>
+                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} placeholder="Beneteau" maxLength={60}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Model</label>
+                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} placeholder="Oceanis 40.1" maxLength={60}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                            </div>
+
+                            {/* Year & LOA */}
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Year Built</label>
+                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="2019" inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Length (ft)</label>
+                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="40" inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                            </div>
+
+                            {/* Beam & Draft */}
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Beam (ft)</label>
+                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="13" inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Draft (ft)</label>
+                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="6.5" inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                            </div>
+
+                            {/* Hull Material */}
+                            <div>
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Hull Material</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {HULL_MATERIALS.map(h => (
+                                        <button key={h} onClick={() => setBoatHull(h)}
+                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${boatHull === h
+                                                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                                                : 'bg-white/[0.04] border-white/10 text-white/60'}`}
+                                        >{h}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Engine section */}
+                            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider block">Engine</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {ENGINE_TYPES.map(et => (
+                                        <button key={et} onClick={() => setBoatEngineType(et)}
+                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${boatEngineType === et
+                                                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                                                : 'bg-white/[0.04] border-white/10 text-white/60'}`}
+                                        >{et}</button>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    </div>
+                                    <div className="w-20">
+                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} placeholder="HP" inputMode="numeric"
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} placeholder="Engine hours" inputMode="numeric"
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex flex-wrap gap-1">
+                                            {FUEL_TYPES.map(f => (
+                                                <button key={f} onClick={() => setBoatFuel(f)}
+                                                    className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${boatFuel === f
+                                                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                                        : 'bg-white/[0.04] border-white/10 text-white/50'}`}
+                                                >{f}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Accommodation */}
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Berths</label>
+                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} placeholder="6" inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Cabins</label>
+                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} placeholder="3" inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Heads</label>
+                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} placeholder="2" inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                            </div>
+
+                            {/* Rego & Survey */}
+                            <div className="flex gap-2 items-end">
+                                <div className="flex-1">
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Rego Number</label>
+                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} placeholder="Optional" maxLength={30}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                </div>
+                                <button
+                                    onClick={() => setBoatSurveyed(!boatSurveyed)}
+                                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${boatSurveyed
+                                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                                        : 'bg-white/[0.04] border-white/10 text-white/50'}`}
+                                >
+                                    {boatSurveyed ? '✅ Surveyed' : '📋 Surveyed?'}
+                                </button>
+                            </div>
+
+                            {/* Features (tag chips) */}
+                            <div>
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Features & Equipment</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {BOAT_FEATURES.filter((v, i, a) => a.indexOf(v) === i).map(feat => {
+                                        const selected = boatFeatures.includes(feat);
+                                        return (
+                                            <button key={feat}
+                                                onClick={() => setBoatFeatures(prev => selected ? prev.filter(f => f !== feat) : [...prev, feat])}
+                                                className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${selected
+                                                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+                                                    : 'bg-white/[0.03] border-white/[0.06] text-white/40'}`}
+                                            >
+                                                {selected ? '✓ ' : ''}{feat}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     {/* Condition */}
                     <div>

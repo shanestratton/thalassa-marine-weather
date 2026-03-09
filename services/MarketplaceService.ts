@@ -40,6 +40,48 @@ export const CATEGORY_ICONS: Record<ListingCategory, string> = {
     'Misc': '📦',
 };
 
+// ── Boat-specific types ──
+
+export type HullMaterial = 'Fibreglass' | 'Aluminium' | 'Steel' | 'Timber' | 'Carbon' | 'Ferro' | 'Other';
+export type EngineType = 'Inboard' | 'Outboard' | 'Sail Only' | 'Jet';
+export type FuelType = 'Diesel' | 'Petrol' | 'Electric' | 'Hybrid';
+
+export const HULL_MATERIALS: HullMaterial[] = ['Fibreglass', 'Aluminium', 'Steel', 'Timber', 'Carbon', 'Ferro', 'Other'];
+export const ENGINE_TYPES: EngineType[] = ['Inboard', 'Outboard', 'Sail Only', 'Jet'];
+export const FUEL_TYPES: FuelType[] = ['Diesel', 'Petrol', 'Electric', 'Hybrid'];
+
+export const BOAT_FEATURES = [
+    'Autopilot', 'Watermaker', 'Solar Panels', 'Wind Generator', 'Davits',
+    'Tender', 'Bow Thruster', 'Air Conditioning', 'Generator', 'Inverter',
+    'Radar', 'AIS', 'Chartplotter', 'Windlass', 'Bimini', 'Dodger',
+    'Dinghy', 'Liferaft', 'EPIRB', 'Spinnaker', 'Furler', 'Lazy Jacks',
+    'Shore Power', 'Holding Tank', 'Watermaker', 'SSB Radio', 'Satellite Phone',
+] as const;
+
+export interface BoatDetails {
+    make?: string;           // e.g. "Beneteau"
+    model?: string;          // e.g. "Oceanis 40.1"
+    year?: number;           // e.g. 2019
+    loa_ft?: number;         // Length overall in feet
+    beam_ft?: number;        // Beam in feet
+    draft_ft?: number;       // Draft in feet
+    hull_material?: HullMaterial;
+    engine_type?: EngineType;
+    engine_make?: string;    // e.g. "Yanmar"
+    engine_hp?: number;      // Horsepower
+    engine_hours?: number;   // Hours on engine
+    fuel_type?: FuelType;
+    berths?: number;
+    cabins?: number;
+    heads?: number;
+    rego_state?: string;     // Registration state
+    rego_number?: string;    // Registration number
+    surveyed?: boolean;      // Recently surveyed?
+    features?: string[];     // Tag chips: Autopilot, Watermaker, etc.
+    price_reduced?: boolean; // Price has been reduced
+    original_price?: number; // Original price before reduction
+}
+
 export interface MarketplaceListing {
     id: string;
     seller_id: string;
@@ -56,6 +98,7 @@ export interface MarketplaceListing {
     created_at: string;
     updated_at: string;
     distance_nm?: number; // Only present on geo-filtered results
+    boat_details?: BoatDetails | null; // Boat-specific fields (category=Boats)
     // Seller profile (joined)
     seller_name?: string;
     seller_avatar?: string | null;
@@ -73,6 +116,7 @@ export interface CreateListingInput {
     latitude?: number;
     longitude?: number;
     location_name?: string;
+    boat_details?: BoatDetails;
 }
 
 // --- SERVICE ---
@@ -232,6 +276,7 @@ class MarketplaceServiceClass {
                 images: imageUrls,
                 location: locationValue,
                 location_name: input.location_name || null,
+                boat_details: input.boat_details || null,
                 status: 'available',
             })
             .select()
@@ -414,6 +459,7 @@ class MarketplaceServiceClass {
             created_at: r.created_at,
             updated_at: r.updated_at,
             distance_nm: r.distance_nm != null ? Math.round(r.distance_nm * 10) / 10 : undefined,
+            boat_details: r.boat_details || null,
             seller_name: profileMap.get(r.seller_id)?.display_name || 'Unknown Sailor',
             seller_avatar: profileMap.get(r.seller_id)?.avatar_url || null,
             seller_vessel: profileMap.get(r.seller_id)?.vessel_name || null,
