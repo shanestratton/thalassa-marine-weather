@@ -143,7 +143,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     ];
 
     return (
-        <div className="w-full px-4 pt-4 pb-24 animate-in fade-in duration-300">
+        <div className="w-full h-full flex flex-col px-4 pt-4 animate-in fade-in duration-300" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
 
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 1: ACTIVE WATCH — Two compact cards */}
@@ -283,7 +283,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 3: APP ADMINISTRATION */}
             {/* ═══════════════════════════════════════════ */}
-            <div>
+            <div className="mt-auto pt-4">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-gray-500" />
                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">Administration</span>
@@ -308,9 +308,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     </button>
                 </div>
 
-                <p className="text-center text-[11px] text-gray-500 mt-4 font-bold uppercase tracking-widest">
-                    Thalassa Marine Weather v2.0
-                </p>
+
             </div>
         </div>
     );
