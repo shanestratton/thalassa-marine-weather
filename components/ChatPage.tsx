@@ -89,6 +89,7 @@ export const ChatPage: React.FC = () => {
 
     // View state
     const [view, setView] = useState<ChatView>('channels');
+    const [navDirection, setNavDirection] = useState<'forward' | 'back'>('forward');
     const [channels, setChannels] = useState<ChatChannel[]>([]);
     const [activeChannel, setActiveChannel] = useState<ChatChannel | null>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -319,15 +320,18 @@ export const ChatPage: React.FC = () => {
     const openChannel = async (channel: ChatChannel) => {
         // Find Crew gets the crew board page
         if (channel.name === 'Find Crew') {
+            setNavDirection('forward');
             setView('find_crew');
             return;
         }
         // Marketplace gets the gear exchange page
         if (channel.name === 'Marketplace') {
+            setNavDirection('forward');
             setView('marketplace');
             return;
         }
         setActiveChannel(channel);
+        setNavDirection('forward');
         setView('messages');
         // Persist last channel for tab-switch recovery
         localStorage.setItem('chat_last_channel', channel.id);
@@ -863,6 +867,7 @@ export const ChatPage: React.FC = () => {
 
     // --- DM ACTIONS ---
     const openDMInbox = async () => {
+        setNavDirection('forward');
         setView('dm_inbox');
         setLoading(true);
         const convs = await ChatService.getDMConversations();
@@ -872,6 +877,7 @@ export const ChatPage: React.FC = () => {
 
     const openDMThread = async (userId: string, name: string) => {
         setDmPartner({ id: userId, name });
+        setNavDirection('forward');
         setView('dm_thread');
         setShowBlockConfirm(false);
         setLoading(true);
@@ -999,6 +1005,7 @@ export const ChatPage: React.FC = () => {
 
     const goBack = () => {
         setShowModMenu(null);
+        setNavDirection('back');
         if (view === 'messages') { setView('channels'); setActiveChannel(null); }
         else if (view === 'dm_thread') { setView('dm_inbox'); setDmPartner(null); }
         else if (view === 'dm_inbox') { setView('channels'); }
@@ -1036,7 +1043,7 @@ export const ChatPage: React.FC = () => {
                 isUserBlocked={isUserBlocked}
                 hasDMPartner={!!dmPartner}
                 onGoBack={goBack}
-                onOpenProfile={() => setView('profile')}
+                onOpenProfile={() => { setNavDirection('forward'); setView('profile'); }}
                 onOpenDMInbox={openDMInbox}
                 onToggleBlock={() => setShowBlockConfirm(true)}
             />
@@ -1100,7 +1107,7 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════════════ CONTENT ═══════════════════ */}
             <ChatErrorBoundary>
-                <div key={view} className="flex-1 overflow-y-auto overscroll-contain chat-view-enter">
+                <div key={view} className={`flex-1 overflow-y-auto overscroll-contain ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'}`}>
                     {loading && view === 'channels' && (
                         <div className="pb-24">
                             <SkeletonChannelList />
@@ -1172,7 +1179,7 @@ export const ChatPage: React.FC = () => {
                             proposalSent={proposalSent}
                             onProposeChannel={handleProposeChannel}
                             isAdmin={isAdmin}
-                            onOpenAdmin={() => setView('admin_panel')}
+                            onOpenAdmin={() => { setNavDirection('forward'); setView('admin_panel'); }}
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
