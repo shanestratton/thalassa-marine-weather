@@ -41,6 +41,14 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
+    const [isAdmin, setIsAdmin] = useState(false);
+
+    // Load admin role async
+    useEffect(() => {
+        ChatService.initialize().then(() => {
+            setIsAdmin(ChatService.isAdmin());
+        });
+    }, []);
 
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
@@ -311,7 +319,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                 </div>
 
                 {/* Admin Panel — admin-only */}
-                {ChatService.isAdmin() && (
+                {isAdmin && (
                     <div className="bg-white/[0.03] border border-amber-500/10 rounded-xl overflow-hidden mt-3">
                         <button
                             onClick={() => { triggerHaptic('medium'); setShowAdminPanel(true); }}
