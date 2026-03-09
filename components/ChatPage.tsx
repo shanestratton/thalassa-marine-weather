@@ -34,6 +34,7 @@ import { moderateMessage } from '../services/ContentModerationService';
 import { GpsService } from '../services/GpsService';
 import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
+import { AdminPanel } from './AdminPanel';
 import { ChannelList } from './chat/ChannelList';
 import { ChatMessageList } from './chat/ChatMessageList';
 import { ChatComposer } from './chat/ChatComposer';
@@ -113,6 +114,7 @@ export const ChatPage: React.FC = () => {
     const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>('inappropriate');
     const [reportSent, setReportSent] = useState(false);
     const [showProposalForm, setShowProposalForm] = useState(false);
+    const [showAdminPanel, setShowAdminPanel] = useState(false);
     const [proposalName, setProposalName] = useState('');
     const [proposalDesc, setProposalDesc] = useState('');
     const [proposalIcon, setProposalIcon] = useState('🏝️');
@@ -1080,8 +1082,13 @@ export const ChatPage: React.FC = () => {
                         setProposalDesc={setProposalDesc}
                         proposalSent={proposalSent}
                         onProposeChannel={handleProposeChannel}
+                        isAdmin={isAdmin}
+                        onOpenAdmin={() => setShowAdminPanel(true)}
                     />
                 )}
+
+                {/* ══════ ADMIN PANEL MODAL ══════ */}
+                <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
 
                 {/* ══════ MESSAGE VIEW ══════ */}
                 {view === 'messages' && !loading && (
