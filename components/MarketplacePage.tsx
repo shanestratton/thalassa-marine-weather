@@ -408,68 +408,6 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         </div>
                     )}
 
-                    {/* Photos */}
-                    <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to 4)</label>
-                        <div className="flex gap-2 flex-wrap">
-                            {imagePreviews.map((url, i) => (
-                                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10">
-                                    <img src={url} className="w-full h-full object-cover" alt="" />
-                                    <button
-                                        onClick={() => removeImage(i)}
-                                        className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
-                                    >✕</button>
-                                </div>
-                            ))}
-                            {images.length < 4 && (
-                                <button
-                                    onClick={() => fileRef.current?.click()}
-                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
-                                >
-                                    <span className="text-xl">+</span>
-                                    <span className="text-[11px] mt-0.5">Add</span>
-                                </button>
-                            )}
-                        </div>
-                        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
-                    </div>
-
-                    {/* Title */}
-                    <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Title</label>
-                        <input
-                            value={title}
-                            onChange={e => setTitle(e.target.value)}
-                            placeholder="e.g. Raymarine Axiom 12 MFD"
-                            maxLength={100}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                        />
-                    </div>
-
-                    {/* Price + Currency */}
-                    <div className="flex gap-3">
-                        <div className="flex-1">
-                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Price</label>
-                            <input
-                                value={price}
-                                onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                                placeholder="0.00"
-                                inputMode="decimal"
-                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                            />
-                        </div>
-                        <div className="w-24">
-                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Currency</label>
-                            <select
-                                value={currency}
-                                onChange={e => setCurrency(e.target.value)}
-                                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white outline-none"
-                            >
-                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
                     {/* Category */}
                     <div>
                         <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Category</label>
@@ -486,6 +424,18 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Title */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Title</label>
+                        <input
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            placeholder="e.g. Raymarine Axiom 12 MFD"
+                            maxLength={100}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                        />
                     </div>
 
                     {/* Condition */}
@@ -519,6 +469,30 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         />
                     </div>
 
+                    {/* Price + Currency */}
+                    <div className="flex gap-3">
+                        <div className="flex-1">
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Price</label>
+                            <input
+                                value={price}
+                                onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+                                placeholder="0.00"
+                                inputMode="decimal"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                        </div>
+                        <div className="w-24">
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Currency</label>
+                            <select
+                                value={currency}
+                                onChange={e => setCurrency(e.target.value)}
+                                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white outline-none"
+                            >
+                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
                     {/* Location */}
                     <div>
                         <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
@@ -535,6 +509,32 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 📍 {gpsLat.toFixed(4)}, {gpsLon?.toFixed(4)}
                             </p>
                         )}
+                    </div>
+
+                    {/* Photos */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to 4)</label>
+                        <div className="flex gap-2 flex-wrap">
+                            {imagePreviews.map((url, i) => (
+                                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10">
+                                    <img src={url} className="w-full h-full object-cover" alt="" />
+                                    <button
+                                        onClick={() => removeImage(i)}
+                                        className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
+                                    >✕</button>
+                                </div>
+                            ))}
+                            {images.length < 4 && (
+                                <button
+                                    onClick={() => fileRef.current?.click()}
+                                    className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
+                                >
+                                    <span className="text-xl">+</span>
+                                    <span className="text-[11px] mt-0.5">Add</span>
+                                </button>
+                            )}
+                        </div>
+                        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
                     </div>
 
                     {/* Submit button (mobile) */}
