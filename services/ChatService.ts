@@ -37,6 +37,7 @@ export interface ChatChannel {
     is_global: boolean;
     is_private: boolean;
     owner_id: string | null;
+    parent_id: string | null;
     created_at: string;
 }
 
@@ -117,13 +118,13 @@ interface QueuedMessage {
 
 // --- PRE-SEEDED CHANNELS ---
 export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
-    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true, is_private: false, owner_id: null },
-    { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true, is_private: false, owner_id: null },
-    { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true, is_private: false, owner_id: null },
-    { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true, is_private: false, owner_id: null },
-    { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true, is_private: false, owner_id: null },
-    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true, is_private: false, owner_id: null },
-    { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true, is_private: false, owner_id: null },
+    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true, is_private: false, owner_id: null, parent_id: null },
 ];
 
 // --- SERVICE ---
@@ -723,7 +724,7 @@ class ChatServiceClass {
     // Private channels: require membership, join via request
 
     /** Admin or Moderator: create a channel instantly */
-    async createChannel(name: string, description: string, icon: string, isPrivate = false, region?: string): Promise<ChatChannel | null> {
+    async createChannel(name: string, description: string, icon: string, isPrivate = false, region?: string, parentId?: string): Promise<ChatChannel | null> {
         if (!supabase || !this.isMod()) return null;
 
         const user = (await supabase.auth.getUser()).data.user;
@@ -737,6 +738,7 @@ class ChatServiceClass {
                 is_global: !region,
                 is_private: isPrivate,
                 owner_id: user?.id || null,
+                parent_id: parentId || null,
                 status: 'active',
             })
             .select()
@@ -756,7 +758,7 @@ class ChatServiceClass {
     }
 
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
-    async proposeChannel(name: string, description: string, icon: string, isPrivate = false, region?: string): Promise<boolean> {
+    async proposeChannel(name: string, description: string, icon: string, isPrivate = false, region?: string, parentId?: string): Promise<boolean> {
         if (!supabase) return false;
 
         const user = (await supabase.auth.getUser()).data.user;
@@ -772,6 +774,7 @@ class ChatServiceClass {
                 is_global: !region,
                 is_private: isPrivate,
                 owner_id: user.id,
+                parent_id: parentId || null,
                 status: 'pending',
                 proposed_by: user.id,
             });
