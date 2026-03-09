@@ -59,6 +59,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     <div className="px-4 py-3 pb-24 space-y-1.5">
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
         {channels
+            .filter(ch => ch.name !== 'Lonely Hearts')
             .sort((a, b) => (CHANNEL_PRIORITY[a.name] ?? 99) - (CHANNEL_PRIORITY[b.name] ?? 99))
             .map((ch, i) => (
                 <button
