@@ -67,6 +67,16 @@ export interface UserRole {
     is_blocked: boolean;
 }
 
+export interface UserRoleEntry {
+    user_id: string;
+    display_name: string;
+    avatar_url: string | null;
+    vessel_name: string | null;
+    role: ChatRole;
+    muted_until: string | null;
+    is_blocked: boolean;
+}
+
 export interface DMConversation {
     user_id: string;
     display_name: string;
@@ -531,6 +541,49 @@ class ChatServiceClass {
     isMod(): boolean { return this.currentRole === 'admin' || this.currentRole === 'moderator'; }
     isAdmin(): boolean { return this.currentRole === 'admin'; }
     isModerator(): boolean { return this.currentRole === 'moderator'; }
+    getCurrentUserId(): string | null { return this.currentUserId; }
+
+    /**
+     * Admin-only: list all registered users with their roles.
+     * Joins chat_profiles with chat_roles for a complete picture.
+     */
+    async listAllUsersWithRoles(): Promise<UserRoleEntry[]> {
+        if (!supabase || !this.isAdmin()) return [];
+
+        // Get all profiles
+        const { data: profiles } = await supabase
+            .from('chat_profiles')
+            .select('user_id, display_name, avatar_url, vessel_name')
+            .order('display_name', { ascending: true });
+
+        if (!profiles) return [];
+
+        // Get all roles
+        const { data: roles } = await supabase
+            .from(ROLES_TABLE)
+            .select('user_id, role, muted_until, is_blocked');
+
+        const roleMap = new Map<string, { role: ChatRole; muted_until: string | null; is_blocked: boolean }>();
+        if (roles) {
+            for (const r of roles) {
+                roleMap.set(r.user_id, {
+                    role: r.role as ChatRole,
+                    muted_until: r.muted_until,
+                    is_blocked: r.is_blocked || false,
+                });
+            }
+        }
+
+        return profiles.map(p => ({
+            user_id: p.user_id,
+            display_name: p.display_name || 'Unknown',
+            avatar_url: p.avatar_url || null,
+            vessel_name: p.vessel_name || null,
+            role: roleMap.get(p.user_id)?.role || 'member' as ChatRole,
+            muted_until: roleMap.get(p.user_id)?.muted_until || null,
+            is_blocked: roleMap.get(p.user_id)?.is_blocked || false,
+        }));
+    }
 
     isMuted(): boolean {
         // Platform-blocked users can never send
@@ -579,8 +632,10 @@ class ChatServiceClass {
     }
 
     async setRole(userId: string, role: ChatRole): Promise<boolean> {
-        // Only moderators can promote to admin; moderator promotion is owner-only (manual)
-        if (!supabase || !this.isModerator()) return false;
+        // Only admins can promote/demote roles
+        if (!supabase || !this.isAdmin()) return false;
+        // Cannot demote yourself
+        if (userId === this.currentUserId && role !== 'admin') return false;
 
         const { error } = await supabase
             .from(ROLES_TABLE)
@@ -594,9 +649,9 @@ class ChatServiceClass {
         return !error;
     }
 
-    /** Moderator-only: permanently block a user from the platform */
+    /** Admin-only: permanently block a user from the platform */
     async blockUserPlatform(userId: string): Promise<boolean> {
-        if (!supabase || !this.isModerator()) return false;
+        if (!supabase || !this.isAdmin()) return false;
         const { error } = await supabase
             .from(ROLES_TABLE)
             .upsert({
@@ -608,9 +663,9 @@ class ChatServiceClass {
         return !error;
     }
 
-    /** Moderator-only: unblock a platform-blocked user */
+    /** Admin-only: unblock a platform-blocked user */
     async unblockUserPlatform(userId: string): Promise<boolean> {
-        if (!supabase || !this.isModerator()) return false;
+        if (!supabase || !this.isAdmin()) return false;
         const { error } = await supabase
             .from(ROLES_TABLE)
             .update({ is_blocked: false })
