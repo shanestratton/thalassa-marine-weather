@@ -607,7 +607,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
                             Location {gpsLat ? '(auto-filled from GPS)' : ''}
                         </label>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                             <input
                                 value={locCountry}
                                 onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
