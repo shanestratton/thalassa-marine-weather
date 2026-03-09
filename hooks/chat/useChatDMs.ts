@@ -118,7 +118,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
         // State
         dmConversations,
         dmThread, setDmThread,
-        dmPartner,
+        dmPartner, setDmPartner,
         dmText, setDmText,
         isUserBlocked,
         showBlockConfirm, setShowBlockConfirm,
