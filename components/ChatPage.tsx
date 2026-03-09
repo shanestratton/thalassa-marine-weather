@@ -768,11 +768,14 @@ export const ChatPage: React.FC = () => {
 
         if (ok) {
             setProposalSent(true);
+            toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
             setTimeout(() => {
                 setShowProposalForm(false); setProposalSent(false);
                 setProposalName(''); setProposalDesc('');
                 setProposalIsPrivate(false); setProposalParentId(null);
             }, 2000);
+        } else {
+            toast.error('Failed to submit — please try again');
         }
     };
 
@@ -803,7 +806,10 @@ export const ChatPage: React.FC = () => {
         const ok = await ChatService.requestJoinChannel(joinRequestChannel.id, joinRequestMessage);
         if (ok) {
             setJoinRequestSent(true);
+            toast.success(`Request sent to ${joinRequestChannel.name}!`);
             setTimeout(() => setJoinRequestChannel(null), 2000);
+        } else {
+            toast.error('Failed to send request — you may already have a pending request');
         }
     };
 
@@ -1168,6 +1174,9 @@ export const ChatPage: React.FC = () => {
                         <div
                             className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
                             onClick={e => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label={`Request access to ${joinRequestChannel.name}`}
                         >
                             <div className="flex items-center gap-3">
                                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-xl">
@@ -1187,21 +1196,24 @@ export const ChatPage: React.FC = () => {
                                 value={joinRequestMessage}
                                 onChange={e => setJoinRequestMessage(e.target.value)}
                                 placeholder="Why do you want to join this channel?"
+                                aria-label="Join request message"
                                 rows={3}
-                                className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none"
+                                className="w-full px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
                             />
 
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setJoinRequestChannel(null)}
-                                    className="flex-1 py-2.5 rounded-xl bg-white/[0.04] text-xs text-white/60 font-medium"
+                                    aria-label="Cancel request"
+                                    className="flex-1 py-3 rounded-xl bg-white/[0.04] text-sm text-white/60 font-medium min-h-[48px]"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={handleSubmitJoinRequest}
                                     disabled={joinRequestSent}
-                                    className="flex-1 py-2.5 rounded-xl bg-purple-500/20 border border-purple-500/30 text-xs text-purple-400 font-bold active:scale-95 disabled:opacity-50"
+                                    aria-label="Submit join request"
+                                    className="flex-1 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 text-sm text-purple-400 font-bold active:scale-95 disabled:opacity-50 min-h-[48px]"
                                 >
                                     {joinRequestSent ? '✓ Request Sent!' : '🙏 Submit Request'}
                                 </button>
