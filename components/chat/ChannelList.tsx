@@ -39,6 +39,8 @@ interface ChannelListProps {
     setProposalDesc: (desc: string) => void;
     proposalSent: boolean;
     onProposeChannel: () => void;
+    isAdmin?: boolean;
+    onOpenAdmin?: () => void;
 }
 
 export const ChannelList: React.FC<ChannelListProps> = ({
@@ -55,8 +57,29 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     setProposalDesc,
     proposalSent,
     onProposeChannel,
+    isAdmin,
+    onOpenAdmin,
 }) => (
     <div className="px-4 py-3 pb-24 space-y-1.5">
+        {/* Admin Panel — gold crown card */}
+        {isAdmin && onOpenAdmin && (
+            <button
+                onClick={onOpenAdmin}
+                className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/[0.08] to-yellow-500/[0.04] hover:from-amber-500/[0.15] hover:to-yellow-500/[0.08] border border-amber-500/20 hover:border-amber-500/40 transition-all duration-200 active:scale-[0.98] mb-3"
+            >
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/20 to-yellow-600/10 border border-amber-500/30 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
+                    👑
+                </div>
+                <div className="text-left flex-1 min-w-0">
+                    <p className="text-lg font-semibold text-amber-400/90 group-hover:text-amber-300 transition-colors">Admin Panel</p>
+                    <p className="text-sm text-amber-400/40 truncate mt-0.5">Manage roles, mute & block users</p>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-amber-500/10 group-hover:bg-amber-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
+                    <span className="text-amber-400/30 group-hover:text-amber-400/70 text-xs transition-colors">›</span>
+                </div>
+            </button>
+        )}
+
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
         {channels
             .filter(ch => ch.name !== 'Lonely Hearts')
