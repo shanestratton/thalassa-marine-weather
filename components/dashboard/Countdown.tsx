@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 export const Countdown = ({ targetTime }: { targetTime: number | null }) => {
     const [timeLeft, setTimeLeft] = useState("Updating...");

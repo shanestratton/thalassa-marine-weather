@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { t } from '../../../theme';
+
 import { ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, DropletIcon, EyeIcon, SunriseIcon, SunsetIcon, SunIcon, GaugeIcon } from '../../Icons';
-import { convertTemp } from '../../../utils';
+
 import { UnitPreferences, WeatherMetrics } from '../../../types';
 import { CardDisplayValues } from './types';
 

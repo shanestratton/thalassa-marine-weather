@@ -1,12 +1,12 @@
 
-import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, GearIcon, MapIcon, ShipWheelIcon, BoatIcon, ServerIcon, StarIcon, AnchorIcon, ChatIcon } from './components/Icons';
+import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, ServerIcon, StarIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then(m => ({ default: m.ForecastSheet })));
 import { NotificationManager } from './components/NotificationManager';
@@ -17,7 +17,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
-import { NmeaGpsProvider } from './services/NmeaGpsProvider';
 import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
@@ -59,7 +58,7 @@ const EquipmentPage = lazyRetry(() => import('./components/vessel/EquipmentList'
 const DocumentsPage = lazyRetry(() => import('./components/vessel/DocumentsHub').then(m => ({ default: m.DocumentsHub })));
 const NmeaGatewayPage = lazyRetry(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
 const PolarPage = lazyRetry(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
-const WeatherMap = lazyRetry(() => import('./components/WeatherMap').then(module => ({ default: module.WeatherMap })));
+
 const MapHub = lazyRetry(() => import('./components/map/MapHub').then(m => ({ default: m.MapHub })));
 const OnboardingWizard = lazyRetry(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
 const WarningDetails = lazyRetry(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
@@ -93,12 +92,12 @@ const App: React.FC = () => {
     // 2. APP LOGIC / CONTROLLER
     const {
         query, bgImage, showOnboarding,
-        handleSearchSubmit, handleOnboardingComplete,
-        handleLocate, toggleFavorite, handleFavoriteSelect, handleMapTargetSelect,
+        handleOnboardingComplete,
+        toggleFavorite, handleFavoriteSelect, handleMapTargetSelect,
         effectiveMode,
-        sheetOpen, setSheetOpen, sheetData, setSheetData,
+        sheetOpen, setSheetOpen, sheetData,
         isUpgradeOpen, setIsUpgradeOpen, isMobileLandscape,
-        handleTabDashboard, handleTabMetrics, handleTabPassage, handleTabMap, handleTabSettings
+        handleTabDashboard, handleTabMap,
     } = useAppController();
 
     const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;

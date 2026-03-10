@@ -2,7 +2,7 @@
 import React from 'react';
 import { t } from '../../theme';
 import { Card } from './shared/Card';
-import { DiamondIcon, BoatIcon, PlayIcon, ShareIcon, SpeakerWaveIcon, QuoteIcon } from '../Icons';
+import { DiamondIcon, BoatIcon, ShareIcon, QuoteIcon } from '../Icons';
 
 import { LockerItem } from '../../types';
 
