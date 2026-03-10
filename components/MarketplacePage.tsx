@@ -39,6 +39,7 @@ import { UndoToast } from './ui/UndoToast';
 import { triggerHaptic } from '../utils/system';
 import { useSwipeable } from '../hooks/useSwipeable';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
 
 // --- CONSTANTS ---
 const MAX_PHOTOS = 20; // Pro users get 20 photos
@@ -587,6 +588,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [locationWarning, setLocationWarning] = useState<string | null>(null);
     const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
     // ── Boat-specific state ──
     const [boatMake, setBoatMake] = useState('');
@@ -752,7 +754,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     return (
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
-                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col"
+                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl flex flex-col"
+                style={{ maxHeight: 'calc(100dvh - 5rem - env(safe-area-inset-bottom, 0px))' }}
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header — sticky at top of modal */}
@@ -768,7 +771,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
+                <div ref={keyboardScrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
                     {/* Error */}
                     {error && (
                         <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
@@ -807,39 +810,18 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         />
                     </div>
 
-                    {/* Location (Country / State / Suburb — privacy safe, auto-filled from GPS) */}
+                    {/* Description */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
-                            Location {gpsLat ? '(auto-filled from GPS)' : ''}
-                        </label>
-                        <div className="flex gap-2 flex-wrap">
-                            <input
-                                value={locCountry}
-                                onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
-                                onFocus={scrollInputAboveKeyboard}
-                                placeholder="Country"
-                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                            />
-                            <input
-                                value={locState}
-                                onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
-                                onFocus={scrollInputAboveKeyboard}
-                                placeholder="State"
-                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                            />
-                            <input
-                                value={locSuburb}
-                                onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
-                                onFocus={scrollInputAboveKeyboard}
-                                placeholder="Suburb"
-                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
-                            />
-                        </div>
-                        {locationWarning && (
-                            <div className="mt-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400 leading-relaxed">
-                                {locationWarning}
-                            </div>
-                        )}
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Description</label>
+                        <textarea
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
+                            placeholder="Describe the item, any defects, model year, etc."
+                            rows={3}
+                            maxLength={1000}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors resize-none"
+                        />
                     </div>
 
                     {/* ═══ BOAT-SPECIFIC FIELDS ═══ */}
@@ -1018,20 +1000,6 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         </div>
                     </div>
 
-                    {/* Description */}
-                    <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Description</label>
-                        <textarea
-                            value={description}
-                            onChange={e => setDescription(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            placeholder="Describe the item, any defects, model year, etc."
-                            rows={3}
-                            maxLength={1000}
-                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white/80 placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors resize-none"
-                        />
-                    </div>
-
                     {/* Price + Currency */}
                     <div className="flex gap-3">
                         <div className="flex-1">
@@ -1055,6 +1023,41 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
+                    </div>
+
+                    {/* Location (Country / State / Suburb — privacy safe, auto-filled from GPS) */}
+                    <div>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                            Location {gpsLat ? '(auto-filled from GPS)' : ''}
+                        </label>
+                        <div className="flex gap-2 flex-wrap">
+                            <input
+                                value={locCountry}
+                                onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
+                                onFocus={scrollInputAboveKeyboard}
+                                placeholder="Country"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                            <input
+                                value={locState}
+                                onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
+                                onFocus={scrollInputAboveKeyboard}
+                                placeholder="State"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                            <input
+                                value={locSuburb}
+                                onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
+                                onFocus={scrollInputAboveKeyboard}
+                                placeholder="Suburb"
+                                className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                            />
+                        </div>
+                        {locationWarning && (
+                            <div className="mt-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-400 leading-relaxed">
+                                {locationWarning}
+                            </div>
+                        )}
                     </div>
 
 

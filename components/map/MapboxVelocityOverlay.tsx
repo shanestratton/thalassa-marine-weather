@@ -35,6 +35,8 @@ const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
 interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
+    windHour?: number;
+    windGrid?: any;  // WindGrid from WindStore
 }
 
 // Speed-based wind particle scale — steel blue → amber → coral
@@ -347,6 +349,8 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
 export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     mapboxMap,
     visible,
+    windHour = 0,
+    windGrid,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -399,6 +403,94 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.off('moveend', onMoveEnd);
         };
     }, [visible, mapboxMap]);
+
+    // ── Update velocity layer data when windHour changes (scrubber) ──
+    useEffect(() => {
+        if (!windGrid || !velocityLayerRef.current || !leafletMapRef.current) return;
+        const hFloat = Math.min(windHour, windGrid.totalHours - 1);
+        if (hFloat < 0) return;
+
+        const h0 = Math.floor(hFloat);
+        const h1 = Math.min(h0 + 1, windGrid.totalHours - 1);
+        const lerp = hFloat - h0; // 0.0 to ~0.9
+
+        // Get source data for both hours
+        const u0 = windGrid.u[h0];
+        const v0 = windGrid.v[h0];
+        const u1 = windGrid.u[h1];
+        const v1 = windGrid.v[h1];
+        if (!u0 || !v0) return;
+
+        const nx = windGrid.width;
+        const ny = windGrid.height;
+
+        // Interpolate U/V between hours and flip rows (south→north to north→south)
+        const uFlipped = new Array(nx * ny);
+        const vFlipped = new Array(nx * ny);
+        for (let row = 0; row < ny; row++) {
+            const srcRow = (ny - 1 - row) * nx;
+            const dstRow = row * nx;
+            for (let col = 0; col < nx; col++) {
+                const si = srcRow + col;
+                const di = dstRow + col;
+                if (lerp < 0.01 || !u1 || !v1) {
+                    // No interpolation needed — exact hour
+                    uFlipped[di] = u0[si];
+                    vFlipped[di] = v0[si];
+                } else {
+                    // Smooth blend between hours
+                    uFlipped[di] = u0[si] * (1 - lerp) + u1[si] * lerp;
+                    vFlipped[di] = v0[si] * (1 - lerp) + v1[si] * lerp;
+                }
+            }
+        }
+
+        const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
+        const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
+
+        const header = {
+            nx, ny, dx, dy,
+            lo1: windGrid.west,
+            lo2: windGrid.east,
+            la1: windGrid.north,
+            la2: windGrid.south,
+            parameterCategory: 2,
+            parameterNumber: 2,
+            parameterNumberName: 'U-component_of_wind',
+        };
+
+        const newData = [
+            { header: { ...header, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' }, data: uFlipped },
+            { header: { ...header, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' }, data: vFlipped },
+        ];
+
+        // Update wind data smoothly — bypass clearAndRestart to keep particles alive.
+        // Particles naturally pick up new wind vectors on their next animation frame.
+        try {
+            const vl = velocityLayerRef.current as any;
+            if (vl._windy) {
+                // Directly update the internal Windy grid — particles keep their positions
+                // and tails, but their movement direction shifts to match new wind data
+                vl._windy.setData(newData);
+                // Don't call clearAndRestart — that's what causes the "dots" reset
+            } else if (typeof vl.setData === 'function') {
+                vl.setData(newData);
+            } else {
+                // Fallback: recreate layer
+                if (leafletMapRef.current.hasLayer(velocityLayerRef.current)) {
+                    leafletMapRef.current.removeLayer(velocityLayerRef.current);
+                }
+                const layer = createVelocityLayer(newData);
+                layer.addTo(leafletMapRef.current);
+                velocityLayerRef.current = layer;
+            }
+
+            // Re-sync viewport to ensure wind stays geolocked
+            if (syncRef.current) syncRef.current();
+        } catch (err) {
+            log.error('[VelocityOverlay] Failed to update forecast hour:', err);
+        }
+    }, [windHour, windGrid]);
 
     // ── Heat map layer DISABLED — clean dark map with particles only ──
     // useEffect(() => {

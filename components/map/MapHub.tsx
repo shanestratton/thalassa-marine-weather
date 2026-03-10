@@ -190,7 +190,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-            {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} />}
+            {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} windHour={weather.windHour} windGrid={weather.windGridRef?.current} />}
 
             {/* ═══ LAYER LEGEND STRIP ═══ */}
             {!isPinView && <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />}
@@ -448,28 +448,117 @@ export const MapHub: React.FC<MapHubProps> = ({
                 />
             )}
 
-            {/* ═══ WIND SPEED LEGEND ═══ */}
-            {!isPinView && (weather.activeLayer === 'wind' || weather.activeLayer === 'velocity') && (
-                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5">
-                        <div className="flex items-center gap-1.5 px-1">
-                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Calm</span>
-                            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{
-                                background: 'linear-gradient(to right, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
-                            }} />
-                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Storm</span>
-                        </div>
-                        <div className="flex justify-between px-1 mt-1">
-                            {['0', '5', '10', '15', '20', '25', '35+'].map(l => (
-                                <span key={l} className="text-[7px] font-semibold text-white/30">{l}</span>
-                            ))}
-                        </div>
-                        <div className="flex justify-center mt-0.5">
-                            <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Wind Speed (kts)</span>
+            {/* ═══ WIND FORECAST SCRUBBER + LEGEND ═══ */}
+            {!isPinView && (weather.activeLayer === 'wind' || weather.activeLayer === 'velocity') && (() => {
+                const fhrs = weather.windForecastHoursRef.current;
+                const total = weather.windTotalHours;
+                const curIdx = weather.windHour;
+                const curPct = total > 1 ? (curIdx / (total - 1)) * 100 : 0;
+                const actualHour = fhrs[curIdx] ?? curIdx;
+                const hrLabel = actualHour === 0 ? 'Now' : `+${actualHour}h`;
+                const showScrubber = weather.windReady && total > 1;
+                return (
+                    <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
+                        <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-1.5">
+                            {/* Scrubber row */}
+                            {showScrubber && (
+                                <div className="flex items-center gap-3 mb-2">
+                                    <button
+                                        onClick={() => { weather.setWindPlaying(!weather.windPlaying); triggerHaptic('light'); }}
+                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
+                                    >
+                                        <span className="text-sm">{weather.windPlaying ? '⏸' : '▶️'}</span>
+                                    </button>
+
+                                    <div
+                                        className="flex-1 relative h-10 flex items-center cursor-pointer"
+                                        style={{ touchAction: 'none' }}
+                                        onPointerDown={e => {
+                                            e.preventDefault(); e.stopPropagation();
+                                            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                            const idx = Math.round(ratio * (total - 1));
+                                            weather.setWindPlaying(false);
+                                            weather.setWindHour(idx);
+                                            triggerHaptic('light');
+                                        }}
+                                        onPointerMove={e => {
+                                            if (e.buttons === 0) return;
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                            const idx = Math.round(ratio * (total - 1));
+                                            weather.setWindPlaying(false);
+                                            weather.setWindHour(idx);
+                                        }}
+                                    >
+                                        {/* Track background */}
+                                        <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+                                            {/* Progress fill */}
+                                            <div
+                                                className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
+                                                style={{
+                                                    width: `${curPct}%`,
+                                                    background: actualHour === 0
+                                                        ? 'rgba(56, 189, 248, 0.5)'
+                                                        : 'linear-gradient(90deg, rgba(56,189,248,0.5), rgba(251,191,36,0.5))',
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* "Now" marker at 0% */}
+                                        {total > 2 && (
+                                            <div className="absolute top-1/2 pointer-events-none flex flex-col items-center"
+                                                style={{ left: '0%', transform: 'translate(-50%, -50%)' }}
+                                            >
+                                                <div className="w-2.5 h-2.5 bg-white rounded-sm rotate-45 shadow-md shadow-white/20 border border-white/60" />
+                                            </div>
+                                        )}
+
+                                        {/* Scrubber thumb */}
+                                        <div
+                                            className="absolute top-1/2 w-5 h-5 rounded-full shadow-lg border-2 border-white/40 pointer-events-none transition-colors duration-200"
+                                            style={{
+                                                left: `${curPct}%`,
+                                                transform: 'translate(-50%, -50%)',
+                                                background: actualHour === 0 ? '#38bdf8' : '#fbbf24',
+                                                boxShadow: actualHour === 0
+                                                    ? '0 4px 12px rgba(56,189,248,0.3)'
+                                                    : '0 4px 12px rgba(251,191,36,0.3)',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Time label */}
+                                    <div className="shrink-0 text-right min-w-[52px]">
+                                        <p className="text-xs font-black text-white leading-tight">{hrLabel}</p>
+                                        <p className={`text-[9px] font-black uppercase tracking-widest leading-tight mt-0.5 ${actualHour === 0 ? 'text-sky-400/70' : 'text-amber-400'}`}>
+                                            {actualHour === 0 ? 'Current' : '⬤ Forecast'}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Wind speed legend */}
+                            <div className="flex items-center gap-1.5 px-1">
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Calm</span>
+                                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{
+                                    background: 'linear-gradient(to right, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
+                                }} />
+                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Storm</span>
+                            </div>
+                            <div className="flex justify-between px-1 mt-1">
+                                {['0', '5', '10', '15', '20', '25', '35+'].map(l => (
+                                    <span key={l} className="text-[7px] font-semibold text-white/30">{l}</span>
+                                ))}
+                            </div>
+                            <div className="flex justify-center mt-0.5">
+                                <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Wind Speed (kts)</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ═══ TEMPERATURE LEGEND ═══ */}
             {!isPinView && weather.activeLayer === 'temperature' && (

@@ -1,5 +1,5 @@
 
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
@@ -81,6 +81,8 @@ const App: React.FC = () => {
 
     // Unread DM count for Chat tab badge
     const [chatUnread, setChatUnread] = useState(0);
+    // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
+    const mapFromWxRef = useRef(false);
     useEffect(() => {
         const poll = () => ChatService.getUnreadDMCount().then(n => setChatUnread(n)).catch(() => { });
         poll();
@@ -94,7 +96,7 @@ const App: React.FC = () => {
     const {
         query, bgImage, showOnboarding,
         handleOnboardingComplete,
-        toggleFavorite, handleFavoriteSelect, handleMapTargetSelect,
+        toggleFavorite, handleFavoriteSelect, handleMapTargetSelect, handleMapStaySelect,
         effectiveMode,
         sheetOpen, setSheetOpen, sheetData,
         isUpgradeOpen, setIsUpgradeOpen, isMobileLandscape,
@@ -316,7 +318,7 @@ const App: React.FC = () => {
                                             readOnly
                                             placeholder="Select via Map..."
                                             className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 border border-white/10'}`}
-                                            onClick={() => setPage('map')}
+                                            onClick={() => { mapFromWxRef.current = true; setPage('map'); }}
                                         />
                                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
@@ -330,7 +332,7 @@ const App: React.FC = () => {
                                             <div className="w-px h-4 bg-white/20 mx-1"></div>
                                             <button
                                                 type="button"
-                                                onClick={() => setPage('map')}
+                                                onClick={() => { mapFromWxRef.current = true; setPage('map'); }}
                                                 className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
                                             >
                                                 <MapIcon className="w-4 h-4" />
@@ -371,7 +373,7 @@ const App: React.FC = () => {
                                                             </div>
                                                         ) : (
                                                             <Dashboard
-                                                                onOpenMap={() => setPage('map')}
+                                                                onOpenMap={() => { mapFromWxRef.current = true; setPage('map'); }}
                                                                 onTriggerUpgrade={() => setIsUpgradeOpen(true)}
                                                                 displayTitle={displayTitle}
                                                                 timeZone={weatherData?.timeZone}
@@ -439,7 +441,10 @@ const App: React.FC = () => {
                                 <MapHub
                                     mapboxToken={settings.mapboxToken}
                                     homePort={settings.defaultLocation}
-                                    onLocationSelect={handleMapTargetSelect}
+                                    onLocationSelect={(lat: number, lon: number, name?: string) => {
+                                        if (mapFromWxRef.current) { mapFromWxRef.current = false; handleMapTargetSelect(lat, lon, name); }
+                                        else { handleMapStaySelect(lat, lon, name); }
+                                    }}
                                 />
                             </Suspense>
                         </ErrorBoundary>
@@ -484,7 +489,7 @@ const App: React.FC = () => {
                     <div className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
                         <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
                             <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={handleTabMap} />
+                            <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={() => { mapFromWxRef.current = false; handleTabMap(); }} />
                             <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} badge={chatUnread > 0 ? chatUnread : undefined} />
                             <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Vessel" active={isVesselView} onClick={() => setPage('vessel')} />
                         </div>
