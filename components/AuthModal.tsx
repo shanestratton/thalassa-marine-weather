@@ -5,6 +5,7 @@ import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
+import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -50,6 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }, [step]);
 
     const focusTrapRef = useFocusTrap(isOpen);
+    const keyboardRef = useKeyboardScroll<HTMLDivElement>();
 
     if (!isOpen) return null;
 
@@ -157,10 +159,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
+        <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
             <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
-            <div className="relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95">
+            <div ref={keyboardRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95 my-auto`}>
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
                     <XIcon className="w-5 h-5" />
                 </button>

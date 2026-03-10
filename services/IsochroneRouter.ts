@@ -229,6 +229,14 @@ function isSegmentNavigable(
     const segDist = stepDistanceNM && stepDistanceNM > 0
         ? stepDistanceNM
         : haversineNm(lat1, lon1, lat2, lon2);
+
+    // Fix 4: Also check destination endpoint (catches narrow spits the interior misses)
+    const depthEnd = getDepthFromCache(grid, lat2, lon2);
+    if (depthEnd !== null) {
+        if (depthEnd >= 0) return false;
+        if (!landOnly && depthEnd > REEF_REJECTION_DEPTH_M) return false;
+    }
+
     const numSamples = Math.floor(segDist / SAMPLE_SPACING_NM);
     if (numSamples < 1) return true; // Short segment — endpoint check is sufficient
 
@@ -576,10 +584,27 @@ export async function computeIsochrones(
                     break;
                 }
                 // Graceful degradation: if ALL candidates crossed land, keep the best
-                // one anyway. This prevents sectors from dying off over many steps,
-                // which would eventually starve the entire wavefront.
+                // one BUT nudge it to the nearest navigable water. This keeps sectors
+                // alive near coastlines without poisoning the wavefront with land nodes.
                 if (!found && sectorCandidates.length > 0) {
-                    finalFront.push(sectorCandidates[0]);
+                    const best = sectorCandidates[0];
+                    // Try pushing the node perpendicular to its bearing to find water
+                    const leftBrg = (best.bearing - 90 + 360) % 360;
+                    const rightBrg = (best.bearing + 90) % 360;
+                    let nudged = false;
+                    for (const pushNM of [5, 10, 20, 30]) {
+                        for (const brg of [leftBrg, rightBrg]) {
+                            const pt = projectPosition(best.lat, best.lon, brg, pushNM);
+                            if (!isLand(bathyGrid, pt.lat, pt.lon)) {
+                                finalFront.push({ ...best, lat: pt.lat, lon: pt.lon });
+                                nudged = true;
+                                break;
+                            }
+                        }
+                        if (nudged) break;
+                    }
+                    // Last resort: keep on land (sector survival > purity)
+                    if (!nudged) finalFront.push(best);
                 }
             }
         } else {
@@ -617,9 +642,9 @@ export async function computeIsochrones(
     // ── Push land-clipped segments offshore ──
     if (bathyGrid) {
         smoothed = pushRouteOffshore(smoothed, bathyGrid);
-        // Second DP pass (fixed 30NM tolerance) to clean up zigzags from pushRouteOffshore
-        // Use a small fixed tolerance — not the dynamic one that scales up to 200NM
-        const CLEANUP_TOL_NM = 60;
+        // Fix 2: Land-aware cleanup DP — only simplify if the simplified segment is navigable
+        // This prevents re-introducing land clips that pushRouteOffshore just fixed.
+        const CLEANUP_TOL_NM = 40; // Reduced from 60 for tighter coastal adherence
         if (smoothed.length > 3) {
             const keep2 = new Array(smoothed.length).fill(false);
             keep2[0] = true;
@@ -634,13 +659,26 @@ export async function computeIsochrones(
                     const ct = ab > 0.01 ? (2 * Math.sqrt(Math.max(0, ss * (ss - ab) * (ss - ap) * (ss - bp)))) / ab : ap;
                     if (ct > mx) { mx = ct; mi = i; }
                 }
-                if (mx > CLEANUP_TOL_NM) { keep2[mi] = true; dpClean(pts, s, mi); dpClean(pts, mi, e); }
+                if (mx > CLEANUP_TOL_NM) {
+                    // Land-awareness: always keep this waypoint if removing it creates a land clip
+                    if (!isSegmentNavigable(bathyGrid, pts[s].lat, pts[s].lon, pts[e].lat, pts[e].lon, 0, true)) {
+                        // The A→B shortcut crosses land — keep ALL intermediate points
+                        for (let i = s + 1; i < e; i++) keep2[i] = true;
+                    } else {
+                        keep2[mi] = true;
+                    }
+                    dpClean(pts, s, mi); dpClean(pts, mi, e);
+                }
             };
             dpClean(smoothed, 0, smoothed.length - 1);
             smoothed = smoothed.filter((_, i) => keep2[i]);
         }
-        // Final offshore push to fix land clips created by the cleanup DP
+        // Final offshore push to fix any remaining land clips
         smoothed = pushRouteOffshore(smoothed, bathyGrid);
+        // ── Eliminate crossing segments (sharp U-turns from backtracking) ──
+        smoothed = eliminateCrossings(smoothed, bathyGrid);
+        // ── Nudge individual waypoints that are on/near land further offshore ──
+        smoothed = nudgeWaypointsOffshore(smoothed, bathyGrid);
     }
 
     const arrivalTimeMs = depTime.getTime() + arrivalNode.timeHours * 3600000;
@@ -761,23 +799,31 @@ function backtrack(
 /**
  * Simplify the route using the Douglas-Peucker algorithm.
  *
+ * LAND-AWARE: Never simplifies a segment that would cross land.
  * Removes waypoints that are within TOLERANCE_NM of the simplified line,
  * eliminating zigzag noise while preserving the overall route shape.
  * Always preserves the first and last waypoints.
- * pushRouteOffshore() handles any land clips created by simplification.
  */
-function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null): IsochroneNode[] {
+function smoothRoute(route: IsochroneNode[], bathyGrid?: BathymetryGrid | null): IsochroneNode[] {
     if (route.length <= 3) return route;
 
-    // Dynamic tolerance: longer routes need more aggressive simplification
-    // pushRouteOffshore() re-adds clean offshore arcs where DP creates land clips
-    const minTol = 20, maxTol = 200;
-    const t = Math.min(1, Math.max(0, (route.length - 20) / 80)); // 0 at 20 pts, 1 at 100 pts
+    // Dynamic tolerance: scale with route length but cap conservatively
+    // to avoid creating 500NM segments that span continents
+    const minTol = 15, maxTol = 80; // Reduced from 200 max
+    const t = Math.min(1, Math.max(0, (route.length - 20) / 80));
     const TOLERANCE_NM = minTol + t * (maxTol - minTol);
 
-    // Douglas-Peucker recursive simplification
+    // Douglas-Peucker recursive simplification — LAND-AWARE
     function dpSimplify(points: IsochroneNode[], start: number, end: number, keep: boolean[]): void {
         if (end - start < 2) return;
+
+        // LAND-AWARENESS: If the A→B shortcut crosses land, we MUST keep at least
+        // one intermediate point. Instead of keeping ALL (which preserves zigzags),
+        // find the DP pivot (max cross-track deviation) and force-keep it, then
+        // recurse into both halves. This finds the minimum waypoint set to avoid land.
+        const crossesLand = bathyGrid && !isSegmentNavigable(bathyGrid,
+            points[start].lat, points[start].lon,
+            points[end].lat, points[end].lon, 0, true);
 
         const A = points[start];
         const B = points[end];
@@ -788,12 +834,11 @@ function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null)
 
         for (let i = start + 1; i < end; i++) {
             const P = points[i];
-            // Cross-track distance from P to line A→B using triangle area
             const apDist = haversineNm(A.lat, A.lon, P.lat, P.lon);
             const bpDist = haversineNm(B.lat, B.lon, P.lat, P.lon);
             let crossTrack: number;
             if (abDist < 0.01) {
-                crossTrack = apDist; // A and B are same point
+                crossTrack = apDist;
             } else {
                 const s = (abDist + apDist + bpDist) / 2;
                 const areaSq = s * (s - abDist) * (s - apDist) * (s - bpDist);
@@ -805,7 +850,10 @@ function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null)
             }
         }
 
-        if (maxDist > TOLERANCE_NM) {
+        // When shortcut crosses land: ALWAYS keep the pivot and recurse
+        // (even if deviation is below tolerance — we need waypoints to avoid land)
+        // Normal mode: only keep if deviation exceeds tolerance
+        if (crossesLand || maxDist > TOLERANCE_NM) {
             keep[maxIdx] = true;
             dpSimplify(points, start, maxIdx, keep);
             dpSimplify(points, maxIdx, end, keep);
@@ -823,16 +871,115 @@ function smoothRoute(route: IsochroneNode[], _bathyGrid?: BathymetryGrid | null)
 /**
  * Post-process: push segments that clip land offshore.
  *
- * For each segment A→B, if it crosses land, insert an intermediate waypoint
- * at the midpoint pushed perpendicular to the segment bearing (towards open water).
- * Push distance scales with segment length to avoid criss-crossing in tight corridors.
- * Iterates up to 5 passes to handle multiple clips.
+ * For each segment A→B, if it crosses land, insert intermediate waypoints
+ * pushed perpendicular to the segment bearing (towards open water).
+ * 
+ * RECURSIVE SUBDIVISION: For long segments (>100NM) that can't be fixed with
+ * a single push (e.g., continental crossings), recursively subdivide and push
+ * each sub-segment independently. This naturally traces around coastlines.
+ *
+ * Iterates up to 10 passes over the full route.
  */
 function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): IsochroneNode[] {
-    const MAX_PUSH_NM = 30; // Cap: never push farther than 30 NM
-    const MIN_PUSH_NM = 5;  // Floor: always push at least 5 NM
-    const MAX_PASSES = 5;
+    const MAX_PUSH_NM = 60;
+    const MIN_PUSH_NM = 5;
+    const MAX_PASSES = 10;
+    const MAX_RECURSION = 6; // 2^6 = 64 sub-segments max
     let result = [...route];
+
+    /**
+     * Try to fix a single land-crossing segment by pushing a midpoint offshore.
+     * Returns the offshore node if successful, null otherwise.
+     */
+    function tryPushMidpoint(
+        a: IsochroneNode, b: IsochroneNode,
+    ): IsochroneNode | null {
+        const midLat = (a.lat + b.lat) / 2;
+        const midLon = (a.lon + b.lon) / 2;
+        const segBearing = initialBearing(a.lat, a.lon, b.lat, b.lon);
+        const segLen = haversineNm(a.lat, a.lon, b.lat, b.lon);
+        const leftBearing = (segBearing - 90 + 360) % 360;
+        const rightBearing = (segBearing + 90) % 360;
+
+        // Escalate push distance: 50%, 100%, 150% of segment length
+        for (const multiplier of [0.5, 1.0, 1.5]) {
+            const pushNM = Math.min(MAX_PUSH_NM, Math.max(MIN_PUSH_NM, segLen * multiplier));
+            for (const bearing of [leftBearing, rightBearing]) {
+                const pt = projectPosition(midLat, midLon, bearing, pushNM);
+                if (!isLand(grid, pt.lat, pt.lon) &&
+                    isSegmentNavigable(grid, a.lat, a.lon, pt.lat, pt.lon, 0, true) &&
+                    isSegmentNavigable(grid, pt.lat, pt.lon, b.lat, b.lon, 0, true)) {
+                    return {
+                        lat: pt.lat, lon: pt.lon,
+                        timeHours: (a.timeHours + b.timeHours) / 2,
+                        bearing: segBearing,
+                        speed: (a.speed + b.speed) / 2,
+                        tws: (a.tws + b.tws) / 2,
+                        twa: (a.twa + b.twa) / 2,
+                        parentIndex: null,
+                        distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Recursively subdivide a land-crossing segment and push each half offshore.
+     * Returns an array of intermediate waypoints (excluding a and b themselves).
+     */
+    function subdivideAndPush(
+        a: IsochroneNode, b: IsochroneNode, depth: number,
+    ): IsochroneNode[] {
+        if (depth >= MAX_RECURSION) return [];
+        if (isSegmentNavigable(grid, a.lat, a.lon, b.lat, b.lon, 0, true)) return [];
+
+        // Try a direct push first
+        const pushed = tryPushMidpoint(a, b);
+        if (pushed) return [pushed];
+
+        // Direct push failed — segment too long or complex coastline.
+        // Subdivide at the midpoint and recursively fix each half.
+        const midLat = (a.lat + b.lat) / 2;
+        const midLon = (a.lon + b.lon) / 2;
+        const segBearing = initialBearing(a.lat, a.lon, b.lat, b.lon);
+
+        // Find the closest navigable point to the midpoint
+        // Try pushing the midpoint itself to water
+        const leftBearing = (segBearing - 90 + 360) % 360;
+        const rightBearing = (segBearing + 90) % 360;
+        const segLen = haversineNm(a.lat, a.lon, b.lat, b.lon);
+
+        let midNode: IsochroneNode | null = null;
+        for (const mult of [0.3, 0.5, 0.8, 1.0, 1.5]) {
+            const pushDist = Math.min(MAX_PUSH_NM, Math.max(MIN_PUSH_NM, segLen * mult));
+            for (const brg of [leftBearing, rightBearing]) {
+                const pt = projectPosition(midLat, midLon, brg, pushDist);
+                if (!isLand(grid, pt.lat, pt.lon)) {
+                    midNode = {
+                        lat: pt.lat, lon: pt.lon,
+                        timeHours: (a.timeHours + b.timeHours) / 2,
+                        bearing: segBearing,
+                        speed: (a.speed + b.speed) / 2,
+                        tws: (a.tws + b.tws) / 2,
+                        twa: (a.twa + b.twa) / 2,
+                        parentIndex: null,
+                        distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
+                    };
+                    break;
+                }
+            }
+            if (midNode) break;
+        }
+
+        if (!midNode) return []; // Can't find water — give up
+
+        // Recurse on both halves
+        const leftFixes = subdivideAndPush(a, midNode, depth + 1);
+        const rightFixes = subdivideAndPush(midNode, b, depth + 1);
+        return [...leftFixes, midNode, ...rightFixes];
+    }
 
     for (let pass = 0; pass < MAX_PASSES; pass++) {
         const fixed: IsochroneNode[] = [result[0]];
@@ -842,47 +989,11 @@ function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): Isochr
             const a = result[i];
             const b = result[i + 1];
 
-            if (!isSegmentNavigable(grid, a.lat, a.lon, b.lat, b.lon)) {
-                // This segment clips land — insert a midpoint pushed offshore
-                const midLat = (a.lat + b.lat) / 2;
-                const midLon = (a.lon + b.lon) / 2;
-                const segBearing = initialBearing(a.lat, a.lon, b.lat, b.lon);
-                const segLen = haversineNm(a.lat, a.lon, b.lat, b.lon);
-
-                // Scale push proportionally to segment length to avoid overshooting
-                // in tight corridors. Use half the segment length, clamped.
-                const pushNM = Math.min(MAX_PUSH_NM, Math.max(MIN_PUSH_NM, segLen * 0.5));
-
-                // Try pushing perpendicular left and right; pick the one in deeper water
-                const leftBearing = (segBearing - 90 + 360) % 360;
-                const rightBearing = (segBearing + 90) % 360;
-                const leftPt = projectPosition(midLat, midLon, leftBearing, pushNM);
-                const rightPt = projectPosition(midLat, midLon, rightBearing, pushNM);
-
-                const leftDepth = getDepthFromCache(grid, leftPt.lat, leftPt.lon);
-                const rightDepth = getDepthFromCache(grid, rightPt.lat, rightPt.lon);
-
-                // Pick the side with deeper water (more negative = deeper)
-                const useLeft = (leftDepth ?? 0) < (rightDepth ?? 0);
-                const offshore = useLeft ? leftPt : rightPt;
-
-                // Only insert if:
-                // 1. The offshore point is actually in water
-                // 2. The insert→B segment doesn't cross back over A (anti-criss-cross)
-                if (!isLand(grid, offshore.lat, offshore.lon) &&
-                    isSegmentNavigable(grid, a.lat, a.lon, offshore.lat, offshore.lon, 0, true)) {
-                    const insertNode: IsochroneNode = {
-                        lat: offshore.lat,
-                        lon: offshore.lon,
-                        timeHours: (a.timeHours + b.timeHours) / 2,
-                        bearing: segBearing,
-                        speed: (a.speed + b.speed) / 2,
-                        tws: (a.tws + b.tws) / 2,
-                        twa: (a.twa + b.twa) / 2,
-                        parentIndex: null,
-                        distance: a.distance + haversineNm(a.lat, a.lon, offshore.lat, offshore.lon),
-                    };
-                    fixed.push(insertNode);
+            if (!isSegmentNavigable(grid, a.lat, a.lon, b.lat, b.lon, 0, true)) {
+                // Try recursive subdivision for this land-crossing segment
+                const intermediates = subdivideAndPush(a, b, 0);
+                if (intermediates.length > 0) {
+                    fixed.push(...intermediates);
                     didFix = true;
                 }
             }
@@ -891,6 +1002,111 @@ function pushRouteOffshore(route: IsochroneNode[], grid: BathymetryGrid): Isochr
 
         result = fixed;
         if (!didFix) break;
+    }
+
+    return result;
+}
+
+/**
+ * Eliminate crossing segments caused by sharp U-turns in the backtracked route.
+ * 
+ * For each triplet A→B→C, measures the bearing change at B. If the route
+ * makes a sharp reversal (>100°) and the direct A→C path is navigable,
+ * removes B. Multiple passes handle cascading crossings.
+ */
+function eliminateCrossings(route: IsochroneNode[], grid: BathymetryGrid): IsochroneNode[] {
+    const MAX_PASSES = 5;
+    let result = [...route];
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+        if (result.length <= 3) break;
+        const toRemove = new Set<number>();
+
+        for (let i = 1; i < result.length - 1; i++) {
+            if (toRemove.has(i)) continue;
+            const A = result[i - 1];
+            const B = result[i];
+            const C = result[i + 1];
+
+            // Calculate bearing change at B
+            const bearingAB = initialBearing(A.lat, A.lon, B.lat, B.lon);
+            const bearingBC = initialBearing(B.lat, B.lon, C.lat, C.lon);
+            let bearingChange = Math.abs(bearingBC - bearingAB);
+            if (bearingChange > 180) bearingChange = 360 - bearingChange;
+
+            // Sharp reversal (>100°) — likely a backtracking zigzag
+            if (bearingChange > 100) {
+                // Can we skip B and go directly A→C without crossing land?
+                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
+                    toRemove.add(i);
+                }
+            }
+        }
+
+        if (toRemove.size === 0) break;
+        result = result.filter((_, i) => !toRemove.has(i));
+    }
+
+    return result;
+}
+
+/**
+ * Check if a point has any land in its immediate neighbourhood (8 adjacent grid cells).
+ * Used to detect near-shore positions that should be pushed further offshore.
+ */
+function hasAdjacentLand(grid: BathymetryGrid, lat: number, lon: number): boolean {
+    const step = Math.max(grid.latStep, grid.lonStep);
+    for (const dLat of [-step, 0, step]) {
+        for (const dLon of [-step, 0, step]) {
+            if (dLat === 0 && dLon === 0) continue;
+            if (isLand(grid, lat + dLat, lon + dLon)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Post-process: nudge individual waypoints that are on or near land further offshore.
+ * 
+ * Unlike pushRouteOffshore (which fixes segments), this fixes individual POINTS.
+ * A waypoint might pass the segment check but still be positioned on a narrow
+ * coastal strip or right at the shoreline due to grid resolution (~6NM cells).
+ * 
+ * For each interior waypoint, if it's on land OR adjacent to land, push it
+ * perpendicular to the route direction until it's in clear, deep water.
+ * Preserves departure and arrival waypoints.
+ */
+function nudgeWaypointsOffshore(route: IsochroneNode[], grid: BathymetryGrid): IsochroneNode[] {
+    if (route.length <= 2) return route;
+    const result = [...route];
+
+    for (let i = 1; i < result.length - 1; i++) {
+        const node = result[i];
+        const onLand = isLand(grid, node.lat, node.lon);
+        const nearShore = !onLand && hasAdjacentLand(grid, node.lat, node.lon);
+
+        if (!onLand && !nearShore) continue;
+
+        // Determine route bearing at this point for perpendicular push direction
+        const prev = result[i - 1];
+        const next = result[i + 1];
+        const avgBearing = initialBearing(prev.lat, prev.lon, next.lat, next.lon);
+        const leftBrg = (avgBearing - 90 + 360) % 360;
+        const rightBrg = (avgBearing + 90) % 360;
+
+        // Push until in clear water (no adjacent land)
+        let nudged = false;
+        for (const pushNM of [5, 10, 15, 20, 30]) {
+            for (const brg of [leftBrg, rightBrg]) {
+                const pt = projectPosition(node.lat, node.lon, brg, pushNM);
+                if (!isLand(grid, pt.lat, pt.lon) && !hasAdjacentLand(grid, pt.lat, pt.lon)) {
+                    result[i] = { ...node, lat: pt.lat, lon: pt.lon };
+                    nudged = true;
+                    break;
+                }
+            }
+            if (nudged) break;
+        }
     }
 
     return result;

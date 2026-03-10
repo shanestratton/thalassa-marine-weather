@@ -66,26 +66,59 @@ const EssentialMapSlide: React.FC<{
 
     useEffect(() => {
         let cancelled = false;
-        fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' })
-            .then(r => r.json())
-            .then(data => {
+        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+
+        (async () => {
+            try {
+                // 1. RainViewer radar + nowcast
+                const rvResp = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' });
+                const data = await rvResp.json();
                 if (cancelled) return;
+
                 const nowSec = Date.now() / 1000;
-                const maxAge = 3 * 60 * 60; // 3 hours max
-                const allPast = (data?.radar?.past ?? [])
-                    .map((f: any) => ({ path: f.path, time: f.time }));
-                // Prefer recent frames, but fall back to ALL if none pass the freshness filter
+                const maxAge = 3 * 60 * 60;
+                const allPast = (data?.radar?.past ?? []).map((f: any) => ({ path: f.path, time: f.time }));
                 const fresh = allPast.filter((f: { time: number }) => nowSec - f.time < maxAge);
                 const past = fresh.length > 0 ? fresh : allPast;
-                const forecast = (data?.radar?.nowcast ?? [])
-                    .map((f: any) => ({ path: f.path, time: f.time }));
-                const all = [...past, ...forecast];
-                setRadarFrames(all);
+                const nowcast = (data?.radar?.nowcast ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+
+                type EssentialFrame = { path: string; time: number; type: 'radar' | 'forecast'; forecastSecs?: number; snapshot?: number };
+                const all: EssentialFrame[] = [
+                    ...past.map((f: any) => ({ ...f, type: 'radar' as const })),
+                    ...nowcast.map((f: any) => ({ ...f, type: 'radar' as const })),
+                ];
                 const ni = Math.max(0, past.length - 1);
-                setNowIdx(ni);
-                setActiveFrame(ni);
-            })
-            .catch(() => { });
+
+                // 2. Rainbow.ai forecast (up to 4hr)
+                if (supabaseUrl) {
+                    try {
+                        const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`);
+                        if (snapResp.ok && !cancelled) {
+                            const snapData = await snapResp.json();
+                            const snapshot = snapData.snapshot;
+                            if (snapshot) {
+                                const FORECAST_MINS = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
+                                for (const mins of FORECAST_MINS) {
+                                    all.push({
+                                        path: '', // Not a RainViewer path — tile URL built from snapshot
+                                        time: nowSec + mins * 60,
+                                        type: 'forecast',
+                                        forecastSecs: mins * 60,
+                                        snapshot,
+                                    });
+                                }
+                            }
+                        }
+                    } catch (_) { /* Rainbow.ai optional — use radar only */ }
+                }
+
+                if (!cancelled) {
+                    setRadarFrames(all);
+                    setNowIdx(ni);
+                    setActiveFrame(ni);
+                }
+            } catch (_) { /* silent fail */ }
+        })();
         return () => { cancelled = true; };
     }, []);
 
@@ -192,35 +225,47 @@ const EssentialMapSlide: React.FC<{
                 )}
 
 
-                {/* Layer 2: Looping rain radar */}
-                {radarFrames.length > 0 && tileGrid.length > 0 && (
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                        {radarFrames.map((frame, idx) => (
-                            <div
-                                key={frame.path}
-                                className="absolute inset-0"
-                                style={{
-                                    opacity: idx === activeFrame ? 0.65 : 0,
-                                    transition: 'opacity 400ms ease',
-                                }}
-                            >
-                                {/* Only render tiles for frames near the active one (±2) to save memory */}
-                                {(Math.abs(idx - activeFrame) <= 2 || idx === activeFrame) && tileGrid.map(t => (
-                                    <img
-                                        key={`${frame.path}-${t.key}`}
-                                        src={`https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`}
-                                        alt=""
-                                        className="absolute"
-                                        style={{ left: t.left, top: t.top, width: tileSize, height: tileSize }}
-                                        loading="lazy"
-                                        draggable={false}
-                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                    />
-                                ))}
-                            </div>
-                        ))}
-                    </div>
-                )}
+                {/* Layer 2: Looping rain radar + forecast */}
+                {radarFrames.length > 0 && tileGrid.length > 0 && (() => {
+                    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+                    return (
+                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                            {radarFrames.map((frame, idx) => {
+                                const isForecst = (frame as any).type === 'forecast';
+                                const frameKey = isForecst ? `fc-${(frame as any).forecastSecs}` : frame.path;
+                                return (
+                                    <div
+                                        key={frameKey}
+                                        className="absolute inset-0"
+                                        style={{
+                                            opacity: idx === activeFrame ? 0.65 : 0,
+                                            transition: 'opacity 400ms ease',
+                                        }}
+                                    >
+                                        {/* Preload nearby frames for smooth scrubbing */}
+                                        {(Math.abs(idx - activeFrame) <= 3 || idx === activeFrame) && tileGrid.map(t => {
+                                            const src = isForecst
+                                                ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${(frame as any).snapshot}&forecast=${(frame as any).forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
+                                                : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
+                                            return (
+                                                <img
+                                                    key={`${frameKey}-${t.key}`}
+                                                    src={src}
+                                                    alt=""
+                                                    className="absolute"
+                                                    style={{ left: t.left, top: t.top, width: tileSize, height: tileSize }}
+                                                    loading="lazy"
+                                                    draggable={false}
+                                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })()}
 
 
                 {/* Layer 3: Vignette */}
@@ -313,7 +358,7 @@ const EssentialMapSlide: React.FC<{
                     </div>
                 )}
 
-                {/* Layer 6: Time label + LIVE badge — top-left */}
+                {/* Layer 6: Time label + LIVE/FORECAST badge — top-left */}
                 <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                     {isLive && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/20">
@@ -321,7 +366,14 @@ const EssentialMapSlide: React.FC<{
                             <span className="text-[8px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
                         </div>
                     )}
-                    {timeLabel && !isLive && (
+                    {(radarFrames[activeFrame] as any)?.type === 'forecast' && (
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/20">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            <span className="text-[8px] text-amber-300/80 font-bold tracking-wider">FORECAST</span>
+                            <span className="text-[8px] text-amber-300/50 font-mono font-semibold">{timeLabel}</span>
+                        </div>
+                    )}
+                    {timeLabel && !isLive && (radarFrames[activeFrame] as any)?.type !== 'forecast' && (
                         <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
                             <span className="text-[9px] text-white/50 font-mono font-semibold tabular-nums">{timeLabel}</span>
                         </div>

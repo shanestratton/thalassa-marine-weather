@@ -740,7 +740,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Complete button */}
-                        <div className="shrink-0 px-4 pt-3 bg-slate-950" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+                        <div className="shrink-0 px-4 pt-3 bg-slate-950" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}>
                             <button
                                 onClick={completeRun}
                                 className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${runFailCount > 0

@@ -197,7 +197,7 @@ export function useWeatherLayers(
 
     // ── Wind scrubber: update GL engine on hour change ──
     useEffect(() => {
-        if (activeLayer !== 'wind' || !windEngineRef.current || !windGridRef.current) return;
+        if ((activeLayer !== 'wind' && activeLayer !== 'velocity') || !windEngineRef.current || !windGridRef.current) return;
         windEngineRef.current.setForecastHour(windHour);
         setWindMaxSpeed(windEngineRef.current.getMaxSpeed());
 
@@ -244,17 +244,41 @@ export function useWeatherLayers(
         }
     }, [windHour, activeLayer]);
 
-    // Wind auto-play
+    // Wind auto-play — fractional steps for smooth morphing between hours
     useEffect(() => {
-        if (!windPlaying || activeLayer !== 'wind') return;
+        if (!windPlaying || (activeLayer !== 'wind' && activeLayer !== 'velocity')) return;
         const timer = setInterval(() => {
             setWindHour(prev => {
-                if (prev + 1 >= windTotalHours) { setWindPlaying(false); return 0; }
-                return prev + 1;
+                const next = prev + 0.1;
+                if (next >= windTotalHours) { setWindPlaying(false); return 0; }
+                return Math.round(next * 10) / 10; // avoid float drift
             });
-        }, 500);
+        }, 100);
         return () => clearInterval(timer);
     }, [windPlaying, activeLayer, windTotalHours]);
+
+    // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
+    useEffect(() => {
+        if ((activeLayer !== 'wind' && activeLayer !== 'velocity') || !mapReady) return;
+        setWindHour(0);
+
+        // Small delay to let the geolock flyTo settle
+        const windTimer = setTimeout(() => {
+            const m = mapRef.current;
+            if (!m) return;
+            WindDataController.activate(m).then(() => {
+                const { grid: currentGrid } = WindStore.getState();
+                if (!currentGrid) { console.warn('[WindScrubber] activate() resolved but no grid in store'); return; }
+                windGridRef.current = currentGrid;
+                const GFS_HOURS = [0, 3, 6, 9, 12, 18, 24, 36, 48, 72];
+                windForecastHoursRef.current = GFS_HOURS.slice(0, currentGrid.totalHours);
+                setWindTotalHours(currentGrid.totalHours);
+                setWindReady(true);
+                console.warn(`[WindScrubber] Grid loaded: totalHours=${currentGrid.totalHours}, u.length=${currentGrid.u.length}`);
+            }).catch((err) => { console.warn('[WindScrubber] activate() failed:', err); });
+        }, 1200);
+        return () => clearTimeout(windTimer);
+    }, [activeLayer, mapReady]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
     // Wind layer: constrain zoom (3-8) and lock bounds to a regional box
@@ -263,7 +287,7 @@ export function useWeatherLayers(
         const map = mapRef.current;
         if (!map || !mapReady || embedded) return;
 
-        if (activeLayer === 'wind') {
+        if (activeLayer === 'wind' || activeLayer === 'velocity') {
             // ── WIND GEOLOCK ──
             // 1. Fly to synoptic overview centered on user
             map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
@@ -391,12 +415,12 @@ export function useWeatherLayers(
                 } catch (_) { }
             });
         }
-        if (map.getLayer('wind-labels')) map.removeLayer('wind-labels');
-        if (map.getSource('wind-labels')) map.removeSource('wind-labels');
-        windMarkersRef.current.forEach(mk => mk.remove());
-        windMarkersRef.current = [];
-        if (activeLayer !== 'wind') {
-            try { map.removeLayer('wind-particles'); } catch (_) { }
+        if (activeLayer !== 'wind' && activeLayer !== 'velocity') {
+            if (map.getLayer('wind-labels')) map.removeLayer('wind-labels');
+            if (map.getSource('wind-labels')) map.removeSource('wind-labels');
+            windMarkersRef.current.forEach(mk => mk.remove());
+            windMarkersRef.current = [];
+            try { if (map.getLayer('wind-particles')) map.removeLayer('wind-particles'); } catch (_) { }
             windEngineRef.current = null;
             WindDataController.deactivate(map);
         }
@@ -703,41 +727,9 @@ export function useWeatherLayers(
             };
         }
 
-        // ── Wind (GRIB-based with forecast scrubber) ──
-        // Dynamic lock effect handles flyTo to zoom 8, so we just download GRIB data.
-        if (activeLayer === 'wind') {
-            setWindHour(0);
-            // Small delay to let the dynamic lock's flyTo settle
-            const windTimer = setTimeout(() => {
-                const m = mapRef.current;
-                if (!m) return;
-                WindDataController.activate(m).then(() => {
-                    const mx = mapRef.current;
-                    if (!mx) return;
-                    const { grid: currentGrid } = WindStore.getState();
-                    if (!currentGrid) return;
-                    windGridRef.current = currentGrid;
-                    const GFS_HOURS = [0, 3, 6, 9, 12, 18, 24, 36, 48, 72];
-                    windForecastHoursRef.current = GFS_HOURS.slice(0, currentGrid.totalHours);
-                    setWindTotalHours(currentGrid.totalHours);
-                    setWindReady(true);
-                    try {
-                        try { mx.removeLayer('wind-particles'); } catch (_) { }
-                        const engine = new WindParticleLayer();
-                        engine.setGrid(currentGrid, windHour);
-                        mx.addLayer(engine);
-                        try { mx.moveLayer('coastline-outline'); } catch (_) { }
-                        try { mx.moveLayer('coastline-stroke'); } catch (_) { }
-                        try { mx.moveLayer('country-borders-overlay'); } catch (_) { }
-                        windEngineRef.current = engine;
-                        setWindMaxSpeed(engine.getMaxSpeed());
-                    } catch (err) {
-                        log.error('Wind GL engine init failed:', err);
-                    }
-                }).catch(() => { });
-            }, 1200);
-            return () => clearTimeout(windTimer);
-        }
+        // ── Wind layers are handled by a separate useEffect below (to avoid
+        //    re-firing when updateIsobars changes) ──
+        if (activeLayer === 'wind' || activeLayer === 'velocity') return;
 
 
         // Static and dynamic tile layers (sea, satellite, temperature, clouds)

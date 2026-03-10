@@ -196,7 +196,7 @@ export const useAppController = () => {
                 const geoName = await reverseGeocode(lat, normalizedLon);
                 if (geoName) locationQuery = geoName;
             } catch (e) {
-                log.warn( e);
+                log.warn(e);
                 // Geocode failed — fall through
             }
         }
@@ -220,6 +220,33 @@ export const useAppController = () => {
             showToast("Location update failed, check network.");
         });
     }, [setQuery, selectLocation, setPage, showToast]);
+
+    // Same as handleMapTargetSelect but stays on the current page (for Map tab — user must press back chevron)
+    const handleMapStaySelect = useCallback(async (lat: number, lon: number, name?: string) => {
+        let normalizedLon = lon;
+        while (normalizedLon > 180) normalizedLon -= 360;
+        while (normalizedLon < -180) normalizedLon += 360;
+
+        const finalCoords = { lat, lon: normalizedLon };
+        let locationQuery = name || '';
+        if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
+            try {
+                const geoName = await reverseGeocode(lat, normalizedLon);
+                if (geoName) locationQuery = geoName;
+            } catch (e) { log.warn(e); }
+        }
+        if (!locationQuery || locationQuery.startsWith('WP ')) {
+            locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
+        }
+
+        setQuery(locationQuery);
+        setSheetOpen(false);
+        updateSettings({ dashboardMode: 'full' });
+        // Don't navigate — stay on map
+        selectLocation(locationQuery, finalCoords).catch(e => {
+            showToast("Location update failed, check network.");
+        });
+    }, [setQuery, selectLocation, showToast, updateSettings]);
 
     const handleFavoriteSelect = useCallback((loc: string) => {
         setQuery(loc);
@@ -286,6 +313,7 @@ export const useAppController = () => {
         // Extracted Handlers & State
         toggleFavorite,
         handleMapTargetSelect,
+        handleMapStaySelect,
         handleFavoriteSelect,
         handleOnboardingComplete,
 

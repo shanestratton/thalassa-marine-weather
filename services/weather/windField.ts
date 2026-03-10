@@ -263,43 +263,9 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
             return _doFetchGlobalOpenMeteo();
         }
 
-        // Dynamically import the GRIB2 decoder
-        const { decodeGrib2Wind } = await import('./decodeGrib2Wind');
-        const grib = decodeGrib2Wind(buffer);
-
-        // Convert decoded GRIB2 into WindGrid format (single timestep)
-        const width = grib.width;
-        const height = grib.height;
-        const size = width * height;
-
-        // Build lat/lon arrays from bounds
-        const uniqueLats: number[] = [];
-        const uniqueLons: number[] = [];
-        const latStep = (grib.north - grib.south) / (height - 1);
-        const lonStep = (grib.east - grib.west) / (width - 1);
-        for (let r = 0; r < height; r++) uniqueLats.push(grib.south + r * latStep);
-        for (let c = 0; c < width; c++) uniqueLons.push(grib.west + c * lonStep);
-
-        // Compute speed from U/V
-        const speedArr = new Float32Array(size);
-        for (let i = 0; i < size; i++) {
-            speedArr[i] = Math.sqrt(grib.u[i] * grib.u[i] + grib.v[i] * grib.v[i]);
-        }
-
-        const grid: WindGrid = {
-            u: [grib.u],
-            v: [grib.v],
-            speed: [speedArr],
-            width,
-            height,
-            lats: uniqueLats,
-            lons: uniqueLons,
-            north: grib.north,
-            south: grib.south,
-            west: grib.west,
-            east: grib.east,
-            totalHours: 1,
-        };
+        // Dynamically import the GRIB2 decoder (multi-hour for scrubber support)
+        const { decodeGrib2WindMultiHour } = await import('./decodeGrib2Wind');
+        const grid = decodeGrib2WindMultiHour(buffer);
 
         globalCache = { grid, fetchedAt: Date.now() };
         return grid;
