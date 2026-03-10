@@ -29,6 +29,9 @@ PODS:
     - Capacitor
   - CapacitorStatusBar (8.0.1):
     - Capacitor
+  - CapacitorTcpSocket (7.1.0):
+    - Capacitor
+    - SwiftSocket
   - CocoaLumberjack (3.7.4):
     - CocoaLumberjack/Core (= 3.7.4)
   - CocoaLumberjack/Core (3.7.4)
@@ -80,6 +83,7 @@ PODS:
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
   - PromisesObjC (2.4.0)
+  - SwiftSocket (2.0.2)
   - TransistorsoftCapacitorBackgroundFetch (8.0.0):
     - Capacitor
     - TSBackgroundFetch (~> 4.0)
@@ -103,6 +107,7 @@ DEPENDENCIES:
   - "CapacitorScreenOrientation (from `../../node_modules/@capacitor/screen-orientation`)"
   - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
+  - CapacitorTcpSocket (from `../../node_modules/capacitor-tcp-socket`)
   - "TransistorsoftCapacitorBackgroundFetch (from `../../node_modules/@transistorsoft/capacitor-background-fetch`)"
   - "TransistorsoftCapacitorBackgroundGeolocation (from `../../node_modules/@transistorsoft/capacitor-background-geolocation`)"
 
@@ -122,6 +127,7 @@ SPEC REPOS:
     - MLKitVision
     - nanopb
     - PromisesObjC
+    - SwiftSocket
     - TSBackgroundFetch
 
 EXTERNAL SOURCES:
@@ -153,6 +159,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/share"
   CapacitorStatusBar:
     :path: "../../node_modules/@capacitor/status-bar"
+  CapacitorTcpSocket:
+    :path: "../../node_modules/capacitor-tcp-socket"
   TransistorsoftCapacitorBackgroundFetch:
     :path: "../../node_modules/@transistorsoft/capacitor-background-fetch"
   TransistorsoftCapacitorBackgroundGeolocation:
@@ -173,6 +181,7 @@ SPEC CHECKSUMS:
   CapacitorScreenOrientation: 6c3c84223ea1dd44aaa7184e2b416dd1192270d0
   CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
   CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
+  CapacitorTcpSocket: b1bd03b64009cb2c6221cd660ea080f2f835e220
   CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleMLKit: ddd51d7dff36ff28defa69afedd9cdce684fd857
@@ -187,10 +196,11 @@ SPEC CHECKSUMS:
   MLKitVision: fa8dea9012ac59497c79ddbe9ebf32051047ac4c
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
+  SwiftSocket: 6f4c9c63fbc5c1d61188936bb3c599fd546f40ae
   TransistorsoftCapacitorBackgroundFetch: 12dc742682562c9339241d12615f27ef7dbfb88f
   TransistorsoftCapacitorBackgroundGeolocation: bb25918e2b847d71edabdd62d84b771b05d0878f
   TSBackgroundFetch: 0afbeaae4e1132866e1d4b6e55265af26b5958ae
 
-PODFILE CHECKSUM: 76b05d2263e100c5f6e18b25c7bc13d1c7ef1a85
+PODFILE CHECKSUM: 9000cfde0bc41215f5e315a96e2e6f4f93e9a581
 
 COCOAPODS: 1.16.2

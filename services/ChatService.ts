@@ -1047,6 +1047,28 @@ class ChatServiceClass {
         return !error;
     }
 
+    /** Leave/unsubscribe from a private channel. Owners cannot leave (delete instead). */
+    async leaveChannel(channelId: string): Promise<boolean> {
+        if (!supabase || !this.currentUserId) return false;
+
+        // Check if user is the channel owner — owners can't leave
+        const { data: channel } = await supabase
+            .from(CHANNELS_TABLE)
+            .select('owner_id')
+            .eq('id', channelId)
+            .single();
+        if (channel?.owner_id === this.currentUserId) return false;
+
+        // Remove from channel_members
+        const { error } = await supabase
+            .from('channel_members')
+            .delete()
+            .eq('channel_id', channelId)
+            .eq('user_id', this.currentUserId);
+
+        return !error;
+    }
+
     // --- PUSH NOTIFICATIONS ---
 
     private async queuePushNotification(opts: {

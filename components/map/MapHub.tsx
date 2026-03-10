@@ -43,7 +43,6 @@ import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import {
     PointInput,
     ResultCard,
-    WindSpeedLegend,
     LayerLegendStrip,
     LayerFABMenu,
 } from './MapHubOverlays';
@@ -54,8 +53,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     homePort,
     onLocationSelect,
-    initialZoom = 6,
-    mapStyle = 'mapbox://styles/mapbox/dark-v11',
+    initialZoom = 5,
+    mapStyle = 'mapbox://styles/mapbox/satellite-streets-v12',
     minimalLabels = false,
     embedded = false,
     center,
@@ -134,7 +133,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
-    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, !embedded && weather.activeLayer === 'velocity');
+    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -192,55 +191,6 @@ export const MapHub: React.FC<MapHubProps> = ({
 
             {/* ═══ VELOCITY WIND OVERLAY ═══ */}
             {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} />}
-
-            {/* ═══ WIND SPEED LEGEND ═══ */}
-            {!isPinView && (weather.activeLayer === 'velocity' || weather.activeLayer === 'wind') && <WindSpeedLegend />}
-
-            {/* ═══ EMBEDDED / BACKGROUND RAIN SCRUBBER ═══ */}
-            {!isPinView && (embedded || (!embedded && weather.activeLayer === 'velocity')) && embRain.embRainCount > 1 && embRain.embRainIdx >= 0 && (
-                <div
-                    className="absolute left-2 right-2 z-[600] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
-                    style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
-                >
-                    {/* Slider styles moved to index.css */}
-                    <button
-                        onClick={() => {
-                            if (!embRain.embRainPlaying) { embRain.setEmbRainIdx(0); }
-                            embRain.setEmbRainPlaying(!embRain.embRainPlaying);
-                        }}
-                        className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
-                    >
-                        {embRain.embRainPlaying ? (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="3" height="8" rx="0.5" /><rect x="6" y="1" width="3" height="8" rx="0.5" /></svg>
-                        ) : (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9" /></svg>
-                        )}
-                    </button>
-                    <input
-                        type="range"
-                        min={0}
-                        max={embRain.embRainCount - 1}
-                        value={embRain.embRainIdx}
-                        onChange={e => { embRain.setEmbRainPlaying(false); embRain.setEmbRainIdx(parseInt(e.target.value)); }}
-                        className="emb-rain-slider flex-1 h-3"
-                    />
-                    <span className="text-[11px] font-bold text-white/60 min-w-[32px] text-right font-mono">
-                        {(() => {
-                            const frames = embRain.embeddedRainFrames.current;
-                            if (!frames.length) return '--';
-                            const now = Date.now() / 1000;
-                            const ft = frames[embRain.embRainIdx]?.time ?? now;
-                            const dm = Math.round((ft - now) / 60);
-                            if (Math.abs(dm) < 3) return 'NOW';
-                            if (Math.abs(dm) >= 60) {
-                                const h = Math.round(dm / 60);
-                                return `${h > 0 ? '+' : ''}${h}h`;
-                            }
-                            return `${dm > 0 ? '+' : ''}${dm}m`;
-                        })()}
-                    </span>
-                </div>
-            )}
 
             {/* ═══ LAYER LEGEND STRIP ═══ */}
             {!isPinView && <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />}
@@ -435,153 +385,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             {!embedded && !passage.showPassage && !isPinView && (
                 <div className="absolute bottom-44 right-4 z-[500] flex flex-col gap-2">
 
-                    {/* Wind Mode Toggle */}
-                    {weather.activeLayer === 'wind' && (
-                        <button
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                const map = mapRef.current;
-                                if (!map) return;
-                                WindDataController.switchMode(map).then(() => {
-                                    const { grid } = weather.windState;
-                                    if (grid && weather.windEngineRef.current) {
-                                        weather.windEngineRef.current.setGrid(grid, 0);
-                                        weather.windGridRef.current = grid;
-                                        weather.setWindTotalHours(grid.totalHours);
-                                        weather.setWindHour(0);
-                                    }
-                                });
-                            }}
-                            className={`w-12 h-12 border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.windState.isGlobalMode
-                                ? 'bg-sky-600/90 border-sky-500/30'
-                                : 'bg-amber-600/90 border-amber-500/30'
-                                }`}
-                            title={weather.windState.isGlobalMode ? 'Global Live Wind' : 'Passage Wind'}
-                        >
-                            {weather.windState.isGlobalMode ? (
-                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <circle cx="12" cy="12" r="9" />
-                                    <path strokeLinecap="round" d="M3.5 12h17M12 3c-2 2.5-3 5.5-3 9s1 6.5 3 9c2-2.5 3-5.5 3-9s-1-6.5-3-9" />
-                                </svg>
-                            ) : (
-                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <circle cx="12" cy="12" r="9" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.24 7.76l-6.17 2.47-2.47 6.17 6.17-2.47 2.47-6.17z" />
-                                    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                                </svg>
-                            )}
-                        </button>
-                    )}
+                    {/* Wind Mode Toggle — hidden for clean wind view */}
 
-                    {/* GRIB Download */}
-                    {weather.activeLayer === 'wind' && (
-                        <button
-                            onClick={async () => {
-                                if (weather.isGribDownloading) return;
-                                triggerHaptic('medium');
-                                weather.setIsGribDownloading(true);
-                                weather.setGribProgress(0);
-                                weather.setGribError(null);
-                                try {
-                                    const map = mapRef.current;
-                                    if (!map) throw new Error('Map not ready');
-                                    const b = map.getBounds();
-                                    if (!b) throw new Error('Cannot get map bounds');
+                    {/* GRIB Download — hidden for clean wind view */}
 
-                                    const isGlobal = weather.windState.isGlobalMode;
-                                    const north = isGlobal ? 90 : b.getNorth();
-                                    const south = isGlobal ? -90 : b.getSouth();
-                                    const east = isGlobal ? 180 : b.getEast();
-                                    const west = isGlobal ? -180 : b.getWest();
-
-                                    const body = { north, south, east, west };
-                                    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-                                    if (!supabaseUrl) throw new Error('Supabase URL not configured');
-                                    const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
-                                    const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
-                                    weather.setGribProgress(10);
-
-                                    const resp = await fetch(url, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}) },
-                                        body: JSON.stringify(body),
-                                    });
-                                    weather.setGribProgress(50);
-
-                                    if (!resp.ok) {
-                                        let errDetail = `Server ${resp.status}`;
-                                        try { const errJson = await resp.json(); errDetail = errJson.error || errJson.detail || errDetail; } catch (e) { log.warn('parse error:', e); errDetail = await resp.text().catch(() => errDetail); }
-                                        throw new Error(errDetail);
-                                    }
-
-                                    const buffer = await resp.arrayBuffer();
-                                    weather.setGribProgress(80);
-
-                                    if (buffer.byteLength < 200) {
-                                        const text = new TextDecoder().decode(buffer);
-                                        throw new Error(`NOAA returned invalid data (${buffer.byteLength}B): ${text.substring(0, 100)}`);
-                                    }
-
-                                    const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
-                                    const grib = decodeGrib2Wind(buffer);
-
-                                    let engine = weather.windEngineRef.current;
-                                    if (!engine) {
-                                        const map = mapRef.current;
-                                        if (!map) throw new Error('Map not available for wind layer');
-                                        try { map.removeLayer('wind-particles'); } catch (_) { }
-                                        engine = new WindParticleLayer();
-                                        map.addLayer(engine);
-                                        try { map.moveLayer('coastline-outline'); } catch (_) { }
-                                        try { map.moveLayer('coastline-stroke'); } catch (_) { }
-                                        try { map.moveLayer('country-borders-overlay'); } catch (_) { }
-                                        weather.windEngineRef.current = engine;
-                                    }
-
-                                    engine.setWindData(grib.u, grib.v, grib.width, grib.height, {
-                                        north: grib.north, south: grib.south, east: grib.east, west: grib.west,
-                                    });
-                                    weather.setWindMaxSpeed(engine.getMaxSpeed());
-                                    weather.setGribProgress(100);
-                                    triggerHaptic('light');
-                                } catch (err) {
-                                    const msg = err instanceof Error ? err.message : 'Download failed';
-                                    weather.setGribError(msg);
-                                    log.error('GRIB decode error:', msg, err);
-                                    triggerHaptic('heavy');
-                                    setTimeout(() => weather.setGribError(null), 5000);
-                                } finally {
-                                    weather.setIsGribDownloading(false);
-                                }
-                            }}
-                            disabled={weather.isGribDownloading}
-                            className={`w-12 h-12 border rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${weather.isGribDownloading
-                                ? 'bg-sky-700/90 border-sky-500/30 cursor-wait'
-                                : weather.gribError
-                                    ? 'bg-red-800/90 border-red-500/30'
-                                    : 'bg-slate-900/90 border-white/[0.08] hover:bg-slate-800/90'
-                                }`}
-                            title={weather.isGribDownloading ? `Downloading ${weather.gribProgress}%` : weather.gribError ?? 'Download GRIB'}
-                        >
-                            {weather.isGribDownloading ? (
-                                <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                </svg>
-                            ) : (
-                                <svg className={`w-5 h-5 ${weather.gribError ? 'text-red-300' : 'text-sky-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                                </svg>
-                            )}
-                        </button>
-                    )}
-
-                    {/* GRIB Error Tooltip */}
-                    {weather.gribError && weather.activeLayer === 'wind' && (
-                        <div className="max-w-[200px] bg-red-900/95 border border-red-500/30 rounded-xl px-3 py-2 shadow-2xl">
-                            <p className="text-[11px] font-bold text-red-300 leading-tight">{weather.gribError}</p>
-                        </div>
-                    )}
+                    {/* GRIB Error Tooltip — hidden */}
 
                     {/* GPS Locate Me */}
                     <button
@@ -640,68 +448,47 @@ export const MapHub: React.FC<MapHubProps> = ({
                 />
             )}
 
-            {/* ═══ WIND TIMELINE SCRUBBER ═══ */}
-            {!isPinView && weather.activeLayer === 'wind' && weather.windReady && (
+            {/* ═══ WIND SPEED LEGEND ═══ */}
+            {!isPinView && (weather.activeLayer === 'wind' || weather.activeLayer === 'velocity') && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
-                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
-                        <button
-                            onClick={() => { weather.setWindPlaying(!weather.windPlaying); triggerHaptic('light'); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
-                        >
-                            <span className="text-sm">{weather.windPlaying ? '⏸' : '▶️'}</span>
-                        </button>
-
-                        <div
-                            className="flex-1 relative h-10 flex items-center cursor-pointer"
-                            style={{ touchAction: 'none' }}
-                            onPointerDown={e => {
-                                e.preventDefault(); e.stopPropagation();
-                                (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                                const hr = ratio * (weather.windTotalHours - 1);
-                                weather.setWindPlaying(false);
-                                weather.setWindHour(hr);
-                                triggerHaptic('light');
-                            }}
-                            onPointerMove={e => {
-                                if (e.buttons === 0) return;
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                                const hr = ratio * (weather.windTotalHours - 1);
-                                weather.setWindPlaying(false);
-                                weather.setWindHour(hr);
-                            }}
-                        >
-                            <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
-                                <div className="absolute inset-y-0 left-0 bg-sky-500/40 rounded-full" style={{ width: `${(weather.windHour / Math.max(1, weather.windTotalHours - 1)) * 100}%` }} />
-                            </div>
-                            <div
-                                className="absolute top-1/2 w-5 h-5 bg-sky-400 rounded-full shadow-lg shadow-sky-400/30 border-2 border-white/40 pointer-events-none"
-                                style={{ left: `${(weather.windHour / Math.max(1, weather.windTotalHours - 1)) * 100}%`, transform: 'translate(-50%, -50%)' }}
-                            />
+                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5">
+                        <div className="flex items-center gap-1.5 px-1">
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Calm</span>
+                            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{
+                                background: 'linear-gradient(to right, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
+                            }} />
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Storm</span>
                         </div>
+                        <div className="flex justify-between px-1 mt-1">
+                            {['0', '5', '10', '15', '20', '25', '35+'].map(l => (
+                                <span key={l} className="text-[7px] font-semibold text-white/30">{l}</span>
+                            ))}
+                        </div>
+                        <div className="flex justify-center mt-0.5">
+                            <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Wind Speed (kts)</span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
-                        <div className="shrink-0 text-right min-w-[52px]">
-                            <p className="text-xs font-black text-white">
-                                {(() => {
-                                    const hrs = weather.windForecastHoursRef.current;
-                                    const idx = Math.round(weather.windHour);
-                                    const h = hrs[idx] ?? 0;
-                                    if (h === 0) return 'Now';
-                                    return `+${h}h`;
-                                })()}
-                            </p>
-                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
-                                {(() => {
-                                    const hrs = weather.windForecastHoursRef.current;
-                                    const idx = Math.round(weather.windHour);
-                                    const h = hrs[idx] ?? 0;
-                                    if (h < 24) return 'Today';
-                                    if (h < 48) return 'Tomorrow';
-                                    return `+${Math.floor(h / 24)}d`;
-                                })()}
-                            </p>
+            {/* ═══ TEMPERATURE LEGEND ═══ */}
+            {!isPinView && weather.activeLayer === 'temperature' && (
+                <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
+                    <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5">
+                        <div className="flex items-center gap-1.5 px-1">
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Cold</span>
+                            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{
+                                background: 'linear-gradient(to right, #1a0033, #0000cd, #00bfff, #90ee90, #ffff00, #ff8c00, #ff0000, #4a0000)',
+                            }} />
+                            <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Hot</span>
+                        </div>
+                        <div className="flex justify-between px-1 mt-1">
+                            {['-10°', '0°', '10°', '20°', '30°', '40°'].map(l => (
+                                <span key={l} className="text-[7px] font-semibold text-white/30">{l}</span>
+                            ))}
+                        </div>
+                        <div className="flex justify-center mt-0.5">
+                            <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">Temperature (°C)</span>
                         </div>
                     </div>
                 </div>

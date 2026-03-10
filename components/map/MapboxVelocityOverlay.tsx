@@ -482,24 +482,28 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             velocityLayerRef.current = vLayer;
 
             // ── Sync Leaflet viewport to Mapbox ─────────────────
-            // PERF: Sync on moveend + throttled move instead of every render frame.
-            // The old approach (on('render', sync)) created a 60fps feedback loop
-            // because Leaflet.setView() triggers Mapbox repaint → fires render → repeat.
-            let syncThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+            // Use requestAnimationFrame for smooth, frame-perfect geo-lock.
+            // The _syncing flag prevents feedback loops (Leaflet setView → Mapbox repaint → render → repeat).
+            let rafId: number | null = null;
+            let _syncing = false;
             const syncViewport = () => {
-                if (!leafletMapRef.current || !mapboxMap) return;
+                if (_syncing || !leafletMapRef.current || !mapboxMap) return;
+                _syncing = true;
                 try {
                     const c = mapboxMap.getCenter();
                     const z = mapboxMap.getZoom() + 1;
                     leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
                 } catch (_) { /* velocity canvas not ready yet */ }
+                _syncing = false;
             };
-            const throttledSync = () => {
-                if (syncThrottleTimer) return;
-                syncThrottleTimer = setTimeout(() => {
-                    syncThrottleTimer = null;
+
+            // Sync on every move event (fires continuously during drag/zoom)
+            const onMove = () => {
+                if (rafId) return;
+                rafId = requestAnimationFrame(() => {
+                    rafId = null;
                     syncViewport();
-                }, 100); // max 10fps sync during pan/zoom
+                });
             };
 
             const onResize = () => {
@@ -507,8 +511,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 syncViewport();
             };
 
+            mapboxMap.on('move', onMove);
             mapboxMap.on('moveend', syncViewport);
-            mapboxMap.on('move', throttledSync);
+            mapboxMap.on('zoom', onMove);
             mapboxMap.on('resize', onResize);
             syncRef.current = syncViewport;
             resizeRef.current = onResize;

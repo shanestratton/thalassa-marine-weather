@@ -35,6 +35,7 @@ import {
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
 import { triggerHaptic } from '../utils/system';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { LocationStore } from '../stores/LocationStore';
 import { COUNTRIES, getStatesForCountry } from '../data/locationData';
 
@@ -820,6 +821,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         <input
                                             value={filterLocationCity}
                                             onChange={e => setFilterLocationCity(e.target.value)}
+                                            onFocus={scrollInputAboveKeyboard}
                                             placeholder="City / Town (optional)"
                                             className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
                                         />
@@ -1396,6 +1398,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <input
                                 value={editFirstName}
                                 onChange={e => setEditFirstName(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="What should people call you?"
                                 className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                 maxLength={30}
@@ -1725,6 +1728,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 <input
                                     value={editLocationCity}
                                     onChange={e => setEditLocationCity(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="City / Town"
                                     className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                     maxLength={60}
@@ -1741,6 +1745,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <input
                                 value={editRegion}
                                 onChange={e => setEditRegion(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder={editListingType === 'seeking_crew'
                                     ? 'Where will you be sailing? e.g. East Coast, Med...'
                                     : 'Where would you like to sail? e.g. Caribbean, Pacific...'}
@@ -1761,6 +1766,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         type="date"
                                         value={editAvailFrom}
                                         onChange={e => setEditAvailFrom(e.target.value)}
+                                        onFocus={scrollInputAboveKeyboard}
                                         className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
                                     />
                                 </div>
@@ -1770,6 +1776,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                         type="date"
                                         value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
                                         onChange={e => setEditAvailTo(e.target.value)}
+                                        onFocus={scrollInputAboveKeyboard}
                                         className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
                                     />
                                     {editAvailTo && (
@@ -1792,6 +1799,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <textarea
                                 value={editBio}
                                 onChange={e => setEditBio(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder={editListingType === 'seeking_crew'
                                     ? "Tell crew about your vessel, planned passages, what you're looking for..."
                                     : "Tell skippers about yourself, your experience, what you can bring to the crew..."
@@ -2110,6 +2118,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         <textarea
                             value={superLikeMessage}
                             onChange={e => setSuperLikeMessage(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             placeholder="Hey! I noticed we both love diving..."
                             maxLength={200}
                             className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"

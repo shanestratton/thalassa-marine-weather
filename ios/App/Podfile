@@ -26,6 +26,7 @@ def capacitor_pods
   pod 'CapacitorStatusBar', :path => '../../node_modules/@capacitor/status-bar'
   pod 'TransistorsoftCapacitorBackgroundFetch', :path => '../../node_modules/@transistorsoft/capacitor-background-fetch'
   pod 'TransistorsoftCapacitorBackgroundGeolocation', :path => '../../node_modules/@transistorsoft/capacitor-background-geolocation'
+  pod 'CapacitorTcpSocket', :path => '../../node_modules/capacitor-tcp-socket'
 end
 
 target 'App' do

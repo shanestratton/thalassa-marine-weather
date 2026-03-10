@@ -43,9 +43,13 @@ interface SwipeableItemCardProps {
     onDelete: () => void;
     isHeading?: boolean;
     itemCount?: number;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
+    isFirst?: boolean;
+    isLast?: boolean;
 }
 
-const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({ entry, onEdit, onDelete, isHeading, itemCount }) => {
+const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({ entry, onEdit, onDelete, isHeading, itemCount, onMoveUp, onMoveDown, isFirst, isLast }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
 
     return (
@@ -66,8 +70,8 @@ const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({ entry, onEdit, on
             {/* Main card */}
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} border rounded-xl overflow-hidden bg-white/[0.03] ${isHeading
-                        ? 'border-emerald-500/20'
-                        : 'border-white/[0.06] ml-4'
+                    ? 'border-emerald-500/20'
+                    : 'border-white/[0.06] ml-4'
                     }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
                 ref={ref}
@@ -90,6 +94,29 @@ const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({ entry, onEdit, on
                         </>
                     ) : (
                         <>
+                            {/* Move up/down buttons */}
+                            <div className="flex flex-col gap-0.5 shrink-0">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
+                                    disabled={isFirst}
+                                    className={`p-1 rounded transition-colors ${isFirst ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    aria-label="Move up"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
+                                    disabled={isLast}
+                                    className={`p-1 rounded transition-colors ${isLast ? 'text-white/10' : 'text-white/40 hover:text-white/70 hover:bg-white/10 active:scale-90'}`}
+                                    aria-label="Move down"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                    </svg>
+                                </button>
+                            </div>
                             <div className="w-5 h-5 rounded-full border-2 border-white/20 shrink-0" />
                             <span className="text-sm text-white/80 font-medium flex-1 min-w-0 truncate">
                                 {entry.text}
@@ -253,6 +280,24 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             toast.error('Failed to delete');
         }
     }, [entries, loadEntries]);
+
+    // ── Reorder items ──
+    const handleMoveItem = useCallback(async (groupItems: ChecklistEntry[], itemIndex: number, direction: 'up' | 'down') => {
+        const targetIndex = direction === 'up' ? itemIndex - 1 : itemIndex + 1;
+        if (targetIndex < 0 || targetIndex >= groupItems.length) return;
+        triggerHaptic('light');
+        const itemA = groupItems[itemIndex];
+        const itemB = groupItems[targetIndex];
+        // Swap their order values
+        try {
+            await LocalChecklistService.update(itemA.id, { order: itemB.order });
+            await LocalChecklistService.update(itemB.id, { order: itemA.order });
+            loadEntries();
+        } catch (e) {
+            log.error('Failed to reorder:', e);
+            toast.error('Failed to reorder');
+        }
+    }, [loadEntries]);
 
     // ── Run mode ──
     const startRun = useCallback(() => {
@@ -458,12 +503,16 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     itemCount={group.items.length}
                                 />
                                 <div className="space-y-1.5 mt-1.5">
-                                    {group.items.map(item => (
+                                    {group.items.map((item, idx) => (
                                         <SwipeableItemCard
                                             key={item.id}
                                             entry={item}
                                             onEdit={() => openEditForm(item)}
                                             onDelete={() => handleDelete(item.id)}
+                                            onMoveUp={() => handleMoveItem(group.items, idx, 'up')}
+                                            onMoveDown={() => handleMoveItem(group.items, idx, 'down')}
+                                            isFirst={idx === 0}
+                                            isLast={idx === group.items.length - 1}
                                         />
                                     ))}
                                 </div>
@@ -501,8 +550,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     <button
                                         onClick={() => setFormType('heading')}
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${formType === 'heading'
-                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
                                             }`}
                                     >
                                         <svg className="w-5 h-5 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -517,8 +566,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         }}
                                         disabled={headings.length === 0}
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${formType === 'detail'
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                            : 'bg-white/5 text-gray-500 border border-white/5'
                                             } disabled:opacity-30 disabled:cursor-not-allowed`}
                                     >
                                         <svg className="w-5 h-5 mx-auto mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -569,8 +618,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             onClick={handleSave}
                             disabled={!formText.trim()}
                             className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${editEntry
-                                    ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                                    : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
+                                ? 'bg-gradient-to-r from-sky-600 to-sky-600 shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                                : 'bg-gradient-to-r from-emerald-600 to-emerald-600 shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500'
                                 }`}
                         >
                             {editEntry ? 'Save Changes' : formType === 'heading' ? 'Add Section' : 'Add Item'}
@@ -645,8 +694,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                     >
                                                         {/* Status checkbox */}
                                                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all ${item.status === 'pass' ? 'bg-emerald-500/20' :
-                                                                item.status === 'fail' ? 'bg-red-500/20' :
-                                                                    'bg-white/5'
+                                                            item.status === 'fail' ? 'bg-red-500/20' :
+                                                                'bg-white/5'
                                                             }`}>
                                                             {item.status === 'pass' && (
                                                                 <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -674,8 +723,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); toggleRmFlag(item.entry_id); }}
                                                                 className={`shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${item.flagged_rm
-                                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                                        : 'bg-white/5 text-gray-500 border border-white/10 hover:text-amber-400'
+                                                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                    : 'bg-white/5 text-gray-500 border border-white/10 hover:text-amber-400'
                                                                     }`}
                                                             >
                                                                 🔧 R&M
@@ -695,10 +744,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             <button
                                 onClick={completeRun}
                                 className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${runFailCount > 0
-                                        ? 'bg-gradient-to-r from-red-600 to-red-700 shadow-red-500/20'
-                                        : runCheckedCount === runTotal
-                                            ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
-                                            : 'bg-gradient-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
+                                    ? 'bg-gradient-to-r from-red-600 to-red-700 shadow-red-500/20'
+                                    : runCheckedCount === runTotal
+                                        ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 shadow-emerald-500/20'
+                                        : 'bg-gradient-to-r from-sky-600 to-sky-700 shadow-sky-500/20'
                                     }`}
                             >
                                 {runCheckedCount === runTotal

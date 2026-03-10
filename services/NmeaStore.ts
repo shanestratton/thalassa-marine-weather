@@ -90,6 +90,9 @@ class NmeaStoreClass {
     /** Stop the store */
     stop(): void {
         this.running = false;
+        // Reset connection status and notify UI before unsubscribing
+        this.state.connectionStatus = 'disconnected';
+        this.notify();
         if (this.unsubSample) { this.unsubSample(); this.unsubSample = null; }
         if (this.unsubStatus) { this.unsubStatus(); this.unsubStatus = null; }
         if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }

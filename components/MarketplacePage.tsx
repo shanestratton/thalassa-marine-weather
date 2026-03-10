@@ -38,6 +38,7 @@ import { SlideToAction } from './ui/SlideToAction';
 import { UndoToast } from './ui/UndoToast';
 import { triggerHaptic } from '../utils/system';
 import { useSwipeable } from '../hooks/useSwipeable';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 // --- CONSTANTS ---
 const MAX_PHOTOS = 20; // Pro users get 20 photos
@@ -133,6 +134,8 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
     const [expanded, setExpanded] = useState(false);
     const [imageIdx, setImageIdx] = useState(0);
     const [showActions, setShowActions] = useState(false);
+    const [showOfferInput, setShowOfferInput] = useState(false);
+    const [offerPrice, setOfferPrice] = useState('');
 
     // Swipe-to-delete (owner only)
     const { swipeOffset, isSwiping, resetSwipe, ref: swipeRef } = useSwipeable();
@@ -415,25 +418,58 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => onMessageSeller(listing)}
-                                            className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
-                                        >
-                                            💬 Message
-                                        </button>
-                                        {listing.category === 'Boats' && listing.status === 'available' && (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-2">
                                             <button
-                                                onClick={() => {
-                                                    const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
-                                                    const text = `Hi ${sellerFirst}! I'd like to make an offer on your "${listing.title}" (${formatPrice(listing.price, listing.currency)}). What's your best price?`;
-                                                    ChatService.sendDM(listing.seller_id, text);
-                                                    if (onMessageSeller) onMessageSeller(listing);
-                                                }}
-                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-[11px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95 transition-all"
+                                                onClick={() => onMessageSeller(listing)}
+                                                className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
                                             >
-                                                💰 Offer
+                                                💬 Message
                                             </button>
+                                            {listing.status === 'available' && (
+                                                <button
+                                                    onClick={() => setShowOfferInput(!showOfferInput)}
+                                                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all ${showOfferInput
+                                                        ? 'bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+                                                        : 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400'}`}
+                                                >
+                                                    💰 Offer
+                                                </button>
+                                            )}
+                                        </div>
+                                        {/* Make an Offer inline input */}
+                                        {showOfferInput && (
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <div className="flex-1 flex items-center bg-white/[0.06] border border-emerald-500/20 rounded-xl overflow-hidden">
+                                                    <span className="pl-3 text-xs text-emerald-400/60 font-bold">{listing.currency === 'AUD' ? 'A$' : listing.currency === 'USD' ? '$' : listing.currency === 'EUR' ? '€' : listing.currency === 'GBP' ? '£' : listing.currency === 'NZD' ? 'NZ$' : listing.currency}</span>
+                                                    <input
+                                                        value={offerPrice}
+                                                        onChange={e => setOfferPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+                                                        onFocus={scrollInputAboveKeyboard}
+                                                        placeholder="Your offer"
+                                                        inputMode="decimal"
+                                                        className="flex-1 px-2 py-2 bg-transparent text-sm text-emerald-400 font-mono placeholder-white/30 outline-none"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        if (!offerPrice || parseFloat(offerPrice) <= 0) return;
+                                                        const sellerFirst = (listing.seller_name || 'Seller').split(' ')[0];
+                                                        const offerFormatted = formatPrice(parseFloat(offerPrice), listing.currency);
+                                                        const text = `Hi ${sellerFirst}! I'd like to offer ${offerFormatted} for your "${listing.title}" (listed at ${formatPrice(listing.price, listing.currency)}). Let me know!`;
+                                                        ChatService.sendDM(listing.seller_id, text);
+                                                        if (onMessageSeller) onMessageSeller(listing);
+                                                        setShowOfferInput(false);
+                                                        setOfferPrice('');
+                                                    }}
+                                                    disabled={!offerPrice || parseFloat(offerPrice) <= 0}
+                                                    className={`px-3 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all ${!offerPrice || parseFloat(offerPrice) <= 0
+                                                        ? 'bg-white/[0.04] border border-white/10 text-white/30'
+                                                        : 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'}`}
+                                                >
+                                                    Send
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 )}
@@ -764,6 +800,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <input
                             value={title}
                             onChange={e => setTitle(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
                             maxLength={100}
                             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
@@ -779,18 +816,21 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <input
                                 value={locCountry}
                                 onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="Country"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locState}
                                 onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="State"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locSuburb}
                                 onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="Suburb"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
@@ -809,12 +849,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Make</label>
-                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} placeholder="Beneteau" maxLength={60}
+                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Beneteau" maxLength={60}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Model</label>
-                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} placeholder="Oceanis 40.1" maxLength={60}
+                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Oceanis 40.1" maxLength={60}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -823,12 +863,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Year Built</label>
-                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="2019" inputMode="numeric"
+                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} onFocus={scrollInputAboveKeyboard} placeholder="2019" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Length (ft)</label>
-                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="40" inputMode="decimal"
+                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="40" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -837,12 +877,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Beam (ft)</label>
-                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="13" inputMode="decimal"
+                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="13" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Draft (ft)</label>
-                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="6.5" inputMode="decimal"
+                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="6.5" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -875,17 +915,17 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
+                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                     <div className="w-20">
-                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} placeholder="HP" inputMode="numeric"
+                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="HP" inputMode="numeric"
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} placeholder="Engine hours" inputMode="numeric"
+                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="Engine hours" inputMode="numeric"
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                     <div className="flex-1">
@@ -906,17 +946,17 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Berths</label>
-                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} placeholder="6" inputMode="numeric"
+                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="6" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Cabins</label>
-                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} placeholder="3" inputMode="numeric"
+                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="3" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Heads</label>
-                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} placeholder="2" inputMode="numeric"
+                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="2" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -925,7 +965,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2 items-end">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Rego Number</label>
-                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} placeholder="Optional" maxLength={30}
+                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Optional" maxLength={30}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <button
@@ -984,6 +1024,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <textarea
                             value={description}
                             onChange={e => setDescription(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             placeholder="Describe the item, any defects, model year, etc."
                             rows={3}
                             maxLength={1000}
@@ -998,6 +1039,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <input
                                 value={price}
                                 onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="0.00"
                                 inputMode="decimal"
                                 className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
