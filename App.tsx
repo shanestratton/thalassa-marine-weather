@@ -17,6 +17,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
+import { NmeaConnectionBadge } from './components/NmeaConnectionBadge';
 import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
@@ -106,6 +107,16 @@ const App: React.FC = () => {
     // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
     useEffect(() => {
         import('./services/AnchorWatchService').then(m => m.AnchorWatchService.restoreWatchState()).catch(() => { /* Non-critical */ });
+    }, []);
+
+    // Auto-start NMEA backbone listener if previously configured.
+    // Silently attempts to connect; gives up after 5 minutes if unreachable.
+    useEffect(() => {
+        import('./services/NmeaListenerService').then(({ NmeaListenerService }) => {
+            NmeaListenerService.autoStart();
+            // Also start the store so instrument data is ingested
+            import('./services/NmeaStore').then(({ NmeaStore }) => NmeaStore.start()).catch(() => { });
+        }).catch(() => { /* Non-critical */ });
     }, []);
 
     // Initialize local-first database and start background sync engine.
@@ -287,8 +298,9 @@ const App: React.FC = () => {
                                         onNavigate={() => setPage('compass')}
                                     />
                                 </div>
-                                {/* Row 2: EXT GPS under anchor */}
-                                <div className="flex items-center">
+                                {/* Row 2: EXT GPS + NMEA connection under anchor */}
+                                <div className="flex items-center gap-1">
+                                    <NmeaConnectionBadge />
                                     <NmeaGpsIndicator />
                                 </div>
                             </div>

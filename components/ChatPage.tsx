@@ -419,6 +419,24 @@ export const ChatPage: React.FC = () => {
                 onOpenProfile={() => { setNavDirection('forward'); setView('profile'); }}
                 onOpenDMInbox={openDMInbox}
                 onToggleBlock={() => setShowBlockConfirm(true)}
+                onLeaveChannel={activeChannel?.is_private ? () => {
+                    setConfirmAction({
+                        title: 'Leave Channel',
+                        message: `Leave "${activeChannel.name}"? You'll need to request access again to rejoin.`,
+                        destructive: true,
+                        onConfirm: async () => {
+                            const ok = await ChatService.leaveChannel(activeChannel.id);
+                            if (ok) {
+                                toast.success(`Left ${activeChannel.name}`);
+                                setActiveChannel(null);
+                                setView('channels');
+                            } else {
+                                toast.error('Cannot leave — channel owners must delete the channel instead');
+                            }
+                            setConfirmAction(null);
+                        },
+                    });
+                } : undefined}
             />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}

@@ -20,36 +20,61 @@ interface NmeaPageProps {
     onBack: () => void;
 }
 
+// ── Device presets — auto-fills port for common NMEA gateways ──
+const DEVICE_PRESETS = [
+    { id: 'ydwg02', label: 'Yacht Devices YDWG-02', port: '1456' },
+    { id: 'ikonvert', label: 'Digital Yacht iKonvert', port: '2000' },
+    { id: 'w2k1', label: 'Actisense W2K-1', port: '2000' },
+    { id: 'direct', label: 'Direct TCP (NMEA 0183)', port: '10110' },
+] as const;
+
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
     const state = useNmeaStore();
-    const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.1');
-    const [port, setPort] = useState(localStorage.getItem('nmea_port') || '10110');
-    const [connecting, setConnecting] = useState(false);
+    // One-time migrations: clear old defaults so new YDWG-02 defaults take effect
+    if (localStorage.getItem('nmea_host') === '192.168.1.1') localStorage.removeItem('nmea_host');
+    if (localStorage.getItem('nmea_port') === '10110') localStorage.removeItem('nmea_port');
+    const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.151');
+    const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
+    const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
     const [activeGauge, setActiveGauge] = useState<{ id: GaugeMetricId; metric: TimestampedMetric } | null>(null);
+
+    const handleDeviceChange = useCallback((deviceId: string) => {
+        setDevice(deviceId);
+        localStorage.setItem('nmea_device', deviceId);
+        const preset = DEVICE_PRESETS.find(d => d.id === deviceId);
+        if (preset) {
+            setPort(preset.port);
+            localStorage.setItem('nmea_port', preset.port);
+        }
+    }, []);
 
     const isConnected = state.connectionStatus === 'connected';
     const isConnecting = state.connectionStatus === 'connecting';
 
-    const handleConnect = useCallback(async () => {
-        setConnecting(true);
+    const handleConnect = useCallback(() => {
         triggerHaptic('medium');
         try {
+            // Always stop first so re-tapping Connect restarts cleanly
+            NmeaListenerService.stop();
+            NmeaStore.stop();
+            // Save config
             localStorage.setItem('nmea_host', host);
             localStorage.setItem('nmea_port', port);
+            // Configure and start fresh
             NmeaListenerService.configure(host, parseInt(port, 10));
             NmeaListenerService.start();
             NmeaStore.start();
         } catch (e) {
             log.error('NMEA connect failed:', e);
-        } finally {
-            setConnecting(false);
         }
     }, [host, port]);
 
     const handleDisconnect = useCallback(() => {
         triggerHaptic('medium');
-        NmeaStore.stop();
+        // IMPORTANT: Stop listener FIRST so the 'disconnected' status fires
+        // while the store is still subscribed and can relay it to the UI.
         NmeaListenerService.stop();
+        NmeaStore.stop();
     }, []);
 
     const openGauge = useCallback((id: GaugeMetricId, metric: TimestampedMetric) => {
@@ -105,29 +130,56 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         </div>
 
                         {!isConnected && (
-                            <div className="flex gap-2 mb-3">
-                                <div className="flex-1">
-                                    <FormField label="Host IP" value={host} onChange={setHost} placeholder="192.168.1.1" mono />
+                            <div className="space-y-3 mb-3">
+                                {/* Device preset selector */}
+                                <div>
+                                    <label className="block text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Gateway Device</label>
+                                    <select
+                                        value={device}
+                                        onChange={e => handleDeviceChange(e.target.value)}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white font-medium outline-none appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
+                                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                                    >
+                                        {DEVICE_PRESETS.map(d => (
+                                            <option key={d.id} value={d.id} className="bg-slate-900 text-white">{d.label}</option>
+                                        ))}
+                                    </select>
                                 </div>
-                                <div className="w-24">
-                                    <FormField label="Port" value={port} onChange={setPort} placeholder="10110" mono inputMode="numeric" />
+                                {/* Host + Port */}
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <FormField label="Host IP" value={host} onChange={setHost} placeholder="192.168.1.151" mono />
+                                    </div>
+                                    <div className="w-24">
+                                        <FormField label="Port" value={port} onChange={setPort} placeholder={DEVICE_PRESETS.find(d => d.id === device)?.port || '1456'} mono inputMode="numeric" />
+                                    </div>
                                 </div>
                             </div>
                         )}
 
-                        <button
-                            onClick={isConnected ? handleDisconnect : handleConnect}
-                            disabled={connecting || isConnecting}
-                            aria-label={isConnected ? 'Disconnect NMEA' : 'Connect NMEA'}
-                            className={`w-full py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] disabled:opacity-50 ${isConnected
-                                ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
-                                : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                                }`}
-                        >
-                            {connecting || isConnecting ? (
-                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                            ) : isConnected ? 'Disconnect' : 'Connect'}
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={isConnected ? handleDisconnect : handleConnect}
+                                aria-label={isConnected ? 'Disconnect NMEA' : 'Connect NMEA'}
+                                className={`flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] ${isConnected
+                                    ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
+                                    : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
+                                    }`}
+                            >
+                                {isConnecting ? (
+                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                                ) : isConnected ? 'Disconnect' : 'Connect'}
+                            </button>
+                            {isConnecting && (
+                                <button
+                                    onClick={handleDisconnect}
+                                    aria-label="Cancel connection"
+                                    className="px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-white/[0.06] border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-[0.95]"
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {/* ═══ INSTRUMENT GRID ═══ */}

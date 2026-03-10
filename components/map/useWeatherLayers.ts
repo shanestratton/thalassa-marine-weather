@@ -32,9 +32,10 @@ export function useWeatherLayers(
 ) {
     const windState = useWindStore();
 
-    // Embedded maps (dashboard mini-map) default to 'none' — no velocity overlay.
-    // The velocity overlay runs two 60fps GPU loops and causes severe battery drain.
-    const [activeLayer, setActiveLayer] = useState<WeatherLayer>(embedded ? 'none' : 'velocity');
+    // Default to no overlay — satellite base only.
+    // User selects overlays from the layer menu.
+    // Embedded maps also default to 'none'.
+    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('none');
     const [showLayerMenu, setShowLayerMenu] = useState(false);
 
     // Wind GL engine
@@ -223,16 +224,16 @@ export function useWeatherLayers(
                 const el = document.createElement('div');
                 el.className = 'wind-label-marker';
                 el.style.cssText = `
-                    display: inline-block;
-                    background: ${getWindColor(speedKts)};
-                    color: ${speedKts > 25 ? '#fff' : '#1a1a2e'};
-                    font-size: 10px; font-weight: 800; line-height: 1.2;
-                    text-align: center; padding: 3px 6px; border-radius: 6px;
-                    white-space: nowrap; pointer-events: none; text-shadow: none;
-                    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-                    border: 1px solid rgba(255,255,255,0.15);
-                    position: relative; z-index: 20;
-                `;
+                        display: inline-block;
+                        background: ${getWindColor(speedKts)};
+                        color: ${speedKts > 25 ? '#fff' : '#1a1a2e'};
+                        font-size: 10px; font-weight: 800; line-height: 1.2;
+                        text-align: center; padding: 3px 6px; border-radius: 6px;
+                        white-space: nowrap; pointer-events: none; text-shadow: none;
+                        box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+                        border: 1px solid rgba(255,255,255,0.15);
+                        position: relative; z-index: 20;
+                    `;
                 el.innerHTML = `${speedKts}kt<br/>${cardinal}`;
 
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
@@ -254,6 +255,19 @@ export function useWeatherLayers(
         }, 500);
         return () => clearInterval(timer);
     }, [windPlaying, activeLayer, windTotalHours]);
+
+    // ── Center map when switching layers ──
+    // Snap to user's location when activating a weather overlay.
+    // No zoom restrictions — full pan/zoom allowed on all layers.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || embedded) return;
+
+        // When switching to a weather overlay, center on user's location
+        if (activeLayer !== 'none') {
+            map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+        }
+    }, [activeLayer, mapReady, embedded]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
@@ -675,44 +689,49 @@ export function useWeatherLayers(
             };
         }
 
-        // ── Wind ──
+        // ── Wind (GRIB-based with forecast scrubber) ──
+        // Dynamic lock effect handles flyTo to zoom 8, so we just download GRIB data.
         if (activeLayer === 'wind') {
-            map.flyTo({ center: [location.lon, location.lat], zoom: 8, duration: 800 });
-            const onFlyEnd = () => {
-                map.off('moveend', onFlyEnd);
-                setWindHour(0);
-                WindDataController.activate(map).then(() => {
-                    const m = mapRef.current;
-                    if (!m) return;
+            setWindHour(0);
+            // Small delay to let the dynamic lock's flyTo settle
+            const windTimer = setTimeout(() => {
+                const m = mapRef.current;
+                if (!m) return;
+                WindDataController.activate(m).then(() => {
+                    const mx = mapRef.current;
+                    if (!mx) return;
                     const { grid: currentGrid } = WindStore.getState();
                     if (!currentGrid) return;
                     windGridRef.current = currentGrid;
-                    // Build actual GFS forecast hours array for scrubber labels
                     const GFS_HOURS = [0, 3, 6, 9, 12, 18, 24, 36, 48, 72];
                     windForecastHoursRef.current = GFS_HOURS.slice(0, currentGrid.totalHours);
                     setWindTotalHours(currentGrid.totalHours);
                     setWindReady(true);
                     try {
-                        try { m.removeLayer('wind-particles'); } catch (_) { }
+                        try { mx.removeLayer('wind-particles'); } catch (_) { }
                         const engine = new WindParticleLayer();
                         engine.setGrid(currentGrid, windHour);
-                        m.addLayer(engine);
-                        try { m.moveLayer('coastline-outline'); } catch (_) { }
-                        try { m.moveLayer('coastline-stroke'); } catch (_) { }
-                        try { m.moveLayer('country-borders-overlay'); } catch (_) { }
+                        mx.addLayer(engine);
+                        try { mx.moveLayer('coastline-outline'); } catch (_) { }
+                        try { mx.moveLayer('coastline-stroke'); } catch (_) { }
+                        try { mx.moveLayer('country-borders-overlay'); } catch (_) { }
                         windEngineRef.current = engine;
                         setWindMaxSpeed(engine.getMaxSpeed());
                     } catch (err) {
                         log.error('Wind GL engine init failed:', err);
                     }
                 }).catch(() => { });
-            };
-            map.on('moveend', onFlyEnd);
+            }, 1200);
+            return () => clearTimeout(windTimer);
         }
+
 
         // Static and dynamic tile layers (sea, satellite, temperature, clouds)
         const tileUrl = getTileUrl(activeLayer);
         if (tileUrl) {
+            // Remove any existing tile layer/source to prevent duplicate ID error
+            try { if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles'); } catch (_) { }
+            try { if (map.getSource('weather-tiles')) map.removeSource('weather-tiles'); } catch (_) { }
             map.addSource('weather-tiles', { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: activeLayer === 'satellite' ? 16 : 18 });
             map.addLayer({
                 id: 'weather-tiles', type: 'raster', source: 'weather-tiles',

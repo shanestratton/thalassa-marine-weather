@@ -1043,11 +1043,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     {/* Body text */}
                     <div className="flex-1 min-h-0">
                         <textarea
-                            placeholder={"What's happening out there, skipper?\nDescribe the conditions, the crew mood, the sunset over the bow…"}
+                            placeholder=""
                             value={body}
                             onChange={e => setBody(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
-                            className="w-full h-full min-h-0 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
+                            className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                         />
                     </div>
 
@@ -1063,12 +1063,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                     {/* Photos */}
                     <div className="shrink-0">
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Photos</span>
-                            {photos.length > 0 && (
-                                <span className="text-[11px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded-full">{photos.length}/6</span>
-                            )}
-                        </div>
                         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
                             {photos.map((url, i) => (
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">

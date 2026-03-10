@@ -32,6 +32,7 @@ import {
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 interface CrewManagementProps {
     onBack: () => void;
@@ -563,6 +564,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                                     type="email"
                                     value={inviteEmail}
                                     onChange={(e) => setInviteEmail(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="firstmate@email.com"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
                                     autoFocus

@@ -136,6 +136,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
+            scrollZoom: true,
             dragRotate: false,
         });
 
@@ -210,7 +211,6 @@ export function useMapInit(opts: UseMapInitOptions) {
             // ── Skip heavy sources in embedded mode ──
             if (embedded) {
                 setMapReady(true);
-                setTimeout(() => setActiveLayer('velocity'), 800);
                 return;
             }
 

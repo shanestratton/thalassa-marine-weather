@@ -2,15 +2,23 @@
  * NmeaListenerService — Background NMEA 0183 TCP/WebSocket listener.
  * Connects to vessel's Wi-Fi MFD, parses instrument sentences,
  * and emits averaged NmeaSample every 5 seconds.
+ *
+ * Transport layer:
+ * - Native (iOS/Android): Raw TCP via capacitor-tcp-socket (for YDWG-02 etc.)
+ * - Web (browser dev):    WebSocket fallback
  */
 import type { NmeaSample } from '../types';
+import { Capacitor } from '@capacitor/core';
 
 // ── Configuration ──
-const DEFAULT_HOST = '192.168.1.1';
-const DEFAULT_PORT = 10110;
+const DEFAULT_HOST = '192.168.1.151';
+const DEFAULT_PORT = 1456; // YDWG-02 standard TCP port
 const SAMPLE_INTERVAL_MS = 5000; // Emit averaged sample every 5s
 const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30000;
+const RECONNECT_GIVE_UP_MS = 5 * 60 * 1000; // Give up after 5 minutes of failed reconnects
+const TCP_READ_TIMEOUT_S = 5; // Read timeout for TCP polling (seconds)
+const TCP_READ_BUFFER = 4096; // Bytes to request per read cycle
 
 export type NmeaConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type NmeaSampleCallback = (sample: NmeaSample) => void;
@@ -36,12 +44,17 @@ interface RawAccumulator {
 }
 
 class NmeaListenerServiceClass {
-    private ws: WebSocket | null = null;
+    // ── Transport state ──
+    private ws: WebSocket | null = null;         // WebSocket (browser dev)
+    private tcpClientId: number | null = null;    // Native TCP client ID
+    private tcpReadLoop = false;                  // Whether TCP read loop is active
+
     private status: NmeaConnectionStatus = 'disconnected';
     private host = DEFAULT_HOST;
     private port = DEFAULT_PORT;
     private reconnectAttempts = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private firstAttemptTime: number | null = null; // For 5-minute give-up
     private sampleTimer: ReturnType<typeof setInterval> | null = null;
     private accumulator: RawAccumulator = this.freshAccumulator();
     private listeners: Set<NmeaSampleCallback> = new Set();
@@ -49,6 +62,8 @@ class NmeaListenerServiceClass {
     private enabled = false;
     /** Track if RPM data has ever been received */
     private hasRpmData = false;
+    /** Partial NMEA line buffer for TCP (data may arrive mid-sentence) */
+    private tcpLineBuffer = '';
 
     // ── Public API ──
 
@@ -57,18 +72,35 @@ class NmeaListenerServiceClass {
         this.port = port || DEFAULT_PORT;
     }
 
+    /**
+     * Auto-start on app boot if host/port were previously saved.
+     * Silently does nothing if no config exists.
+     */
+    autoStart() {
+        const savedHost = localStorage.getItem('nmea_host');
+        const savedPort = localStorage.getItem('nmea_port');
+        if (!savedHost && !savedPort) return; // No NMEA config saved — skip
+        this.configure(savedHost || DEFAULT_HOST, parseInt(savedPort || String(DEFAULT_PORT), 10));
+        this.start();
+    }
+
     start() {
         if (this.enabled) return;
         this.enabled = true;
+        this.firstAttemptTime = Date.now();
         this.connect();
         this.startSampleTimer();
     }
 
     stop() {
         this.enabled = false;
+        this.tcpReadLoop = false;
+        this.firstAttemptTime = null;
         this.stopSampleTimer();
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        // Disconnect active transport
         if (this.ws) { this.ws.close(); this.ws = null; }
+        this.disconnectTcp();
         this.setStatus('disconnected');
     }
 
@@ -84,13 +116,123 @@ class NmeaListenerServiceClass {
         if (!this.enabled) return;
         this.setStatus('connecting');
 
+        if (Capacitor.isNativePlatform()) {
+            this.connectTcp();
+        } else {
+            this.connectWebSocket();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  NATIVE TCP TRANSPORT (capacitor-tcp-socket)
+    // ═══════════════════════════════════════════════════════════════
+
+    private async connectTcp() {
         try {
-            // WebSocket URL — most NMEA multiplexers/SignalK servers expose WS
+            const { TcpSocket } = await import('capacitor-tcp-socket');
+            const result = await TcpSocket.connect({
+                ipAddress: this.host,
+                port: this.port,
+            });
+            this.tcpClientId = result.client;
+            this.tcpLineBuffer = '';
+            this.reconnectAttempts = 0;
+            this.firstAttemptTime = null; // Reset give-up timer on success
+            this.setStatus('connected');
+            console.log(`[NmeaListener] TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
+
+            // Start continuous read loop
+            this.tcpReadLoop = true;
+            this.runTcpReadLoop();
+        } catch (e) {
+            console.warn('[NmeaListener] TCP connect failed:', e);
+            this.setStatus('error');
+            if (this.enabled) this.scheduleReconnect();
+        }
+    }
+
+    /**
+     * Continuously reads from the TCP socket in a loop.
+     * The YDWG-02 streams NMEA sentences non-stop; we read chunks
+     * and split them into individual lines for parsing.
+     */
+    private async runTcpReadLoop() {
+        if (this.tcpClientId === null) return;
+
+        try {
+            const { TcpSocket } = await import('capacitor-tcp-socket');
+
+            while (this.tcpReadLoop && this.tcpClientId !== null && this.enabled) {
+                try {
+                    const { result } = await TcpSocket.read({
+                        client: this.tcpClientId,
+                        expectLen: TCP_READ_BUFFER,
+                        timeout: TCP_READ_TIMEOUT_S,
+                    });
+
+                    if (result && result.length > 0) {
+                        // Append to line buffer and process complete lines
+                        this.tcpLineBuffer += result;
+                        const lines = this.tcpLineBuffer.split(/\r?\n/);
+                        // Last element may be a partial line — keep it in the buffer
+                        this.tcpLineBuffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (trimmed.startsWith('$') || trimmed.startsWith('!')) {
+                                this.parseNmeaSentence(trimmed);
+                            }
+                        }
+                    }
+                } catch (readErr: any) {
+                    // Read timeout is normal (no data available) — just continue
+                    if (readErr?.message?.includes?.('timeout') || readErr?.code === 'TIMEOUT') {
+                        continue;
+                    }
+                    // Actual error — connection lost
+                    console.warn('[NmeaListener] TCP read error:', readErr);
+                    break;
+                }
+            }
+        } catch (importErr) {
+            console.warn('[NmeaListener] TCP plugin import error:', importErr);
+        }
+
+        // If we exited the loop and we're still enabled, reconnect
+        if (this.enabled) {
+            this.tcpClientId = null;
+            this.setStatus('disconnected');
+            this.scheduleReconnect();
+        }
+    }
+
+    private async disconnectTcp() {
+        this.tcpReadLoop = false;
+        if (this.tcpClientId !== null) {
+            try {
+                const { TcpSocket } = await import('capacitor-tcp-socket');
+                await TcpSocket.disconnect({ client: this.tcpClientId });
+                console.log(`[NmeaListener] TCP disconnected (client ${this.tcpClientId})`);
+            } catch (e) {
+                console.warn('[NmeaListener] TCP disconnect error:', e);
+            }
+            this.tcpClientId = null;
+        }
+        this.tcpLineBuffer = '';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WEBSOCKET TRANSPORT (browser dev fallback)
+    // ═══════════════════════════════════════════════════════════════
+
+    private connectWebSocket() {
+        try {
             const url = `ws://${this.host}:${this.port}`;
             this.ws = new WebSocket(url);
 
             this.ws.onopen = () => {
                 this.reconnectAttempts = 0;
+                this.firstAttemptTime = null; // Reset give-up timer on success
                 this.setStatus('connected');
             };
 
@@ -104,7 +246,7 @@ class NmeaListenerServiceClass {
             };
 
             this.ws.onerror = () => {
-                this.setStatus('error');
+                if (this.enabled) this.setStatus('error');
             };
 
             this.ws.onclose = () => {
@@ -121,8 +263,20 @@ class NmeaListenerServiceClass {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SHARED INFRASTRUCTURE
+    // ═══════════════════════════════════════════════════════════════
+
     private scheduleReconnect() {
         if (!this.enabled || this.reconnectTimer) return;
+
+        // Give up after 5 minutes of continuous failed attempts
+        if (this.firstAttemptTime && (Date.now() - this.firstAttemptTime) > RECONNECT_GIVE_UP_MS) {
+            console.log('[NmeaListener] Giving up after 5 minutes of failed reconnects');
+            this.stop();
+            return;
+        }
+
         const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts), RECONNECT_MAX_MS);
         this.reconnectAttempts++;
         this.reconnectTimer = setTimeout(() => {

@@ -44,12 +44,20 @@ const EssentialMapSlide: React.FC<{
     const zoom = 5;
     const tileSize = 256;
 
+    // Progressive loading: show radar immediately, fade basemap in when ready
+    const [mapLoaded, setMapLoaded] = useState(false);
+
     const staticUrl = token
-        ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400@2x?access_token=${token}&attribution=false&logo=false`
+        ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
         : '';
 
-
-    // --- Rain radar frames (last ~2hrs + nowcast) ---
+    // Prefetch the static image on mount so the browser cache has it ready
+    useEffect(() => {
+        if (!staticUrl) return;
+        const img = new Image();
+        img.onload = () => setMapLoaded(true);
+        img.src = staticUrl;
+    }, [staticUrl]);
     const [radarFrames, setRadarFrames] = useState<{ path: string; time: number }[]>([]);
     const [activeFrame, setActiveFrame] = useState(0);
     const [nowIdx, setNowIdx] = useState(0);
@@ -167,12 +175,17 @@ const EssentialMapSlide: React.FC<{
         <div className="relative w-full h-full flex flex-col">
             <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
 
-                {/* Layer 1: Dark basemap */}
+                {/* Layer 1: Dark basemap — fades in progressively when loaded */}
                 {staticUrl && (
                     <img
                         src={staticUrl}
                         alt="Location map"
                         className="absolute inset-0 w-full h-full"
+                        style={{
+                            opacity: mapLoaded ? 1 : 0,
+                            transition: 'opacity 600ms ease-in',
+                            objectFit: 'cover',
+                        }}
                         loading="eager"
                         draggable={false}
                     />
@@ -302,9 +315,9 @@ const EssentialMapSlide: React.FC<{
                 {/* Layer 6: Time label + LIVE badge — top-left */}
                 <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                     {isLive && (
-                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/20 border border-red-400/20">
-                            <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                            <span className="text-[8px] text-red-300/80 font-bold tracking-wider">LIVE</span>
+                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/20">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-[8px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
                         </div>
                     )}
                     {timeLabel && !isLive && (
