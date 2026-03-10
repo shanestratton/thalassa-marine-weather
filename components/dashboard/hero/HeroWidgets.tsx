@@ -1,5 +1,5 @@
-import React from 'react';
-import { t } from '../../../theme';
+
+
 import { WindIcon, WaveIcon, CompassIcon, DropletIcon, GaugeIcon, ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, SunIcon, EyeIcon, ClockIcon, MoonIcon, SunriseIcon, SunsetIcon, ThermometerIcon } from '../../Icons';
 import { UnitPreferences, WeatherMetrics } from '../../../types';
 import { CardDisplayValues, SourceMap } from './types';

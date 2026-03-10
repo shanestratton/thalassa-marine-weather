@@ -3,7 +3,7 @@
  * Extracted from HeroSlide.tsx for better maintainability
  */
 
-import { WeatherMetrics, UnitPreferences, ForecastDay, Tide, HourlyForecast, VesselProfile } from '../../../types';
+import { WeatherMetrics, UnitPreferences, Tide } from '../../../types';
 
 /**
  * Alignment options for widget content

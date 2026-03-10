@@ -7,11 +7,11 @@ import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
 import { ClockIcon } from './Icons';
 import { HeroSection } from './dashboard/Hero';
-import { TideWidget, SunMoonWidget } from './dashboard/TideAndVessel';
+import { TideWidget } from './dashboard/TideAndVessel';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
-import { AdviceWidget } from './dashboard/Advice';
+
 const LogPage = React.lazy(() => import('../pages/LogPage').then(m => ({ default: m.LogPage })));
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
@@ -23,7 +23,7 @@ import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 import { OnboardingTooltips, useOnboardingTooltips } from './ui/OnboardingTooltips';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
-import { UnitPreferences, WeatherMetrics, SourcedWeatherMetrics } from '../types';
+import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 
 interface DashboardProps {
@@ -55,12 +55,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         lockerItems,
         isLandlocked,
         isPro,
-
-        // State
-        chartView,
-        view,
         isPlaying,
-        hasPreloadedAudio,
 
         // Actions
         handleAudioBroadcast,
@@ -104,7 +99,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Minutely rain data from Apple WeatherKit
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
     const [rainSummary, setRainSummary] = useState<string>('');
-    const [rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+    const [_rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
 

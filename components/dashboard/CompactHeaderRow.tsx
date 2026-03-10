@@ -3,7 +3,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CompactHeaderRow');
 import { t } from '../../theme';
-import { CheckIcon, AlertTriangleIcon, SunriseIcon, SunsetIcon, RainIcon, MoonIcon } from '../Icons';
+import { CheckIcon, AlertTriangleIcon, SunriseIcon, SunsetIcon } from '../Icons';
 import { useUI } from '../../context/UIContext';
 import type { DashboardMode } from '../../types';
 
@@ -40,7 +40,7 @@ export const CompactHeaderRow = ({
         try {
             const stored = sessionStorage.getItem('thalassa_dismissed_alerts');
             return stored ? new Set(JSON.parse(stored)) : new Set();
-        } catch (e) { log.warn( e); return new Set(); }
+        } catch (e) { log.warn(e); return new Set(); }
     };
 
     const dismissed = getDismissed();

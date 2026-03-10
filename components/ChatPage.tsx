@@ -16,16 +16,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ChatPage');
-import { ChatService, ChatChannel, ChatMessage, DirectMessage, DMConversation, DEFAULT_CHANNELS } from '../services/ChatService';
-import { clientFilter, reportMessage, type ClientFilterResult } from '../services/ContentModerationService';
-import { batchFetchAvatars } from '../services/ProfilePhotoService';
+import { ChatService, ChatChannel, DEFAULT_CHANNELS } from '../services/ChatService';
+import { reportMessage } from '../services/ContentModerationService';
 import { LonelyHeartsPage } from './LonelyHeartsPage';
 
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
 import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
-import { t } from '../theme';
 import { MarketplacePage } from './MarketplacePage';
 import { AdminPanel } from './AdminPanel';
 import { ChannelList } from './chat/ChannelList';
@@ -48,9 +46,7 @@ import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 
 import {
-    getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
-    parsePinMessage, parseTrackMessage, CREW_RANKS,
-    PIN_PREFIX, TRACK_PREFIX,
+    CREW_RANKS,
 } from './chat/chatUtils';
 
 // --- TYPES ---
@@ -105,7 +101,7 @@ export const ChatPage: React.FC = () => {
         messageText, setMessageText, isQuestion, setIsQuestion,
         filterWarning, setFilterWarning,
         showModMenu, setShowModMenu, showRankTooltip, setShowRankTooltip,
-        avatarMap, setAvatarMap, pinnedMessages, likedMessages,
+        avatarMap, pinnedMessages, likedMessages,
         messageEndRef,
         openChannel, sendChannelMessage,
         handleMarkHelpful, handleDeleteMessage, handlePinMessage, handleMuteUser,
@@ -114,7 +110,7 @@ export const ChatPage: React.FC = () => {
 
     const chatDMs = useChatDMs({ setView: setView as (v: string) => void, setNavDirection, setLoading });
     const {
-        dmConversations, dmThread, setDmThread, dmPartner, setDmPartner,
+        dmConversations, dmThread, dmPartner, setDmPartner,
         dmText, setDmText, isUserBlocked,
         showBlockConfirm, setShowBlockConfirm, unreadDMs,
         subscribe: subscribeDMs, openDMInbox, openDMThread,
@@ -229,15 +225,12 @@ export const ChatPage: React.FC = () => {
     // --- Extracted Hook: Profile ---
     const profileHook = useChatProfile({ avatarMap, setView: setView as (v: string) => void });
     const {
-        myAvatarUrl, setMyAvatarUrl,
-        showPhotoUpload, setShowPhotoUpload,
+        myAvatarUrl,
         uploadProgress, uploadError,
         fileInputRef,
         profileDisplayName, setProfileDisplayName,
         profileVesselName, setProfileVesselName,
-        profileLoaded, setProfileLoaded,
         profileSaving, profileSaved,
-        profileLookingForLove, setProfileLookingForLove,
         loadProfile, handleFileSelect, handleRemovePhoto, handleSaveProfile,
         getAvatar,
     } = profileHook;
@@ -403,8 +396,7 @@ export const ChatPage: React.FC = () => {
         else if (view === 'admin_panel') { setView('channels'); }
     };
 
-    // pinnedMessages now provided by useChatMessages hook
-    const regularMessages = messages.filter(m => !m.is_pinned);
+
 
     // --- RENDER ---
     return (
