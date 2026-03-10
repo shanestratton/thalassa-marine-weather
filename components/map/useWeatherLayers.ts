@@ -256,16 +256,38 @@ export function useWeatherLayers(
         return () => clearInterval(timer);
     }, [windPlaying, activeLayer, windTotalHours]);
 
-    // ── Center map when switching layers ──
-    // Snap to user's location when activating a weather overlay.
-    // No zoom restrictions — full pan/zoom allowed on all layers.
+    // ── Center map when switching layers + WIND GEOLOCK ──
+    // Wind layer: constrain zoom (3-8) and lock bounds to a regional box
+    // around the user's location. Other layers: full freedom.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady || embedded) return;
 
-        // When switching to a weather overlay, center on user's location
-        if (activeLayer !== 'none') {
+        if (activeLayer === 'wind') {
+            // ── WIND GEOLOCK ──
+            // 1. Fly to synoptic overview centered on user
             map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+
+            // 2. Constrain zoom range — wind particles are meaningful at zoom 3-8
+            map.setMinZoom(3);
+            map.setMaxZoom(8);
+
+            // 3. Lock bounds to ±30° box around user (prevents drifting to empty ocean)
+            const padLat = 30;
+            const padLon = 40;
+            map.setMaxBounds([
+                [location.lon - padLon, location.lat - padLat],
+                [location.lon + padLon, location.lat + padLat],
+            ]);
+        } else {
+            // ── UNLOCK for all other layers ──
+            map.setMinZoom(1);
+            map.setMaxZoom(20);
+            map.setMaxBounds(undefined as any);
+
+            if (activeLayer !== 'none') {
+                map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+            }
         }
     }, [activeLayer, mapReady, embedded]);
 
@@ -517,21 +539,15 @@ export function useWeatherLayers(
                     const nowcast: { path: string; time: number }[] = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. Rainbow.ai forecast tiles (1km res)
-                    // Note: available forecast range depends on subscription tier.
-                    // Extend this array as more offsets become available.
-                    const rainbowKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RAINBOW_API_KEY) || '';
+                    // 2. Rainbow.ai forecast tiles (1km res) — via Supabase Edge Proxy
+                    // API key stays server-side in Supabase Secrets (RAINBOW_API_KEY).
                     let rainbowSnapshot: number | null = null;
                     const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
-                    // Dev: use Vite proxy to bypass CORS. Prod (Capacitor native): direct API call.
-                    const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV;
-                    const snapshotUrl = isDev
-                        ? `/api/rainbow/snapshot?token=${rainbowKey}`
-                        : `https://api.rainbow.ai/tiles/v1/snapshot?token=${rainbowKey}`;
+                    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 
-                    if (rainbowKey) {
+                    if (supabaseUrl) {
                         try {
-                            const snapResp = await fetch(snapshotUrl);
+                            const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`);
                             if (snapResp.ok) {
                                 const snapData = await snapResp.json();
                                 rainbowSnapshot = snapData.snapshot || null;
@@ -574,10 +590,8 @@ export function useWeatherLayers(
                             else if (mins % 60 === 0) label = `+${mins / 60}h`;
                             else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
                             const forecastSecs = mins * 60;
-                            // Dev: proxy tiles through Vite to bypass CORS. Prod: direct API URL.
-                            const tileUrl = isDev
-                                ? `/api/rainbow/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=dbz_u8`
-                                : `https://api.rainbow.ai/tiles/v1/precip/${rainbowSnapshot}/${forecastSecs}/{z}/{x}/{y}?token=${rainbowKey}&color=dbz_u8`;
+                            // All tile requests go through proxy-rainbow (API key stays server-side)
+                            const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }

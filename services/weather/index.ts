@@ -202,10 +202,13 @@ const _fetchWeatherByStrategyImpl = async (
         report.current = current;
 
         // Merge StormGlass marine data into hourly forecasts
+        // FIX: WeatherKit uses "2024-03-10T17:00:00Z" but StormGlass uses "2024-03-10T17:00:00.000Z"
+        // Exact string match fails — normalize to epoch-hour for robust matching
         if (stormGlassReport.hourly?.length) {
-            const sgHourlyMap = new Map(stormGlassReport.hourly.map(h => [h.time, h]));
+            const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
+            const sgHourlyMap = new Map(stormGlassReport.hourly.map(h => [toHourKey(h.time), h]));
             report.hourly = report.hourly.map(h => {
-                const sgH = sgHourlyMap.get(h.time);
+                const sgH = sgHourlyMap.get(toHourKey(h.time));
                 if (!sgH) return h;
                 return {
                     ...h,
@@ -216,6 +219,7 @@ const _fetchWeatherByStrategyImpl = async (
                     currentDirection: sgH.currentDirection ?? h.currentDirection,
                     secondarySwellHeight: (sgH as any).secondarySwellHeight ?? (h as any).secondarySwellHeight,
                     secondarySwellPeriod: (sgH as any).secondarySwellPeriod ?? (h as any).secondarySwellPeriod,
+                    cape: (sgH as any).cape ?? (h as any).cape,
                 };
             });
         }

@@ -48,7 +48,7 @@ const EssentialMapSlide: React.FC<{
     const [mapLoaded, setMapLoaded] = useState(false);
 
     const staticUrl = token
-        ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
+        ? `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
         : '';
 
     // Prefetch the static image on mount so the browser cache has it ready
@@ -221,6 +221,7 @@ const EssentialMapSlide: React.FC<{
                         ))}
                     </div>
                 )}
+
 
                 {/* Layer 3: Vignette */}
                 <div
@@ -562,6 +563,12 @@ const HeroSlideComponent = ({
                 currentDirection: currentSlot.currentDirection ?? data.currentDirection,
                 waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
 
+                // Offshore marine fields
+                cape: currentSlot.cape ?? (data as any).cape,
+                secondarySwellHeight: currentSlot.secondarySwellHeight ?? (data as any).secondarySwellHeight,
+                secondarySwellPeriod: currentSlot.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
+                swellPeriod: currentSlot.swellPeriod ?? data.swellPeriod,
+                dewPoint: currentSlot.dewPoint ?? data.dewPoint,
 
                 // Display Values
                 windSpeed: currentSlot.windSpeed ?? data.windSpeed,
@@ -582,7 +589,14 @@ const HeroSlideComponent = ({
         return {
             ...data,
             uvIndex: closestHour?.uvIndex ?? data.uvIndex ?? 0,
-            waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature
+            waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature,
+            currentSpeed: closestHour?.currentSpeed ?? data.currentSpeed,
+            currentDirection: closestHour?.currentDirection ?? data.currentDirection,
+            cape: closestHour?.cape ?? (data as any).cape,
+            secondarySwellHeight: closestHour?.secondarySwellHeight ?? (data as any).secondarySwellHeight,
+            secondarySwellPeriod: closestHour?.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
+            swellPeriod: closestHour?.swellPeriod ?? data.swellPeriod,
+            dewPoint: closestHour?.dewPoint ?? data.dewPoint,
         };
     }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
 
@@ -1416,9 +1430,11 @@ const HeroSlideComponent = ({
                                                     { id: 'dew', label: 'DEW', icon: <ThermometerIcon className="w-3 h-3" />, headingColor: 'text-emerald-400', labelColor: 'text-emerald-300' },
                                                 ];
                                                 const hasMarineMetrics = cardData && (cardData.waterTemperature !== null && cardData.waterTemperature !== undefined);
+                                                // Offshore: ALWAYS show marine widgets (show '--' for missing data rather than switching widget sets)
                                                 const widgets = (locationType === 'inland' || isLandlocked) ? INLAND_WIDGETS
-                                                    : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
-                                                        : OFFSHORE_WIDGETS;
+                                                    : locationType === 'offshore' ? OFFSHORE_WIDGETS
+                                                        : (locationType === 'coastal' && !hasMarineMetrics) ? INLAND_WIDGETS
+                                                            : OFFSHORE_WIDGETS;
 
                                                 const getVal = (id: string): string | number => {
                                                     switch (id) {
