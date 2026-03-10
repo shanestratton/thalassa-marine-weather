@@ -68,7 +68,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
     const isInland = data?.locationType === 'inland' || isLandlocked;
-    const isExpanded = isInland ? false : userSettings.dashboardMode !== 'essential';
+    const isOffshore = data?.locationType === 'offshore';
+    const isExpanded = (isInland || isOffshore) ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
 
     // Onboarding tutorial for first-time users
     const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
@@ -477,8 +478,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     >
                         <div className="bg-black/60 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
                             <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Data Stale</span>
-                            <span className="text-xs text-white/50">Refreshing weather data…</span>
+                            <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Updating</span>
+                            <span className="text-xs text-white/50">Fetching latest conditions…</span>
                         </div>
                     </div>
                 )}
@@ -530,7 +531,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     timeZone={data.timeZone}
                                     sources={safeActive.sources}
                                     isExpanded={isExpanded}
-                                    onToggleExpand={isInland ? undefined : () => {
+                                    onToggleExpand={(isInland || isOffshore) ? undefined : () => {
                                         const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
                                         updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
                                         if (goingEssential) {

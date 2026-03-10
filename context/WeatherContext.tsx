@@ -263,6 +263,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         return;
                     }
 
+                    // BLUR ON STARTUP: If we have stale cached data, blur the dashboard
+                    // so the punter doesn't act on outdated info while we fetch fresh data.
+                    if (hasCachedData && cachedAge >= STALE_THRESHOLD_MS) {
+                        setStaleRefresh(true);
+                    }
+
 
                     // Handle GPS-based "Current Location" specially
                     if (loc === "Current Location") {
@@ -619,6 +625,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const cached = cache[location];
         const isCacheValid = cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
+        // BLUR ON LOCATION CHANGE: Blur if cache is missing or stale (>30 min)
+        const STALE_LOC_MS = 30 * 60 * 1000; // 30 minutes
+        const cachedAge = isCacheValid && cached?.generatedAt
+            ? Date.now() - new Date(cached.generatedAt).getTime()
+            : Infinity;
+        const needsBlur = !isCacheValid || cachedAge >= STALE_LOC_MS;
+
+        if (needsBlur && weatherDataRef.current) {
+            // There IS data on screen (from previous location) — blur it while we fetch
+            setStaleRefresh(true);
+        }
+
         if (isCacheValid) {
             // Best case: we have a real cached report for this location — swap instantly
             setWeatherData(cached);
@@ -738,7 +756,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // WAKE FROM SLEEP — when iPhone/device resumes, check if data is stale
         // and trigger an immediate refresh. The setInterval above is frozen while
         // the phone sleeps, so we can't rely on it to catch multi-hour gaps.
-        const STALE_ON_WAKE_MS = 60 * 60 * 1000; // 1 hour — only blur for major staleness (e.g. overnight sleep)
+        const STALE_ON_WAKE_MS = 30 * 60 * 1000; // 30 min — blur when returning from background with stale data
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') return;
             if (isFetchingRef.current) return;
@@ -748,7 +766,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 ? Date.now() - new Date(data.generatedAt).getTime()
                 : Infinity;
 
-            // If data is older than 15 minutes, immediately refresh
+            // If data is older than 30 minutes, blur + refresh
             if (dataAge > STALE_ON_WAKE_MS) {
                 console.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true); // Signal dashboard to blur

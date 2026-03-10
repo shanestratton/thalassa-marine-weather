@@ -186,9 +186,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     </div>
                     {/* Ghostly chevron — hidden for inland (no expand available) */}
                     {onToggleExpand && (
-                        <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center">
+                        <div className="w-9 h-9 rounded-full bg-white/[0.05] flex items-center justify-center">
                             <ChevronIcon
-                                className={`w-3.5 h-3.5 text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                                className={`w-4.5 h-4.5 text-white/60 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
                             />
                         </div>
                     )}
