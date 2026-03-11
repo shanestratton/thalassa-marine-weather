@@ -7,6 +7,15 @@ import type { NotificationPreferences, WeatherModel } from './weather';
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
 
+/** User-defined safety thresholds for passage planning.
+ *  The isochrone router treats zones exceeding these as obstacles.
+ *  Undefined fields = no limit (disabled). */
+export interface ComfortParams {
+    maxWindKts?: number;      // Max sustained wind (default: off)
+    maxWaveM?: number;        // Max significant wave height (default: off)
+    maxGustKts?: number;      // Max gust (default: off)
+}
+
 export interface UserSettings {
     isPro: boolean;
     alwaysOn?: boolean;
@@ -34,6 +43,7 @@ export interface UserSettings {
     nmeaHost?: string;
     nmeaPort?: number;
     smartPolarsEnabled?: boolean;
+    comfortParams?: ComfortParams;
     gribMode?: 'direct' | 'iridium';
     satelliteMode?: boolean;
     cloudSyncSettings?: boolean;

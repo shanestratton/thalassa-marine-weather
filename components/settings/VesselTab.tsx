@@ -203,6 +203,98 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </div>
             </div>
 
+            {/* Comfort Zone — Safety Parameters */}
+            <div className="mx-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-4 rounded-full bg-red-500" />
+                    <span className="text-[11px] font-bold text-red-400 uppercase tracking-widest">Comfort Zone</span>
+                    <span className="text-[10px] text-gray-500 ml-auto">Passage Safety Limits</span>
+                </div>
+                <div className="bg-red-500/[0.03] border border-red-500/10 rounded-2xl p-4 space-y-5">
+                    <p className="text-[11px] text-gray-400 leading-relaxed">
+                        Set your crew's comfort thresholds. The passage planner will route around zones that exceed these limits, treating them as obstacles.
+                    </p>
+
+                    {/* Max Wind Speed */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Max Wind</label>
+                            <span className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'text-gray-500' : 'text-red-400'}`}>
+                                {(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'OFF' : `${settings.comfortParams?.maxWindKts} kts`}
+                            </span>
+                        </div>
+                        <input
+                            type="range" min={10} max={60} step={1}
+                            value={settings.comfortParams?.maxWindKts ?? 60}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value);
+                                onSave({ comfortParams: { ...settings.comfortParams, maxWindKts: v >= 60 ? undefined : v } });
+                            }}
+                            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                            style={{ background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50 * 100}%, rgba(255,255,255,0.1) ${((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50 * 100}%)` }}
+                        />
+                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                            <span>10 kts</span>
+                            <span>25</span>
+                            <span>40</span>
+                            <span>OFF</span>
+                        </div>
+                    </div>
+
+                    {/* Max Wave Height */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Max Wave Height</label>
+                            <span className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'text-gray-500' : 'text-red-400'}`}>
+                                {(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'OFF' : `${settings.comfortParams?.maxWaveM?.toFixed(1)} m`}
+                            </span>
+                        </div>
+                        <input
+                            type="range" min={0.5} max={8} step={0.5}
+                            value={settings.comfortParams?.maxWaveM ?? 8}
+                            onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                onSave({ comfortParams: { ...settings.comfortParams, maxWaveM: v >= 8 ? undefined : v } });
+                            }}
+                            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                            style={{ background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5 * 100}%, rgba(255,255,255,0.1) ${((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5 * 100}%)` }}
+                        />
+                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                            <span>0.5 m</span>
+                            <span>2.5</span>
+                            <span>5.0</span>
+                            <span>OFF</span>
+                        </div>
+                    </div>
+
+                    {/* Max Gust */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Max Gust</label>
+                            <span className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'text-gray-500' : 'text-red-400'}`}>
+                                {(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'OFF' : `${settings.comfortParams?.maxGustKts} kts`}
+                            </span>
+                        </div>
+                        <input
+                            type="range" min={15} max={80} step={1}
+                            value={settings.comfortParams?.maxGustKts ?? 80}
+                            onChange={(e) => {
+                                const v = parseInt(e.target.value);
+                                onSave({ comfortParams: { ...settings.comfortParams, maxGustKts: v >= 80 ? undefined : v } });
+                            }}
+                            className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-red-500"
+                            style={{ background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65 * 100}%, rgba(255,255,255,0.1) ${((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65 * 100}%)` }}
+                        />
+                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                            <span>15 kts</span>
+                            <span>35</span>
+                            <span>55</span>
+                            <span>OFF</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* Capacity */}
             <div className="mx-4 mb-4">
                 <div className="flex items-center gap-2 mb-3">
