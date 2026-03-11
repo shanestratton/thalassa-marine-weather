@@ -38,6 +38,7 @@ import { type MapHubProps } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
+import { useRouteNudge } from './useRouteNudge';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import {
@@ -46,6 +47,8 @@ import {
     LayerLegendStrip,
     LayerFABMenu,
 } from './MapHubOverlays';
+import { useDeviceMode } from '../../hooks/useDeviceMode';
+import { PassageDataPanel } from './PassageDataPanel';
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -98,6 +101,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     const location = useLocationStore();
     const [mapReady, setMapReady] = useState(false);
+    const deviceMode = useDeviceMode();
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
@@ -128,6 +132,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
+
+    // ── Route Nudge (long-press-to-drag on route line) ──
+    useRouteNudge(mapRef, mapReady, passage.showPassage);
 
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
@@ -164,10 +171,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         map.flyTo({ center: [pv.lng, pv.lat], zoom: 7, duration: 1200 });
     }, [isPinView, mapReady]);
 
-    // ── Render ──
+    // Determine if tablet split-screen is active
+    const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded;
+
     return (
-        <div className="w-full h-full relative">
-            {/* Map container */}
+        <div className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
+            {/* Map container — 70% on tablet during passage, full otherwise */}
+            <div className={`relative ${isHelmSplit ? 'flex-[7] h-full' : 'w-full h-full'}`}>
             <div ref={containerRef} className="w-full h-full" />
 
             {/* Pin bounce + location pulse animations moved to index.css */}
@@ -194,6 +204,38 @@ export const MapHub: React.FC<MapHubProps> = ({
 
             {/* ═══ LAYER LEGEND STRIP ═══ */}
             {!isPinView && <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />}
+
+            {/* ═══ PRO DATA BAR (Phone / Deck mode during passage) ═══ */}
+            {deviceMode === 'deck' && passage.showPassage && passage.routeAnalysis && !embedded && !isPinView && (
+                <div className="absolute top-14 left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="bg-slate-950/90 border border-white/[0.08] rounded-xl px-3 py-1.5 flex items-center justify-between">
+                        <div className="text-center flex-1">
+                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Distance</p>
+                            <p className="text-base font-black text-white tabular-nums leading-tight">
+                                {passage.routeAnalysis.totalDistance.toFixed(0)}
+                                <span className="text-[9px] text-gray-500"> NM</span>
+                            </p>
+                        </div>
+                        <div className="w-px h-6 bg-white/10" />
+                        <div className="text-center flex-1">
+                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Time</p>
+                            <p className="text-base font-black text-white tabular-nums leading-tight">
+                                {passage.routeAnalysis.estimatedDuration < 24
+                                    ? `${passage.routeAnalysis.estimatedDuration.toFixed(1)}h`
+                                    : `${Math.floor(passage.routeAnalysis.estimatedDuration / 24)}d ${Math.round(passage.routeAnalysis.estimatedDuration % 24)}h`}
+                            </p>
+                        </div>
+                        <div className="w-px h-6 bg-white/10" />
+                        <div className="text-center flex-1">
+                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">ETA</p>
+                            <p className="text-base font-black text-amber-400 tabular-nums leading-tight">
+                                {new Date((passage.departureTime ? new Date(passage.departureTime) : new Date()).getTime() + passage.routeAnalysis.estimatedDuration * 3600000)
+                                    .toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ═══ PASSAGE MODE BANNER ═══ */}
             {passage.showPassage && !embedded && (
@@ -699,6 +741,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </div>
                 );
             })()}
+            </div>
+
+            {/* ═══ TABLET DATA PANEL (Helm mode, 30% width) ═══ */}
+            {isHelmSplit && (
+                <div className="flex-[3] h-full">
+                    <PassageDataPanel
+                        routeAnalysis={passage.routeAnalysis}
+                        departure={passage.departure}
+                        arrival={passage.arrival}
+                        turnWaypoints={passage.turnWaypointsRef.current}
+                        departureTime={passage.departureTime}
+                    />
+                </div>
+            )}
         </div >
     );
 };
