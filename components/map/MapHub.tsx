@@ -16,7 +16,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MapHub');
@@ -24,6 +24,9 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { useLocationStore } from '../../stores/LocationStore';
+import { WindStore } from '../../stores/WindStore';
+import { ConsensusMatrix } from './ConsensusMatrix';
+import { generateConsensusMatrix, type ConsensusMatrixData } from '../../services/ConsensusMatrixEngine';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
@@ -74,6 +77,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const { setPage, previousView, currentView } = useUI();
     const [passageToast, setPassageToast] = useState<string | null>(null);
     const [isoProgress, setIsoProgress] = useState<{ step: number; closestNM: number; totalDistNM?: number; elapsed?: number; frontSize?: number; phase?: string } | null>(null);
+    const [showConsensus, setShowConsensus] = useState(false);
+    const [consensusData, setConsensusData] = useState<ConsensusMatrixData | null>(null);
+    const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
@@ -110,6 +116,61 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         if (passage.isoResultRef.current) setIsoProgress(null);
     }, [passage.routeAnalysis]);
+
+    // Generate consensus data when route completes
+    useEffect(() => {
+        const isoResult = passage.isoResultRef.current;
+        if (!isoResult || !passage.routeAnalysis) {
+            setConsensusData(null);
+            return;
+        }
+        const windGrid = WindStore.getState().grid;
+        if (!windGrid) return;
+
+        try {
+            const data = generateConsensusMatrix(
+                isoResult,
+                windGrid,
+                passage.departureTime || new Date().toISOString(),
+                undefined, // comfortParams loaded inside engine via Preferences
+                6,
+            );
+            setConsensusData(data);
+        } catch (err) {
+            log.warn('[Consensus] Failed to generate matrix:', err);
+        }
+    }, [passage.routeAnalysis, passage.departureTime]);
+
+    // Route-sync playhead marker
+    const handleScrubPosition = useCallback((lat: number, lon: number) => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        if (!playheadMarkerRef.current) {
+            const el = document.createElement('div');
+            el.style.cssText = `
+                width: 20px; height: 20px;
+                background: linear-gradient(135deg, #38bdf8, #a78bfa);
+                border: 3px solid #fff;
+                border-radius: 50%;
+                box-shadow: 0 0 16px rgba(56,189,248,0.5), 0 4px 12px rgba(0,0,0,0.3);
+                transition: opacity 0.2s;
+            `;
+            playheadMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                .setLngLat([lon, lat])
+                .addTo(map);
+        } else {
+            playheadMarkerRef.current.setLngLat([lon, lat]);
+        }
+    }, []);
+
+    // Clean up playhead when consensus closes
+    useEffect(() => {
+        if (!showConsensus && playheadMarkerRef.current) {
+            playheadMarkerRef.current.remove();
+            playheadMarkerRef.current = null;
+        }
+    }, [showConsensus]);
 
     // ── Map Init ──
     const { dropPin } = useMapInit({
@@ -421,6 +482,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setActiveLayer={weather.setActiveLayer}
                     setShowLayerMenu={weather.setShowLayerMenu}
                 />
+            )}
+
+            {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}
+            {passage.showPassage && passage.routeAnalysis && consensusData && !embedded && !isPinView && (
+                <button
+                    onClick={() => {
+                        setShowConsensus(!showConsensus);
+                        triggerHaptic('medium');
+                    }}
+                    className={`absolute bottom-44 left-4 z-[500] w-12 h-12 rounded-2xl flex items-center justify-center shadow-2xl transition-all active:scale-95 ${
+                        showConsensus
+                            ? 'bg-gradient-to-br from-sky-500/30 to-purple-500/30 border border-sky-500/40'
+                            : 'bg-slate-900/90 border border-white/[0.08] hover:bg-slate-800/90'
+                    }`}
+                    aria-label="Toggle Consensus Matrix"
+                >
+                    <svg className={`w-5 h-5 ${showConsensus ? 'text-sky-400' : 'text-white'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+                    </svg>
+                </button>
             )}
 
             {/* ═══ ACTION FABS ═══ */}
@@ -743,15 +824,34 @@ export const MapHub: React.FC<MapHubProps> = ({
             })()}
             </div>
 
-            {/* ═══ TABLET DATA PANEL (Helm mode, 30% width) ═══ */}
+            {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
             {isHelmSplit && (
                 <div className="flex-[3] h-full">
-                    <PassageDataPanel
-                        routeAnalysis={passage.routeAnalysis}
-                        departure={passage.departure}
-                        arrival={passage.arrival}
-                        turnWaypoints={passage.turnWaypointsRef.current}
-                        departureTime={passage.departureTime}
+                    {showConsensus && consensusData ? (
+                        <ConsensusMatrix
+                            data={consensusData}
+                            onScrubPosition={handleScrubPosition}
+                            onClose={() => setShowConsensus(false)}
+                        />
+                    ) : (
+                        <PassageDataPanel
+                            routeAnalysis={passage.routeAnalysis}
+                            departure={passage.departure}
+                            arrival={passage.arrival}
+                            turnWaypoints={passage.turnWaypointsRef.current}
+                            departureTime={passage.departureTime}
+                        />
+                    )}
+                </div>
+            )}
+
+            {/* ═══ CONSENSUS MATRIX — Phone slide-up (Deck mode) ═══ */}
+            {deviceMode === 'deck' && showConsensus && consensusData && !embedded && (
+                <div className="absolute inset-0 z-[600] animate-in slide-in-from-bottom duration-300">
+                    <ConsensusMatrix
+                        data={consensusData}
+                        onScrubPosition={handleScrubPosition}
+                        onClose={() => setShowConsensus(false)}
                     />
                 </div>
             )}
