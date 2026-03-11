@@ -30,6 +30,9 @@ import { findSeaBuoy } from '../../services/seaBuoyFinder';
 import { WindStore } from '../../stores/WindStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
+import { Preferences } from '@capacitor/preferences';
+import type { ComfortParams } from '../../types/settings';
+import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -470,7 +473,24 @@ export function usePassagePlanner(
 
                 log.info('[Isochrone BG] Running isochrone engine...');
                 try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', { detail: { step: 0, closestNM: Math.round(straightLineNM), totalDistNM: Math.round(straightLineNM), elapsed: 0, frontSize: 0, phase: 'computing' } })); } catch (_) { }
-                const isoConfig = minDepthM != null ? { minDepthM } : {};
+
+                // ── Read comfort params from persisted settings ──
+                let comfortParams: ComfortParams | undefined;
+                try {
+                    const { value } = await Preferences.get({ key: 'thalassa_settings' });
+                    if (value) {
+                        const parsed = JSON.parse(value);
+                        if (parsed.comfortParams && hasActiveComfortLimits(parsed.comfortParams)) {
+                            comfortParams = parsed.comfortParams;
+                            log.info(`[Isochrone BG] Comfort Zone active — wind:${comfortParams!.maxWindKts ?? 'off'} wave:${comfortParams!.maxWaveM ?? 'off'} gust:${comfortParams!.maxGustKts ?? 'off'}`);
+                        }
+                    }
+                } catch { /* Settings read failed — proceed without comfort limits */ }
+
+                const isoConfig = {
+                    ...(minDepthM != null ? { minDepthM } : {}),
+                    ...(comfortParams ? { comfortParams } : {}),
+                };
                 let isoResult = await computeIsochrones(
                     depGate, arrGate, depTimeStr, polar, windField, isoConfig, bathyGrid,
                 );
@@ -516,6 +536,112 @@ export function usePassagePlanner(
                     updatedResult.totalDistance = isoResult.totalDistanceNM;
                     updatedResult.estimatedDuration = isoResult.totalDurationHours;
                     setRouteAnalysis(updatedResult);
+
+                    // ── Render Decision Fan (isochrone wavefront rings) ──
+                    if (isoResult.isochrones.length > 0) {
+                        try {
+                            const geoData = isochroneToGeoJSON(isoResult);
+
+                            // Remove previous fan layers/sources
+                            if (map.getLayer('isochrone-fan-layer')) map.removeLayer('isochrone-fan-layer');
+                            if (map.getLayer('isochrone-time-labels')) map.removeLayer('isochrone-time-labels');
+                            if (map.getSource('isochrone-fan')) map.removeSource('isochrone-fan');
+                            if (map.getSource('isochrone-labels')) map.removeSource('isochrone-labels');
+
+                            // Wavefront rings: thin white streamlines
+                            map.addSource('isochrone-fan', { type: 'geojson', data: geoData.wavefronts });
+                            map.addLayer({
+                                id: 'isochrone-fan-layer',
+                                type: 'line',
+                                source: 'isochrone-fan',
+                                paint: {
+                                    'line-color': '#ffffff',
+                                    'line-opacity': 0.12,
+                                    'line-width': 1,
+                                    'line-dasharray': [2, 4],
+                                },
+                            }, 'route-line-layer'); // Below route
+
+                            // Time labels at key intervals (12h, 24h, 48h, etc.)
+                            const timeLabels = geoData.wavefronts.features
+                                .filter((f: any) => {
+                                    const h = f.properties?.timeHours;
+                                    return h === 12 || h === 24 || h === 48 || h === 72 || h === 96 || h === 120 || h === 168;
+                                })
+                                .map((f: any) => {
+                                    // Place label at the midpoint of each wavefront ring
+                                    const coords = f.geometry.coordinates;
+                                    const midIdx = Math.floor(coords.length / 2);
+                                    const h = f.properties.timeHours;
+                                    const label = h < 24 ? `${h}H` : `${Math.round(h / 24)}D`;
+                                    return {
+                                        type: 'Feature' as const,
+                                        properties: { label, timeHours: h },
+                                        geometry: { type: 'Point' as const, coordinates: coords[midIdx] },
+                                    };
+                                });
+
+                            if (timeLabels.length > 0) {
+                                map.addSource('isochrone-labels', {
+                                    type: 'geojson',
+                                    data: { type: 'FeatureCollection', features: timeLabels },
+                                });
+                                map.addLayer({
+                                    id: 'isochrone-time-labels',
+                                    type: 'symbol',
+                                    source: 'isochrone-labels',
+                                    layout: {
+                                        'text-field': ['get', 'label'],
+                                        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                                        'text-size': 11,
+                                        'text-anchor': 'center',
+                                        'text-allow-overlap': true,
+                                    },
+                                    paint: {
+                                        'text-color': 'rgba(255, 255, 255, 0.5)',
+                                        'text-halo-color': 'rgba(0, 0, 0, 0.6)',
+                                        'text-halo-width': 1,
+                                    },
+                                });
+                            }
+                            log.info(`[DecisionFan] Rendered ${geoData.wavefronts.features.length} wavefronts, ${timeLabels.length} time labels`);
+                        } catch (fanErr) {
+                            log.warn('[DecisionFan] Rendering failed:', fanErr);
+                        }
+                    }
+
+                    // ── Render Comfort Zone overlay (red glow on dangerous areas) ──
+                    if (windGrid && comfortParams && hasActiveComfortLimits(comfortParams)) {
+                        try {
+                            const czResult = generateComfortZoneOverlay(windGrid, comfortParams);
+                            if (czResult) {
+                                // Remove existing comfort zone layer/source
+                                if (map.getLayer('comfort-zone-layer')) map.removeLayer('comfort-zone-layer');
+                                if (map.getSource('comfort-zone')) map.removeSource('comfort-zone');
+
+                                map.addSource('comfort-zone', {
+                                    type: 'image',
+                                    url: czResult.imageDataUrl,
+                                    coordinates: [
+                                        [czResult.bounds[0], czResult.bounds[3]], // top-left
+                                        [czResult.bounds[2], czResult.bounds[3]], // top-right
+                                        [czResult.bounds[2], czResult.bounds[1]], // bottom-right
+                                        [czResult.bounds[0], czResult.bounds[1]], // bottom-left
+                                    ],
+                                });
+                                map.addLayer({
+                                    id: 'comfort-zone-layer',
+                                    type: 'raster',
+                                    source: 'comfort-zone',
+                                    paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 300 },
+                                }, 'route-line-layer'); // Insert BELOW route line
+                                log.info(`[ComfortZone] Rendered overlay — ${czResult.dangerPercent}% breach, max ${czResult.maxBreachWindKts} kts`);
+                            }
+                        } catch (czErr) {
+                            log.warn('[ComfortZone] Overlay rendering failed:', czErr);
+                        }
+                    }
+
                     try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } })); } catch (_) { }
                 } else {
                     // ── Multi-leg split: try routing via an intermediate point ──
@@ -620,6 +746,16 @@ export function usePassagePlanner(
 
         const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
         if (wpSource) wpSource.setData({ type: 'FeatureCollection', features: [] });
+
+        // Clean up comfort zone overlay
+        if (map.getLayer('comfort-zone-layer')) map.removeLayer('comfort-zone-layer');
+        if (map.getSource('comfort-zone')) map.removeSource('comfort-zone');
+
+        // Clean up Decision Fan layers
+        if (map.getLayer('isochrone-fan-layer')) map.removeLayer('isochrone-fan-layer');
+        if (map.getLayer('isochrone-time-labels')) map.removeLayer('isochrone-time-labels');
+        if (map.getSource('isochrone-fan')) map.removeSource('isochrone-fan');
+        if (map.getSource('isochrone-labels')) map.removeSource('isochrone-labels');
     }, []);
 
     return {

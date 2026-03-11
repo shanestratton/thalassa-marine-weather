@@ -28,6 +28,7 @@
 import type { PolarData } from '../types';
 import { GebcoDepthService } from './GebcoDepthService';
 import { type BathymetryGrid, isLand, getDepthFromCache } from './BathymetryCache';
+import type { ComfortParams } from '../types/settings';
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export interface IsochroneConfig {
     minWindSpeed: number;       // kts — below this, use motoring speed
     motoringSpeed: number;      // kts — fallback when wind too light
     useDepthPenalty: boolean;   // query GEBCO for depth-aware routing
+    comfortParams?: ComfortParams; // user safety thresholds — cells exceeding these are treated as obstacles
 }
 
 const DEFAULT_ISOCHRONE_CONFIG: IsochroneConfig = {
@@ -420,6 +422,14 @@ export async function computeIsochrones(
                     } else {
                         boatSpeed = getSpeedForTwa!(twa);
                         if (boatSpeed < 0.5) continue; // Skip dead upwind
+                    }
+
+                    // COMFORT ZONE CHECK: reject bearings into wind exceeding user limits
+                    // Gust estimate: 1.4× sustained (standard met factor)
+                    if (cfg.comfortParams) {
+                        const cp = cfg.comfortParams;
+                        if (cp.maxWindKts !== undefined && tws > cp.maxWindKts) continue;
+                        if (cp.maxGustKts !== undefined && (tws * 1.4) > cp.maxGustKts) continue;
                     }
                 }
 

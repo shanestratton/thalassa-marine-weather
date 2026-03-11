@@ -749,6 +749,19 @@ export function useWeatherLayers(
                 },
             }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
         }
+
+        // ── Glass Pane: promote nav layers above any newly-added weather layers ──
+        // This is the core safety net: regardless of which weather layers were just
+        // added/removed, route and supporting overlays always render on top.
+        const navLayerIds = [
+            'isochrone-fan-layer', 'isochrone-time-labels',
+            'comfort-zone-layer',
+            'route-glow', 'route-line-layer', 'route-harbour-dash', 'route-core',
+            'waypoint-circles', 'waypoint-labels',
+        ];
+        for (const id of navLayerIds) {
+            try { if (map.getLayer(id)) map.moveLayer(id); } catch (_) { /* layer not present — skip */ }
+        }
     }, [activeLayer, mapReady, updateIsobars]);
 
     return {
