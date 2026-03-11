@@ -12,7 +12,7 @@ import { getErrorMessage } from '../utils/logger';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
 
-import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
+import { saveLargeData, saveLargeDataImmediate, loadLargeData, loadLargeDataSync, deleteLargeData, readCacheVersion, writeCacheVersion, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
 const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
 // Keys imported from nativeStorage to stay in sync
@@ -24,6 +24,7 @@ const INLAND_INTERVAL = 60 * 60 * 1000;        // 60 mins (hourly) — top of ho
 const OFFSHORE_INTERVAL = 60 * 60 * 1000;      // 60 mins (hourly) — top of hour
 const COASTAL_INTERVAL = 30 * 60 * 1000;       // 30 mins — :00 or :30
 const BAD_WEATHER_INTERVAL = 10 * 60 * 1000;   // 10 mins — :00/:10/:20/:30/:40/:50
+const SATELLITE_INTERVAL = 3 * 60 * 60 * 1000;  // 3 hours — satellite/Iridium GO! bandwidth conservation
 const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
 const LIVE_OVERLAY_INTERVAL = 5 * 60 * 1000;   // 5 mins — lightweight temp/conditions poll
 
@@ -43,18 +44,25 @@ const isBadWeather = (weather: MarineWeatherReport): boolean => {
 };
 
 // Get update interval based on location type, weather, and whether this is the user's current GPS location
-const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport, isCurrentLocation: boolean = true): number => {
-    // 0. Non-current-location override — always hourly regardless of type/weather
+const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport, isCurrentLocation: boolean = true, satelliteMode: boolean = false): number => {
+    // 0. SATELLITE MODE OVERRIDE — 3h for all locations
+    // Conserves bandwidth for Iridium GO! / metered satellite connections.
+    // StormGlass cache TTL is also 3h, so this aligns perfectly.
+    if (satelliteMode) {
+        return SATELLITE_INTERVAL;
+    }
+
+    // 1. Non-current-location override — always hourly regardless of type/weather
     if (!isCurrentLocation) {
         return INLAND_INTERVAL; // 60 mins
     }
 
-    // 1. Bad weather override — any location type gets 10m refresh
+    // 2. Bad weather override — any location type gets 10m refresh
     if (isBadWeather(weather)) {
         return BAD_WEATHER_INTERVAL;
     }
 
-    // 2. Location-specific intervals (normal weather)
+    // 3. Location-specific intervals (normal weather)
     switch (locationType) {
         case 'inland':
             return INLAND_INTERVAL;
@@ -146,6 +154,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
     const [quotaUsed, setQuotaUsed] = useState(0);
     const [nextUpdate, setNextUpdate] = useState<number | null>(null);
+    const [versionChecked, setVersionChecked] = useState(false); // Gate: init waits for version check
 
     const [weatherData, _setWeatherData] = useState<MarineWeatherReport | null>(null);
 
@@ -180,43 +189,74 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const incrementQuota = useCallback(() => setQuotaUsed(p => p + 1), []);
 
-    // --- CACHE VERSION CHECK ---
+    // --- INSTANT DISPLAY: Synchronous pre-read from localStorage ---
+    // This fires BEFORE any async operations (version check, filesystem).
+    // On iOS, this eliminates the 2-3s spinner caused by Capacitor bridge latency.
+    // If localStorage was evicted, we fall through to the async filesystem load.
     useEffect(() => {
-        const ver = localStorage.getItem('thalassa_cache_version');
-        if (ver !== CACHE_VERSION) {
-
-
-            // Allow nativeStorage to handle migration if needed, but here we enforce versioning
-            // We can delete the files to start fresh for this major version
-            // But if we want to migrate, we should do it in nativeStorage.
-            // Since this is v18-FILESYSTEM, let's start fresh to avoid conflicts.
-            deleteLargeData(DATA_CACHE_KEY);
-            deleteLargeData(HISTORY_CACHE_KEY);
-            deleteLargeData(VOYAGE_CACHE_KEY);
-
-            // Clean localStorage too just in case
-            localStorage.removeItem(DATA_CACHE_KEY);
-
-            localStorage.setItem('thalassa_cache_version', CACHE_VERSION);
-            setWeatherData(null);
-            setHistoryCache({});
-        } else {
-            // Restore nextUpdate
-            const cachedNextUpdate = localStorage.getItem('thalassa_next_update');
-            if (cachedNextUpdate) {
-                const nu = parseInt(cachedNextUpdate);
-                if (nu > Date.now()) setNextUpdate(nu);
-            }
+        const syncCached = loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
+        if (syncCached && syncCached.locationName) {
+            console.info(`[WeatherContext] Instant display: ${syncCached.locationName}`);
+            setWeatherData(syncCached);
+            setLoading(false);
         }
+    }, []);
+
+    // --- CACHE VERSION CHECK (FILESYSTEM-BACKED) ---
+    // Uses filesystem instead of localStorage to survive iOS localStorage eviction.
+    // Without this, iOS clearing localStorage would nuke all valid filesystem caches.
+    useEffect(() => {
+        const checkVersion = async () => {
+            console.info('[WeatherContext] Version check starting...');
+            try {
+                const ver = await readCacheVersion();
+                console.info(`[WeatherContext] Cached version: ${ver}, expected: ${CACHE_VERSION}`);
+                if (ver !== CACHE_VERSION) {
+                    // Version mismatch — clear all caches and start fresh
+                    console.info('[WeatherContext] Version mismatch — clearing caches');
+                    deleteLargeData(DATA_CACHE_KEY);
+                    deleteLargeData(HISTORY_CACHE_KEY);
+                    deleteLargeData(VOYAGE_CACHE_KEY);
+
+                    // Clean localStorage too just in case
+                    localStorage.removeItem(DATA_CACHE_KEY);
+
+                    await writeCacheVersion(CACHE_VERSION);
+                    setWeatherData(null);
+                    setHistoryCache({});
+                } else {
+                    // Restore nextUpdate
+                    const cachedNextUpdate = localStorage.getItem('thalassa_next_update');
+                    if (cachedNextUpdate) {
+                        const nu = parseInt(cachedNextUpdate);
+                        if (nu > Date.now()) setNextUpdate(nu);
+                    }
+                }
+            } catch (e) {
+                console.warn('[WeatherContext] Version check failed:', e);
+            } finally {
+                setVersionChecked(true);
+                console.info('[WeatherContext] Version check complete');
+            }
+        };
+        checkVersion();
     }, []);
 
     // --- INITIALIZATION (ASYNC LOAD) ---
     // STALE-WHILE-REVALIDATE: Show cached data instantly, refresh in background
+    // Waits for both settings AND version check to complete before loading cache.
     useEffect(() => {
         // RACE CONDITION FIX: Wait for settings to finish loading
         if (settingsLoading) {
             return;
         }
+        // RACE CONDITION FIX: Wait for version check to complete
+        // Without this, init could load cache data that the version check then nukes.
+        if (!versionChecked) {
+            return;
+        }
+
+        console.info('[WeatherContext] Init starting (settings loaded, version checked)');
 
         const loadCache = async () => {
             let hasCachedData = false;
@@ -233,11 +273,15 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 keysToDelete.forEach(key => localStorage.removeItem(key));
 
                 // 1. PRIMARY PATH: Load cached weather data for INSTANT display
+                console.info('[WeatherContext] Loading cached weather data...');
                 const cached = await loadLargeData(DATA_CACHE_KEY);
                 if (cached && cached.locationName) {
+                    console.info(`[WeatherContext] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                     setWeatherData(cached);
                     setLoading(false); // UI renders INSTANTLY with stale data
                     hasCachedData = true;
+                } else {
+                    console.info('[WeatherContext] Cache MISS: no cached weather data');
                 }
 
                 // 2. SECONDARY PATH: History (Background)
@@ -246,11 +290,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 else setHistoryCache({});
 
             } catch (e) {
+                console.warn('[WeatherContext] Cache load failed:', e);
                 setLoading(false);
             } finally {
                 // Trigger fetch for fresh data
                 if (settingsRef.current.defaultLocation) {
                     const loc = settingsRef.current.defaultLocation;
+                    console.info(`[WeatherContext] Default location: "${loc}"`);
 
                     // STALENESS CHECK: Skip fetch if cached data is recent (< 30 min)
                     const cachedAge = weatherDataRef.current?.generatedAt
@@ -259,6 +305,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
                     if (hasCachedData && cachedAge < STALE_THRESHOLD_MS) {
+                        console.info(`[WeatherContext] Cache fresh (${Math.round(cachedAge / 60000)}m old) — skipping fetch`);
                         setLoading(false);
                         return;
                     }
@@ -266,6 +313,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     // BLUR ON STARTUP: If we have stale cached data, blur the dashboard
                     // so the punter doesn't act on outdated info while we fetch fresh data.
                     if (hasCachedData && cachedAge >= STALE_THRESHOLD_MS) {
+                        console.info(`[WeatherContext] Cache stale (${Math.round(cachedAge / 60000)}m old) — blur + background refresh`);
                         setStaleRefresh(true);
                     }
 
@@ -273,13 +321,16 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     // Handle GPS-based "Current Location" specially
                     if (loc === "Current Location") {
                         if (!hasCachedData) setLoadingMessage("Getting GPS Location...");
+                        console.info('[WeatherContext] Requesting GPS position...');
                         GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
                             if (pos) {
+                                console.info(`[WeatherContext] GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
                                 fetchWeather(loc, !hasCachedData, {
                                     lat: pos.latitude,
                                     lon: pos.longitude
                                 }, false, hasCachedData);
                             } else {
+                                console.warn('[WeatherContext] GPS returned null');
                                 if (!hasCachedData) {
                                     setError("Unable to get GPS location. Please select a location.");
                                     setLoading(false);
@@ -288,6 +339,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         });
                     } else {
                         // Named location
+                        console.info(`[WeatherContext] Named location: "${loc}" — scheduling fetch`);
                         setLoading(false);
                         setTimeout(() => {
                             fetchWeather(loc, !hasCachedData, undefined, false, hasCachedData);
@@ -295,17 +347,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     }
                 } else {
                     // No default location - done loading
+                    console.info('[WeatherContext] No default location set');
                     setLoading(false);
                 }
             }
         };
         loadCache();
-    }, [settingsLoading]);
+    }, [settingsLoading, versionChecked]);
 
-    // --- PERSISTENCE ---
+    // --- PERSISTENCE (IMMEDIATE for primary cache) ---
+    // Uses saveLargeDataImmediate to ensure data survives iOS app closure.
+    // The debounced saveLargeData was causing data loss when the user swiped
+    // the app closed before the 1-second setTimeout could fire.
     useEffect(() => {
         if (weatherData) {
-            saveLargeData(DATA_CACHE_KEY, weatherData);
+            saveLargeDataImmediate(DATA_CACHE_KEY, weatherData);
         }
     }, [weatherData]);
 
@@ -345,7 +401,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 currentSettings.aiPersona
             );
             setWeatherData(enriched);
-            saveLargeData(DATA_CACHE_KEY, enriched);
+            saveLargeDataImmediate(DATA_CACHE_KEY, enriched);
             // Also update history
             if (enriched.locationName) {
                 setHistoryCache(prev => ({ ...prev, [enriched.locationName]: enriched }));
@@ -522,7 +578,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setWeatherData(currentReport);
                 const validReport = currentReport;
                 setHistoryCache(prev => ({ ...prev, [location]: validReport }));
-                saveLargeData(DATA_CACHE_KEY, validReport);
+                saveLargeDataImmediate(DATA_CACHE_KEY, validReport);
                 if (!isBackground) setLoading(false);
             }
 
@@ -530,7 +586,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (currentReport) {
                 const reportLocationType = currentReport.locationType || 'coastal';
                 const isCurrentLoc = locationMode === 'gps';
-                const interval = getUpdateInterval(reportLocationType, currentReport, isCurrentLoc);
+                const interval = getUpdateInterval(reportLocationType, currentReport, isCurrentLoc, settingsRef.current.satelliteMode);
                 const nextTs = alignToNextInterval(interval);
 
                 setNextUpdate(nextTs);
@@ -552,7 +608,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         );
                         setWeatherData(enriched);
                         setHistoryCache(prev => ({ ...prev, [location]: enriched }));
-                        saveLargeData(DATA_CACHE_KEY, enriched);
+                        saveLargeDataImmediate(DATA_CACHE_KEY, enriched);
                     } catch (e) { console.warn('[WeatherContext] non-critical: previous weather data already set:', e); }
                 } else {
                     if (weatherDataRef.current?.boatingAdvice) {
@@ -562,7 +618,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                             aiGeneratedAt: weatherDataRef.current.aiGeneratedAt
                         };
                         setWeatherData(reportWithAdvice);
-                        saveLargeData(DATA_CACHE_KEY, reportWithAdvice);
+                        saveLargeDataImmediate(DATA_CACHE_KEY, reportWithAdvice);
                     }
                 }
             }
@@ -683,7 +739,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (weatherData && !nextUpdate) {
             const watchdogLocationType = weatherData.locationType || 'coastal';
             const isCurrentLoc = locationMode === 'gps';
-            const interval = getUpdateInterval(watchdogLocationType, weatherData, isCurrentLoc);
+            const interval = getUpdateInterval(watchdogLocationType, weatherData, isCurrentLoc, settingsRef.current.satelliteMode);
             const gen = new Date(weatherData.generatedAt).getTime();
             const target = gen + interval;
             const now = Date.now();

@@ -22,7 +22,16 @@ vi.mock('@capacitor/filesystem', () => ({
     Encoding: { UTF8: 'utf8' },
 }));
 
-import { saveLargeData, loadLargeData, deleteLargeData, DATA_CACHE_KEY, VOYAGE_CACHE_KEY } from '../services/nativeStorage';
+import {
+    saveLargeData,
+    saveLargeDataImmediate,
+    loadLargeData,
+    deleteLargeData,
+    readCacheVersion,
+    writeCacheVersion,
+    DATA_CACHE_KEY,
+    VOYAGE_CACHE_KEY
+} from '../services/nativeStorage';
 
 describe('nativeStorage constants', () => {
     it('exports expected cache keys', () => {
@@ -70,6 +79,53 @@ describe('saveLargeData', () => {
     });
 });
 
+describe('saveLargeDataImmediate', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.useRealTimers();
+    });
+
+    it('writes immediately without debounce', async () => {
+        await saveLargeDataImmediate('urgent_key', { temp: 28 });
+
+        expect(mockWriteFile).toHaveBeenCalledTimes(1);
+        expect(mockWriteFile).toHaveBeenCalledWith(
+            expect.objectContaining({
+                path: 'urgent_key.json',
+                data: JSON.stringify({ temp: 28 }),
+            })
+        );
+    });
+
+    it('cancels any pending debounced write for the same key', async () => {
+        vi.useFakeTimers();
+
+        // Start a debounced write
+        saveLargeData('same_key', { old: true });
+        expect(mockWriteFile).not.toHaveBeenCalled();
+
+        // Immediate write should cancel the debounced one and write now
+        vi.useRealTimers();
+        await saveLargeDataImmediate('same_key', { new: true });
+
+        expect(mockWriteFile).toHaveBeenCalledTimes(1);
+        expect(mockWriteFile).toHaveBeenCalledWith(
+            expect.objectContaining({
+                data: JSON.stringify({ new: true }),
+            })
+        );
+    });
+
+    it('falls back to localStorage when Filesystem fails', async () => {
+        mockWriteFile.mockRejectedValueOnce(new Error('Not native'));
+        localStorage.clear();
+
+        await saveLargeDataImmediate('web_key', { browser: true });
+
+        expect(localStorage.getItem('web_key')).toBe(JSON.stringify({ browser: true }));
+    });
+});
+
 describe('loadLargeData', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -114,6 +170,64 @@ describe('loadLargeData', () => {
 
         const result = await loadLargeData('poison');
         expect(result).toBeNull();
+    });
+});
+
+describe('readCacheVersion / writeCacheVersion', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.useRealTimers();
+        localStorage.clear();
+    });
+
+    it('reads version from filesystem when file exists', async () => {
+        mockReaddir.mockResolvedValue({ files: [{ name: 'thalassa_cache_version.txt' }] });
+        mockReadFile.mockResolvedValue({ data: 'v19.2-WEATHERKIT-FIX' });
+
+        const ver = await readCacheVersion();
+        expect(ver).toBe('v19.2-WEATHERKIT-FIX');
+    });
+
+    it('returns null when no version file and no localStorage', async () => {
+        mockReaddir.mockResolvedValue({ files: [] });
+
+        const ver = await readCacheVersion();
+        expect(ver).toBeNull();
+    });
+
+    it('migrates version from localStorage to filesystem on first read', async () => {
+        mockReaddir.mockResolvedValue({ files: [] });
+        localStorage.setItem('thalassa_cache_version', 'v18-OLD');
+
+        const ver = await readCacheVersion();
+        expect(ver).toBe('v18-OLD');
+        // Should have written to filesystem
+        expect(mockWriteFile).toHaveBeenCalledWith(
+            expect.objectContaining({
+                path: 'thalassa_cache_version.txt',
+                data: 'v18-OLD',
+            })
+        );
+    });
+
+    it('falls back to localStorage when readdir fails (web)', async () => {
+        mockReaddir.mockRejectedValue(new Error('Not native'));
+        localStorage.setItem('thalassa_cache_version', 'v19-WEB');
+
+        const ver = await readCacheVersion();
+        expect(ver).toBe('v19-WEB');
+    });
+
+    it('writeCacheVersion writes to both filesystem and localStorage', async () => {
+        await writeCacheVersion('v20-NEW');
+
+        expect(mockWriteFile).toHaveBeenCalledWith(
+            expect.objectContaining({
+                path: 'thalassa_cache_version.txt',
+                data: 'v20-NEW',
+            })
+        );
+        expect(localStorage.getItem('thalassa_cache_version')).toBe('v20-NEW');
     });
 });
 

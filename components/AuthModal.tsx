@@ -6,6 +6,7 @@ import { getErrorMessage } from '../utils/logger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -13,6 +14,10 @@ interface AuthModalProps {
 }
 
 type AuthStep = 'input' | 'otp' | 'success';
+
+/** Strip invisible Unicode characters and trim whitespace that iOS autocomplete can inject */
+const sanitizeEmail = (raw: string): string =>
+    raw.replace(/[\u200B-\u200D\uFEFF\u00A0\u2060]/g, '').trim().toLowerCase();
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const [step, setStep] = useState<AuthStep>('input');
@@ -53,6 +58,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const focusTrapRef = useFocusTrap(isOpen);
     const keyboardRef = useKeyboardScroll<HTMLDivElement>();
 
+    /** Detect Supabase rate-limit errors */
+    const isRateLimited = (err: unknown): boolean => {
+        const msg = getErrorMessage(err).toLowerCase();
+        // Check for Supabase-specific status code first
+        const status = (err as any)?.status ?? (err as any)?.statusCode;
+        if (status === 429) return true;
+        return msg.includes('rate limit') || msg.includes('rate_limit');
+    };
+
+    /** Log raw error for debugging */
+    const logAuthError = (context: string, err: unknown) => {
+        const msg = getErrorMessage(err);
+        const status = (err as any)?.status ?? (err as any)?.statusCode ?? 'n/a';
+        const code = (err as any)?.code ?? 'n/a';
+        console.error(`[AuthModal] ${context}: status=${status} code=${code} msg="${msg}"`, err);
+    };
+
     if (!isOpen) return null;
 
     // Send OTP code via email
@@ -67,8 +89,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         setError(null);
 
         try {
+            const cleanEmail = sanitizeEmail(email);
+            if (!cleanEmail || !cleanEmail.includes('@')) {
+                setError('Please enter a valid email address.');
+                setLoading(false);
+                return;
+            }
             const { error } = await supabase.auth.signInWithOtp({
-                email,
+                email: cleanEmail,
                 options: {
                     shouldCreateUser: true,
                 },
@@ -78,7 +106,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             setStep('otp');
             setResendCooldown(60);
         } catch (err: unknown) {
-            setError(getErrorMessage(err) || "Failed to send code. Please try again.");
+            logAuthError('handleSendCode', err);
+            if (isRateLimited(err)) {
+                setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+                setResendCooldown(120);
+            } else {
+                setError(getErrorMessage(err) || "Failed to send code. Please try again.");
+            }
         } finally {
             setLoading(false);
         }
@@ -130,7 +164,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         try {
             const { error } = await supabase.auth.signInWithOtp({
-                email,
+                email: sanitizeEmail(email),
                 options: { shouldCreateUser: true },
             });
             if (error) throw error;
@@ -138,7 +172,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             setResendCooldown(60);
             setOtp('');
         } catch (err: unknown) {
-            setError(getErrorMessage(err) || "Failed to resend code.");
+            logAuthError('handleResendCode', err);
+            if (isRateLimited(err)) {
+                setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+                setResendCooldown(120);
+            } else {
+                setError(getErrorMessage(err) || "Failed to resend code.");
+            }
         } finally {
             setLoading(false);
         }
@@ -162,7 +202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
             <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
-            <div ref={keyboardRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95 my-auto`}>
+            <div ref={keyboardRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95 my-auto`}>
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
                     <XIcon className="w-5 h-5" />
                 </button>
@@ -200,7 +240,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                 <input
                                     type="email"
                                     value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
+                                    onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="captain@vessel.com"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
                                     required
@@ -216,10 +257,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                             <button
                                 type="submit"
-                                disabled={loading || !supabase}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                                disabled={loading || !supabase || resendCooldown > 0}
+                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${(!supabase || resendCooldown > 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
                             >
-                                {loading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : "Send Code"}
+                                {loading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : resendCooldown > 0 ? `Try again in ${resendCooldown}s` : "Send Code"}
                             </button>
 
                             {!supabase && (
@@ -239,6 +280,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     inputMode="numeric"
                                     value={otp}
                                     onChange={(e) => handleOtpChange(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="00000000"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors`}
                                     maxLength={8}

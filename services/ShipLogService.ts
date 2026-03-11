@@ -57,6 +57,23 @@ import { checkIsOnWater } from './shiplog/waterDetection';
 
 const log = createLogger('ShipLog');
 
+/**
+ * Check if satellite mode is enabled (sync read from settings).
+ * When true, all Supabase sync is suppressed — entries queue on-device.
+ * Conserves bandwidth for Iridium GO! / metered satellite connections.
+ */
+function isSatelliteMode(): boolean {
+    try {
+        // Capacitor Preferences stores under CapacitorStorage.{key} in localStorage
+        const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
+        if (!raw) return false;
+        const settings = JSON.parse(raw);
+        return !!settings?.satelliteMode;
+    } catch {
+        return false;
+    }
+}
+
 // Staleness threshold: if cached GPS is older than this, fetch fresh
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
 
@@ -326,7 +343,7 @@ class ShipLogServiceClass {
         if (this.trackingState.isRapidMode) return;
         if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
 
-        const newZone = await determineLoggingZone();
+        const newZone = determineLoggingZone();
         const newInterval = getIntervalForZone(newZone);
         const oldZone = this.trackingState.loggingZone || 'offshore';
 
@@ -843,8 +860,8 @@ class ShipLogServiceClass {
         const effectiveVoyageId = voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`;
 
 
-        // Get weather snapshot (fast, from cache)
-        const weatherSnapshot = await getWeatherSnapshot();
+        // Get weather snapshot (SYNC — instant from localStorage)
+        const weatherSnapshot = getWeatherSnapshot();
 
         // Create entry immediately with placeholder position
         // First entry in a voyage is always a waypoint ('Voyage Start')
@@ -920,37 +937,46 @@ class ShipLogServiceClass {
         // Track entry ID for potential GPS update later
         let savedEntryId: string | null = null;
 
-        // Save the entry (online or offline queue)
-        if (supabase) {
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    const { data, error } = await supabase
-                        .from(SHIP_LOGS_TABLE)
-                        .insert(toDbFormat({ ...entry, userId: user.id }))
-                        .select()
-                        .single();
+            // Save the entry (online or offline queue)
+            // OFFLINE-FAST-PATH: If we know we're offline, skip Supabase entirely.
+            // This prevents the tracking pipeline from stalling on hung network calls.
+            const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
+            if (supabase && isOnline) {
+                try {
+                    // 5-second timeout: safety net in case navigator.onLine lies
+                    const saveResult = await Promise.race([
+                        (async () => {
+                            const { data: { user } } = await supabase.auth.getUser();
+                            if (user) {
+                                const { data, error } = await supabase
+                                    .from(SHIP_LOGS_TABLE)
+                                    .insert(toDbFormat({ ...entry, userId: user.id }))
+                                    .select()
+                                    .single();
+                                if (error) return 'offline' as const;
+                                savedEntryId = data.id;
+                                return fromDbFormat(data);
+                            }
+                            return 'offline' as const;
+                        })(),
+                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
+                    ]);
 
-                    if (error) {
+                    if (saveResult === 'offline' || saveResult === 'timeout') {
                         await this.queueOfflineEntry(entry);
                     } else {
-                        savedEntryId = data.id;
-
                         // If GPS failed initially, retry in background
                         if (needsGpsRetry && savedEntryId) {
                             this.retryGpsAndUpdateEntry(savedEntryId);
                         }
-                        return fromDbFormat(data);
+                        return saveResult;
                     }
-                } else {
+                } catch (networkError) {
                     await this.queueOfflineEntry(entry);
                 }
-            } catch (networkError) {
+            } else {
                 await this.queueOfflineEntry(entry);
             }
-        } else {
-            await this.queueOfflineEntry(entry);
-        }
 
         // Track when this entry was created for background resume catch-up
         this.trackingState.lastEntryTime = timestamp;
@@ -1140,8 +1166,8 @@ class ShipLogServiceClass {
                 }
             }
 
-            // Get weather snapshot
-            const weatherSnapshot = await getWeatherSnapshot();
+            // Get weather snapshot (SYNC — instant from localStorage)
+            const weatherSnapshot = getWeatherSnapshot();
 
             // Calculate COG: Use GPS heading if available, otherwise calculate from position change
             let courseDeg: number | undefined;
@@ -1196,41 +1222,52 @@ class ShipLogServiceClass {
             };
 
             // Try to save to Supabase (online)
-            if (supabase) {
+            // OFFLINE-FAST-PATH: Skip Supabase entirely when we know we're offline.
+            // This is the critical fix for airplane mode tracking — without it,
+            // supabase.auth.getUser() hangs indefinitely, stalling the entire
+            // flushBufferedTrack pipeline and stopping GPS logging.
+            const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
+            if (supabase && isOnline) {
                 try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (user) {
-                        const { data, error } = await supabase
-                            .from(SHIP_LOGS_TABLE)
-                            .insert(toDbFormat({ ...entry, userId: user.id }))
-                            .select()
-                            .single();
+                    // 5-second timeout: safety net in case navigator.onLine lies
+                    const saveResult = await Promise.race([
+                        (async () => {
+                            const { data: { user } } = await supabase.auth.getUser();
+                            if (user) {
+                                const { data, error } = await supabase
+                                    .from(SHIP_LOGS_TABLE)
+                                    .insert(toDbFormat({ ...entry, userId: user.id }))
+                                    .select()
+                                    .single();
 
-                        if (error) {
-                            // Network error or offline - queue for later
-                            await this.queueOfflineEntry(entry);
-                        } else {
+                                if (error) return 'offline' as const;
 
-                            // Update last position in storage
-                            await this.saveLastPosition({
-                                latitude,
-                                longitude,
-                                timestamp,
-                                cumulativeDistanceNM
-                            });
+                                // Update last position in storage
+                                await this.saveLastPosition({
+                                    latitude,
+                                    longitude,
+                                    timestamp,
+                                    cumulativeDistanceNM
+                                });
 
-                            return fromDbFormat(data);
-                        }
-                    } else {
-                        // Not authenticated - queue offline
+                                return fromDbFormat(data);
+                            }
+                            return 'offline' as const;
+                        })(),
+                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
+                    ]);
+
+                    if (saveResult === 'offline' || saveResult === 'timeout') {
                         await this.queueOfflineEntry(entry);
+                    } else {
+                        return saveResult;
                     }
                 } catch (networkError) {
                     // Offline - queue for later
                     await this.queueOfflineEntry(entry);
                 }
             } else {
-                // No Supabase - queue locally
+                // Offline or no Supabase - queue locally
                 await this.queueOfflineEntry(entry);
             }
 
@@ -1327,8 +1364,8 @@ class ShipLogServiceClass {
         }
 
 
-        // Get weather snapshot (fast, from cache)
-        const weatherSnapshot = await getWeatherSnapshot();
+        // Get weather snapshot (SYNC — instant from localStorage)
+        const weatherSnapshot = getWeatherSnapshot();
 
         // Create entry immediately with placeholder position
         const entry: Partial<ShipLogEntry> = {
@@ -1386,23 +1423,30 @@ class ShipLogServiceClass {
         }
 
         // Save the entry (online or offline queue)
-        if (supabase) {
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
+        if (supabase && isOnline) {
             try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                    const { data, error } = await supabase
-                        .from(SHIP_LOGS_TABLE)
-                        .insert(toDbFormat({ ...entry, userId: user.id }))
-                        .select()
-                        .single();
+                const saveResult = await Promise.race([
+                    (async () => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (user) {
+                            const { data, error } = await supabase
+                                .from(SHIP_LOGS_TABLE)
+                                .insert(toDbFormat({ ...entry, userId: user.id }))
+                                .select()
+                                .single();
+                            if (error) return 'offline' as const;
+                            return fromDbFormat(data);
+                        }
+                        return 'offline' as const;
+                    })(),
+                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
+                ]);
 
-                    if (error) {
-                        await this.queueOfflineEntry(entry);
-                    } else {
-                        return fromDbFormat(data);
-                    }
-                } else {
+                if (saveResult === 'offline' || saveResult === 'timeout') {
                     await this.queueOfflineEntry(entry);
+                } else {
+                    return saveResult;
                 }
             } catch (networkError) {
                 await this.queueOfflineEntry(entry);

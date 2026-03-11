@@ -407,6 +407,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </Section>
                             )}
 
+                            {/* Satellite Mode */}
+                            <Section title="Network Mode">
+                                <div className={`mx-3 mt-2 mb-3 rounded-xl border p-4 transition-all duration-500 ${settings.satelliteMode ? 'bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'bg-white/[0.03] border-white/5'}`}>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`p-2.5 rounded-xl transition-all duration-500 ${settings.satelliteMode ? 'bg-amber-500/20 text-amber-400 shadow-lg shadow-amber-500/20 scale-110' : 'bg-white/5 text-gray-400'}`}>
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424-7.424m-5.303 5.303a2.25 2.25 0 013.182-3.182M12 21a9 9 0 100-18 9 9 0 000 18z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 7.5l16.5 9" />
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm">Satellite Mode</p>
+                                                <p className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-500'}`}>
+                                                    {settings.satelliteMode ? '~200 KB/day • Weather only' : 'For Iridium GO! & metered connections'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <Toggle checked={!!settings.satelliteMode} onChange={(v) => onSave({ satelliteMode: v })} />
+                                    </div>
+                                    {settings.satelliteMode && (
+                                        <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                                                <span className="text-amber-200/70">Weather updates every 3 hours (StormGlass only)</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                                                <span className="text-amber-200/70">Log entries stored on-device until back on land</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                                                <span className="text-amber-200/70">Cloud sync paused to conserve bandwidth</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </Section>
+
                             {/* Data Sync Options */}
                             {user && (
                                 <Section title="Data Sync">

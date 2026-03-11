@@ -677,9 +677,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col">
             {/* Tab bar */}
-            <div className="flex-shrink-0 flex border-b border-white/[0.04]">
+            <div className="flex-shrink-0 sticky top-0 z-10 flex border-b border-white/[0.04] bg-slate-950">
                 {([
                     { key: 'my_profile' as FCView, label: '� My Listing' },
                     { key: 'board' as FCView, label: '� Browse' },
@@ -718,7 +718,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto overscroll-contain pb-24" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+            <div className="flex-1 pb-24">
 
                 {/* ══════ BROWSE BOARD ══════ */}
                 {view === 'board' && (
@@ -1378,7 +1378,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                 {/* ══════ MY PROFILE / LISTING ══════ */}
                 {view === 'my_profile' && (
-                    <div className="px-5 py-6 pb-32 space-y-5">
+                    <div className="px-5 py-6 pb-44 space-y-5">
                         <div className="text-center mb-2">
                             <span className="text-3xl block mb-1">{editListingType === 'seeking_crew' ? '⚓' : editListingType === 'seeking_berth' ? '🧭' : '🌊'}</span>
                             <p className="text-xs text-white/25">

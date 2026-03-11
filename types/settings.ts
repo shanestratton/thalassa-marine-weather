@@ -35,6 +35,7 @@ export interface UserSettings {
     nmeaPort?: number;
     smartPolarsEnabled?: boolean;
     gribMode?: 'direct' | 'iridium';
+    satelliteMode?: boolean;
     cloudSyncSettings?: boolean;
     cloudSyncVoyages?: boolean;
     cloudSyncCommunity?: boolean;
