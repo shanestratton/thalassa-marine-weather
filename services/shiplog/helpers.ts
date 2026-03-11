@@ -12,7 +12,7 @@
 
 import { ShipLogEntry } from '../../types';
 import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../../utils/marineFormatters';
-import { loadLargeData, DATA_CACHE_KEY } from '../nativeStorage';
+import { loadLargeDataSync, DATA_CACHE_KEY } from '../nativeStorage';
 
 // --- CONSTANTS ---
 const EARTH_RADIUS_NM = 3440.065;
@@ -215,14 +215,17 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
  * Get current weather data from cache for snapshot
  * Includes IMO-compliant calculations for Beaufort, sea state, and watch period
  */
-export async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
+export function getWeatherSnapshot(): Partial<ShipLogEntry> {
     // Determine current watch period
     const now = new Date();
     const watchPeriod = getWatchPeriod(now.getHours());
 
     try {
-        // Get weather from the correct cache using nativeStorage
-        const cache = await loadLargeData(DATA_CACHE_KEY);
+        // SYNC READ: Uses localStorage instead of async filesystem.
+        // Eliminates ~500ms Capacitor bridge latency per call.
+        // Critical for offline tracking where flushBufferedTrack processes
+        // hundreds of points sequentially — async reads accumulated minutes of delay.
+        const cache = loadLargeDataSync(DATA_CACHE_KEY) as Record<string, any> | null;
         if (!cache) {
             return { watchPeriod };
         }
@@ -273,9 +276,11 @@ export async function getWeatherSnapshot(): Promise<Partial<ShipLogEntry>> {
  * 2. Only go 'offshore' (15min) when we have CONFIRMED distance > 5nm from land.
  * 3. Never trust locationType alone for offshore — require distToLandKm confirmation.
  */
-export async function determineLoggingZone(): Promise<LoggingZone> {
+export function determineLoggingZone(): LoggingZone {
     try {
-        const cachedData = await loadLargeData(DATA_CACHE_KEY);
+        // SYNC READ: Uses localStorage for instant zone detection.
+        // Same rationale as getWeatherSnapshot — avoids Capacitor bridge delays.
+        const cachedData = loadLargeDataSync(DATA_CACHE_KEY) as Record<string, any> | null;
         if (!cachedData) return 'nearshore'; // No data = safe default
 
         // Landlocked = on land = nearshore (30s)
@@ -294,9 +299,6 @@ export async function determineLoggingZone(): Promise<LoggingZone> {
         // Fall back to locationType classification
         if (locationType === 'inland') return 'nearshore';
         if (locationType === 'coastal') return 'coastal';
-        // NOTE: Do NOT trust locationType === 'offshore' without distance confirmation.
-        // The weather cache might be for a different location (user browsing offshore WPs).
-        // Default to nearshore — rescheduleAdaptiveInterval will refine after next GPS fix.
 
         return 'nearshore'; // Safe default
     } catch (e) {

@@ -1242,7 +1242,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
     };
 
     return (
-        <div className="flex flex-col h-full bg-slate-950">
+        <div className="flex flex-col bg-slate-950">
             {/* ═══════ HEADER ═══════ */}
             <div className="sticky top-0 z-20 bg-slate-950/95 border-b border-white/[0.06]">
 
@@ -1272,7 +1272,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
             </div>
 
             {/* ═══════ FEED ═══════ */}
-            <div ref={feedRef} className="flex-1 overflow-y-auto overscroll-contain py-3">
+            <div ref={feedRef} className="flex-1 py-3 pb-36">
                 {loading ? (
                     /* Skeleton loader */
                     <div className="space-y-3 px-3">
@@ -1314,7 +1314,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
             </div>
 
             {/* Slide to add listing CTA */}
-            <div className="shrink-0 px-4 pt-2 bg-slate-950" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+            <div className="fixed left-0 right-0 px-4 z-20" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                 <SlideToAction
                     label="Slide to List Something for Sale"
                     thumbIcon={
