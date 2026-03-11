@@ -127,18 +127,20 @@ export const MapHub: React.FC<MapHubProps> = ({
         const windGrid = WindStore.getState().grid;
         if (!windGrid) return;
 
-        try {
-            const data = generateConsensusMatrix(
-                isoResult,
-                windGrid,
-                passage.departureTime || new Date().toISOString(),
-                undefined, // comfortParams loaded inside engine via Preferences
-                6,
-            );
-            setConsensusData(data);
-        } catch (err) {
-            log.warn('[Consensus] Failed to generate matrix:', err);
-        }
+        (async () => {
+            try {
+                const data = await generateConsensusMatrix(
+                    isoResult,
+                    windGrid,
+                    passage.departureTime || new Date().toISOString(),
+                    undefined,
+                    6,
+                );
+                setConsensusData(data);
+            } catch (err) {
+                log.warn('[Consensus] Failed to generate matrix:', err);
+            }
+        })();
     }, [passage.routeAnalysis, passage.departureTime]);
 
     // Route-sync playhead marker

@@ -9,7 +9,7 @@
  *   E. Accessibility — large type, high contrast, cockpit-readable
  */
 
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import type { ConsensusMatrixData, ConsensusRow, ModelPoint } from '../../services/ConsensusMatrixEngine';
 
 interface ConsensusMatrixProps {
@@ -223,14 +223,6 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
         return () => el.removeEventListener('scroll', handleScroll);
     }, [handleScroll]);
 
-    // Model legend (static)
-    const modelLegend = useMemo(() => [
-        { id: 'GFS', color: '#38bdf8' },
-        { id: 'ECMWF', color: '#a78bfa' },
-        { id: 'ACCESS-G', color: '#34d399' },
-        { id: 'ICON', color: '#fb923c' },
-    ], []);
-
     return (
         <div className="h-full flex flex-col bg-slate-950/98 border-l border-white/[0.06]">
             {/* Header */}
@@ -252,14 +244,24 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
                     )}
                 </div>
 
-                {/* Model legend strip */}
+                {/* Data source + model legend */}
                 <div className="flex items-center gap-3 mb-2">
-                    {modelLegend.map(m => (
-                        <div key={m.id} className="flex items-center gap-1">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: m.color }} />
-                            <span className="text-[9px] font-bold text-gray-500">{m.id}</span>
-                        </div>
-                    ))}
+                    <span className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${
+                        data.dataSource === 'live'
+                            ? 'bg-emerald-500/15 text-emerald-400'
+                            : 'bg-amber-500/15 text-amber-400'
+                    }`}>
+                        {data.dataSource === 'live' ? '● LIVE MULTI-MODEL' : '○ GRID ESTIMATE'}
+                    </span>
+                    {data.modelsUsed.map(model => {
+                        const colorMap: Record<string, string> = { GFS: '#38bdf8', ECMWF: '#a78bfa', ICON: '#34d399', GEM: '#fb923c' };
+                        return (
+                            <div key={model} className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colorMap[model] || '#888' }} />
+                                <span className="text-[9px] font-bold text-gray-500">{model}</span>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* Summary stats */}
