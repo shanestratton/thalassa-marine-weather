@@ -80,6 +80,10 @@ export function useRouteNudge(
                 nudgeMarkerRef.current = null;
             }
 
+            // Store the original press point for penalty calculation
+            const origLat = lat;
+            const origLng = lng;
+
             const el = document.createElement('div');
             el.style.cssText = 'display: flex; flex-direction: column; align-items: center; cursor: grab;';
             el.innerHTML = `
@@ -96,7 +100,7 @@ export function useRouteNudge(
                         <path d="M12 6v12M6 12h12"/>
                     </svg>
                 </div>
-                <div style="
+                <div class="nudge-penalty-tooltip" style="
                     margin-top: 4px; padding: 2px 8px;
                     background: rgba(15,23,42,0.9);
                     border: 1px solid rgba(255,255,255,0.1);
@@ -114,6 +118,45 @@ export function useRouteNudge(
             const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: 'center' })
                 .setLngLat([lng, lat])
                 .addTo(m);
+
+            // ── Live penalty tooltip during drag ──
+            // Haversine for quick distance calc (NM)
+            const R_NM = 3440.065;
+            const toRad = (d: number) => d * Math.PI / 180;
+            const haversineNm = (la1: number, lo1: number, la2: number, lo2: number) => {
+                const dLat = toRad(la2 - la1), dLon = toRad(lo2 - lo1);
+                const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon / 2) ** 2;
+                return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            };
+
+            const ASSUMED_SPEED_KTS = 6; // Cruiser average for penalty estimate
+            const tooltip = el.querySelector('.nudge-penalty-tooltip') as HTMLDivElement;
+
+            marker.on('drag', () => {
+                const { lng: newLng, lat: newLat } = marker.getLngLat();
+                // Detour = distance from orig → via + via → orig (round-trip offset)
+                // vs the original straight line (0 NM since same point)
+                // So penalty = 2 × haversine(orig, via) for a symmetric detour estimate
+                const detourNM = haversineNm(origLat, origLng, newLat, newLng);
+                // More realistic: penalty is the extra NM compared to cutting straight through
+                // Since we're inserting a waypoint, the penalty is roughly 2× the perpendicular offset
+                const penaltyNM = Math.round(detourNM);
+                const penaltyHrs = detourNM / ASSUMED_SPEED_KTS;
+
+                let timeStr: string;
+                if (penaltyHrs < 1) {
+                    timeStr = `${Math.round(penaltyHrs * 60)}m`;
+                } else {
+                    const hrs = Math.floor(penaltyHrs);
+                    const mins = Math.round((penaltyHrs - hrs) * 60);
+                    timeStr = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+                }
+
+                if (tooltip) {
+                    tooltip.textContent = penaltyNM < 1 ? 'Drag to nudge' : `+${penaltyNM}nm / +${timeStr}`;
+                }
+            });
 
             // On drag end → fire event for recomputation
             marker.on('dragend', () => {

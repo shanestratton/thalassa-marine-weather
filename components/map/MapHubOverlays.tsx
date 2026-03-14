@@ -6,7 +6,7 @@
  * PointInput, ResultCard.
  */
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { type WeatherLayer } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 
@@ -140,24 +140,40 @@ export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpee
 
 // ── Layer FAB Menu ──
 export const LayerFABMenu: React.FC<{
-    activeLayer: WeatherLayer;
+    activeLayers: Set<WeatherLayer>;
     showLayerMenu: boolean;
     embedded: boolean;
     location: { lat: number; lon: number };
     initialZoom: number;
     center?: { lat: number; lon: number };
     mapRef: React.MutableRefObject<any>;
-    setActiveLayer: (layer: WeatherLayer) => void;
+    toggleLayer: (layer: WeatherLayer) => void;
     setShowLayerMenu: (v: boolean) => void;
-}> = ({ activeLayer, showLayerMenu, embedded, location, initialZoom, center, mapRef, setActiveLayer, setShowLayerMenu }) => (
+}> = ({ activeLayers, showLayerMenu, embedded, location, initialZoom, center, mapRef, toggleLayer, setShowLayerMenu }) => {
+    const activeCount = activeLayers.size;
+    const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Auto-dismiss menu after 5 seconds of inactivity
+    useEffect(() => {
+        if (!showLayerMenu) return;
+        dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 5000);
+        return () => { if (dismissTimer.current) clearTimeout(dismissTimer.current); };
+    }, [showLayerMenu, activeCount]); // reset on every toggle (activeCount changes)
+
+    return (
     <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
         <button
             onClick={() => { setShowLayerMenu(!showLayerMenu); triggerHaptic('light'); }}
-            className={`border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
+            className={`relative border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
         >
             <svg className={`text-white ${embedded ? 'w-3.5 h-3.5' : 'w-5 h-5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
             </svg>
+            {activeCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-lg shadow-sky-500/50">
+                    {activeCount}
+                </span>
+            )}
         </button>
 
         {embedded && (
@@ -180,7 +196,7 @@ export const LayerFABMenu: React.FC<{
         {showLayerMenu && (
             <div className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
                 {([
-                    { key: 'none', label: 'None', icon: '🗺️' },
+                    { key: 'none', label: 'Clear All', icon: '🗺️' },
                     { key: 'rain', label: 'Rain', icon: '🌧️' },
                     { key: 'velocity', label: 'Wind', icon: '💨' },
                     { key: 'temperature', label: 'Temp', icon: '🌡️' },
@@ -189,16 +205,21 @@ export const LayerFABMenu: React.FC<{
                     { key: 'sea', label: 'Sea Marks', icon: '⚓' },
                     { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                 ] as const).map(layer => {
-                    const isActive = activeLayer === layer.key;
+                    const isActive = layer.key === 'none' ? false : activeLayers.has(layer.key);
                     return (
                         <button
                             key={layer.key}
-                            onClick={() => { setActiveLayer(layer.key); setShowLayerMenu(false); triggerHaptic('light'); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            onClick={() => {
+                                toggleLayer(layer.key);
+                                triggerHaptic('light');
+                                // Close menu only when clearing all layers
+                                if (layer.key === 'none') setShowLayerMenu(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : layer.key === 'none' && activeCount > 0 ? 'text-red-400 hover:bg-red-500/10 border-l-2 border-transparent' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
                         >
                             <span className="text-xl">{layer.icon}</span>
                             <span className="text-sm font-bold flex-1">{layer.label}</span>
-                            {isActive && layer.key !== 'none' && (
+                            {isActive && (
                                 <span className="flex items-center gap-1">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                                     <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Active</span>
@@ -211,3 +232,4 @@ export const LayerFABMenu: React.FC<{
         )}
     </div>
 );
+};

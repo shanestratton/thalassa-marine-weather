@@ -64,6 +64,8 @@ class NmeaListenerServiceClass {
     private hasRpmData = false;
     /** Partial NMEA line buffer for TCP (data may arrive mid-sentence) */
     private tcpLineBuffer = '';
+    /** Last error message for UI display */
+    private lastError: string | null = null;
 
     // ── Public API ──
 
@@ -96,6 +98,8 @@ class NmeaListenerServiceClass {
         this.enabled = false;
         this.tcpReadLoop = false;
         this.firstAttemptTime = null;
+        this.reconnectAttempts = 0;
+        this.lastError = null;
         this.stopSampleTimer();
         if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
         // Disconnect active transport
@@ -106,6 +110,10 @@ class NmeaListenerServiceClass {
 
     getStatus(): NmeaConnectionStatus { return this.status; }
     getHasRpmData(): boolean { return this.hasRpmData; }
+    getReconnectAttempts(): number { return this.reconnectAttempts; }
+    isReconnecting(): boolean { return this.enabled && this.reconnectAttempts > 0 && this.status !== 'connected'; }
+    getLastError(): string | null { return this.lastError; }
+    isEnabled(): boolean { return this.enabled; }
 
     onSample(cb: NmeaSampleCallback) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
     onStatusChange(cb: (s: NmeaConnectionStatus) => void) { this.statusListeners.add(cb); return () => this.statusListeners.delete(cb); }
@@ -144,8 +152,10 @@ class NmeaListenerServiceClass {
             // Start continuous read loop
             this.tcpReadLoop = true;
             this.runTcpReadLoop();
-        } catch (e) {
-            console.warn('[NmeaListener] TCP connect failed:', e);
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            console.warn('[NmeaListener] TCP connect failed:', msg);
+            this.lastError = msg;
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
         }

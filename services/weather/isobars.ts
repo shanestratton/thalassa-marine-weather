@@ -169,6 +169,8 @@ async function fetchPressureGridGfs(
         const interpTotal = interpPressure.length;
         const emptyGridInterp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
+        console.log('[ISOBAR] GFS lats ordering:', lats[0], '→', lats[lats.length - 1], '(passing through as-is)');
+
         return {
             allHourlyPressure: interpPressure,
             allHourlyWindSpeed: Array.from({ length: interpTotal }, () => emptyGridInterp),
@@ -190,7 +192,9 @@ export async function fetchPressureGrid(
     north: number, south: number, west: number, east: number, zoom: number
 ): Promise<PressureGrid | null> {
     try {
-        const res = GRID_RESOLUTION;
+        // Use coarser resolution for wide views (dateline crossing gives -180 to 180)
+        const lonSpan = east - west;
+        const res = lonSpan > 180 ? 3.0 : GRID_RESOLUTION;
 
         // Build grid coordinates
         const lats: number[] = [];
@@ -199,10 +203,10 @@ export async function fetchPressureGrid(
         for (let lon = west; lon <= east; lon += res) lons.push(Math.round(lon * 100) / 100);
 
         // Cap grid size to prevent massive requests
-        if (lats.length * lons.length > 2500) {
+        if (lats.length * lons.length > 5000) {
             lats.length = 0;
             lons.length = 0;
-            const bigRes = 2.0;
+            const bigRes = 3.0;
             for (let lat = south; lat <= north; lat += bigRes) lats.push(Math.round(lat * 100) / 100);
             for (let lon = west; lon <= east; lon += bigRes) lons.push(Math.round(lon * 100) / 100);
         }
@@ -478,57 +482,111 @@ function chaikinSmooth(points: number[][], iterations: number): number[][] {
 
 function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] {
     const { values, lats, lons, rows, cols } = grid;
-    const centers: { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] = [];
 
-    // Search window radius — must be LARGE to avoid noise on dense grids
-    // At 1° grid: radius=5 → 11×11 window = 10° span (synoptic scale)
-    const radius = Math.max(5, Math.floor(Math.min(rows, cols) / 8));
+    if (rows < 3 || cols < 3) return [];
 
-    // Minimum separation between centers in degrees (synoptic systems are ~10°+ apart)
-    const MIN_SEP_DEG = 10;
+    // Grid spacing
+    const dLat = lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1;
+    const dLon = lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1;
 
-    for (let r = radius; r < rows - radius; r++) {
-        for (let c = radius; c < cols - radius; c++) {
-            const val = values[r][c];
-            let isMax = true, isMin = true;
-
-            // Check all cells within the radius window
-            scanLoop:
-            for (let dr = -radius; dr <= radius; dr++) {
-                for (let dc = -radius; dc <= radius; dc++) {
-                    if (dr === 0 && dc === 0) continue;
-                    const nr = r + dr, nc = c + dc;
-                    if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-                    if (values[nr][nc] >= val) isMax = false;
-                    if (values[nr][nc] <= val) isMin = false;
-                    if (!isMax && !isMin) break scanLoop;
-                }
-            }
-
-            if (isMax) centers.push({ lat: lats[r], lon: lons[c], type: 'H', pressure: Math.round(val) });
-            if (isMin) centers.push({ lat: lats[r], lon: lons[c], type: 'L', pressure: Math.round(val) });
+    // 1. Collect ALL grid points with their pressure (skip 1-cell edge margin)
+    const points: { r: number; c: number; pressure: number }[] = [];
+    for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+            points.push({ r, c, pressure: values[r][c] });
         }
     }
 
-    // Sort by extremity (strongest first) so dedup keeps the most significant
-    centers.sort((a, b) => {
-        if (a.type === 'H' && b.type === 'H') return b.pressure - a.pressure; // Higher pressure first
-        if (a.type === 'L' && b.type === 'L') return a.pressure - b.pressure; // Lower pressure first
-        return 0;
-    });
+    // 2. Sort by pressure — ascending for L candidates, descending for H
+    const sortedAsc = [...points].sort((a, b) => a.pressure - b.pressure);
+    const sortedDesc = [...points].sort((a, b) => b.pressure - a.pressure);
 
-    // Deduplicate — keep strongest, reject any within MIN_SEP_DEG
-    const filtered: typeof centers = [];
-    for (const center of centers) {
-        const tooClose = filtered.some(f =>
-            f.type === center.type &&
-            Math.abs(f.lat - center.lat) < MIN_SEP_DEG &&
-            Math.abs(f.lon - center.lon) < MIN_SEP_DEG
+    // 3. Pick L centers: take the lowest-pressure points, dedup by distance
+    const MIN_SEP = 8; // degrees — minimum separation between same-type centers
+    const MAX_CENTERS = 8; // max centers of each type
+
+    type Center = { lat: number; lon: number; type: 'H' | 'L'; pressure: number };
+    const lows: Center[] = [];
+    const highs: Center[] = [];
+
+    // Regional mean for significance threshold
+    let totalP = 0;
+    for (const p of points) totalP += p.pressure;
+    const meanP = points.length > 0 ? totalP / points.length : 1013.25;
+
+    // Find L centers (lowest pressure points, well separated)
+    for (const pt of sortedAsc) {
+        if (lows.length >= MAX_CENTERS) break;
+        const lat = lats[pt.r];
+        const lon = lons[pt.c];
+
+        // Must be lower than regional mean
+        if (pt.pressure >= meanP) break;
+
+        // Check distance from already-selected L centers
+        const tooClose = lows.some(l =>
+            Math.abs(l.lat - lat) < MIN_SEP && Math.abs(l.lon - lon) < MIN_SEP
         );
-        if (!tooClose) filtered.push(center);
+        if (tooClose) continue;
+
+        // Sub-grid parabolic interpolation for precise position
+        let refinedLat = lat;
+        let refinedLon = lon;
+        const { r, c } = pt;
+        const val = pt.pressure;
+        const vN = values[r - 1][c], vS = values[r + 1][c];
+        const denomLat = 2 * (vN - 2 * val + vS);
+        if (Math.abs(denomLat) > 0.001) {
+            const shift = -(vS - vN) / denomLat;
+            refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
+        }
+        const vW = values[r][c - 1], vE = values[r][c + 1];
+        const denomLon = 2 * (vW - 2 * val + vE);
+        if (Math.abs(denomLon) > 0.001) {
+            const shift = -(vE - vW) / denomLon;
+            refinedLon += Math.max(-0.5, Math.min(0.5, shift)) * dLon;
+        }
+
+        lows.push({ lat: refinedLat, lon: refinedLon, type: 'L', pressure: Math.round(val) });
     }
 
-    return filtered;
+    // Find H centers (highest pressure points, well separated)
+    for (const pt of sortedDesc) {
+        if (highs.length >= MAX_CENTERS) break;
+        const lat = lats[pt.r];
+        const lon = lons[pt.c];
+
+        // Must be higher than regional mean
+        if (pt.pressure <= meanP) break;
+
+        const tooClose = highs.some(h =>
+            Math.abs(h.lat - lat) < MIN_SEP && Math.abs(h.lon - lon) < MIN_SEP
+        );
+        if (tooClose) continue;
+
+        let refinedLat = lat;
+        let refinedLon = lon;
+        const { r, c } = pt;
+        const val = pt.pressure;
+        const vN = values[r - 1][c], vS = values[r + 1][c];
+        const denomLat = 2 * (vN - 2 * val + vS);
+        if (Math.abs(denomLat) > 0.001) {
+            const shift = -(vS - vN) / denomLat;
+            refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
+        }
+        const vW = values[r][c - 1], vE = values[r][c + 1];
+        const denomLon = 2 * (vW - 2 * val + vE);
+        if (Math.abs(denomLon) > 0.001) {
+            const shift = -(vE - vW) / denomLon;
+            refinedLon += Math.max(-0.5, Math.min(0.5, shift)) * dLon;
+        }
+
+        highs.push({ lat: refinedLat, lon: refinedLon, type: 'H', pressure: Math.round(val) });
+    }
+
+    const all = [...lows, ...highs];
+    console.log('[ISOBAR] Centers detected:', all.map(c => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '));
+    return all;
 }
 
 // ── Wind Barb Generation ──────────────────────────────────────

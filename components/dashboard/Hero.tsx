@@ -234,6 +234,7 @@ export const HeroSection = ({
                 aria-roledescription="carousel"
                 aria-label="Daily forecast carousel — use up and down arrow keys to navigate between days"
                 className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-y-auto snap-y snap-mandatory'} no-scrollbar flex flex-col gap-0 focus:outline-none`}
+                style={{ overscrollBehavior: 'none' }}
             >
                 {/* Show skeleton while data is loading */}
                 {dayRows.length === 0 ? (

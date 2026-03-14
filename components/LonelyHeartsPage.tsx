@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('LonelyHeartsPage');
@@ -116,6 +117,52 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
+    const myProfileScrollRef = useRef<HTMLDivElement>(null);
+
+    // ── Keyboard height detection — same pattern as DiaryPage/AuthModal/Marketplace ──
+    const [kbHeight, setKbHeight] = useState(0);
+    useEffect(() => {
+        if (view !== 'my_profile') { setKbHeight(0); return; }
+        let cleanup: (() => void) | undefined;
+
+        if (Capacitor.isNativePlatform()) {
+            import('@capacitor/keyboard').then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKbHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement;
+                        const container = myProfileScrollRef.current;
+                        if (!focused || !container) return;
+                        if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
+                        const focusRect = focused.getBoundingClientRect();
+                        const containerRect = container.getBoundingClientRect();
+                        const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
+                        const targetScroll = offsetInContainer - containerRect.height * 0.3;
+                        container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+                    }, 50);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKbHeight(0);
+                });
+                cleanup = () => {
+                    showHandle.then(h => h.remove());
+                    hideHandle.then(h => h.remove());
+                };
+            }).catch(() => { /* Keyboard plugin not available */ });
+        } else {
+            const vp = window.visualViewport;
+            if (vp) {
+                const handleResize = () => {
+                    const kbH = window.innerHeight - vp.height;
+                    setKbHeight(kbH > 50 ? kbH : 0);
+                };
+                vp.addEventListener('resize', handleResize);
+                cleanup = () => vp.removeEventListener('resize', handleResize);
+            }
+        }
+
+        return () => { cleanup?.(); setKbHeight(0); };
+    }, [view]);
 
     // Card stack state
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -268,7 +315,34 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
     // --- SAVE PROFILE ---
     const handleSaveProfile = async () => {
-        if (!currentUserId) {
+        let uid = (LonelyHeartsService as any).currentUserId as string | null;
+        console.log('[CrewFinder Save] uid from service:', uid?.slice(0, 8) || 'null');
+        if (!uid) {
+            // Auth might not have been ready at mount — retry init
+            await LonelyHeartsService.init();
+            uid = (LonelyHeartsService as any).currentUserId as string | null;
+            console.log('[CrewFinder Save] uid after re-init:', uid?.slice(0, 8) || 'null');
+        }
+        if (!uid) {
+            // Last resort: check supabase directly
+            try {
+                const { supabase } = await import('../services/supabase');
+                if (supabase) {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    console.log('[CrewFinder Save] direct session check:', session?.user?.id?.slice(0, 8) || 'null');
+                    if (session?.user?.id) {
+                        uid = session.user.id;
+                        // Fix the service state too
+                        (LonelyHeartsService as any).currentUserId = uid;
+                    }
+                } else {
+                    console.log('[CrewFinder Save] supabase is null (not configured)');
+                }
+            } catch (e) {
+                console.warn('[CrewFinder Save] direct session check failed:', e);
+            }
+        }
+        if (!uid) {
             toast.error('Sign in first — go to Vessel > Settings > Account');
             return;
         }
@@ -718,7 +792,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             </div>
 
             {/* Content */}
-            <div className="flex-1 pb-24">
+            <div className={`flex-1 ${view !== 'my_profile' ? 'pb-24' : ''}`}>
 
                 {/* ══════ BROWSE BOARD ══════ */}
                 {view === 'board' && (
@@ -1378,7 +1452,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
 
                 {/* ══════ MY PROFILE / LISTING ══════ */}
                 {view === 'my_profile' && (
-                    <div className="px-5 py-6 pb-44 space-y-5">
+                    <div className="flex flex-col" style={{ height: 'calc(100dvh - 12.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))' }}>
+                    {/* Scrollable form area */}
+                    <div ref={myProfileScrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 space-y-5" style={{ paddingBottom: kbHeight > 0 ? `${kbHeight}px` : '1rem', WebkitOverflowScrolling: 'touch' as any }}>
                         <div className="text-center mb-2">
                             <span className="text-3xl block mb-1">{editListingType === 'seeking_crew' ? '⚓' : editListingType === 'seeking_berth' ? '🧭' : '🌊'}</span>
                             <p className="text-xs text-white/25">
@@ -1390,7 +1466,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </p>
                         </div>
 
-                        {/* First Name */}
+                        {/* 1. First Name */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                                 Your First Name
@@ -1398,14 +1474,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             <input
                                 value={editFirstName}
                                 onChange={e => setEditFirstName(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
                                 placeholder="What should people call you?"
                                 className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
                                 maxLength={30}
                             />
                         </div>
 
-                        {/* I Am + Gender — same row */}
+                        {/* 2. I Am + Gender — same row */}
                         <div className="grid grid-cols-2 gap-4">
                             {/* Listing Type */}
                             <div>
@@ -1450,59 +1525,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
-                        {/* Photos — up to 6 */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                                📸 Your Photos ({editPhotos.length}/6)
-                            </label>
-                            <p className="text-[11px] text-white/15 mb-3">
-                                Add up to 6 photos — moderated by AI for safety
-                            </p>
-                            <div className="grid grid-cols-3 gap-2">
-                                {Array.from({ length: 6 }).map((_, idx) => {
-                                    const url = editPhotos[idx];
-                                    const isUploading = uploadingPhotoIdx === idx;
-                                    return (
-                                        <div key={idx} className="aspect-square rounded-2xl border border-white/[0.06] overflow-hidden relative group">
-                                            {isUploading ? (
-                                                <div className="w-full h-full bg-emerald-500/5 flex items-center justify-center">
-                                                    <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-teal-500 rounded-full animate-spin" />
-                                                </div>
-                                            ) : url ? (
-                                                <>
-                                                    <img src={url} alt="" className="w-full h-full object-cover" />
-                                                    <button
-                                                        onClick={() => handlePhotoRemove(idx)}
-                                                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <button
-                                                    onClick={() => { setPendingPhotoIdx(idx); fileInputRef.current?.click(); }}
-                                                    className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
-                                                >
-                                                    <span className="text-2xl text-white/20">➕</span>
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            {photoError && (
-                                <p className="text-xs text-red-400 mt-2 text-center">❌ {photoError}</p>
-                            )}
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                onChange={handlePhotoUpload}
-                                className="hidden"
-                            />
-                        </div>
-
-                        {/* Age Range */}
+                        {/* 3. Age Range */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">Age Range</label>
                             <div className="flex gap-2 flex-wrap">
@@ -1510,7 +1533,6 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                     <button
                                         key={age}
                                         onClick={() => {
-                                            // Single-select: tap to select, tap again to deselect
                                             setEditAge(editAge === age ? '' : age);
                                         }}
                                         className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${editAge === age
@@ -1524,9 +1546,63 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
+                        {/* 4. About You (Bio) */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
+                                About You
+                            </label>
+                            <textarea
+                                value={editBio}
+                                onChange={e => setEditBio(e.target.value)}
+                                placeholder={editListingType === 'seeking_crew'
+                                    ? "Tell crew about your vessel, planned passages, what you're looking for..."
+                                    : "Tell skippers about yourself, your experience, what you can bring to the crew..."
+                                }
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
+                                rows={4}
+                                maxLength={500}
+                            />
+                            <p className="text-xs text-white/15 text-right mt-1">{editBio.length}/500</p>
+                        </div>
 
+                        {/* 6. Preferred Sailing Region */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
+                                {editListingType === 'seeking_crew' ? '📍 Sailing / Cruising Area' : '📍 Preferred Sailing Region'}
+                            </label>
+                            <input
+                                value={editRegion}
+                                onChange={e => setEditRegion(e.target.value)}
+                                placeholder={editListingType === 'seeking_crew'
+                                    ? 'Where will you be sailing? e.g. East Coast, Med...'
+                                    : 'Where would you like to sail? e.g. Caribbean, Pacific...'}
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                                maxLength={80}
+                            />
+                        </div>
 
-                        {/* Skills — Crew only */}
+                        {/* 7. Sailing Experience */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
+                                {editListingType === 'seeking_crew' ? 'Your Sailing Experience' : 'Sailing Experience'}
+                            </label>
+                            <div className="space-y-2">
+                                {EXPERIENCE_LEVELS.map(level => (
+                                    <button
+                                        key={level}
+                                        onClick={() => setEditExperience(editExperience === level ? '' : level)}
+                                        className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${editExperience === level
+                                            ? 'bg-gradient-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
+                                            : 'bg-white/[0.02] text-white/35 border border-white/[0.04] hover:bg-white/[0.04]'
+                                            }`}
+                                    >
+                                        {level}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 8. Skills — Crew only */}
                         {editListingType === 'seeking_berth' && (
                             <div>
                                 <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
@@ -1552,28 +1628,80 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         )}
 
-                        {/* Experience */}
+                        {/* 9. When Are You Available */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                                {editListingType === 'seeking_crew' ? 'Your Sailing Experience' : 'Sailing Experience'}
+                                {editListingType === 'seeking_crew' ? '📅 When Are You Sailing?' : '📅 When Are You Available?'}
                             </label>
-                            <div className="space-y-2">
-                                {EXPERIENCE_LEVELS.map(level => (
-                                    <button
-                                        key={level}
-                                        onClick={() => setEditExperience(editExperience === level ? '' : level)}
-                                        className={`w-full py-3 px-4 rounded-xl text-left text-sm font-medium transition-all ${editExperience === level
-                                            ? 'bg-gradient-to-r from-emerald-500/15 to-sky-500/15 text-emerald-200 border border-emerald-400/15'
-                                            : 'bg-white/[0.02] text-white/35 border border-white/[0.04] hover:bg-white/[0.04]'
-                                            }`}
-                                    >
-                                        {level}
-                                    </button>
-                                ))}
+                            <div className="flex gap-3">
+                                <div className="flex-1">
+                                    <p className="text-[11px] text-white/60 uppercase mb-1">From</p>
+                                    <input
+                                        type="date"
+                                        value={editAvailFrom}
+                                        onChange={e => setEditAvailFrom(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-[11px] text-white/60 uppercase mb-1">To (optional)</p>
+                                    <input
+                                        type="date"
+                                        value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
+                                        onChange={e => setEditAvailTo(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
+                                    />
+                                    {editAvailTo && (
+                                        <button
+                                            onClick={() => setEditAvailTo('')}
+                                            className="text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
+                                        >
+                                            ✕ Clear end date
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        {/* Vibe / Sailing Style */}
+                        {/* 10. Your Location */}
+                        <div>
+                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">📍 Your Location</label>
+                            <div className="space-y-2.5">
+                                <select
+                                    value={editLocationCountry}
+                                    onChange={e => {
+                                        setEditLocationCountry(e.target.value);
+                                        setEditLocationState('');
+                                    }}
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                >
+                                    <option value="" className="bg-[#1a1d2e]">Select Country</option>
+                                    {COUNTRIES.map(c => <option key={c} value={c} className="bg-[#1a1d2e]">{c}</option>)}
+                                </select>
+                                {editLocationCountry && getStatesForCountry(editLocationCountry).length > 0 && (
+                                    <select
+                                        value={editLocationState}
+                                        onChange={e => setEditLocationState(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
+                                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
+                                    >
+                                        <option value="" className="bg-[#1a1d2e]">Select State / Province</option>
+                                        {getStatesForCountry(editLocationCountry).map(s => <option key={s} value={s} className="bg-[#1a1d2e]">{s}</option>)}
+                                    </select>
+                                )}
+                                <input
+                                    value={editLocationCity}
+                                    onChange={e => setEditLocationCity(e.target.value)}
+                                    placeholder="City / Town"
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                                    maxLength={60}
+                                />
+                            </div>
+                            <p className="text-[10px] text-white/25 mt-1.5 ml-1">Auto-detected from your GPS — edit if needed</p>
+                        </div>
+
+                        {/* 11. Your Vibe */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">⚡ Your Vibe</label>
                             <div className="flex gap-2 flex-wrap">
@@ -1594,7 +1722,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
-                        {/* Languages */}
+                        {/* 12. Languages */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">🗣️ Languages</label>
                             <div className="flex gap-2 flex-wrap">
@@ -1615,7 +1743,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
-                        {/* Lifestyle — Smoking / Drinking / Pets */}
+                        {/* 13. Onboard Lifestyle — Smoking / Drinking / Pets */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">🚢 Onboard Lifestyle</label>
                             <div className="space-y-3">
@@ -1676,7 +1804,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
-                        {/* Round 2: Interests (match-only) */}
+                        {/* 14. Interests & Hobbies (match-only) */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-1">🎭 Interests & Hobbies</label>
                             <p className="text-[11px] text-amber-400/50 mb-3">🔒 Only shared with your matches — not visible on your public listing</p>
@@ -1698,148 +1826,57 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             </div>
                         </div>
 
-                        {/* Location */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">📍 Your Location</label>
-                            <div className="space-y-2.5">
-                                <select
-                                    value={editLocationCountry}
-                                    onChange={e => {
-                                        setEditLocationCountry(e.target.value);
-                                        setEditLocationState('');
-                                    }}
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
-                                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
-                                >
-                                    <option value="" className="bg-[#1a1d2e]">Select Country</option>
-                                    {COUNTRIES.map(c => <option key={c} value={c} className="bg-[#1a1d2e]">{c}</option>)}
-                                </select>
-                                {editLocationCountry && getStatesForCountry(editLocationCountry).length > 0 && (
-                                    <select
-                                        value={editLocationState}
-                                        onChange={e => setEditLocationState(e.target.value)}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white focus:outline-none focus:border-emerald-500/30 transition-colors appearance-none"
-                                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'rgba(255,255,255,0.3)\'%3E%3Cpath d=\'M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '20px' }}
-                                    >
-                                        <option value="" className="bg-[#1a1d2e]">Select State / Province</option>
-                                        {getStatesForCountry(editLocationCountry).map(s => <option key={s} value={s} className="bg-[#1a1d2e]">{s}</option>)}
-                                    </select>
-                                )}
-                                <input
-                                    value={editLocationCity}
-                                    onChange={e => setEditLocationCity(e.target.value)}
-                                    onFocus={scrollInputAboveKeyboard}
-                                    placeholder="City / Town"
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
-                                    maxLength={60}
-                                />
-                            </div>
-                            <p className="text-[10px] text-white/25 mt-1.5 ml-1">Auto-detected from your GPS — edit if needed</p>
-                        </div>
-
-                        {/* Sailing Region */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
-                                {editListingType === 'seeking_crew' ? '📍 Sailing / Cruising Area' : '📍 Preferred Sailing Region'}
-                            </label>
-                            <input
-                                value={editRegion}
-                                onChange={e => setEditRegion(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
-                                placeholder={editListingType === 'seeking_crew'
-                                    ? 'Where will you be sailing? e.g. East Coast, Med...'
-                                    : 'Where would you like to sail? e.g. Caribbean, Pacific...'}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
-                                maxLength={80}
-                            />
-                        </div>
-
-                        {/* Availability */}
+                        {/* 15. Photos — up to 6 */}
                         <div>
                             <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
-                                {editListingType === 'seeking_crew' ? '📅 When Are You Sailing?' : '📅 When Are You Available?'}
+                                📸 Your Photos ({editPhotos.length}/6)
                             </label>
-                            <div className="flex gap-3">
-                                <div className="flex-1">
-                                    <p className="text-[11px] text-white/60 uppercase mb-1">From</p>
-                                    <input
-                                        type="date"
-                                        value={editAvailFrom}
-                                        onChange={e => setEditAvailFrom(e.target.value)}
-                                        onFocus={scrollInputAboveKeyboard}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
-                                    />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="text-[11px] text-white/60 uppercase mb-1">To (optional)</p>
-                                    <input
-                                        type="date"
-                                        value={isOpenEnded(editAvailTo) ? '' : editAvailTo}
-                                        onChange={e => setEditAvailTo(e.target.value)}
-                                        onFocus={scrollInputAboveKeyboard}
-                                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500/30 transition-colors [color-scheme:dark]"
-                                    />
-                                    {editAvailTo && (
-                                        <button
-                                            onClick={() => setEditAvailTo('')}
-                                            className="text-[11px] text-emerald-400/50 hover:text-emerald-400/80 mt-1 transition-colors"
-                                        >
-                                            ✕ Clear end date
-                                        </button>
-                                    )}
-                                </div>
+                            <p className="text-[11px] text-white/15 mb-3">
+                                Add up to 6 photos — moderated by AI for safety
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                                {Array.from({ length: 6 }).map((_, idx) => {
+                                    const url = editPhotos[idx];
+                                    const isUploading = uploadingPhotoIdx === idx;
+                                    return (
+                                        <div key={idx} className="aspect-square rounded-2xl border border-white/[0.06] overflow-hidden relative group">
+                                            {isUploading ? (
+                                                <div className="w-full h-full bg-emerald-500/5 flex items-center justify-center">
+                                                    <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-teal-500 rounded-full animate-spin" />
+                                                </div>
+                                            ) : url ? (
+                                                <>
+                                                    <img src={url} alt="" className="w-full h-full object-cover" />
+                                                    <button
+                                                        onClick={() => handlePhotoRemove(idx)}
+                                                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    onClick={() => { setPendingPhotoIdx(idx); fileInputRef.current?.click(); }}
+                                                    className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
+                                                >
+                                                    <span className="text-2xl text-white/20">➕</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        </div>
-
-                        {/* Bio */}
-                        <div>
-                            <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
-                                About You
-                            </label>
-                            <textarea
-                                value={editBio}
-                                onChange={e => setEditBio(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
-                                placeholder={editListingType === 'seeking_crew'
-                                    ? "Tell crew about your vessel, planned passages, what you're looking for..."
-                                    : "Tell skippers about yourself, your experience, what you can bring to the crew..."
-                                }
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
-                                rows={4}
-                                maxLength={500}
+                            {photoError && (
+                                <p className="text-xs text-red-400 mt-2 text-center">❌ {photoError}</p>
+                            )}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoUpload}
+                                className="hidden"
                             />
-                            <p className="text-xs text-white/15 text-right mt-1">{editBio.length}/500</p>
                         </div>
-
-                        {/* Save */}
-                        {(() => {
-                            const isComplete = !!editListingType && !!editFirstName.trim() && !!editGender && !!editAge && editBio.trim().length >= 20;
-                            const missing: string[] = [];
-                            if (!editListingType) missing.push('listing type');
-                            if (!editFirstName.trim()) missing.push('first name');
-                            if (!editGender) missing.push('gender');
-                            if (!editAge) missing.push('age bracket');
-                            if (editBio.trim().length < 20) missing.push(`bio (${20 - editBio.trim().length} more chars)`);
-                            return (
-                                <>
-                                    {!isComplete && (
-                                        <p className="text-xs text-amber-400/60 text-center mb-2">
-                                            Still needed: {missing.join(', ')}
-                                        </p>
-                                    )}
-                                    <button
-                                        onClick={handleSaveProfile}
-                                        disabled={saving || !isComplete}
-                                        className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl ${isComplete
-                                            ? 'bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
-                                            : 'bg-white/[0.06] text-white/25 cursor-not-allowed shadow-none'
-                                            }`}
-                                    >
-                                        {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}
-                                    </button>
-                                </>
-                            );
-                        })()}
 
                         <p className="text-[11px] text-white/15 text-center">
                             Your listing is visible to other Crew Talk members who have opted in
@@ -1970,6 +2007,38 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 🗑️ Delete My Listing
                             </button>
                         )}
+                        </div>
+                        {/* Save — pinned CTA footer outside scroll */}
+                        <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
+                        {(() => {
+                            const isComplete = !!editListingType && !!editFirstName.trim() && !!editGender && !!editAge && editBio.trim().length >= 20;
+                            const missing: string[] = [];
+                            if (!editListingType) missing.push('listing type');
+                            if (!editFirstName.trim()) missing.push('first name');
+                            if (!editGender) missing.push('gender');
+                            if (!editAge) missing.push('age bracket');
+                            if (editBio.trim().length < 20) missing.push(`bio (${20 - editBio.trim().length} more chars)`);
+                            return (
+                                <>
+                                    {!isComplete && (
+                                        <p className="text-xs text-amber-400/60 text-center mb-2">
+                                            Still needed: {missing.join(', ')}
+                                        </p>
+                                    )}
+                                    <button
+                                        onClick={handleSaveProfile}
+                                        disabled={saving || !isComplete}
+                                        className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl ${isComplete
+                                            ? 'bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
+                                            : 'bg-white/[0.06] text-white/25 cursor-not-allowed shadow-none'
+                                            }`}
+                                    >
+                                        {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}
+                                    </button>
+                                </>
+                            );
+                        })()}
+                        </div>
                     </div>
                 )}
 

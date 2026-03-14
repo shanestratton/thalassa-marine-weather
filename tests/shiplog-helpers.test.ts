@@ -12,10 +12,15 @@ import {
     toDbFormat,
     fromDbFormat,
     getIntervalForZone,
+    getIntervalForSpeed,
     getZoneLabel,
     NEARSHORE_INTERVAL_MS,
     COASTAL_INTERVAL_MS,
     OFFSHORE_INTERVAL_MS,
+    STATIONARY_INTERVAL_MS,
+    SLOW_INTERVAL_MS,
+    MEDIUM_INTERVAL_MS,
+    FAST_INTERVAL_MS,
 } from '../services/shiplog/helpers';
 
 // ---- Distance (Haversine) ----
@@ -187,24 +192,75 @@ describe('toDbFormat / fromDbFormat', () => {
 // ---- Zone Helpers ----
 
 describe('getIntervalForZone', () => {
-    it('returns 5s for nearshore', () => {
+    it('returns 15s for nearshore', () => {
         expect(getIntervalForZone('nearshore')).toBe(NEARSHORE_INTERVAL_MS);
-        expect(getIntervalForZone('nearshore')).toBe(5_000);
+        expect(getIntervalForZone('nearshore')).toBe(15_000);
     });
 
-    it('returns 2min for coastal', () => {
+    it('returns 10s for coastal', () => {
         expect(getIntervalForZone('coastal')).toBe(COASTAL_INTERVAL_MS);
+        expect(getIntervalForZone('coastal')).toBe(10_000);
     });
 
-    it('returns 15min for offshore', () => {
+    it('returns 30s for offshore', () => {
         expect(getIntervalForZone('offshore')).toBe(OFFSHORE_INTERVAL_MS);
+        expect(getIntervalForZone('offshore')).toBe(30_000);
     });
 });
 
 describe('getZoneLabel', () => {
     it('returns label with interval for each zone', () => {
-        expect(getZoneLabel('nearshore')).toContain('5s');
-        expect(getZoneLabel('coastal')).toContain('5s');
+        expect(getZoneLabel('nearshore')).toContain('15s');
+        expect(getZoneLabel('coastal')).toContain('10s');
         expect(getZoneLabel('offshore')).toContain('30s');
+    });
+});
+
+// ---- Speed-Adaptive Intervals ----
+
+describe('getIntervalForSpeed', () => {
+    it('returns 60s (stationary) for < 1 kt', () => {
+        // 0 m/s
+        expect(getIntervalForSpeed(0).interval).toBe(STATIONARY_INTERVAL_MS);
+        expect(getIntervalForSpeed(0).tier).toBe('stationary');
+        // 0.4 kts = 0.206 m/s
+        expect(getIntervalForSpeed(0.2).tier).toBe('stationary');
+    });
+
+    it('returns 15s (slow) for 1-6 kts', () => {
+        // 3 kts ≈ 1.54 m/s
+        expect(getIntervalForSpeed(1.54).interval).toBe(SLOW_INTERVAL_MS);
+        expect(getIntervalForSpeed(1.54).tier).toBe('slow');
+    });
+
+    it('returns 5s (medium) for 6-60 kts', () => {
+        // 10 kts ≈ 5.14 m/s
+        expect(getIntervalForSpeed(5.14).interval).toBe(MEDIUM_INTERVAL_MS);
+        expect(getIntervalForSpeed(5.14).tier).toBe('medium');
+        // 50 kts ≈ 25.7 m/s
+        expect(getIntervalForSpeed(25.7).tier).toBe('medium');
+    });
+
+    it('returns 15s (fast) for 60+ kts', () => {
+        // 100 kts ≈ 51.4 m/s
+        expect(getIntervalForSpeed(51.4).interval).toBe(FAST_INTERVAL_MS);
+        expect(getIntervalForSpeed(51.4).tier).toBe('fast');
+        // 500 kts ≈ 257.2 m/s
+        expect(getIntervalForSpeed(257.2).tier).toBe('fast');
+    });
+
+    it('handles boundary: just above 1 kt enters slow tier', () => {
+        // 1 kt = 0.5144 m/s, use slightly above to avoid float imprecision
+        expect(getIntervalForSpeed(0.515).tier).toBe('slow');
+    });
+
+    it('handles boundary: exactly 6 kts enters medium tier', () => {
+        // 6 kts = 3.087 m/s
+        expect(getIntervalForSpeed(3.087).tier).toBe('medium');
+    });
+
+    it('handles boundary: exactly 60 kts enters fast tier', () => {
+        // 60 kts = 30.87 m/s
+        expect(getIntervalForSpeed(30.87).tier).toBe('fast');
     });
 });

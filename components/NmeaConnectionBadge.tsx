@@ -1,13 +1,13 @@
 /**
  * NmeaConnectionBadge — Tiny global badge showing NMEA backbone connection status.
  *
- * Shows on ALL screens when NMEA is connected (or connecting).
- * Renders as a compact pill in the header badge cluster.
+ * Only shows when FULLY CONNECTED — the NMEA page handles all
+ * connecting/reconnecting/error feedback. This badge just confirms
+ * an active live data connection to the vessel backbone.
  *
  * States:
  *   - Connected:    Green dot + "NMEA" label
- *   - Connecting:   Amber pulsing dot + "NMEA" label
- *   - Disconnected: Hidden (no badge)
+ *   - Everything else: Hidden (no badge)
  */
 
 import React, { useState, useEffect } from 'react';
@@ -23,25 +23,13 @@ export const NmeaConnectionBadge: React.FC = () => {
         return () => { unsub(); };
     }, []);
 
-    // Only show when actively connected or trying
-    if (status === 'disconnected') return null;
-
-    const isConnected = status === 'connected';
-    const isConnecting = status === 'connecting';
-
-    const dotColor = isConnected ? 'bg-emerald-400' : isConnecting ? 'bg-amber-400' : 'bg-red-400';
-    const badgeBg = isConnected ? 'bg-emerald-600/90 border-emerald-400/30' : isConnecting ? 'bg-amber-600/90 border-amber-400/30' : 'bg-red-600/90 border-red-400/30';
+    // Only show when fully connected — no confusing amber badge with no dismiss
+    if (status !== 'connected') return null;
 
     return (
         <div className="pointer-events-none">
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full justify-center ${badgeBg} border shadow-lg`}>
-                {/* Pulse ring */}
-                <span className="relative flex h-2 w-2">
-                    {isConnecting && (
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                    )}
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${dotColor}`} />
-                </span>
+            <div className="flex items-center gap-1 px-2 py-1 rounded-full justify-center bg-emerald-600/90 border-emerald-400/30 border shadow-lg">
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
 
                 {/* Network icon (tiny antenna) */}
                 <svg className="w-3 h-3 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

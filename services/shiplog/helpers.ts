@@ -21,10 +21,18 @@ const EARTH_RADIUS_NM = 3440.065;
 const NEARSHORE_THRESHOLD_KM = 1.852;   // < 1nm from shore
 const COASTAL_THRESHOLD_KM = 9.26;      // < 5nm from shore
 
-// Adaptive logging intervals
-export const NEARSHORE_INTERVAL_MS = 5 * 1000;       // 5 seconds (< 1nm from shore / on land)
-export const COASTAL_INTERVAL_MS = 5 * 1000;          // 5 seconds (1-5nm from shore)
-export const OFFSHORE_INTERVAL_MS = 30 * 1000;        // 30 seconds (> 5nm offshore)
+// Adaptive logging intervals (zone-based — fallback when no speed data)
+export const NEARSHORE_INTERVAL_MS = 15 * 1000;       // 15 seconds (< 1nm from shore / on land)
+export const COASTAL_INTERVAL_MS = 10 * 1000;          // 10 seconds (1-5nm from shore)
+export const OFFSHORE_INTERVAL_MS = 30 * 1000;         // 30 seconds (> 5nm offshore)
+
+// Speed-adaptive logging intervals (primary — based on SOG)
+export const STATIONARY_INTERVAL_MS = 60 * 1000;      // 60 seconds (< 1 kt)
+export const SLOW_INTERVAL_MS = 15 * 1000;             // 15 seconds (1-6 kts)
+export const MEDIUM_INTERVAL_MS = 5 * 1000;            // 5 seconds (6-60 kts)
+export const FAST_INTERVAL_MS = 15 * 1000;             // 15 seconds (60+ kts)
+
+export type SpeedTier = 'stationary' | 'slow' | 'medium' | 'fast';
 
 export type LoggingZone = 'nearshore' | 'coastal' | 'offshore';
 
@@ -323,8 +331,48 @@ export function getIntervalForZone(zone: LoggingZone): number {
  */
 export function getZoneLabel(zone: LoggingZone): string {
     switch (zone) {
-        case 'nearshore': return '< 1nm (5s intervals)';
-        case 'coastal': return '1-5nm (5s intervals)';
+        case 'nearshore': return '< 1nm (15s intervals)';
+        case 'coastal': return '1-5nm (10s intervals)';
         case 'offshore': return '> 5nm (30s intervals)';
+    }
+}
+
+// --- SPEED-ADAPTIVE INTERVAL DETECTION ---
+
+/** m/s → knots conversion */
+const MS_TO_KNOTS = 1.94384;
+
+/**
+ * Get the optimal flush interval based on current speed over ground.
+ * This is the PRIMARY interval selection method — zone-based is the fallback
+ * used only when no GPS speed is available yet (cold start).
+ *
+ * Speed tiers:
+ *   < 1 kt  → 60s  (anchored / stationary — just confirm position)
+ *   1–6 kts → 15s  (sailing, dinghy, walking — good coastal detail)
+ *   6–60 kts → 5s  (motoring, driving — captures turns at speed, 5s flush preserves corners)
+ *   60+ kts → 15s  (aircraft — 500kts covers ~2nm every 15s, RDP catches turns)
+ *
+ * @param sogMs Speed over ground in m/s (from GPS hardware)
+ * @returns Flush interval in milliseconds
+ */
+export function getIntervalForSpeed(sogMs: number): { interval: number; tier: SpeedTier } {
+    const sogKts = sogMs * MS_TO_KNOTS;
+
+    if (sogKts < 1)   return { interval: STATIONARY_INTERVAL_MS, tier: 'stationary' };
+    if (sogKts < 6)   return { interval: SLOW_INTERVAL_MS, tier: 'slow' };
+    if (sogKts < 60)  return { interval: MEDIUM_INTERVAL_MS, tier: 'medium' };
+    return { interval: FAST_INTERVAL_MS, tier: 'fast' };
+}
+
+/**
+ * Get a human-readable label for a speed tier
+ */
+export function getSpeedTierLabel(tier: SpeedTier): string {
+    switch (tier) {
+        case 'stationary': return 'Stationary (60s intervals)';
+        case 'slow': return 'Slow (15s intervals)';
+        case 'medium': return 'Cruising (5s intervals)';
+        case 'fast': return 'Fast (15s intervals)';
     }
 }

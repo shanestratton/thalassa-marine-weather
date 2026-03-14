@@ -4,7 +4,7 @@
  * Shows connection status, live instrument data, and connection controls.
  * Tap any instrument card to open a fullscreen gauge overlay.
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
@@ -38,6 +38,35 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
     const [activeGauge, setActiveGauge] = useState<{ id: GaugeMetricId; metric: TimestampedMetric } | null>(null);
 
+    // Direct subscription to NmeaListenerService for connection status —
+    // avoids the race condition where NmeaStore.start() misses the initial
+    // 'connecting' status because NmeaListenerService.start() fires first.
+    const [connStatus, setConnStatus] = useState(NmeaListenerService.getStatus());
+    const [reconnectAttempts, setReconnectAttempts] = useState(0);
+    const [lastError, setLastError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const unsub = NmeaListenerService.onStatusChange((s) => {
+            setConnStatus(s);
+            setReconnectAttempts(NmeaListenerService.getReconnectAttempts());
+            setLastError(NmeaListenerService.getLastError());
+        });
+        // Sync on mount
+        setConnStatus(NmeaListenerService.getStatus());
+        setReconnectAttempts(NmeaListenerService.getReconnectAttempts());
+        setLastError(NmeaListenerService.getLastError());
+
+        // Poll reconnect state every second (attempt count isn't event-driven
+        // — it updates between status changes during the reconnect backoff)
+        const poll = setInterval(() => {
+            setReconnectAttempts(NmeaListenerService.getReconnectAttempts());
+            setLastError(NmeaListenerService.getLastError());
+            setConnStatus(NmeaListenerService.getStatus());
+        }, 1000);
+
+        return () => { unsub(); clearInterval(poll); };
+    }, []);
+
     const handleDeviceChange = useCallback((deviceId: string) => {
         setDevice(deviceId);
         localStorage.setItem('nmea_device', deviceId);
@@ -48,8 +77,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
         }
     }, []);
 
-    const isConnected = state.connectionStatus === 'connected';
-    const isConnecting = state.connectionStatus === 'connecting';
+    const isConnected = connStatus === 'connected';
+    const isConnecting = connStatus === 'connecting' || connStatus === 'error';
 
     const handleConnect = useCallback(() => {
         triggerHaptic('medium');
@@ -60,10 +89,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             // Save config
             localStorage.setItem('nmea_host', host);
             localStorage.setItem('nmea_port', port);
-            // Configure and start fresh
+            // Configure fresh
             NmeaListenerService.configure(host, parseInt(port, 10));
-            NmeaListenerService.start();
+            // Start store FIRST so it catches the initial 'connecting' status
             NmeaStore.start();
+            NmeaListenerService.start();
         } catch (e) {
             log.error('NMEA connect failed:', e);
         }
@@ -127,9 +157,27 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                             <h3 className="text-sm font-black text-white">
                                 {isConnected ? 'Connected' : isConnecting ? 'Connecting...' : 'Disconnected'}
                             </h3>
+                            {/* Show host:port when connected or connecting */}
+                            {(isConnected || isConnecting) && (
+                                <span className="text-xs text-white/40 font-mono ml-auto">{host}:{port}</span>
+                            )}
                         </div>
 
-                        {!isConnected && (
+                        {/* Reconnect status message */}
+                        {isConnecting && reconnectAttempts > 0 && (
+                            <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/15">
+                                <p className="text-xs text-amber-300 font-medium">
+                                    Reconnecting... attempt {reconnectAttempts}
+                                </p>
+                                {lastError && (
+                                    <p className="text-[11px] text-amber-200/50 mt-0.5 truncate">
+                                        {lastError}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {!isConnected && !isConnecting && (
                             <div className="space-y-3 mb-3">
                                 {/* Device preset selector */}
                                 <div>
@@ -158,18 +206,36 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         )}
 
                         <div className="flex gap-2">
-                            <button
-                                onClick={isConnected ? handleDisconnect : handleConnect}
-                                aria-label={isConnected ? 'Disconnect NMEA' : 'Connect NMEA'}
-                                className={`flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] ${isConnected
-                                    ? 'bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30'
-                                    : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
-                                    }`}
-                            >
-                                {isConnecting ? (
-                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                                ) : isConnected ? 'Disconnect' : 'Connect'}
-                            </button>
+                            {!isConnected && !isConnecting && (
+                                <button
+                                    onClick={handleConnect}
+                                    aria-label="Connect NMEA"
+                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                >
+                                    Connect
+                                </button>
+                            )}
+                            {isConnecting && (
+                                <button
+                                    onClick={handleConnect}
+                                    aria-label="Retry NMEA connection"
+                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500"
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        Retry
+                                    </div>
+                                </button>
+                            )}
+                            {isConnected && (
+                                <button
+                                    onClick={handleDisconnect}
+                                    aria-label="Disconnect NMEA"
+                                    className="flex-1 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all active:scale-[0.97] bg-red-500/20 text-red-400 border border-red-500/20 hover:bg-red-500/30"
+                                >
+                                    Disconnect
+                                </button>
+                            )}
                             {isConnecting && (
                                 <button
                                     onClick={handleDisconnect}

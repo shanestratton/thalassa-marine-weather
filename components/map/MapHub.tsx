@@ -17,6 +17,7 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MapHub');
@@ -52,6 +53,8 @@ import {
 } from './MapHubOverlays';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
+import { WeatherInspectPopup } from './WeatherInspectPopup';
+import { fetchPointWeather, type PointWeatherData } from '../../services/weather/pointWeather';
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -80,6 +83,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showConsensus, setShowConsensus] = useState(false);
     const [consensusData, setConsensusData] = useState<ConsensusMatrixData | null>(null);
     const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
+
+    // ── Weather Inspect Popup ──
+    const [inspectData, setInspectData] = useState<PointWeatherData | null>(null);
+    const [inspectLoading, setInspectLoading] = useState(false);
+    const inspectPopupRef = useRef<mapboxgl.Popup | null>(null);
+    const inspectRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
 
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
@@ -188,6 +197,85 @@ export const MapHub: React.FC<MapHubProps> = ({
         setDeparture: passage.setDeparture,
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
+        onMapTap: (lat: number, lon: number) => {
+            const map = mapRef.current;
+            if (!map) return;
+
+            // Drop a pin at the tapped location so user can navigate to WX
+            dropPin(map, lat, lon);
+
+            // Close any existing inspect popup
+            if (inspectPopupRef.current) {
+                inspectPopupRef.current.remove();
+                inspectPopupRef.current = null;
+            }
+            if (inspectRootRef.current) {
+                inspectRootRef.current.unmount();
+                inspectRootRef.current = null;
+            }
+
+            // Create popup DOM container
+            const container = document.createElement('div');
+            container.style.minWidth = '240px';
+            const root = createRoot(container);
+            inspectRootRef.current = root;
+
+            // Render loading state immediately
+            setInspectData(null);
+            setInspectLoading(true);
+
+            const closePopup = () => {
+                if (inspectPopupRef.current) {
+                    inspectPopupRef.current.remove();
+                    inspectPopupRef.current = null;
+                }
+                if (inspectRootRef.current) {
+                    inspectRootRef.current.unmount();
+                    inspectRootRef.current = null;
+                }
+                setInspectData(null);
+                setInspectLoading(false);
+            };
+
+            root.render(
+                <WeatherInspectPopup data={null} loading={true} onClose={closePopup} />
+            );
+
+            const popup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: true,
+                className: 'weather-inspect-popup',
+                maxWidth: '300px',
+                anchor: 'bottom',
+                offset: 8,
+            })
+                .setLngLat([lon, lat])
+                .setDOMContent(container)
+                .addTo(map);
+
+            inspectPopupRef.current = popup;
+            popup.on('close', () => {
+                if (inspectRootRef.current) {
+                    inspectRootRef.current.unmount();
+                    inspectRootRef.current = null;
+                }
+                inspectPopupRef.current = null;
+                setInspectData(null);
+                setInspectLoading(false);
+            });
+
+            // Fetch weather data
+            fetchPointWeather(lat, lon).then((data) => {
+                if (!inspectPopupRef.current) return; // popup was closed
+                setInspectData(data);
+                setInspectLoading(false);
+                root.render(
+                    <WeatherInspectPopup data={data} loading={false} onClose={closePopup} />
+                );
+            }).catch(() => {
+                setInspectLoading(false);
+            });
+        },
     });
 
     // ── Location Dot ──
@@ -263,7 +351,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-            {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayer === 'velocity'} windHour={weather.windHour} windGrid={weather.windGridRef?.current} />}
+            {!isPinView && <MapboxVelocityOverlay mapboxMap={mapRef.current} visible={weather.activeLayers.has('velocity')} windHour={weather.windHour} windGrid={weather.windGridRef?.current} hideBadge={passage.showPassage} />}
 
             {/* ═══ LAYER LEGEND STRIP ═══ */}
             {!isPinView && <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />}
@@ -271,9 +359,9 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ PRO DATA BAR (Phone / Deck mode during passage) ═══ */}
             {deviceMode === 'deck' && passage.showPassage && passage.routeAnalysis && !embedded && !isPinView && (
                 <div className="absolute top-14 left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="bg-slate-950/90 border border-white/[0.08] rounded-xl px-3 py-1.5 flex items-center justify-between">
+                    <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-3 py-2.5 flex items-center justify-between shadow-2xl shadow-black/50">
                         <div className="text-center flex-1">
-                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Distance</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Distance</p>
                             <p className="text-base font-black text-white tabular-nums leading-tight">
                                 {passage.routeAnalysis.totalDistance.toFixed(0)}
                                 <span className="text-[9px] text-gray-500"> NM</span>
@@ -281,7 +369,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         </div>
                         <div className="w-px h-6 bg-white/10" />
                         <div className="text-center flex-1">
-                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Time</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Time</p>
                             <p className="text-base font-black text-white tabular-nums leading-tight">
                                 {passage.routeAnalysis.estimatedDuration < 24
                                     ? `${passage.routeAnalysis.estimatedDuration.toFixed(1)}h`
@@ -290,7 +378,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         </div>
                         <div className="w-px h-6 bg-white/10" />
                         <div className="text-center flex-1">
-                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">ETA</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">ETA</p>
                             <p className="text-base font-black text-amber-400 tabular-nums leading-tight">
                                 {new Date((passage.departureTime ? new Date(passage.departureTime) : new Date()).getTime() + passage.routeAnalysis.estimatedDuration * 3600000)
                                     .toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })}
@@ -303,12 +391,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ PASSAGE MODE BANNER ═══ */}
             {passage.showPassage && !embedded && (
                 <div className="absolute top-24 left-4 right-4 z-[501] animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="bg-slate-900/85 border border-white/10 rounded-xl px-3 py-2 shadow-lg">
+                    <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                                 <div className="min-w-0">
-                                    <p className="text-[10px] font-black text-white/70 uppercase tracking-widest">Passage Planner</p>
-                                    <p className="text-[10px] text-gray-500 truncate">
+                                    <p className="text-[11px] font-black text-white uppercase tracking-widest">Passage Planner</p>
+                                    <p className="text-[10px] text-gray-400 truncate">
                                         {!passage.departure ? 'Tap map to set Departure' :
                                             !passage.arrival ? 'Tap map to set Arrival' :
                                                 isoProgress
@@ -325,10 +413,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     passage.setShowPassage(false);
                                     triggerHaptic('light');
                                 }}
-                                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                                className="w-8 h-8 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors shrink-0 active:scale-95"
                                 aria-label="Close passage planner"
                             >
-                                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
@@ -388,7 +476,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 setTimeout(() => setPassageToast(null), 2000);
                                             }
                                         }}
-                                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/20 text-sky-400 text-[9px] font-bold uppercase tracking-wider active:scale-95 transition-transform"
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/25 text-sky-400 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-transform"
                                     >
                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -451,7 +539,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 setTimeout(() => setPassageToast(null), 2000);
                                             }
                                         }}
-                                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase tracking-wider active:scale-95 transition-transform"
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-transform"
                                     >
                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -474,14 +562,14 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* ═══ LAYER FAB MENU ═══ */}
             {!passage.showPassage && !embedded && !isPinView && (
                 <LayerFABMenu
-                    activeLayer={weather.activeLayer}
+                    activeLayers={weather.activeLayers}
                     showLayerMenu={weather.showLayerMenu}
                     embedded={embedded}
                     location={location}
                     initialZoom={initialZoom}
                     center={center}
                     mapRef={mapRef}
-                    setActiveLayer={weather.setActiveLayer}
+                    toggleLayer={weather.toggleLayer}
                     setShowLayerMenu={weather.setShowLayerMenu}
                 />
             )}
@@ -559,7 +647,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ SYNOPTIC TIMELINE SCRUBBER ═══ */}
-            {!isPinView && weather.activeLayer === 'pressure' && (
+            {!isPinView && weather.activeLayers.has('pressure') && weather.activeLayers.size === 1 && (
                 <SynopticScrubber
                     forecastHour={weather.forecastHour}
                     totalFrames={weather.totalFrames}
@@ -574,7 +662,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ WIND FORECAST SCRUBBER + LEGEND ═══ */}
-            {!isPinView && (weather.activeLayer === 'wind' || weather.activeLayer === 'velocity') && (() => {
+            {!isPinView && weather.activeLayers.size === 1 && (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) && (() => {
                 const fhrs = weather.windForecastHoursRef.current;
                 const total = weather.windTotalHours;
                 const curIdx = weather.windHour;
@@ -686,7 +774,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             })()}
 
             {/* ═══ TEMPERATURE LEGEND ═══ */}
-            {!isPinView && weather.activeLayer === 'temperature' && (
+            {!isPinView && weather.activeLayers.has('temperature') && weather.activeLayers.size === 1 && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5">
                         <div className="flex items-center gap-1.5 px-1">
@@ -709,7 +797,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ RAIN LOADING ═══ */}
-            {!isPinView && weather.activeLayer === 'rain' && weather.rainLoading && (
+            {!isPinView && weather.activeLayers.has('rain') && weather.activeLayers.size === 1 && weather.rainLoading && (
                 <div className="absolute left-4 right-4 z-[500]" style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}>
                     <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-3 flex items-center justify-center gap-3">
                         <div className="w-4 h-4 border-2 border-emerald-400/60 border-t-transparent rounded-full animate-spin" />
@@ -719,7 +807,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             )}
 
             {/* ═══ UNIFIED RAIN + FORECAST SCRUBBER ═══ */}
-            {!isPinView && weather.activeLayer === 'rain' && weather.rainReady && weather.rainFrameCount > 1 && (() => {
+            {!isPinView && weather.activeLayers.has('rain') && weather.activeLayers.size === 1 && weather.rainReady && weather.rainFrameCount > 1 && (() => {
                 const nowIdx = weather.rainNowIdxRef.current;
                 const total = Math.max(1, weather.rainFrameCount - 1);
                 const nowPct = (nowIdx / total) * 100;

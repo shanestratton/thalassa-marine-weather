@@ -12,6 +12,7 @@ import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { toast } from './Toast';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 // Event category type for type safety
 type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
@@ -178,6 +179,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             type="text"
                             value={waypointName}
                             onChange={(e) => setWaypointName(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             placeholder="e.g., Cape Moreton, Fuel Stop"
                             disabled={!isWaypoint}
                             className={`w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 ${!isWaypoint ? 'cursor-not-allowed' : ''}`}
@@ -192,6 +194,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
+                            onFocus={scrollInputAboveKeyboard}
                             placeholder="e.g., Course change, Crew rotation, Equipment issue"
                             className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[80px] resize-none"
                         />
