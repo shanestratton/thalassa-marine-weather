@@ -13,7 +13,7 @@ import type { MapRef } from 'react-map-gl/maplibre';
 import { getGribBoundsFromMap, type GribBounds } from '../../components/map/ThalassaMap';
 import { ResumableGribFetcher } from './ResumableGribFetcher';
 import { decodeWindBinary, type DecodedWindField } from './decodeWindBinary';
-import { useNetworkMode } from '../../contexts/NetworkModeContext';
+import { useNetworkMode } from '../../context/NetworkModeContext';
 
 // ── Types ──────────────────────────────────────────────────────
 
