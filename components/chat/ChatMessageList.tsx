@@ -2,7 +2,7 @@
  * ChatMessageList — Channel message rendering with pins, tracks, mod actions.
  * Extracted from ChatPage to reduce monolith complexity.
  */
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { ChatMessage } from '../../services/ChatService';
 import {
     getAvatarGradient, timeAgo, getCrewRank, getStaticMapUrl,
@@ -10,6 +10,9 @@ import {
 } from './chatUtils';
 import { useUI } from '../../context/UIContext';
 import { LocationStore } from '../../stores/LocationStore';
+
+/** Messages shown per page — keeps the DOM lean while preserving scroll feel */
+const PAGE_SIZE = 50;
 
 // --- Types ---
 export interface ChatMessageListProps {
@@ -64,6 +67,18 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
     const { setPage } = useUI();
     const regularMessages = messages.filter(m => !m.is_pinned);
 
+    // Windowed rendering — show only last PAGE_SIZE messages, expand on demand
+    const [visiblePages, setVisiblePages] = useState(1);
+    const visibleCount = visiblePages * PAGE_SIZE;
+    const hasMore = regularMessages.length > visibleCount;
+    const windowedMessages = hasMore
+        ? regularMessages.slice(regularMessages.length - visibleCount)
+        : regularMessages;
+
+    const loadMore = useCallback(() => {
+        setVisiblePages(p => p + 1);
+    }, []);
+
     // Real online status — users who posted in the last 15 minutes
     const recentlyActiveUsers = React.useMemo(() => {
         const cutoff = Date.now() - 15 * 60 * 1000;
@@ -88,11 +103,11 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
         return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
     };
 
-    /** Whether a date separator should render before message at index i */
+    /** Whether a date separator should render before message at index i in the windowed array */
     const shouldShowDateSep = (i: number): boolean => {
         if (i === 0) return true;
-        const prev = regularMessages[i - 1];
-        const curr = regularMessages[i];
+        const prev = windowedMessages[i - 1];
+        const curr = windowedMessages[i];
         const prevDay = new Date(prev.created_at).toDateString();
         const currDay = new Date(curr.created_at).toDateString();
         return prevDay !== currDay;
@@ -132,7 +147,20 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
 
                 {/* Messages list */}
                 <div className="flex-1 px-4 py-3 space-y-1" role="list" aria-label="Channel messages">
-                    {regularMessages.length === 0 && (
+                    {/* Load earlier messages — pagination trigger */}
+                    {hasMore && (
+                        <div className="flex justify-center py-3">
+                            <button
+                                onClick={loadMore}
+                                className="px-4 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[11px] font-bold text-white/40 uppercase tracking-wider hover:bg-white/[0.08] active:scale-95 transition-all min-h-[40px]"
+                                aria-label="Load earlier messages"
+                            >
+                                ↑ Load earlier messages ({regularMessages.length - visibleCount} more)
+                            </button>
+                        </div>
+                    )}
+
+                    {windowedMessages.length === 0 && (
                         <div className="flex-1 flex flex-col items-center justify-center py-28">
                             <div className="relative mb-8">
                                 <div className="w-20 h-20 rounded-full bg-sky-500/[0.06] border border-sky-500/10 flex items-center justify-center empty-ripple">
@@ -151,7 +179,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                         </div>
                     )}
 
-                    {regularMessages.map((msg, i) => {
+                    {windowedMessages.map((msg, i) => {
                         const isDeleted = !!msg.deleted_at;
                         const isSelf = msg.user_id === 'self';
                         const rank = getCrewRank(msg.helpful_count);
@@ -159,7 +187,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
 
                         // Message grouping — consecutive same-user messages within 5 minutes cluster
                         // Break grouping across date boundaries
-                        const prevMsg = i > 0 ? regularMessages[i - 1] : null;
+                        const prevMsg = i > 0 ? windowedMessages[i - 1] : null;
                         const isGroupContinuation = !!(
                             prevMsg &&
                             !prevMsg.deleted_at &&
@@ -184,7 +212,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(({
                                 <div
                                     className={`msg-enter group relative ${isGroupContinuation ? 'py-0.5' : 'py-2'} ${msg.is_question && !isDeleted ? 'question-glow bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2' : ''
                                         }`}
-                                    style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
+                                    style={{ animationDelay: `${Math.min(i * 30, 300)}ms`, contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' } as React.CSSProperties}
                                 >
                                     {/* Question header */}
                                     {msg.is_question && !isDeleted && (
