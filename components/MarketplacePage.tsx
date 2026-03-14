@@ -117,7 +117,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(({ listing, isOwn, on
     const hasImages = listing.images.length > 0;
 
     return (
-        <div className={`mx-3 mb-3 transition-all duration-300 ${isNew ? 'animate-in slide-in-from-top-4 fade-in' : ''}`}>
+        <div className={`mx-3 mb-3 transition-all duration-300 ${isNew ? 'animate-in slide-in-from-top-4 fade-in' : ''}`} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 350px' } as React.CSSProperties}>
             <div className="relative overflow-hidden rounded-2xl">
                 {/* Delete button revealed on swipe (owner only) */}
                 {isOwnerSwipeable && (
