@@ -2,25 +2,25 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { WidgetRenderer, DashboardWidgetContextType } from './WidgetRenderer';
+import { WidgetRenderer, DashboardWidgetContextType } from '../components/WidgetRenderer';
 
 // Mock the heavy child components to isolate Renderer logic
-vi.mock('./dashboard/Advice', () => ({
+vi.mock('../components/dashboard/Advice', () => ({
     AdviceWidget: () => <div data-testid="advice-widget">Advice Widget</div>
 }));
 
-vi.mock('./dashboard/WeatherCharts', () => ({
+vi.mock('../components/dashboard/WeatherCharts', () => ({
     HourlyWidget: () => <div>Hourly</div>,
     DailyWidget: () => <div>Daily</div>,
     MapWidget: () => <div data-testid="map-widget">Map Widget</div>
 }));
 
-vi.mock('./dashboard/WeatherGrid', () => ({
+vi.mock('../components/dashboard/WeatherGrid', () => ({
     BeaufortWidget: () => <div data-testid="beaufort-widget">Beaufort Widget</div>,
     DetailedMetricsWidget: () => <div data-testid="details-widget">Details Widget</div>
 }));
 
-vi.mock('./dashboard/TideAndVessel', () => ({
+vi.mock('../components/dashboard/TideAndVessel', () => ({
     VesselStatusWidget: () => <div data-testid="vessel-widget">Vessel Widget</div>,
     TideWidget: () => <div data-testid="tides-widget">Tides Widget</div>
 }));
