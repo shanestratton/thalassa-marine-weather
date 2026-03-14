@@ -16,108 +16,19 @@ import { LocationStore } from '../stores/LocationStore';
 import { saveLargeData, saveLargeDataImmediate, loadLargeData, loadLargeDataSync, deleteLargeData, readCacheVersion, writeCacheVersion, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
 const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
-// Keys imported from nativeStorage to stay in sync
 
-// INTELLIGENT UPDATE INTERVALS
-// Minimum 10 min (extreme weather), 30 min (coastal), 60 min (offshore/inland)
-// All snapped to clock boundaries (:00, :10, :20, :30, :40, :50)
-const INLAND_INTERVAL = 60 * 60 * 1000;        // 60 mins (hourly) — top of hour
-const OFFSHORE_INTERVAL = 60 * 60 * 1000;      // 60 mins (hourly) — top of hour
-const COASTAL_INTERVAL = 30 * 60 * 1000;       // 30 mins — :00 or :30
-const BAD_WEATHER_INTERVAL = 10 * 60 * 1000;   // 10 mins — :00/:10/:20/:30/:40/:50
-const SATELLITE_INTERVAL = 3 * 60 * 60 * 1000;  // 3 hours — satellite/Iridium GO! bandwidth conservation
-const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
-const LIVE_OVERLAY_INTERVAL = 5 * 60 * 1000;   // 5 mins — lightweight temp/conditions poll
-
-// Bad Weather Detection
-const isBadWeather = (weather: MarineWeatherReport): boolean => {
-    const current = weather.current;
-    const next12 = weather.hourly?.slice(0, 12) || [];
-
-    const hasAlerts = weather.alerts && weather.alerts.length > 0;
-    const highWind = (current.windGust || current.windSpeed || 0) > 25;  // kts
-    const highWaves = (current.waveHeight || 0) > 2.5;  // meters
-    const heavyRain = (current.precipitation || 0) > 5;  // mm/h
-    const poorVisibility = (current.visibility ?? 10) < 2;  // nm (default 10 if undefined)
-    const forecastHighWind = Math.max(...next12.map(h => h.windGust || h.windSpeed || 0)) > 30;
-
-    return hasAlerts || highWind || highWaves || heavyRain || poorVisibility || forecastHighWind;
-};
-
-// Get update interval based on location type, weather, and whether this is the user's current GPS location
-const getUpdateInterval = (locationType: 'inland' | 'coastal' | 'offshore', weather: MarineWeatherReport, isCurrentLocation: boolean = true, satelliteMode: boolean = false): number => {
-    // 0. SATELLITE MODE OVERRIDE — 3h for all locations
-    // Conserves bandwidth for Iridium GO! / metered satellite connections.
-    // StormGlass cache TTL is also 3h, so this aligns perfectly.
-    if (satelliteMode) {
-        return SATELLITE_INTERVAL;
-    }
-
-    // 1. Non-current-location override — always hourly regardless of type/weather
-    if (!isCurrentLocation) {
-        return INLAND_INTERVAL; // 60 mins
-    }
-
-    // 2. Bad weather override — any location type gets 10m refresh
-    if (isBadWeather(weather)) {
-        return BAD_WEATHER_INTERVAL;
-    }
-
-    // 3. Location-specific intervals (normal weather)
-    switch (locationType) {
-        case 'inland':
-            return INLAND_INTERVAL;
-        case 'offshore':
-            return OFFSHORE_INTERVAL;
-        case 'coastal':
-        default:
-            return COASTAL_INTERVAL;
-    }
-};
-
-// Smart time alignment — all intervals snap to clean clock boundaries
-const alignToNextInterval = (intervalMs: number): number => {
-    const now = Date.now();
-    const date = new Date(now);
-
-    // Hourly (inland/offshore): align to top of next hour (:00)
-    if (intervalMs >= INLAND_INTERVAL) {
-        date.setMinutes(0, 0, 0);
-        date.setHours(date.getHours() + 1);
-        const target = date.getTime();
-        return target;
-    }
-
-    // 30min (coastal): align to :00 or :30
-    if (intervalMs === COASTAL_INTERVAL) {
-        const mins = date.getMinutes();
-        if (mins < 30) {
-            date.setMinutes(30, 0, 0);
-        } else {
-            date.setHours(date.getHours() + 1);
-            date.setMinutes(0, 0, 0);
-        }
-        const target = date.getTime();
-        return target;
-    }
-
-    // Bad weather (10min): align to :00/:10/:20/:30/:40/:50
-    if (intervalMs === BAD_WEATHER_INTERVAL) {
-        const mins = date.getMinutes();
-        const nextSlot = Math.ceil((mins + 1) / 10) * 10; // next 10-min boundary
-        if (nextSlot >= 60) {
-            date.setHours(date.getHours() + 1);
-            date.setMinutes(0, 0, 0);
-        } else {
-            date.setMinutes(nextSlot, 0, 0);
-        }
-        const target = date.getTime();
-        return target;
-    }
-
-    // Fallback: raw offset
-    return now + intervalMs;
-};
+// Scheduling logic extracted to WeatherScheduler service
+import {
+    isBadWeather,
+    getUpdateInterval,
+    alignToNextInterval,
+    INLAND_INTERVAL,
+    COASTAL_INTERVAL,
+    BAD_WEATHER_INTERVAL,
+    SATELLITE_INTERVAL,
+    AI_UPDATE_INTERVAL,
+    LIVE_OVERLAY_INTERVAL,
+} from '../services/WeatherScheduler';
 
 interface WeatherContextType {
     weatherData: MarineWeatherReport | null;
@@ -1118,13 +1029,5 @@ export const useWeather = () => {
     return context;
 };
 
-// ── Test helpers — export internal pure functions for unit testing ──
-export const _testableInternals = {
-    isBadWeather,
-    getUpdateInterval,
-    alignToNextInterval,
-    INLAND_INTERVAL,
-    COASTAL_INTERVAL,
-    BAD_WEATHER_INTERVAL,
-    SATELLITE_INTERVAL,
-};
+// Scheduling internals now imported from services/WeatherScheduler.ts
+// Import directly: import { isBadWeather, getUpdateInterval, ... } from '../services/WeatherScheduler'
