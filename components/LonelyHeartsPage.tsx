@@ -8,9 +8,10 @@
  * - Matches: Mutual interest list with DM
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import { useCrewFinderState } from '../hooks/useCrewFinderState';
 
 const log = createLogger('LonelyHeartsPage');
 import {
@@ -47,80 +48,153 @@ interface LonelyHeartsPageProps {
 type FCView = 'board' | 'detail' | 'my_profile' | 'matches';
 
 export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) => {
-    const [view, setView] = useState<FCView>('my_profile');
-    const [loading, setLoading] = useState(true);
+    const { state, dispatch } = useCrewFinderState();
 
-    // Board
-    const [listings, setListings] = useState<CrewCard[]>([]);
-    const [filters, setFilters] = useState<CrewSearchFilters>({});
-    const [filterListingType, setFilterListingType] = useState<ListingType | ''>('');
-    const [filterGender, setFilterGender] = useState('');
-    const [filterAgeRanges, setFilterAgeRanges] = useState<string[]>([]);
-    const [filterSkills, setFilterSkills] = useState<string[]>([]);
-    const [filterExperience, setFilterExperience] = useState('');
-    const [filterRegion, setFilterRegion] = useState('');
-    const [filterLocationCountry, setFilterLocationCountry] = useState('');
-    const [filterLocationState, setFilterLocationState] = useState('');
-    const [filterLocationCity, setFilterLocationCity] = useState('');
-    const [showFilters, setShowFilters] = useState(false);
+    // ── Destructure state for backward compatibility ──
+    const {
+        view, loading, listings, filters,
+        filterListingType, filterGender, filterAgeRanges, filterSkills,
+        filterExperience, filterRegion, filterLocationCountry, filterLocationState,
+        filterLocationCity, showFilters, selectedCard, matches, hasSearched,
+        blockedUserIds, showReportModal, reportReason, showActionMenu,
+        showSuperLikeModal, superLikeMessage, superLikeUsed,
+        profile, editListingType, editFirstName, editGender, editAge,
+        editHasPartner, editPartnerDetails, editSkills, editExperience,
+        editRegion, editAvailFrom, editAvailTo, editBio,
+        editVibe, editLanguages, editSmoking, editDrinking, editPets,
+        editInterests, editLocationCity, editLocationState, editLocationCountry,
+        saving, saved, editPhotos, uploadingPhotoIdx, photoError, pendingPhotoIdx,
+        showDeleteConfirm, deleting, showPreview, kbHeight,
+        currentCardIndex, cardPhotoIndex, swipeX, swipeDirection, isAnimating,
+        likedUsers, messagedUsers,
+    } = state;
 
-    // Detail
-    const [selectedCard, setSelectedCard] = useState<CrewCard | null>(null);
+    // ── Setter shims (delegate to dispatch) ──
+    const setView = useCallback((v: typeof view) => dispatch({ type: 'SET_VIEW', payload: v }), [dispatch]);
+    const setLoading = useCallback((v: boolean) => dispatch({ type: 'SET_LOADING', payload: v }), [dispatch]);
+    const setListings = useCallback((v: CrewCard[] | ((prev: CrewCard[]) => CrewCard[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_LISTINGS', payload: v(state.listings) }); }
+        else { dispatch({ type: 'SET_LISTINGS', payload: v }); }
+    }, [dispatch, state.listings]);
+    const setFilters = useCallback((v: typeof filters) => dispatch({ type: 'SET_FILTERS', payload: v }), [dispatch]);
+    const setFilterListingType = useCallback((v: typeof filterListingType) => dispatch({ type: 'SET_FILTER_LISTING_TYPE', payload: v }), [dispatch]);
+    const setFilterGender = useCallback((v: string) => dispatch({ type: 'SET_FILTER_GENDER', payload: v }), [dispatch]);
+    const setFilterAgeRanges = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_FILTER_AGE_RANGES', payload: v(state.filterAgeRanges) }); }
+        else { dispatch({ type: 'SET_FILTER_AGE_RANGES', payload: v }); }
+    }, [dispatch, state.filterAgeRanges]);
+    const setFilterSkills = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_FILTER_SKILLS', payload: v(state.filterSkills) }); }
+        else { dispatch({ type: 'SET_FILTER_SKILLS', payload: v }); }
+    }, [dispatch, state.filterSkills]);
+    const setFilterExperience = useCallback((v: string) => dispatch({ type: 'SET_FILTER_EXPERIENCE', payload: v }), [dispatch]);
+    const setFilterRegion = useCallback((v: string) => dispatch({ type: 'SET_FILTER_REGION', payload: v }), [dispatch]);
+    const setFilterLocationCountry = useCallback((v: string) => dispatch({ type: 'SET_FILTER_LOCATION_COUNTRY', payload: v }), [dispatch]);
+    const setFilterLocationState = useCallback((v: string) => dispatch({ type: 'SET_FILTER_LOCATION_STATE', payload: v }), [dispatch]);
+    const setFilterLocationCity = useCallback((v: string) => dispatch({ type: 'SET_FILTER_LOCATION_CITY', payload: v }), [dispatch]);
+    const setShowFilters = useCallback((v: boolean) => dispatch({ type: 'SET_SHOW_FILTERS', payload: v }), [dispatch]);
+    const setSelectedCard = useCallback((v: typeof selectedCard) => dispatch({ type: 'SET_SELECTED_CARD', payload: v }), [dispatch]);
+    const setMatches = useCallback((v: typeof matches) => dispatch({ type: 'SET_MATCHES', payload: v }), [dispatch]);
+    const setHasSearched = useCallback((v: boolean) => dispatch({ type: 'SET_HAS_SEARCHED', payload: v }), [dispatch]);
+    const setBlockedUserIds = useCallback((v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_BLOCKED_USER_IDS', payload: v(state.blockedUserIds) }); }
+        else { dispatch({ type: 'SET_BLOCKED_USER_IDS', payload: v }); }
+    }, [dispatch, state.blockedUserIds]);
+    const setShowReportModal = useCallback((v: string | null) => dispatch({ type: 'SET_SHOW_REPORT_MODAL', payload: v }), [dispatch]);
+    const setReportReason = useCallback((v: string) => dispatch({ type: 'SET_REPORT_REASON', payload: v }), [dispatch]);
+    const setShowActionMenu = useCallback((v: string | null) => dispatch({ type: 'SET_SHOW_ACTION_MENU', payload: v }), [dispatch]);
+    const setShowSuperLikeModal = useCallback((v: typeof showSuperLikeModal) => dispatch({ type: 'SET_SHOW_SUPER_LIKE_MODAL', payload: v }), [dispatch]);
+    const setSuperLikeMessage = useCallback((v: string) => dispatch({ type: 'SET_SUPER_LIKE_MESSAGE', payload: v }), [dispatch]);
+    const setSuperLikeUsed = useCallback((v: boolean) => dispatch({ type: 'SET_SUPER_LIKE_USED', payload: v }), [dispatch]);
+    const setProfile = useCallback((v: typeof profile) => dispatch({ type: 'SET_PROFILE', payload: v }), [dispatch]);
+    const setEditListingType = useCallback((v: typeof editListingType) => dispatch({ type: 'SET_EDIT_LISTING_TYPE', payload: v }), [dispatch]);
+    const setEditFirstName = useCallback((v: string) => dispatch({ type: 'SET_EDIT_FIRST_NAME', payload: v }), [dispatch]);
+    const setEditGender = useCallback((v: string) => dispatch({ type: 'SET_EDIT_GENDER', payload: v }), [dispatch]);
+    const setEditAge = useCallback((v: string) => dispatch({ type: 'SET_EDIT_AGE', payload: v }), [dispatch]);
+    const setEditHasPartner = useCallback((v: boolean) => dispatch({ type: 'SET_EDIT_HAS_PARTNER', payload: v }), [dispatch]);
+    const setEditPartnerDetails = useCallback((v: string) => dispatch({ type: 'SET_EDIT_PARTNER_DETAILS', payload: v }), [dispatch]);
+    const setEditSkills = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_EDIT_SKILLS', payload: v(state.editSkills) }); }
+        else { dispatch({ type: 'SET_EDIT_SKILLS', payload: v }); }
+    }, [dispatch, state.editSkills]);
+    const setEditExperience = useCallback((v: string) => dispatch({ type: 'SET_EDIT_EXPERIENCE', payload: v }), [dispatch]);
+    const setEditRegion = useCallback((v: string) => dispatch({ type: 'SET_EDIT_REGION', payload: v }), [dispatch]);
+    const setEditAvailFrom = useCallback((v: string) => dispatch({ type: 'SET_EDIT_AVAIL_FROM', payload: v }), [dispatch]);
+    const setEditAvailTo = useCallback((v: string) => dispatch({ type: 'SET_EDIT_AVAIL_TO', payload: v }), [dispatch]);
+    const setEditBio = useCallback((v: string) => dispatch({ type: 'SET_EDIT_BIO', payload: v }), [dispatch]);
+    const setEditVibe = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_EDIT_VIBE', payload: v(state.editVibe) }); }
+        else { dispatch({ type: 'SET_EDIT_VIBE', payload: v }); }
+    }, [dispatch, state.editVibe]);
+    const setEditLanguages = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_EDIT_LANGUAGES', payload: v(state.editLanguages) }); }
+        else { dispatch({ type: 'SET_EDIT_LANGUAGES', payload: v }); }
+    }, [dispatch, state.editLanguages]);
+    const setEditSmoking = useCallback((v: string) => dispatch({ type: 'SET_EDIT_SMOKING', payload: v }), [dispatch]);
+    const setEditDrinking = useCallback((v: string) => dispatch({ type: 'SET_EDIT_DRINKING', payload: v }), [dispatch]);
+    const setEditPets = useCallback((v: string) => dispatch({ type: 'SET_EDIT_PETS', payload: v }), [dispatch]);
+    const setEditInterests = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_EDIT_INTERESTS', payload: v(state.editInterests) }); }
+        else { dispatch({ type: 'SET_EDIT_INTERESTS', payload: v }); }
+    }, [dispatch, state.editInterests]);
+    const setEditLocationCity = useCallback((v: string) => dispatch({ type: 'SET_EDIT_LOCATION_CITY', payload: v }), [dispatch]);
+    const setEditLocationState = useCallback((v: string) => dispatch({ type: 'SET_EDIT_LOCATION_STATE', payload: v }), [dispatch]);
+    const setEditLocationCountry = useCallback((v: string) => dispatch({ type: 'SET_EDIT_LOCATION_COUNTRY', payload: v }), [dispatch]);
+    const setSaving = useCallback((v: boolean) => dispatch({ type: 'SET_SAVING', payload: v }), [dispatch]);
+    const setSaved = useCallback((v: boolean) => dispatch({ type: 'SET_SAVED', payload: v }), [dispatch]);
+    const setEditPhotos = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        if (typeof v === 'function') {
+            // Need to read current state for functional updates
+            dispatch({ type: 'SET_EDIT_PHOTOS', payload: v(state.editPhotos) });
+        } else {
+            dispatch({ type: 'SET_EDIT_PHOTOS', payload: v });
+        }
+    }, [dispatch, state.editPhotos]);
+    const setUploadingPhotoIdx = useCallback((v: number | null) => dispatch({ type: 'SET_UPLOADING_PHOTO_IDX', payload: v }), [dispatch]);
+    const setPhotoError = useCallback((v: string) => dispatch({ type: 'SET_PHOTO_ERROR', payload: v }), [dispatch]);
+    const setPendingPhotoIdx = useCallback((v: number) => dispatch({ type: 'SET_PENDING_PHOTO_IDX', payload: v }), [dispatch]);
+    const setShowDeleteConfirm = useCallback((v: boolean) => dispatch({ type: 'SET_SHOW_DELETE_CONFIRM', payload: v }), [dispatch]);
+    const setDeleting = useCallback((v: boolean) => dispatch({ type: 'SET_DELETING', payload: v }), [dispatch]);
+    const setShowPreview = useCallback((v: boolean) => dispatch({ type: 'SET_SHOW_PREVIEW', payload: v }), [dispatch]);
+    const setKbHeight = useCallback((v: number) => dispatch({ type: 'SET_KB_HEIGHT', payload: v }), [dispatch]);
+    const setCurrentCardIndex = useCallback((v: number | ((prev: number) => number)) => {
+        if (typeof v === 'function') {
+            dispatch({ type: 'SET_CURRENT_CARD_INDEX', payload: v(state.currentCardIndex) });
+        } else {
+            dispatch({ type: 'SET_CURRENT_CARD_INDEX', payload: v });
+        }
+    }, [dispatch, state.currentCardIndex]);
+    const setCardPhotoIndex = useCallback((v: number | ((prev: number) => number)) => {
+        if (typeof v === 'function') { dispatch({ type: 'SET_CARD_PHOTO_INDEX', payload: v(state.cardPhotoIndex) }); }
+        else { dispatch({ type: 'SET_CARD_PHOTO_INDEX', payload: v }); }
+    }, [dispatch, state.cardPhotoIndex]);
+    const setSwipeX = useCallback((v: number) => dispatch({ type: 'SET_SWIPE_X', payload: v }), [dispatch]);
+    const setSwipeDirection = useCallback((v: 'left' | 'right' | null) => dispatch({ type: 'SET_SWIPE_DIRECTION', payload: v }), [dispatch]);
+    const setIsAnimating = useCallback((v: boolean) => dispatch({ type: 'SET_IS_ANIMATING', payload: v }), [dispatch]);
+    const setLikedUsers = useCallback((v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+        if (typeof v === 'function') {
+            dispatch({ type: 'SET_LIKED_USERS', payload: v(state.likedUsers) });
+        } else {
+            dispatch({ type: 'SET_LIKED_USERS', payload: v });
+        }
+    }, [dispatch, state.likedUsers]);
+    const setMessagedUsers = useCallback((v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+        if (typeof v === 'function') {
+            dispatch({ type: 'SET_MESSAGED_USERS', payload: v(state.messagedUsers) });
+        } else {
+            dispatch({ type: 'SET_MESSAGED_USERS', payload: v });
+        }
+    }, [dispatch, state.messagedUsers]);
 
-    // Matches
-    const [matches, setMatches] = useState<SailorMatch[]>([]);
-    const [hasSearched, setHasSearched] = useState(false);
-
-    // Block / Report
-    const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
-    const [showReportModal, setShowReportModal] = useState<string | null>(null);
-    const [reportReason, setReportReason] = useState('');
-    const [showActionMenu, setShowActionMenu] = useState<string | null>(null);
-
-    // Super Like
-    const [showSuperLikeModal, setShowSuperLikeModal] = useState<CrewCard | null>(null);
-    const [superLikeMessage, setSuperLikeMessage] = useState('');
-    const [superLikeUsed, setSuperLikeUsed] = useState(false);
-
-    // My Profile form
-    const [profile, setProfile] = useState<Partial<CrewProfile>>({});
-    const [editListingType, setEditListingType] = useState<ListingType | ''>('');
-    const [editFirstName, setEditFirstName] = useState('');
-    const [editGender, setEditGender] = useState('');
-    const [editAge, setEditAge] = useState('');
-    const [editHasPartner, setEditHasPartner] = useState(false);
-    const [editPartnerDetails, setEditPartnerDetails] = useState('');
-    const [editSkills, setEditSkills] = useState<string[]>([]);
-    const [editExperience, setEditExperience] = useState('');
-    const [editRegion, setEditRegion] = useState('');
-    const [editAvailFrom, setEditAvailFrom] = useState('');
-    const [editAvailTo, setEditAvailTo] = useState('');
-    const [editBio, setEditBio] = useState('');
-    const [editVibe, setEditVibe] = useState<string[]>([]);
-    const [editLanguages, setEditLanguages] = useState<string[]>([]);
-    const [editSmoking, setEditSmoking] = useState('');
-    const [editDrinking, setEditDrinking] = useState('');
-    const [editPets, setEditPets] = useState('');
-    const [editInterests, setEditInterests] = useState<string[]>([]);
-    const [editLocationCity, setEditLocationCity] = useState('');
-    const [editLocationState, setEditLocationState] = useState('');
-    const [editLocationCountry, setEditLocationCountry] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
-    // Photo (up to 6)
-    const [editPhotos, setEditPhotos] = useState<string[]>([]);
-    const [uploadingPhotoIdx, setUploadingPhotoIdx] = useState<number | null>(null);
-    const [photoError, setPhotoError] = useState('');
+    // ── Refs (not state, kept as-is) ──
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [pendingPhotoIdx, setPendingPhotoIdx] = useState(0);
-    // Delete listing
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const [deleting, setDeleting] = useState(false);
-    const [showPreview, setShowPreview] = useState(false);
     const myProfileScrollRef = useRef<HTMLDivElement>(null);
+    const swipeStartX = useRef(0);
+    const swipeStartY = useRef(0);
+    const isSwipeTracking = useRef(false);
+    const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
 
     // ── Keyboard height detection — same pattern as DiaryPage/AuthModal/Marketplace ──
-    const [kbHeight, setKbHeight] = useState(0);
     useEffect(() => {
         if (view !== 'my_profile') { setKbHeight(0); return; }
         let cleanup: (() => void) | undefined;
@@ -164,30 +238,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         return () => { cleanup?.(); setKbHeight(0); };
     }, [view]);
 
-    // Card stack state
-    const [currentCardIndex, setCurrentCardIndex] = useState(0);
-    const [cardPhotoIndex, setCardPhotoIndex] = useState(0);
-    const [swipeX, setSwipeX] = useState(0);
-    const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
-    const [isAnimating, setIsAnimating] = useState(false);
-    const swipeStartX = useRef(0);
-    const swipeStartY = useRef(0);
-    const isSwipeTracking = useRef(false);
-    const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
 
-    // Track interactions
-    const [likedUsers, setLikedUsers] = useState<Set<string>>(() => {
-        try {
-            const saved = localStorage.getItem('crew_liked_users');
-            return saved ? new Set(JSON.parse(saved)) : new Set();
-        } catch { return new Set(); }
-    });
-    const [messagedUsers, setMessagedUsers] = useState<Set<string>>(() => {
-        try {
-            const saved = localStorage.getItem('crew_messaged_users');
-            return saved ? new Set(JSON.parse(saved)) : new Set();
-        } catch { return new Set(); }
-    });
 
     // --- INIT ---
     useEffect(() => {
@@ -244,29 +295,8 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     const loadProfile = async () => {
         const dp = await LonelyHeartsService.getCrewProfile();
         if (dp) {
-            setProfile(dp);
-            setEditListingType(dp.listing_type || '');
-            setEditFirstName(dp.first_name || '');
-            setEditGender(dp.gender || '');
-            setEditAge(dp.age_range || '');
-            setEditHasPartner(dp.has_partner || false);
-            setEditPartnerDetails(dp.partner_details || '');
-            setEditSkills(dp.skills || []);
-            setEditExperience(dp.sailing_experience || '');
-            setEditRegion(dp.sailing_region || '');
-            setEditAvailFrom(dp.available_from || '');
-            setEditAvailTo(dp.available_to || '');
-            setEditBio(dp.bio || '');
-            setEditVibe(dp.vibe || []);
-            setEditLanguages(dp.languages || []);
-            setEditSmoking(dp.smoking || '');
-            setEditDrinking(dp.drinking || '');
-            setEditPets(dp.pets || '');
-            setEditInterests(dp.interests || []);
-            setEditLocationCity(dp.location_city || '');
-            setEditLocationState(dp.location_state || '');
-            setEditLocationCountry(dp.location_country || '');
-            setEditPhotos(dp.photos?.length ? dp.photos : dp.photo_url ? [dp.photo_url] : []);
+            // Batch: 22 state updates → 1 dispatch
+            dispatch({ type: 'LOAD_PROFILE', payload: dp as CrewProfile });
         }
     };
 
@@ -291,20 +321,11 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     };
 
     const clearFilters = async () => {
-        setFilterListingType('');
-        setFilterGender('');
-        setFilterAgeRanges([]);
-        setFilterSkills([]);
-        setFilterExperience('');
-        setFilterRegion('');
-        setFilterLocationCountry('');
-        setFilterLocationState('');
-        setFilterLocationCity('');
-        setFilters({});
+        // Batch: 10 state updates → 1 dispatch
+        dispatch({ type: 'CLEAR_FILTERS' });
         setLoading(true);
         await loadListings({});
         setLoading(false);
-        setShowFilters(false);
     };
 
     const toggleFilterSkill = (skill: string) => {
@@ -531,36 +552,23 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     // --- CARD STACK NAVIGATION ---
     const goToNextCard = useCallback(() => {
         if (isAnimating || listings.length === 0) return;
-        setIsAnimating(true);
-        setSwipeDirection('left');
+        dispatch({ type: 'SWIPE_ANIMATE', payload: { direction: 'left' } });
         setTimeout(() => {
-            setCurrentCardIndex(prev => Math.min(prev + 1, listings.length));
-            setCardPhotoIndex(0);
-            setSwipeDirection(null);
-            setSwipeX(0);
-            setIsAnimating(false);
+            dispatch({ type: 'SWIPE_COMPLETE', payload: { newIndex: Math.min(currentCardIndex + 1, listings.length) } });
         }, 250);
-    }, [listings.length, isAnimating]);
+    }, [listings.length, isAnimating, currentCardIndex, dispatch]);
 
     const goToPrevCard = useCallback(() => {
         if (isAnimating || currentCardIndex <= 0) return;
-        setIsAnimating(true);
-        setSwipeDirection('right');
+        dispatch({ type: 'SWIPE_ANIMATE', payload: { direction: 'right' } });
         setTimeout(() => {
-            setCurrentCardIndex(prev => Math.max(prev - 1, 0));
-            setCardPhotoIndex(0);
-            setSwipeDirection(null);
-            setSwipeX(0);
-            setIsAnimating(false);
+            dispatch({ type: 'SWIPE_COMPLETE', payload: { newIndex: Math.max(currentCardIndex - 1, 0) } });
         }, 250);
-    }, [currentCardIndex, isAnimating]);
+    }, [currentCardIndex, isAnimating, dispatch]);
 
     const goToStart = useCallback(() => {
-        setCurrentCardIndex(0);
-        setCardPhotoIndex(0);
-        setSwipeDirection(null);
-        setSwipeX(0);
-    }, []);
+        dispatch({ type: 'GO_TO_START' });
+    }, [dispatch]);
 
     // Reset card index when listings change
     useEffect(() => {
@@ -631,39 +639,16 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
         triggerHaptic('medium');
         const success = await LonelyHeartsService.deleteCrewProfile();
         if (success) {
-            // Reset all form state
-            setProfile({});
-            setEditListingType('');
-            setEditFirstName('');
-            setEditGender('');
-            setEditAge('');
-            setEditVibe([]);
-            setEditLanguages([]);
-            setEditSmoking('');
-            setEditDrinking('');
-            setEditPets('');
-            setEditInterests([]);
-            setEditHasPartner(false);
-            setEditPartnerDetails('');
-            setEditSkills([]);
-            setEditExperience('');
-            setEditRegion('');
-            setEditAvailFrom('');
-            setEditAvailTo('');
-            setEditBio('');
-            setEditLocationCity('');
-            setEditLocationState('');
-            setEditLocationCountry('');
-            setEditPhotos([]);
+            // Batch: 23 state updates → 1 dispatch
+            dispatch({ type: 'RESET_PROFILE' });
             toast.success('Listing removed from board');
-            setView('board');
             await loadListings();
         } else {
             toast.error('Failed to delete listing');
+            setDeleting(false);
+            setShowDeleteConfirm(false);
         }
-        setDeleting(false);
-        setShowDeleteConfirm(false);
-    }, [loadListings]);
+    }, [loadListings, dispatch]);
 
     /** Get the current user's ID from the service (for own-card detection) */
     const currentUserId = (LonelyHeartsService as any).currentUserId as string | null;
