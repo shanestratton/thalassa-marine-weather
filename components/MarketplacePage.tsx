@@ -131,7 +131,7 @@ interface ListingCardProps {
     isNew?: boolean;
 }
 
-const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSeller, onMarkSold, onDelete, onFlagLocation, isNew }) => {
+const ListingCard: React.FC<ListingCardProps> = React.memo(({ listing, isOwn, onMessageSeller, onMarkSold, onDelete, onFlagLocation, isNew }) => {
     const [expanded, setExpanded] = useState(false);
     const [imageIdx, setImageIdx] = useState(0);
     const [showActions, setShowActions] = useState(false);
@@ -556,7 +556,7 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, isOwn, onMessageSell
             </div>
         </div>
     );
-};
+});
 
 // ═══════════════════════════════════════════════════════════════
 // CREATE LISTING MODAL

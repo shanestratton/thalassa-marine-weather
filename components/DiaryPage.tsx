@@ -1,16 +1,4 @@
-/**
- * DiaryPage — Captain's Journal
- *
- * Premium passage diary with:
- *   - Timeline view of entries with photos, GPS, mood
- *   - Full-screen compose/edit with photo attachment + GPS
- *   - 🎙️ Voice recorder — record audio memos, transcribe later
- *   - Gemini AI "polish" button for journal text
- *   - Mood selector with nautical emojis
- *   - Beautiful card-based timeline
- */
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
@@ -26,6 +14,7 @@ import { useSwipeable } from '../hooks/useSwipeable';
 import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { toast } from './Toast';
+import { useDiaryState } from '../hooks/useDiaryState';
 
 interface DiaryPageProps {
     onBack: () => void;
@@ -70,55 +59,86 @@ const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
 // ── Component ──────────────────────────────────────────────────
 
 export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
-    const [entries, setEntries] = useState<DiaryEntry[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [showCompose, setShowCompose] = useState(false);
-    const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
+    // ── Consolidated state (replaces 29 individual useState calls) ──
+    // Single useReducer eliminates cascade re-renders (openCompose: 11 → 1)
+    const { state, dispatch } = useDiaryState();
+
+    // Destructure for JSX backward compatibility
+    const {
+        entries, loading, showCompose, selectedEntry,
+        editingId, title, body, mood, photos, audioUrl,
+        uploading, lat, lon, locationName, weatherSummary,
+        saving, polishing, gpsLoading, deletedItem,
+        selectMode, selectedIds, menuOpen, exportProgress,
+        isRecording, recordingTime, transcribing,
+        isPlaying, keyboardHeight,
+    } = state;
+
+    // Setter shims — same API surface, backed by dispatch
+    const setEntries = useCallback((v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
+        dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(state.entries) : v });
+    }, [dispatch, state.entries]);
+    const setSelectedEntry = useCallback((e: DiaryEntry | null) => dispatch({ type: 'SET_SELECTED_ENTRY', entry: e }), [dispatch]);
+    const setShowCompose = useCallback((v: boolean) => v ? dispatch({ type: 'OPEN_COMPOSE', weatherSummary: '' }) : dispatch({ type: 'CLOSE_COMPOSE' }), [dispatch]);
+    const setMenuOpen = useCallback((v: boolean) => dispatch({ type: 'SET_MENU_OPEN', open: v }), [dispatch]);
+    const setSelectedIds = useCallback((v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+        // For backward compat — exit select mode clears IDs
+        if (typeof v === 'function') {
+            const next = v(state.selectedIds);
+            if (next.size === 0) dispatch({ type: 'EXIT_SELECT_MODE' });
+        } else if (v.size === 0) {
+            dispatch({ type: 'EXIT_SELECT_MODE' });
+        }
+    }, [dispatch, state.selectedIds]);
+
+    // Additional setter shims
+    const setKeyboardHeight = useCallback((h: number) => dispatch({ type: 'SET_KEYBOARD_HEIGHT', height: h }), [dispatch]);
+    const setLoading = useCallback((v: boolean) => dispatch({ type: 'SET_LOADING', loading: v }), [dispatch]);
+    const setGpsLoading = useCallback((v: boolean) => dispatch({ type: 'SET_GPS_LOADING', loading: v }), [dispatch]);
+    const setLat = useCallback((v: number | null) => {
+        dispatch({ type: 'SET_GPS', lat: v, lon: state.lon, locationName: state.locationName });
+    }, [dispatch, state.lon, state.locationName]);
+    const setLon = useCallback((v: number | null) => {
+        dispatch({ type: 'SET_GPS', lat: state.lat, lon: v, locationName: state.locationName });
+    }, [dispatch, state.lat, state.locationName]);
+    const setLocationName = useCallback((v: string) => {
+        dispatch({ type: 'SET_GPS', lat: state.lat, lon: state.lon, locationName: v });
+    }, [dispatch, state.lat, state.lon]);
+    const setEditingId = useCallback((_v: string | null) => { /* handled by OPEN_COMPOSE/OPEN_EDIT/CLOSE_COMPOSE */ }, []);
+    const setTitle = useCallback((v: string) => dispatch({ type: 'SET_TITLE', title: v }), [dispatch]);
+    const setBody = useCallback((v: string | ((prev: string) => string)) => {
+        dispatch({ type: 'SET_BODY', body: typeof v === 'function' ? v(state.body) : v });
+    }, [dispatch, state.body]);
+    const setMood = useCallback((v: DiaryMood) => dispatch({ type: 'SET_MOOD', mood: v }), [dispatch]);
+    const setPhotos = useCallback((v: string[] | ((prev: string[]) => string[])) => {
+        dispatch({ type: 'SET_PHOTOS', photos: typeof v === 'function' ? v(state.photos) : v });
+    }, [dispatch, state.photos]);
+    const setAudioUrl = useCallback((v: string | null) => dispatch({ type: 'SET_AUDIO_URL', url: v }), [dispatch]);
+    const setUploading = useCallback((v: boolean) => dispatch({ type: 'SET_UPLOADING', uploading: v }), [dispatch]);
+    const setWeatherSummary = useCallback((v: string) => dispatch({ type: 'SET_WEATHER_SUMMARY', summary: v }), [dispatch]);
+    const setSaving = useCallback((v: boolean) => dispatch({ type: 'SET_SAVING', saving: v }), [dispatch]);
+    const setPolishing = useCallback((v: boolean) => dispatch({ type: 'SET_POLISHING', polishing: v }), [dispatch]);
+    const setDeletedItem = useCallback((v: DiaryEntry | null) => dispatch({ type: 'SET_DELETED_ITEM', item: v }), [dispatch]);
+    const setSelectMode = useCallback((v: boolean) => v ? dispatch({ type: 'ENTER_SELECT_MODE' }) : dispatch({ type: 'EXIT_SELECT_MODE' }), [dispatch]);
+    const setExportProgress = useCallback((v: string | null) => dispatch({ type: 'SET_EXPORT_PROGRESS', progress: v }), [dispatch]);
+    const setIsRecording = useCallback((v: boolean) => v ? dispatch({ type: 'START_RECORDING' }) : dispatch({ type: 'STOP_RECORDING' }), [dispatch]);
+    const setRecordingTime = useCallback((v: number | ((prev: number) => number)) => {
+        if (typeof v === 'function') dispatch({ type: 'TICK_RECORDING' });
+        else dispatch({ type: 'SET_RECORDING_TIME', time: v });
+    }, [dispatch]);
+    const setTranscribing = useCallback((v: boolean) => dispatch({ type: 'SET_TRANSCRIBING', transcribing: v }), [dispatch]);
+    const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
 
     // Weather context
     const { weatherData } = useWeather();
 
-    // Compose state
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [title, setTitle] = useState('');
-    const [body, setBody] = useState('');
-    const [mood, setMood] = useState<DiaryMood>('good');
-    const [photos, setPhotos] = useState<string[]>([]);
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [uploading, setUploading] = useState(false);
-    const [lat, setLat] = useState<number | null>(null);
-    const [lon, setLon] = useState<number | null>(null);
-    const [locationName, setLocationName] = useState('');
-    const [weatherSummary, setWeatherSummary] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [polishing, setPolishing] = useState(false);
-    const [deletedItem, setDeletedItem] = useState<DiaryEntry | null>(null);
     const deletedIdRef = useRef<string | null>(null);
-    const [gpsLoading, setGpsLoading] = useState(false);
-
-    // Timeline selection state
-    const [selectMode, setSelectMode] = useState(false);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [menuOpen, setMenuOpen] = useState(false);
-    const [exportProgress, setExportProgress] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
-
-    // Audio recording state
-    const [isRecording, setIsRecording] = useState(false);
-    const [recordingTime, setRecordingTime] = useState(0);
-    const [transcribing, setTranscribing] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    // Playback state
-    const [isPlaying, setIsPlaying] = useState(false);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-
     const fileRef = useRef<HTMLInputElement>(null);
-
-    // Keyboard-aware height for compose view
-    const [keyboardHeight, setKeyboardHeight] = useState(0);
 
     // Track iOS keyboard height via Capacitor Keyboard plugin (reliable with KeyboardResize.None)
     // Falls back to visualViewport for web
