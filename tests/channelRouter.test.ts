@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { _testableInternals, routeChannel } from '../services/ChannelRouter';
-import type { SeamarkCollection, SeamarkFeature } from '../services/SeamarkService';
+import type { SeamarkCollection, SeamarkFeature, SeamarkClass } from '../services/SeamarkService';
 
 const { distNM, classifyDepth } = _testableInternals;
 
@@ -114,13 +114,15 @@ describe('routeChannel', () => {
         type: 'FeatureCollection',
         features: [],
         metadata: {
-            bounds: { north: -27, south: -28, east: 154, west: 153 },
+            center: [153, -27.5],
+            radiusNM: 5,
+            fetchedAt: new Date().toISOString(),
             count: 0,
             ialaRegion: 'A' as const,
         },
     };
 
-    const makeMark = (lat: number, lon: number, name: string, cls: string): SeamarkFeature => ({
+    const makeMark = (lat: number, lon: number, name: string, cls: SeamarkClass): SeamarkFeature => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [lon, lat] },
         properties: { name, _class: cls, _type: 'buoy' },
