@@ -21,6 +21,13 @@ interface RainForecastCardProps {
 export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, className = '', timeZone, rainSummary }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
+    // 60-second tick — forces re-evaluation of "Rain in X min" countdown
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => setTick(t => t + 1), 60_000);
+        return () => clearInterval(id);
+    }, []);
+
     const analysis = useMemo(() => {
         if (!data || data.length === 0) return {
             maxIntensity: 0,
@@ -34,46 +41,59 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
             peakIdx: 0,
         };
 
-        const maxIntensity = Math.max(...data.map(d => d.intensity), 0.1);
+        const now = Date.now();
+
+        // Filter out entries whose time has already elapsed — keeps analysis current
+        // between data refreshes
+        const futureData = data.filter(d => new Date(d.time).getTime() > now - 60_000);
+        const workingData = futureData.length > 0 ? futureData : data;
+
+        const maxIntensity = Math.max(...workingData.map(d => d.intensity), 0.1);
 
         // DATA ALWAYS WINS: determine rain from actual minute-by-minute intensities.
-        // Apple's summary can lag or contradict the data (e.g. summary says "No precipitation"
-        // while minute data shows rain bars). We trust the data.
         const RAIN_THRESHOLD = 0.1; // mm/hr — ignore trace amounts below this
-        const hasRain = data.some(d => d.intensity >= RAIN_THRESHOLD);
-        const firstRainIdx = data.findIndex(d => d.intensity >= RAIN_THRESHOLD);
-        const isCurrentlyRaining = (data[0]?.intensity ?? 0) >= RAIN_THRESHOLD;
+        const hasRain = workingData.some(d => d.intensity >= RAIN_THRESHOLD);
+        const firstRainEntry = workingData.find(d => d.intensity >= RAIN_THRESHOLD);
+        const firstRainIdx = workingData.findIndex(d => d.intensity >= RAIN_THRESHOLD);
+        const isCurrentlyRaining = (workingData[0]?.intensity ?? 0) >= RAIN_THRESHOLD;
+
+        // Compute real minutes-until-rain using actual timestamps
+        const minutesUntilRain = firstRainEntry
+            ? Math.max(1, Math.round((new Date(firstRainEntry.time).getTime() - now) / 60_000))
+            : -1;
 
         // Find first dry minute after rain
         const firstDryAfterRain = isCurrentlyRaining
-            ? data.findIndex((d, i) => i > 0 && d.intensity === 0)
+            ? (() => {
+                const dryEntry = workingData.find((d, i) => i > 0 && d.intensity < RAIN_THRESHOLD);
+                if (!dryEntry) return -1;
+                return Math.max(1, Math.round((new Date(dryEntry.time).getTime() - now) / 60_000));
+            })()
             : -1;
 
         // Peak intensity index
-        const peakIdx = data.reduce((maxI, d, i) => d.intensity > data[maxI].intensity ? i : maxI, 0);
+        const peakIdx = workingData.reduce((maxI, d, i) => d.intensity > workingData[maxI].intensity ? i : maxI, 0);
 
         // Total precipitation in the hour (mm)
-        const totalPrecip = data.reduce((sum, d) => sum + (d.intensity / 60), 0);
+        const totalPrecip = workingData.reduce((sum, d) => sum + (d.intensity / 60), 0);
 
         // Headline logic — generate from data, use Apple summary only as flavour text
         let headline = '';
         let subline = '';
 
         if (!hasRain) {
-            // Only use Apple's summary when there's genuinely no rain in the data
             headline = rainSummary || 'No Rain Expected';
             subline = 'Next 60 minutes';
         } else if (isCurrentlyRaining && firstDryAfterRain > 0) {
             headline = `Rain stopping in ${firstDryAfterRain} min`;
-            subline = getIntensityLabel(data[0].intensity);
+            subline = getIntensityLabel(workingData[0].intensity);
         } else if (isCurrentlyRaining && firstDryAfterRain === -1) {
             headline = 'Rain for the next hour';
             subline = getIntensityLabel(maxIntensity);
-        } else if (firstRainIdx > 0) {
-            headline = `Rain in ${firstRainIdx} min`;
-            subline = getIntensityLabel(data[firstRainIdx].intensity);
+        } else if (minutesUntilRain > 0) {
+            headline = `Rain in ${minutesUntilRain} min`;
+            subline = getIntensityLabel(firstRainEntry!.intensity);
         } else if (rainSummary && !(/\bno\b/i.test(rainSummary) && /rain|precip/i.test(rainSummary))) {
-            // Use Apple summary only if it doesn't contradict the detected rain
             headline = rainSummary;
             subline = `Peak: ${Math.round(maxIntensity)} mm/hr`;
         } else {
@@ -94,7 +114,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
             totalPrecip,
             peakIdx,
         };
-    }, [data, rainSummary]);
+    }, [data, rainSummary, tick]); // tick forces re-evaluation every 60s
 
     // Close modal on ESC
     useEffect(() => {
