@@ -1117,3 +1117,14 @@ export const useWeather = () => {
     if (context === undefined) throw new Error('useWeather must be used within a WeatherProvider');
     return context;
 };
+
+// ── Test helpers — export internal pure functions for unit testing ──
+export const _testableInternals = {
+    isBadWeather,
+    getUpdateInterval,
+    alignToNextInterval,
+    INLAND_INTERVAL,
+    COASTAL_INTERVAL,
+    BAD_WEATHER_INTERVAL,
+    SATELLITE_INTERVAL,
+};
