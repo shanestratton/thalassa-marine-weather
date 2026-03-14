@@ -52,7 +52,7 @@ interface ChannelListProps {
     setProposalParentId: (id: string | null) => void;
 }
 
-export const ChannelList: React.FC<ChannelListProps> = ({
+const ChannelListInner: React.FC<ChannelListProps> = ({
     channels,
     onOpenChannel,
     onRequestAccess,
@@ -240,5 +240,5 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     );
 };
 
+export const ChannelList = React.memo(ChannelListInner);
 export default ChannelList;
-
