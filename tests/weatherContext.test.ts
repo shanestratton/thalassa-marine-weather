@@ -1,14 +1,13 @@
 /**
  * WeatherContext — Unit tests for weather orchestration logic
  *
- * Tests: bad weather detection, update interval selection,
- * clock alignment for smart polling, and satellite mode.
+ * NOTE: These tests have been migrated to weatherScheduler.test.ts
+ * with expanded coverage. This file is kept for backward compatibility
+ * but imports from the extracted WeatherScheduler service.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { _testableInternals } from '../context/WeatherContext';
-
-const {
+import {
     isBadWeather,
     getUpdateInterval,
     alignToNextInterval,
@@ -16,7 +15,7 @@ const {
     COASTAL_INTERVAL,
     BAD_WEATHER_INTERVAL,
     SATELLITE_INTERVAL,
-} = _testableInternals;
+} from '../services/WeatherScheduler';
 
 // ── Helper — minimal MarineWeatherReport factory ──
 
