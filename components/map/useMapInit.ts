@@ -38,6 +38,8 @@ interface UseMapInitOptions {
     setDeparture: (v: { lat: number; lon: number; name: string } | null) => void;
     setArrival: (v: { lat: number; lon: number; name: string } | null) => void;
     setSettingPoint: (v: 'departure' | 'arrival' | null) => void;
+    /** Called when the user taps a point on the map (for weather inspect popup) */
+    onMapTap?: (lat: number, lon: number) => void;
 }
 
 /**
@@ -52,6 +54,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         settingPoint, showPassage, departure, arrival,
         setMapReady, setActiveLayer,
         setDeparture, setArrival, setSettingPoint,
+        onMapTap,
     } = opts;
 
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -284,6 +287,107 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
+            // ── Harbour Seamarks (IALA Navigation Aids) ──
+            map.addSource('harbour-seamarks', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+
+            // Seamark circle markers — colour-coded by IALA classification
+            map.addLayer({
+                id: 'harbour-seamarks-circle',
+                type: 'circle',
+                source: 'harbour-seamarks',
+                paint: {
+                    'circle-radius': [
+                        'match', ['get', '_class'],
+                        'light_major', 6,
+                        'safe_water', 5,
+                        4,
+                    ],
+                    'circle-color': [
+                        'match', ['get', '_class'],
+                        'port', '#ef4444',        // Red — port lateral
+                        'starboard', '#22c55e',   // Green — starboard lateral
+                        'cardinal_n', '#facc15',  // Yellow — cardinal
+                        'cardinal_s', '#facc15',
+                        'cardinal_e', '#facc15',
+                        'cardinal_w', '#facc15',
+                        'cardinal', '#facc15',
+                        'safe_water', '#ffffff',   // White — safe water
+                        'danger', '#f97316',       // Orange — danger
+                        'light_major', '#fbbf24',  // Amber — major light
+                        'light_minor', '#fde68a',  // Light amber — minor light
+                        'fairway', '#38bdf8',      // Sky blue — fairway
+                        '#94a3b8',                 // Grey — other
+                    ],
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': 'rgba(0,0,0,0.6)',
+                    'circle-opacity': 0.9,
+                },
+            });
+
+            // Seamark labels (visible at higher zoom)
+            map.addLayer({
+                id: 'harbour-seamarks-label',
+                type: 'symbol',
+                source: 'harbour-seamarks',
+                minzoom: 14,
+                layout: {
+                    'text-field': ['coalesce', ['get', 'name'], ['get', '_type']],
+                    'text-size': 10,
+                    'text-offset': [0, 1.2],
+                    'text-anchor': 'top',
+                    'text-font': ['Open Sans Bold'],
+                },
+                paint: {
+                    'text-color': '#e2e8f0',
+                    'text-halo-color': 'rgba(0,0,0,0.8)',
+                    'text-halo-width': 1,
+                },
+            });
+
+            // ── Confidence Braid: Multi-Model Route Comparison ──
+            // GFS route (cyan) — visible only when models diverge
+            map.addSource('confidence-route-gfs', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+            map.addLayer({
+                id: 'confidence-gfs-glow',
+                type: 'line',
+                source: 'confidence-route-gfs',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#22d3ee', 'line-width': 8, 'line-blur': 6, 'line-opacity': 0.5 },
+            });
+            map.addLayer({
+                id: 'confidence-gfs-core',
+                type: 'line',
+                source: 'confidence-route-gfs',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#22d3ee', 'line-width': 2, 'line-opacity': 0.9 },
+            });
+
+            // ECMWF route (magenta) — visible only when models diverge
+            map.addSource('confidence-route-ecmwf', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+            map.addLayer({
+                id: 'confidence-ecmwf-glow',
+                type: 'line',
+                source: 'confidence-route-ecmwf',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#e879f9', 'line-width': 8, 'line-blur': 6, 'line-opacity': 0.5 },
+            });
+            map.addLayer({
+                id: 'confidence-ecmwf-core',
+                type: 'line',
+                source: 'confidence-route-ecmwf',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#e879f9', 'line-width': 2, 'line-opacity': 0.9 },
+            });
+
             // ── Seamark Navigation Markers ──
             const seamarkBaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
                 || 'https://pcisdplnodrphauixcau.supabase.co';
@@ -426,6 +530,21 @@ export function useMapInit(opts: UseMapInitOptions) {
             const { lng, lat } = e.lngLat;
             dropPin(map, lat, lng);
         });
+
+        // ── Single-tap inspect handler ──
+        // Fires onMapTap for weather popup if not in picker/passage/embedded mode.
+        // Uses wasDragged to ignore tap-after-drag.
+        let wasDragged = false;
+        map.on('dragstart', () => { wasDragged = true; });
+        map.on('click', (e) => {
+            if (wasDragged) { wasDragged = false; return; }
+            // Don't fire while long-press timer is still running (pin drop takes priority)
+            if (longPressTimer.current) return;
+            if (opts.pickerMode || opts.embedded) return;
+            if (opts.settingPoint || opts.showPassage) return;
+            opts.onMapTap?.(e.lngLat.lat, e.lngLat.lng);
+        });
+        map.on('moveend', () => { wasDragged = false; });
 
         mapRef.current = map;
 

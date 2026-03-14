@@ -5,8 +5,7 @@ import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
-import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
-import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { Capacitor } from '@capacitor/core';
 
 interface AuthModalProps {
     isOpen: boolean;
@@ -26,7 +25,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [resendCooldown, setResendCooldown] = useState(0);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
     const otpInputRef = useRef<HTMLInputElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
 
     // Reset state when modal closes
     useEffect(() => {
@@ -36,6 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             setOtp('');
             setError(null);
             setResendCooldown(0);
+            setKeyboardHeight(0);
         }
     }, [isOpen]);
 
@@ -55,13 +57,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         }
     }, [step]);
 
+    // ── Keyboard avoidance — same pattern as DiaryPage ──
+    // Uses Capacitor Keyboard plugin on native, visualViewport on web
+    useEffect(() => {
+        if (!isOpen) return;
+        let cleanup: (() => void) | undefined;
+
+        if (Capacitor.isNativePlatform()) {
+            import('@capacitor/keyboard').then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                    // Scroll focused input into view immediately
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement;
+                        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 50);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+                cleanup = () => {
+                    showHandle.then(h => h.remove());
+                    hideHandle.then(h => h.remove());
+                };
+            }).catch(() => { /* Keyboard plugin not available */ });
+        } else {
+            // Web fallback: visualViewport
+            const vp = window.visualViewport;
+            if (vp) {
+                const handleResize = () => {
+                    const kbHeight = window.innerHeight - vp.height;
+                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
+                };
+                vp.addEventListener('resize', handleResize);
+                cleanup = () => vp.removeEventListener('resize', handleResize);
+            }
+        }
+
+        return () => {
+            cleanup?.();
+            setKeyboardHeight(0);
+        };
+    }, [isOpen]);
+
     const focusTrapRef = useFocusTrap(isOpen);
-    const keyboardRef = useKeyboardScroll<HTMLDivElement>();
 
     /** Detect Supabase rate-limit errors */
     const isRateLimited = (err: unknown): boolean => {
         const msg = getErrorMessage(err).toLowerCase();
-        // Check for Supabase-specific status code first
         const status = (err as any)?.status ?? (err as any)?.statusCode;
         if (status === 429) return true;
         return msg.includes('rate limit') || msg.includes('rate_limit');
@@ -199,27 +244,53 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] p-4" role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}>
+        <div
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4"
+            style={{
+                // Shift the entire flex container up by the keyboard height
+                // so the centered modal sits in the visible portion of the screen
+                paddingBottom: keyboardHeight > 0 ? keyboardHeight : undefined,
+                transition: 'padding-bottom 0.25s ease-out',
+            }}
+            role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}
+        >
             <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
-            <div ref={keyboardRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95 my-auto`}>
+            <div ref={panelRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}>
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
                     <XIcon className="w-5 h-5" />
                 </button>
 
-                <div className="p-8 flex flex-col items-center text-center">
-                    <div className="w-16 h-16 bg-sky-500/20 rounded-full flex items-center justify-center mb-6 border border-sky-500/30 shadow-lg">
-                        <LockIcon className="w-8 h-8 text-sky-400" />
+                <div className={`${keyboardHeight > 0 ? 'p-4 pt-10' : 'p-8'} flex flex-col items-center text-center transition-all duration-200`}>
+                    {/* Hero section — collapses when keyboard is open */}
+                    <div
+                        style={{
+                            maxHeight: keyboardHeight > 0 ? 0 : 200,
+                            opacity: keyboardHeight > 0 ? 0 : 1,
+                            overflow: 'hidden',
+                            transition: 'max-height 0.15s ease-out, opacity 0.1s ease-out',
+                        }}
+                    >
+                        <div className="w-16 h-16 bg-sky-500/20 rounded-full flex items-center justify-center mb-6 border border-sky-500/30 shadow-lg mx-auto">
+                            <LockIcon className="w-8 h-8 text-sky-400" />
+                        </div>
+
+                        <h2 className="text-2xl font-bold text-white mb-2">
+                            {step === 'success' ? 'Welcome Aboard!' : 'Sync Your Logs'}
+                        </h2>
+                        <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
+                            {step === 'input' && "Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices."}
+                            {step === 'otp' && `We sent an 8-digit code to ${email}`}
+                            {step === 'success' && "You're now signed in and your data will sync automatically."}
+                        </p>
                     </div>
 
-                    <h2 className="text-2xl font-bold text-white mb-2">
-                        {step === 'success' ? 'Welcome Aboard!' : 'Sync Your Logs'}
-                    </h2>
-                    <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
-                        {step === 'input' && "Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices."}
-                        {step === 'otp' && `We sent an 8-digit code to ${email}`}
-                        {step === 'success' && "You're now signed in and your data will sync automatically."}
-                    </p>
+                    {/* Compact title shown when keyboard is open */}
+                    {keyboardHeight > 0 && step !== 'success' && (
+                        <h2 className="text-lg font-bold text-white mb-3">
+                            {step === 'input' ? 'Sign In' : `Code sent to ${email}`}
+                        </h2>
+                    )}
 
                     {/* Success State */}
                     {step === 'success' && (
@@ -241,7 +312,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
-                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="captain@vessel.com"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
                                     required
@@ -280,7 +350,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     inputMode="numeric"
                                     value={otp}
                                     onChange={(e) => handleOtpChange(e.target.value)}
-                                    onFocus={scrollInputAboveKeyboard}
                                     placeholder="00000000"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors`}
                                     maxLength={8}

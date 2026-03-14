@@ -28,11 +28,11 @@ const ROLLING_WINDOW = 10;
 
 /**
  * Threshold: if rolling average accuracy < this, precision GPS detected.
- * Bad Elf GPS Pro+ typically reports 1-3m, but can hit 4-5m in
- * urban canyons or under tree cover. Phone GPS is usually 5-15m.
- * 5m cleanly separates external GPS from phone GPS.
+ * Bad Elf GPS Pro+ typically reports 1-3m, but can hit 4-6m at altitude
+ * (aircraft), in urban canyons, or under tree cover. Phone GPS is usually 8-15m.
+ * 6m accommodates altitude spikes while still cleanly separating from phone GPS.
  */
-const PRECISION_THRESHOLD_M = 5.0;
+const PRECISION_THRESHOLD_M = 6.0;
 
 /** Threshold: if rolling average accuracy > this, GPS is degraded */
 const DEGRADED_THRESHOLD_M = 20.0;

@@ -227,7 +227,8 @@ function isSegmentNavigable(
     stepDistanceNM?: number,
     landOnly?: boolean,
 ): boolean {
-    const SAMPLE_SPACING_NM = 2;
+    // Tighter sampling catches narrow straits and island chains that 2NM missed
+    const SAMPLE_SPACING_NM = 1;
     const segDist = stepDistanceNM && stepDistanceNM > 0
         ? stepDistanceNM
         : haversineNm(lat1, lon1, lat2, lon2);
@@ -239,8 +240,14 @@ function isSegmentNavigable(
         if (!landOnly && depthEnd > REEF_REJECTION_DEPTH_M) return false;
     }
 
-    const numSamples = Math.floor(segDist / SAMPLE_SPACING_NM);
-    if (numSamples < 1) return true; // Short segment — endpoint check is sufficient
+    // Check start point too — a segment originating on land is never navigable
+    const depthStart = getDepthFromCache(grid, lat1, lon1);
+    if (depthStart !== null) {
+        if (depthStart >= 0) return false;
+        if (!landOnly && depthStart > REEF_REJECTION_DEPTH_M) return false;
+    }
+
+    const numSamples = Math.max(1, Math.floor(segDist / SAMPLE_SPACING_NM));
 
     // Normalise longitude delta for antimeridian crossings
     let dLon = lon2 - lon1;
@@ -1044,9 +1051,19 @@ function eliminateCrossings(route: IsochroneNode[], grid: BathymetryGrid): Isoch
             let bearingChange = Math.abs(bearingBC - bearingAB);
             if (bearingChange > 180) bearingChange = 360 - bearingChange;
 
-            // Sharp reversal (>100°) — likely a backtracking zigzag
-            if (bearingChange > 100) {
+            // Sharp reversal (>70°) — likely a backtracking zigzag
+            // Lowered from 100° to catch gentler oscillations that create visual noise
+            if (bearingChange > 70) {
                 // Can we skip B and go directly A→C without crossing land?
+                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
+                    toRemove.add(i);
+                }
+            }
+
+            // Short-segment zigzag: if A→B is under 30NM and turn is >50°, remove
+            // These are typically wavefront artefacts at coarse time steps
+            const abDist = haversineNm(A.lat, A.lon, B.lat, B.lon);
+            if (abDist < 30 && bearingChange > 50) {
                 if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
                     toRemove.add(i);
                 }

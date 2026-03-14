@@ -2,11 +2,12 @@
  * GpsTrackingIndicator — Global pulsing badge showing GPS fetch interval.
  * Visible on ALL screens when tracking is active. Fixed position top-right.
  *
- * Shows the current GPS capture interval:
- *   Rapid mode  →  "5s"
- *   Nearshore   →  "5s"
- *   Coastal     →  "5s"
- *   Offshore    →  "30s"
+ * Shows the current GPS capture interval (speed-adaptive):
+ *   Stationary (<1 kt) →  "60s"
+ *   Slow (1-6 kts)     →  "15s"
+ *   Cruising (6-60 kts) → "5s"
+ *   Fast (60+ kts)     →  "15s"
+ *   Rapid mode (manual) → "5s"
  *
  * Pulse dot indicates motion state:
  *   Green pulse — vessel is moving (new positions being recorded)

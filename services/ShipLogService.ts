@@ -30,8 +30,9 @@ import {
     calculateDistanceNM, calculateBearing, formatPositionDMS,
     getNextQuarterHour, toDbFormat, fromDbFormat,
     getWeatherSnapshot, determineLoggingZone, getIntervalForZone, getZoneLabel,
+    getIntervalForSpeed,
     SHIP_LOGS_TABLE, NEARSHORE_INTERVAL_MS, COASTAL_INTERVAL_MS, OFFSHORE_INTERVAL_MS,
-    type LoggingZone,
+    type LoggingZone, type SpeedTier,
 } from './shiplog/helpers';
 import { GpsTrackBuffer, thinTrack, bearing, headingDelta } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
@@ -139,6 +140,22 @@ class ShipLogServiceClass {
     // and cold starts — the position is always available.
     private lastBgLocation: CachedPosition | null = null;
     private bgUnsubscribers: (() => void)[] = []; // Cleanup handles for BgGeoManager subscriptions
+
+    // --- GPS COLD-START WARM-UP ---
+    // The first few seconds of GPS fixes after engine start can contain
+    // "teleport" positions (stale cached fix from last session, hundreds of km away).
+    // We still cache the position (for UI display) but don't buffer it for track
+    // thinning or speed calculations until the warm-up period expires.
+    private static readonly GPS_WARMUP_MS = 5_000; // 5 seconds
+    private gpsWarmupStartTime: number = 0;
+
+    // --- SPEED-ADAPTIVE INTERVAL ---
+    // Tracks current speed tier and debounces tier changes to prevent
+    // rapid flip-flopping when speed is borderline between tiers.
+    private currentSpeedTier: SpeedTier | null = null;
+    private pendingSpeedTier: SpeedTier | null = null;
+    private speedTierConfirmCount = 0;
+    private static readonly SPEED_TIER_DEBOUNCE = 3; // 3 consecutive fixes in new tier before switching
 
     // --- HIGH-FREQUENCY GPS BUFFER ---
     // Captures every GPS fix at device rate (1–10 Hz). On each interval tick,
@@ -334,25 +351,39 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Reschedule the logging interval based on current shore proximity.
-     * Called after each successful GPS fix to adapt the interval dynamically.
-     * Does NOT apply when rapid mode is active (rapid mode always uses 5-sec).
+     * Reschedule the logging interval based on current speed (primary)
+     * or shore proximity (fallback).
+     * Called after each GPS fix and from environment polling.
+     * Does NOT apply when rapid mode is active.
      */
     private async rescheduleAdaptiveInterval(): Promise<void> {
         // Don't interfere with rapid mode
         if (this.trackingState.isRapidMode) return;
         if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
 
+        // PRIMARY: Speed-adaptive interval (if we have GPS speed)
+        const pos = this.lastBgLocation;
+        if (pos && pos.speed != null && pos.speed >= 0) {
+            const { interval, tier } = getIntervalForSpeed(pos.speed);
+            const currentInterval = this.trackingState.currentIntervalMs;
+
+            // Only reschedule if interval actually changed
+            if (interval !== currentInterval || !this.intervalId) {
+                this.trackingState.currentIntervalMs = interval;
+                this.trackingState.loggingZone = undefined; // Speed-based, not zone-based
+                await this.saveTrackingState();
+                this.scheduleClockAlignedInterval(interval, `speed:${tier}`);
+            }
+            return;
+        }
+
+        // FALLBACK: Zone-based interval (no speed data yet — cold start)
         const newZone = determineLoggingZone();
         const newInterval = getIntervalForZone(newZone);
         const oldZone = this.trackingState.loggingZone || 'offshore';
 
         // Only reschedule if zone actually changed
         if (newZone === oldZone && this.intervalId) return;
-
-        // Zone changed — log the transition
-        if (newZone !== oldZone) {
-        }
 
         // Update state
         this.trackingState.loggingZone = newZone;
@@ -441,6 +472,7 @@ class ShipLogServiceClass {
         // --- BATTLE-HARDENED GPS STREAMING ---
         // Wire up continuous position caching via onLocation.
         // The timer decides WHEN to log; onLocation ensures GPS is ALWAYS fresh.
+        this.gpsWarmupStartTime = Date.now(); // Start cold-start warm-up timer
         this.wireGpsSubscriptions();
 
         // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
@@ -523,6 +555,38 @@ class ShipLogServiceClass {
             GpsPrecision.feed(pos.accuracy);
 
             // Buffer fix for high-fidelity track thinning
+            // COLD-START GUARD: Skip buffering during the first 5 seconds after
+            // GPS engine start to filter out stale cached "teleport" fixes.
+            // The position is still cached above (for UI display) — we just don't
+            // commit it to the track buffer (which feeds speed/distance calculations).
+            const warmupElapsed = Date.now() - this.gpsWarmupStartTime;
+            if (warmupElapsed < ShipLogServiceClass.GPS_WARMUP_MS) return;
+
+            // SPEED-ADAPTIVE INTERVAL: Check if speed tier has changed.
+            // Debounce with 3 consecutive confirmations to prevent flip-flopping.
+            if (pos.speed != null && pos.speed >= 0 && !this.trackingState.isRapidMode) {
+                const { tier } = getIntervalForSpeed(pos.speed);
+                if (tier !== this.currentSpeedTier) {
+                    if (tier === this.pendingSpeedTier) {
+                        this.speedTierConfirmCount++;
+                        if (this.speedTierConfirmCount >= ShipLogServiceClass.SPEED_TIER_DEBOUNCE) {
+                            this.currentSpeedTier = tier;
+                            this.pendingSpeedTier = null;
+                            this.speedTierConfirmCount = 0;
+                            // Trigger reschedule (fire-and-forget)
+                            this.rescheduleAdaptiveInterval().catch(() => {});
+                        }
+                    } else {
+                        this.pendingSpeedTier = tier;
+                        this.speedTierConfirmCount = 1;
+                    }
+                } else {
+                    // Still in same tier — reset pending
+                    this.pendingSpeedTier = null;
+                    this.speedTierConfirmCount = 0;
+                }
+            }
+
             // ACCURACY GATE: Drop fixes with >100m horizontal accuracy — these
             // create zig-zag artifacts, especially on water in bad weather where
             // phone GPS degrades without WiFi/cell-tower assist.
@@ -1151,9 +1215,11 @@ class ShipLogServiceClass {
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
                 speedKts = timeDiffHours > 0 ? distanceNM / timeDiffHours : 0;
 
-                // SPEED SANITY: Clamp to 80 kn (fastest planing hulls).
-                // GPS teleports after cold start can produce absurd values (e.g. 433 kn).
-                if (speedKts > 80) speedKts = 0;
+                // SPEED SANITY: Final safety net — clamp at 600 kn.
+                // Cold-start GPS teleports are handled by the 5-second warm-up filter
+                // in wireGpsSubscriptions, so this cap only catches truly absurd values.
+                // 600 kn covers all legitimate use cases (planes, fast vessels).
+                if (speedKts > 600) speedKts = 0;
                 // Ignore speed when previous position was the 0,0 placeholder from captureImmediateEntry
                 if (lastPos.latitude === 0 && lastPos.longitude === 0) speedKts = 0;
 

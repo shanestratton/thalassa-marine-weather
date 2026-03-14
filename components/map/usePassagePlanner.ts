@@ -27,12 +27,76 @@ import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 import { findSeaBuoy } from '../../services/seaBuoyFinder';
+import { SeamarkService, type SeamarkCollection } from '../../services/SeamarkService';
+import { routeChannel, type ChannelRouteResult } from '../../services/ChannelRouter';
 import { WindStore } from '../../stores/WindStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
+
+// ── Helper: Convert channel route to depth-coloured GeoJSON features ──
+
+function buildChannelLegFeatures(
+    channelRoute: ChannelRouteResult | null,
+    start: { lat: number; lon: number },
+    end: { lat: number; lon: number },
+    _label: 'departure' | 'arrival',
+): any[] {
+    // Fallback: straight dashed line (legacy behaviour)
+    if (!channelRoute || !channelRoute.seamarkAssisted || channelRoute.waypoints.length < 2) {
+        return [{
+            type: 'Feature',
+            properties: { safety: 'harbour', dashed: true },
+            geometry: {
+                type: 'LineString',
+                coordinates: [[start.lon, start.lat], [end.lon, end.lat]],
+            },
+        }];
+    }
+
+    // Build depth-coloured segments — group consecutive waypoints by safety class
+    const features: any[] = [];
+    const wps = channelRoute.waypoints;
+    let segStart = 0;
+
+    for (let i = 1; i <= wps.length; i++) {
+        const prevSafety = wps[i - 1].safety;
+        const currSafety = i < wps.length ? wps[i].safety : null;
+
+        if (currSafety !== prevSafety || i === wps.length) {
+            // End of a segment — emit GeoJSON feature
+            const coords = wps.slice(segStart, i).map(wp => [wp.lon, wp.lat]);
+            // Need at least 2 points for a LineString
+            if (coords.length >= 2) {
+                features.push({
+                    type: 'Feature',
+                    properties: {
+                        safety: prevSafety === 'land' ? 'danger' : prevSafety,
+                        channelRouted: true,
+                    },
+                    geometry: { type: 'LineString', coordinates: coords },
+                });
+            }
+            segStart = i > 0 ? i - 1 : 0; // Overlap by 1 point for continuity
+        }
+    }
+
+    // If no features were generated, fall back to straight line
+    if (features.length === 0) {
+        return [{
+            type: 'Feature',
+            properties: { safety: 'harbour', dashed: true },
+            geometry: {
+                type: 'LineString',
+                coordinates: [[start.lon, start.lat], [end.lon, end.lat]],
+            },
+        }];
+    }
+
+    return features;
+}
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -196,6 +260,68 @@ export function usePassagePlanner(
         log.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
         log.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
 
+        // ── Smart Harbour Approach: Channel routing for harbour legs ──
+        let depChannelRoute: ChannelRouteResult | null = null;
+        let arrChannelRoute: ChannelRouteResult | null = null;
+        const seamarkFeaturesRef: { dep: any[]; arr: any[] } = { dep: [], arr: [] };
+
+        if (!isShortRoute) {
+            const CHANNEL_TIMEOUT_MS = 15_000;
+            try {
+                log.info('[ChannelRouter] Fetching seamarks for harbour approaches...');
+                const channelPromise = (async () => {
+                    // Fetch seamarks for departure and arrival areas in parallel
+                    const [depMarks, arrMarks] = await Promise.all([
+                        SeamarkService.fetchNearby(departure.lat, departure.lon, 5),
+                        SeamarkService.fetchNearby(arrival.lat, arrival.lon, 5),
+                    ]);
+                    seamarkFeaturesRef.dep = depMarks.features;
+                    seamarkFeaturesRef.arr = arrMarks.features;
+
+                    log.info(`[ChannelRouter] Dep seamarks: ${depMarks.features.length}, Arr seamarks: ${arrMarks.features.length}`);
+
+                    // Run channel routing for both legs in parallel
+                    const [depRoute, arrRoute] = await Promise.all([
+                        depMarks.features.length > 0
+                            ? routeChannel(departure.lat, departure.lon, depGate.lat, depGate.lon, VESSEL_DRAFT_M, depMarks)
+                            : null,
+                        arrMarks.features.length > 0
+                            ? routeChannel(arrGate.lat, arrGate.lon, arrival.lat, arrival.lon, VESSEL_DRAFT_M, arrMarks)
+                            : null,
+                    ]);
+
+                    return { depRoute, arrRoute };
+                })();
+
+                const timeoutPromise = new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('Channel routing timeout')), CHANNEL_TIMEOUT_MS)
+                );
+
+                const result = await Promise.race([channelPromise, timeoutPromise]);
+                depChannelRoute = result.depRoute;
+                arrChannelRoute = result.arrRoute;
+
+                if (depChannelRoute?.seamarkAssisted) {
+                    log.info(`[ChannelRouter] Dep channel: ${depChannelRoute.waypoints.length} waypoints, ${depChannelRoute.totalDistanceNM.toFixed(1)} NM, min depth ${depChannelRoute.minDepth_m}m`);
+                }
+                if (arrChannelRoute?.seamarkAssisted) {
+                    log.info(`[ChannelRouter] Arr channel: ${arrChannelRoute.waypoints.length} waypoints, ${arrChannelRoute.totalDistanceNM.toFixed(1)} NM, min depth ${arrChannelRoute.minDepth_m}m`);
+                }
+            } catch (err) {
+                log.warn('[ChannelRouter] Channel routing failed, using straight-line harbour legs:', err);
+                // Graceful degradation — straight lines still work
+            }
+
+            // Add seamark data to map (non-blocking)
+            try {
+                const seamarkSrc = map.getSource('harbour-seamarks') as mapboxgl.GeoJSONSource;
+                if (seamarkSrc && (seamarkFeaturesRef.dep.length > 0 || seamarkFeaturesRef.arr.length > 0)) {
+                    const allMarks = [...seamarkFeaturesRef.dep, ...seamarkFeaturesRef.arr];
+                    seamarkSrc.setData({ type: 'FeatureCollection', features: allMarks } as any);
+                }
+            } catch { /* seamark source may not exist yet */ }
+        }
+
         // Great-circle passage
         const gcCoords: number[][] = [];
         const NUM_POINTS = 80;
@@ -281,22 +407,18 @@ export function usePassagePlanner(
             }
 
             // ── Long route: Trip Sandwich (harbour → safe → harbour) ──
+            // Build harbour legs — use channel-routed legs if available, else straight lines
+            const depLegFeatures = buildChannelLegFeatures(depChannelRoute, departure, depGate, 'departure');
+            const arrLegFeatures = buildChannelLegFeatures(arrChannelRoute, { lat: arrGate.lat, lon: arrGate.lon }, { lat: arrival.lat, lon: arrival.lon }, 'arrival');
+
             return [
-                {
-                    type: 'Feature',
-                    properties: { safety: 'harbour', dashed: true },
-                    geometry: { type: 'LineString', coordinates: [[departure.lon, departure.lat], [depGate.lon, depGate.lat]] },
-                },
+                ...depLegFeatures,
                 {
                     type: 'Feature',
                     properties: { safety: 'safe' },
                     geometry: { type: 'LineString', coordinates: passageCoords },
                 },
-                {
-                    type: 'Feature',
-                    properties: { safety: 'harbour', dashed: true },
-                    geometry: { type: 'LineString', coordinates: [[arrGate.lon, arrGate.lat], [arrival.lon, arrival.lat]] },
-                },
+                ...arrLegFeatures,
             ];
         };
 
@@ -639,6 +761,100 @@ export function usePassagePlanner(
                             }
                         } catch (czErr) {
                             log.warn('[ComfortZone] Overlay rendering failed:', czErr);
+                        }
+                    }
+                    // ── Multi-Model Confidence Braid ──
+                    // Run a second route through ECMWF and compare with the GFS route
+                    if (isoResult && isoResult.routeCoordinates.length >= 2 && !isShortRoute) {
+                        try {
+                            log.info('[ConfidenceBraid] Starting multi-model comparison...');
+                            try { window.dispatchEvent(new CustomEvent('thalassa:isochrone-progress', { detail: { phase: 'multi-model' } })); } catch (_) { }
+
+                            const { fetchModelWindGrid } = await import('../../services/weather/OpenMeteoWindFetcher');
+
+                            // Compute route bbox with padding for alternative paths
+                            const routeBounds = {
+                                north: Math.min(90, Math.max(depGate.lat, arrGate.lat) + 10),
+                                south: Math.max(-90, Math.min(depGate.lat, arrGate.lat) - 10),
+                                east: Math.min(180, Math.max(depGate.lon, arrGate.lon) + 10),
+                                west: Math.max(-180, Math.min(depGate.lon, arrGate.lon) - 10),
+                            };
+
+                            // Fetch ECMWF wind grid (GFS route already computed above)
+                            const ecmwfGrid = await fetchModelWindGrid('ecmwf', routeBounds, 168);
+
+                            if (ecmwfGrid && computeGenRef.current === gen) {
+                                const { createWindFieldFromGrid } = await import('../../services/weather/WindFieldAdapter');
+                                const ecmwfWind = createWindFieldFromGrid(ecmwfGrid);
+
+                                // Run ECMWF route
+                                const ecmwfRoute = await computeIsochrones(
+                                    depGate, arrGate, depTimeStr, polar, ecmwfWind, isoConfig, bathyGrid,
+                                );
+
+                                if (ecmwfRoute && ecmwfRoute.routeCoordinates.length >= 2 && computeGenRef.current === gen) {
+                                    log.info(`[ConfidenceBraid] ECMWF route: ${ecmwfRoute.totalDistanceNM}NM vs GFS: ${isoResult.totalDistanceNM}NM`);
+
+                                    // ── Compare routes using closest-point matching ──
+                                    // For each ECMWF waypoint, find the closest GFS waypoint.
+                                    // If that distance > threshold, the routes diverge there.
+                                    // Uses ORIGINAL coordinates (not resampled) to avoid
+                                    // creating straight-line shortcuts that cross land.
+                                    const R_NM2 = 3440.065;
+                                    const toRad2 = (d: number) => d * Math.PI / 180;
+                                    const hav = (la1: number, lo1: number, la2: number, lo2: number) => {
+                                        const dLat = toRad2(la2 - la1), dLon = toRad2(lo2 - lo1);
+                                        const a = Math.sin(dLat / 2) ** 2 +
+                                            Math.cos(toRad2(la1)) * Math.cos(toRad2(la2)) * Math.sin(dLon / 2) ** 2;
+                                        return R_NM2 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                    };
+
+                                    const DIVERGE_NM = 5;
+                                    const ecmwfCoords = ecmwfRoute.routeCoordinates;
+                                    const gfsCoords = isoResult.routeCoordinates;
+
+                                    // Render: show the FULL ECMWF route as magenta
+                                    // Where routes agree, lines overlap (natural braid)
+                                    // Where routes diverge, lines split apart visually
+                                    const ecmwfSrc = map.getSource('confidence-route-ecmwf') as mapboxgl.GeoJSONSource;
+                                    const gfsSrc = map.getSource('confidence-route-gfs') as mapboxgl.GeoJSONSource;
+
+                                    if (ecmwfSrc) {
+                                        ecmwfSrc.setData({
+                                            type: 'FeatureCollection',
+                                            features: [{
+                                                type: 'Feature' as const,
+                                                properties: { model: 'ECMWF' },
+                                                geometry: { type: 'LineString' as const, coordinates: ecmwfCoords },
+                                            }],
+                                        });
+                                    }
+                                    // Clear GFS source — primary gold route already shows GFS path
+                                    if (gfsSrc) {
+                                        gfsSrc.setData({ type: 'FeatureCollection', features: [] });
+                                    }
+
+                                    // Count divergent points for logging
+                                    let divergentCount = 0;
+                                    for (let i = 0; i < ecmwfCoords.length; i++) {
+                                        let minDist = Infinity;
+                                        for (let j = 0; j < gfsCoords.length; j++) {
+                                            const d = hav(ecmwfCoords[i][1], ecmwfCoords[i][0], gfsCoords[j][1], gfsCoords[j][0]);
+                                            if (d < minDist) minDist = d;
+                                            if (d < DIVERGE_NM) break;
+                                        }
+                                        if (minDist > DIVERGE_NM) divergentCount++;
+                                    }
+                                    const totalDivergentPct = ecmwfCoords.length > 0
+                                        ? Math.round(divergentCount / ecmwfCoords.length * 100)
+                                        : 0;
+                                    log.info(`[ConfidenceBraid] ✓ ECMWF full route rendered, ${totalDivergentPct}% divergent`);
+                                } else {
+                                    log.info('[ConfidenceBraid] ECMWF route failed — showing GFS only');
+                                }
+                            }
+                        } catch (braidErr) {
+                            log.warn('[ConfidenceBraid] Multi-model comparison failed:', braidErr);
                         }
                     }
 

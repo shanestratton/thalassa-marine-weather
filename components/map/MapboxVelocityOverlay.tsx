@@ -37,6 +37,7 @@ interface MapboxVelocityOverlayProps {
     visible: boolean;
     windHour?: number;
     windGrid?: any;  // WindGrid from WindStore
+    hideBadge?: boolean;
 }
 
 // Speed-based wind particle scale — steel blue → amber → coral
@@ -294,8 +295,8 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
         // Zoomed out enough to see continents — request full global coverage
         north = 90;
         south = -90;
-        west = bounds.getWest() - lonSpan * 0.3;
-        east = bounds.getEast() + lonSpan * 0.3;
+        west = -180;
+        east = 180;
     } else {
         // Regional view — 30% padding
         const latPad = latSpan * 0.3;
@@ -304,6 +305,13 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
         south = Math.max(bounds.getSouth() - latPad, -90);
         west = bounds.getWest() - lonPad;
         east = bounds.getEast() + lonPad;
+
+        // Dateline handling: if viewport crosses 180° meridian,
+        // west > east (e.g. west=170, east=-170). Request full longitude.
+        if (west > east) {
+            west = -180;
+            east = 180;
+        }
     }
 
     const body = JSON.stringify({ north, south, east, west });
@@ -351,11 +359,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     visible,
     windHour = 0,
     windGrid,
+    hideBadge = false,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
     const velocityLayerRef = useRef<L.Layer | null>(null);
     const syncRef = useRef<(() => void) | null>(null);
+    const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
     const [windData, setWindData] = useState<any[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({ refTime: null, source: null });
@@ -388,8 +398,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
         };
 
-        // Debounced re-fetch on EVERY move — seamless exploration
+        // Only re-fetch when zoom changes significantly — panning within the
+        // same zoom level doesn't need new data (fetchWindData uses generous padding).
         const onMoveEnd = () => {
+            const currentZoom = mapboxMap.getZoom();
+            const zoomDelta = Math.abs(currentZoom - (lastFetchZoom.current ?? currentZoom));
+            if (zoomDelta < 1) return; // Skip re-fetch for minor zoom/pan
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => doFetch(), 600);
         };
@@ -502,7 +516,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // ── Zoom-based particle visibility (heatmap disabled) ──
     useEffect(() => {
         if (!mapboxMap || !visible) return;
-        const MIN_PARTICLE_ZOOM = 4;
+        const MIN_PARTICLE_ZOOM = 1; // Match wind layer minZoom
 
         const onZoom = () => {
             const z = mapboxMap.getZoom();
@@ -534,7 +548,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
-            div.style.cssText = 'position:absolute;inset:0;z-index:400;pointer-events:none;';
+            div.style.cssText = 'position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;';
             container.appendChild(div);
             overlayRef.current = div;
 
@@ -543,7 +557,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             const zoom = mapboxMap.getZoom();
             const lMap = L.map(div, {
                 center: [center.lat, center.lng],
-                zoom: zoom + 1,             // Mapbox 512px tiles vs Leaflet 256px = +1 offset
+                zoom: zoom + 1,
                 zoomControl: false,
                 attributionControl: false,
                 dragging: false,
@@ -553,13 +567,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 boxZoom: false,
                 keyboard: false,
                 zoomAnimation: false,
-                zoomSnap: 0,                // Allow fractional zoom to match Mapbox
-                worldCopyJump: true,        // Prevent painting across repeating worlds
-                maxBounds: [[-90, -180], [90, 180]],
+                zoomSnap: 0,
             });
             leafletMapRef.current = lMap;
 
-            // Make Leaflet fully transparent — no white background over Mapbox
+            // Make Leaflet fully transparent
             div.style.background = 'transparent';
             const leafletContainer = div.querySelector('.leaflet-container') as HTMLElement;
             if (leafletContainer) leafletContainer.style.background = 'transparent';
@@ -573,46 +585,72 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             vLayer.addTo(lMap);
             velocityLayerRef.current = vLayer;
 
-            // ── Sync Leaflet viewport to Mapbox ─────────────────
-            // Use requestAnimationFrame for smooth, frame-perfect geo-lock.
-            // The _syncing flag prevents feedback loops (Leaflet setView → Mapbox repaint → render → repeat).
-            let rafId: number | null = null;
+            // ── Anchor-point geo-locking (performance optimised) ──
+            // MOVE events (every pixel during drag):
+            //   → Lightweight: just measure pixel error + CSS translate (no setView)
+            // MOVEEND / ZOOM events (end of gesture):
+            //   → Full: setView() + measure + correct
             let _syncing = false;
-            const syncViewport = () => {
-                if (_syncing || !leafletMapRef.current || !mapboxMap) return;
+
+            // Full sync — expensive, only on moveend/zoom
+            const syncFull = () => {
+                if (_syncing || !leafletMapRef.current || !mapboxMap || !overlayRef.current) return;
                 _syncing = true;
                 try {
                     const c = mapboxMap.getCenter();
                     const z = mapboxMap.getZoom() + 1;
                     leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
+
+                    // Measure residual error and correct
+                    const mapboxPx = mapboxMap.project([c.lng, c.lat]);
+                    const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
+                    const dx = mapboxPx.x - leafletPx.x;
+                    const dy = mapboxPx.y - leafletPx.y;
+                    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                        overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+                    } else {
+                        overlayRef.current.style.transform = '';
+                    }
                 } catch (_) { /* velocity canvas not ready yet */ }
                 _syncing = false;
             };
 
-            // Sync on every move event (fires continuously during drag/zoom)
-            const onMove = () => {
-                if (rafId) return;
-                rafId = requestAnimationFrame(() => {
-                    rafId = null;
-                    syncViewport();
-                });
+            // Lightweight correction — cheap, runs on every move pixel
+            const correctOnly = () => {
+                if (!leafletMapRef.current || !mapboxMap || !overlayRef.current) return;
+                try {
+                    const c = mapboxMap.getCenter();
+                    const mapboxPx = mapboxMap.project([c.lng, c.lat]);
+                    const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
+                    const dx = mapboxPx.x - leafletPx.x;
+                    const dy = mapboxPx.y - leafletPx.y;
+                    overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+                } catch (_) { /* ok */ }
             };
 
             const onResize = () => {
                 leafletMapRef.current?.invalidateSize();
-                syncViewport();
+                syncFull();
             };
 
-            mapboxMap.on('move', onMove);
-            mapboxMap.on('moveend', syncViewport);
-            mapboxMap.on('zoom', onMove);
+            // Lightweight correction on every drag pixel, full sync only at end
+            mapboxMap.on('move', correctOnly);
+            mapboxMap.on('moveend', syncFull);
+            mapboxMap.on('zoom', syncFull);
             mapboxMap.on('resize', onResize);
-            syncRef.current = syncViewport;
+            syncRef.current = syncFull;
+            moveRef.current = correctOnly;
             resizeRef.current = onResize;
 
-            // Initial sync
+            // Initial sync, then fade in
             lMap.invalidateSize();
-            syncViewport();
+            syncFull();
+            // Fade in after velocity canvas has rendered its first frame
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (overlayRef.current) overlayRef.current.style.opacity = '1';
+                });
+            });
         };
 
         setup().catch(err => log.error('[VelocityOverlay] Setup failed:', err));
@@ -622,13 +660,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             cancelled = true;
 
             try {
+                if (moveRef.current) mapboxMap.off('move', moveRef.current);
                 if (syncRef.current) {
                     mapboxMap.off('moveend', syncRef.current);
-                    mapboxMap.off('move', syncRef.current); // throttledSync captures same ref
+                    mapboxMap.off('zoom', syncRef.current);
                 }
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
             } catch (_) { /* ok */ }
             syncRef.current = null;
+            moveRef.current = null;
             resizeRef.current = null;
 
             // Remove heat map from Mapbox
@@ -661,7 +701,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     }, [mapboxMap, visible, windData]);
 
     // ── Data freshness badge ─────────────────────────────────────
-    if (!visible || !dataInfo.refTime) return null;
+    if (!visible || !dataInfo.refTime || hideBadge) return null;
 
     const isOffline = dataInfo.source === 'cached' || dataInfo.source === 'static';
     const ageStr = formatRelativeTime(dataInfo.refTime);

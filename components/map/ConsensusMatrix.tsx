@@ -224,7 +224,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
     }, [handleScroll]);
 
     return (
-        <div className="h-full flex flex-col bg-slate-950/98 border-l border-white/[0.06]">
+        <div className="h-full flex flex-col bg-slate-950 border-l border-white/[0.06]">
             {/* Header */}
             <div className="px-4 pt-4 pb-3 border-b border-white/[0.08] shrink-0">
                 <div className="flex items-center justify-between mb-2">
@@ -235,9 +235,10 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors active:scale-95"
+                            aria-label="Close consensus matrix"
                         >
-                            <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>

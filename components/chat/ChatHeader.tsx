@@ -22,12 +22,13 @@ export interface ChatHeaderProps {
     onOpenDMInbox: () => void;
     onToggleBlock: () => void;
     onLeaveChannel?: () => void;
+    onPropose?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
     view, activeChannel, dmPartnerName, myAvatarUrl, unreadDMs,
     messageCount, isUserBlocked, hasDMPartner,
-    onGoBack, onOpenProfile, onOpenDMInbox, onToggleBlock, onLeaveChannel,
+    onGoBack, onOpenProfile, onOpenDMInbox, onToggleBlock, onLeaveChannel, onPropose,
 }) => {
     const t = useTheme();
 
@@ -63,6 +64,17 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(({
                 <div className="flex items-center gap-2">
                     {view === 'channels' && (
                         <>
+                            {onPropose && (
+                                <button
+                                    onClick={onPropose}
+                                    aria-label="Propose a new channel"
+                                    className="w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-sky-500/15 border border-white/[0.12] hover:border-sky-500/30 flex items-center justify-center transition-all active:scale-95"
+                                >
+                                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                </button>
+                            )}
                             <button
                                 onClick={onOpenProfile}
                                 className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"

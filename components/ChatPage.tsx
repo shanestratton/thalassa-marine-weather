@@ -437,6 +437,7 @@ export const ChatPage: React.FC = () => {
                         },
                     });
                 } : undefined}
+                onPropose={() => setShowProposalForm(true)}
             />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}

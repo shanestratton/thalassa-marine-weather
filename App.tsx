@@ -111,15 +111,7 @@ const App: React.FC = () => {
         import('./services/AnchorWatchService').then(m => m.AnchorWatchService.restoreWatchState()).catch(() => { /* Non-critical */ });
     }, []);
 
-    // Auto-start NMEA backbone listener if previously configured.
-    // Silently attempts to connect; gives up after 5 minutes if unreachable.
-    useEffect(() => {
-        import('./services/NmeaListenerService').then(({ NmeaListenerService }) => {
-            NmeaListenerService.autoStart();
-            // Also start the store so instrument data is ingested
-            import('./services/NmeaStore').then(({ NmeaStore }) => NmeaStore.start()).catch(() => { });
-        }).catch(() => { /* Non-critical */ });
-    }, []);
+    // NMEA auto-start DISABLED — connection is now explicit via the NMEA page.\n    // Previously this would silently connect to any saved host:port on every app boot,\n    // even when not on the boat, wasting battery and causing confusing reconnect loops.
 
     // Initialize local-first database and start background sync engine.
     useEffect(() => {

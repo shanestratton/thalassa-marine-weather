@@ -32,11 +32,72 @@ export function useWeatherLayers(
 ) {
     const windState = useWindStore();
 
-    // Default to no overlay — satellite base only.
-    // User selects overlays from the layer menu.
-    // Embedded maps also default to 'none'.
-    const [activeLayer, setActiveLayer] = useState<WeatherLayer>('none');
+    // Multi-layer support — users can toggle multiple layers simultaneously.
+    // Max 3 active layers for mobile performance.
+    // Persisted to localStorage so selection survives app restart.
+    const MAX_LAYERS = 3;
+    const STORAGE_KEY = 'thalassa_active_layers';
+    const [activeLayers, setActiveLayers] = useState<Set<WeatherLayer>>(() => {
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const arr = JSON.parse(stored) as WeatherLayer[];
+                if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+            }
+        } catch { /* ignore */ }
+        return new Set();
+    });
     const [showLayerMenu, setShowLayerMenu] = useState(false);
+
+    // Toggle a layer on/off. 'none' clears all layers.
+    const toggleLayer = useCallback((layer: WeatherLayer) => {
+        setActiveLayers(prev => {
+            if (layer === 'none') return new Set<WeatherLayer>();
+            const next = new Set(prev);
+            if (next.has(layer)) {
+                next.delete(layer);
+            } else {
+                if (next.size >= MAX_LAYERS) {
+                    // At limit — remove the oldest (first) to make room
+                    const first = next.values().next().value;
+                    if (first) next.delete(first);
+                }
+                next.add(layer);
+            }
+            return next;
+        });
+    }, []);
+
+    // Persist layer selection to localStorage whenever it changes
+    useEffect(() => {
+        try {
+            const arr = [...activeLayers];
+            if (arr.length > 0) localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+            else localStorage.removeItem(STORAGE_KEY);
+        } catch { /* ignore */ }
+    }, [activeLayers]);
+
+    // Backward-compatible single-layer getter (priority: wind > rain > pressure > first)
+    const activeLayer: WeatherLayer = (() => {
+        if (activeLayers.size === 0) return 'none';
+        if (activeLayers.has('velocity') || activeLayers.has('wind')) return activeLayers.has('velocity') ? 'velocity' : 'wind';
+        if (activeLayers.has('rain')) return 'rain';
+        if (activeLayers.has('pressure')) return 'pressure';
+        return activeLayers.values().next().value ?? 'none';
+    })();
+
+    // Stable string key for useEffect deps — prevents re-fires from Set reference changes
+    const activeKey = [...activeLayers].sort().join(',');
+    // Fast boolean flags
+    const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
+    const hasRain = activeLayers.has('rain');
+    const hasPressure = activeLayers.has('pressure');
+
+    // Legacy setter — sets exactly one layer (for backward compat with MapUI etc.)
+    const setActiveLayer = useCallback((layer: WeatherLayer) => {
+        if (layer === 'none') setActiveLayers(new Set());
+        else setActiveLayers(new Set([layer]));
+    }, []);
 
     // Wind GL engine
     const windEngineRef = useRef<WindParticleLayer | null>(null);
@@ -150,8 +211,24 @@ export function useWeatherLayers(
         const bounds = map.getBounds();
         if (!bounds) return;
         const zoom = map.getZoom();
+        let west = bounds.getWest();
+        let east = bounds.getEast();
+        // Mapbox can return lons outside [-180, 180] when map wraps (e.g. east=200°)
+        // Normalize and detect dateline crossing
+        const span = east - west;
+        if (span >= 360) {
+            // Viewport covers full globe
+            west = -180; east = 180;
+        } else {
+            // Normalize to [-180, 180]
+            const normLon = (lon: number) => ((lon + 180) % 360 + 360) % 360 - 180;
+            west = normLon(west);
+            east = normLon(east);
+            // After normalization, west > east means dateline crossing
+            if (west > east) { west = -180; east = 180; }
+        }
         const data = await generateIsobars(
-            bounds.getNorth(), bounds.getSouth(), bounds.getWest(), bounds.getEast(), zoom
+            bounds.getNorth(), bounds.getSouth(), west, east, zoom
         );
         if (token !== isobarFetchRef.current) return;
         if (!data) return;
@@ -192,12 +269,12 @@ export function useWeatherLayers(
 
     // Apply isobar frame on hour change
     useEffect(() => {
-        if (activeLayer === 'pressure') applyFrame(forecastHour);
-    }, [forecastHour, activeLayer, applyFrame]);
+        if (activeLayers.has('pressure')) applyFrame(forecastHour);
+    }, [forecastHour, activeKey, applyFrame]);
 
     // ── Wind scrubber: update GL engine on hour change ──
     useEffect(() => {
-        if ((activeLayer !== 'wind' && activeLayer !== 'velocity') || !windEngineRef.current || !windGridRef.current) return;
+        if (!activeLayers.has('wind') && !activeLayers.has('velocity') || !windEngineRef.current || !windGridRef.current) return;
         windEngineRef.current.setForecastHour(windHour);
         setWindMaxSpeed(windEngineRef.current.getMaxSpeed());
 
@@ -242,11 +319,11 @@ export function useWeatherLayers(
                 windMarkersRef.current.push(marker);
             }
         }
-    }, [windHour, activeLayer]);
+    }, [windHour, activeKey]);
 
     // Wind auto-play — fractional steps for smooth morphing between hours
     useEffect(() => {
-        if (!windPlaying || (activeLayer !== 'wind' && activeLayer !== 'velocity')) return;
+        if (!windPlaying || (!activeLayers.has('wind') && !activeLayers.has('velocity'))) return;
         const timer = setInterval(() => {
             setWindHour(prev => {
                 const next = prev + 0.1;
@@ -255,11 +332,11 @@ export function useWeatherLayers(
             });
         }, 100);
         return () => clearInterval(timer);
-    }, [windPlaying, activeLayer, windTotalHours]);
+    }, [windPlaying, activeKey, windTotalHours]);
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
-        if ((activeLayer !== 'wind' && activeLayer !== 'velocity') || !mapReady) return;
+        if ((!activeLayers.has('wind') && !activeLayers.has('velocity')) || !mapReady) return;
         setWindHour(0);
 
         // Small delay to let the geolock flyTo settle
@@ -278,46 +355,39 @@ export function useWeatherLayers(
             }).catch((err) => { console.warn('[WindScrubber] activate() failed:', err); });
         }, 1200);
         return () => clearTimeout(windTimer);
-    }, [activeLayer, mapReady]);
+    }, [activeKey, mapReady]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
-    // Wind layer: constrain zoom (3-8) and lock bounds to a regional box
-    // around the user's location. Other layers: full freedom.
+    const prevLayerCountRef = useRef(0);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady || embedded) return;
 
-        if (activeLayer === 'wind' || activeLayer === 'velocity') {
-            // ── WIND GEOLOCK ──
-            // 1. Fly to synoptic overview centered on user
-            map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+        const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
+        const layerCount = activeLayers.size;
 
-            // 2. Constrain zoom range — wind particles are meaningful at zoom 3-8
-            map.setMinZoom(3);
-            map.setMaxZoom(8);
-
-            // 3. Lock bounds to ±30° box around user (prevents drifting to empty ocean)
-            const padLat = 30;
-            const padLon = 40;
-            map.setMaxBounds([
-                [location.lon - padLon, location.lat - padLat],
-                [location.lon + padLon, location.lat + padLat],
-            ]);
+        if (hasWind) {
+            // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
+            map.setMinZoom(1);
+            map.setMaxZoom(18);
+            map.setMaxBounds(undefined as any);
         } else {
-            // ── UNLOCK for all other layers ──
+            // No wind — full freedom
             map.setMinZoom(1);
             map.setMaxZoom(20);
             map.setMaxBounds(undefined as any);
-
-            if (activeLayer !== 'none') {
-                map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
-            }
         }
-    }, [activeLayer, mapReady, embedded]);
+
+        // Fly to user only on FIRST layer activation (not every toggle)
+        if (layerCount > 0 && prevLayerCountRef.current === 0) {
+            map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+        }
+        prevLayerCountRef.current = layerCount;
+    }, [activeKey, mapReady, embedded]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
-        if (!rainPlaying || activeLayer !== 'rain') return;
+        if (!rainPlaying || !activeLayers.has('rain') || activeLayers.size > 1) return;
         const timer = setInterval(() => {
             // Pause when app is backgrounded
             if (document.hidden) return;
@@ -327,13 +397,13 @@ export function useWeatherLayers(
             });
         }, 600);
         return () => clearInterval(timer);
-    }, [rainPlaying, activeLayer, rainFrameCount]);
+    }, [rainPlaying, activeKey, rainFrameCount]);
 
     // Unified rain frame swap: toggle visibility on pre-loaded layers
     const rainFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
-        if (activeLayer !== 'rain' || !rainReady) return;
+        if (!activeLayers.has('rain') || !rainReady) return;
         const m = mapRef.current;
         if (!m) return;
         const frames = unifiedFramesRef.current;
@@ -398,24 +468,29 @@ export function useWeatherLayers(
                 visibleForecastIdxRef.current = fcIdx;
             }
         }
-    }, [rainFrameIndex, activeLayer, rainReady]);
+    }, [rainFrameIndex, activeKey, rainReady]);
 
     // ── Weather Layer Toggle (main effect) ──
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        // Remove existing weather layers (pre-loaded radar + forecast)
-        for (let i = 0; i < 30; i++) {
-            ['radar-', 'rainbow-fc-'].forEach(prefix => {
-                const id = `${prefix}${i}`;
-                try {
-                    if (map.getLayer(id)) map.removeLayer(id);
-                    if (map.getSource(id)) map.removeSource(id);
-                } catch (_) { }
-            });
+        // Remove layers NOT in active set
+        if (!activeLayers.has('rain')) {
+            for (let i = 0; i < 30; i++) {
+                ['radar-', 'rainbow-fc-'].forEach(prefix => {
+                    const id = `${prefix}${i}`;
+                    try {
+                        if (map.getLayer(id)) map.removeLayer(id);
+                        if (map.getSource(id)) map.removeSource(id);
+                    } catch (_) { }
+                });
+            }
+            unifiedFramesRef.current = [];
+            setRainFrameCount(0);
+            setRainFrameIndex(0);
         }
-        if (activeLayer !== 'wind' && activeLayer !== 'velocity') {
+        if (!activeLayers.has('wind') && !activeLayers.has('velocity')) {
             if (map.getLayer('wind-labels')) map.removeLayer('wind-labels');
             if (map.getSource('wind-labels')) map.removeSource('wind-labels');
             windMarkersRef.current.forEach(mk => mk.remove());
@@ -423,11 +498,6 @@ export function useWeatherLayers(
             try { if (map.getLayer('wind-particles')) map.removeLayer('wind-particles'); } catch (_) { }
             windEngineRef.current = null;
             WindDataController.deactivate(map);
-        }
-        if (activeLayer !== 'rain') {
-            unifiedFramesRef.current = [];
-            setRainFrameCount(0);
-            setRainFrameIndex(0);
         }
 
         const hideIsobars = () => {
@@ -441,15 +511,18 @@ export function useWeatherLayers(
             });
         };
 
-        hideIsobars();
+        if (!activeLayers.has('pressure')) hideIsobars();
 
-        if (activeLayer === 'none') return;
+        if (activeLayers.size === 0) return;
 
         // ── Pressure / Isobars ──
-        if (activeLayer === 'pressure') {
-            const currentZoom = map.getZoom();
-            if (currentZoom > 4 || currentZoom < 2.5) {
-                map.flyTo({ zoom: 3, duration: 1200 });
+        if (activeLayers.has('pressure')) {
+            // Only adjust zoom when pressure is the sole layer
+            if (activeLayers.size === 1) {
+                const currentZoom = map.getZoom();
+                if (currentZoom > 4 || currentZoom < 2.5) {
+                    map.flyTo({ zoom: 3, duration: 1200 });
+                }
             }
 
             if (!map.getSource('isobar-contours')) {
@@ -544,13 +617,11 @@ export function useWeatherLayers(
 
             showIsobars();
             updateIsobars(map);
-            const onMoveEnd = () => updateIsobars(map);
-            map.on('moveend', onMoveEnd);
-            return () => { map.off('moveend', onMoveEnd); };
         }
 
         // ── Rain (unified: RainViewer radar past + GFS forecast future) ──
-        if (activeLayer === 'rain') {
+        if (activeLayers.has('rain') && unifiedFramesRef.current.length === 0) {
+            // Only fetch if not already loaded (idempotent guard)
             setRainLoading(true);
             setRainReady(false);
             setRainFrameIndex(0);
@@ -727,27 +798,40 @@ export function useWeatherLayers(
             };
         }
 
-        // ── Wind layers are handled by a separate useEffect below (to avoid
-        //    re-firing when updateIsobars changes) ──
-        if (activeLayer === 'wind' || activeLayer === 'velocity') return;
+        // ── Static tile layers (sea, satellite, temperature, clouds) ──
+        // Remove tile layers NOT in active set
+        const TILE_LAYERS: WeatherLayer[] = ['temperature', 'clouds', 'sea', 'satellite'];
+        for (const tl of TILE_LAYERS) {
+            const tileId = `tiles-${tl}`;
+            if (!activeLayers.has(tl)) {
+                try { if (map.getLayer(tileId)) map.removeLayer(tileId); } catch (_) { }
+                try { if (map.getSource(tileId)) map.removeSource(tileId); } catch (_) { }
+            }
+        }
+        // Also clean up legacy single 'weather-tiles' source/layer
+        try { if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles'); } catch (_) { }
+        try { if (map.getSource('weather-tiles')) map.removeSource('weather-tiles'); } catch (_) { }
 
-
-        // Static and dynamic tile layers (sea, satellite, temperature, clouds)
-        const tileUrl = getTileUrl(activeLayer);
-        if (tileUrl) {
-            // Remove any existing tile layer/source to prevent duplicate ID error
-            try { if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles'); } catch (_) { }
-            try { if (map.getSource('weather-tiles')) map.removeSource('weather-tiles'); } catch (_) { }
-            map.addSource('weather-tiles', { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: activeLayer === 'satellite' ? 16 : 18 });
-            map.addLayer({
-                id: 'weather-tiles', type: 'raster', source: 'weather-tiles',
-                paint: {
-                    'raster-opacity': activeLayer === 'satellite' ? 0.8
-                        : activeLayer === 'temperature' ? 0.65
-                            : activeLayer === 'clouds' ? 0.6
-                                : 1.0,
-                },
-            }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
+        // Add tile layers that ARE active
+        for (const tl of TILE_LAYERS) {
+            if (!activeLayers.has(tl)) continue;
+            const tileId = `tiles-${tl}`;
+            const tileUrl = getTileUrl(tl);
+            if (!tileUrl) continue;
+            // Skip if already added
+            if (map.getLayer(tileId)) continue;
+            try {
+                map.addSource(tileId, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: tl === 'satellite' ? 16 : 18 });
+                map.addLayer({
+                    id: tileId, type: 'raster', source: tileId,
+                    paint: {
+                        'raster-opacity': tl === 'satellite' ? 0.8
+                            : tl === 'temperature' ? 0.65
+                                : tl === 'clouds' ? 0.6
+                                    : 1.0,
+                    },
+                }, map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
+            } catch (_) { }
         }
 
         // ── Glass Pane: promote nav layers above any newly-added weather layers ──
@@ -762,10 +846,28 @@ export function useWeatherLayers(
         for (const id of navLayerIds) {
             try { if (map.getLayer(id)) map.moveLayer(id); } catch (_) { /* layer not present — skip */ }
         }
-    }, [activeLayer, mapReady, updateIsobars]);
+    }, [activeKey, mapReady, updateIsobars]);
+
+    // ── Isobar moveend re-fetch (separate stable effect, debounced) ──
+    // Debounce: wait 1.5s after the last pan/zoom before re-fetching.
+    // Existing isobar data stays visible during the delay (geo-locked).
+    const isobarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !hasPressure) return;
+        const onMoveEnd = () => {
+            if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
+            isobarDebounceRef.current = setTimeout(() => updateIsobars(map), 1500);
+        };
+        map.on('moveend', onMoveEnd);
+        return () => {
+            map.off('moveend', onMoveEnd);
+            if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
+        };
+    }, [hasPressure, mapReady, updateIsobars]);
 
     return {
-        activeLayer, setActiveLayer,
+        activeLayer, setActiveLayer, activeLayers, toggleLayer,
         showLayerMenu, setShowLayerMenu,
         // Wind
         windEngineRef, windGridRef, windMarkersRef, windState,

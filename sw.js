@@ -33,6 +33,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // ── DEV MODE BYPASS ──
+  // On localhost, let ALL requests pass through to Vite dev server directly.
+  // Without this, the stale SW cache serves old module files, blocking hot reload.
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    return; // Don't call event.respondWith — browser fetches normally
+  }
+
   // 1. CHART TILES - CACHE FIRST (The Offline "Holy Grail")
   // We want tiles to stick around for a long time (e.g., 30 days) to support offshore usage.
   if (url.hostname.includes('cartocdn.com') ||

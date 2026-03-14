@@ -5,8 +5,8 @@
  * this downloads the ENTIRE route area in ONE request via the gebco-depth
  * edge function (which proxies to NOAA ETOPO ERDDAP server-side, avoiding CORS).
  *
- * Resolution: 0.25° (~15 NM) — sufficient for land avoidance routing.
- * Typical payload: ~3000 grid points for a continental route.
+ * Resolution: 0.1° (6 arcminutes, ~6 NM) — catches narrow islands and straits.
+ * Typical payload: ~3000–8000 grid points for a continental route.
  */
 
 const getSupabaseUrl = (): string =>
@@ -187,9 +187,34 @@ export function getDepthFromCache(grid: BathymetryGrid, lat: number, lon: number
 
 /**
  * Check if a point is on land using the cached bathymetry grid.
+ *
+ * CONSERVATIVE: checks the 2×2 grid cell neighbourhood around the point.
+ * If ANY of the 4 surrounding cells is land (depth ≥ 0), reports land.
+ * This catches narrow peninsulas, spits, and islands that fall between
+ * grid cell centres — the main cause of routes clipping land.
  */
 export function isLand(grid: BathymetryGrid, lat: number, lon: number): boolean {
-    const depth = getDepthFromCache(grid, lat, lon);
-    if (depth === null) return false; // Unknown — assume water
-    return depth >= 0;
+    if (lat < grid.south || lat > grid.north || lon < grid.west || lon > grid.east) {
+        return false; // Out of grid — assume water
+    }
+
+    // Fractional grid indices
+    const fi = (lat - grid.south) / grid.latStep;
+    const fj = (lon - grid.west) / grid.lonStep;
+
+    // The 4 surrounding cell indices
+    const i0 = Math.floor(fi);
+    const j0 = Math.floor(fj);
+    const i1 = Math.min(i0 + 1, grid.rows - 1);
+    const j1 = Math.min(j0 + 1, grid.cols - 1);
+
+    // If ANY surrounding cell is land, classify as land (conservative)
+    for (const ri of [i0, i1]) {
+        for (const ci of [j0, j1]) {
+            if (ri < 0 || ri >= grid.rows || ci < 0 || ci >= grid.cols) continue;
+            const val = grid.data[ri * grid.cols + ci];
+            if (!isNaN(val) && val >= 0) return true;
+        }
+    }
+    return false;
 }

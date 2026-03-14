@@ -33,7 +33,10 @@ export const NmeaGpsIndicator: React.FC = () => {
     // Routes through GpsService → BgGeoManager (native) or web fallback.
     useEffect(() => {
         const unsub = GpsService.watchPosition((pos) => {
-            if (document.hidden) return;
+            // No document.hidden guard — feed accuracy even when backgrounded
+            // so precision detection stays current and doesn't reset via staleness timeout.
+            // ShipLogService already feeds in background; this ensures the indicator
+            // also feeds when no voyage is active.
             if (pos.accuracy > 0) {
                 GpsPrecision.feed(pos.accuracy);
             }
@@ -44,7 +47,8 @@ export const NmeaGpsIndicator: React.FC = () => {
     useEffect(() => {
         // Poll both NMEA and precision tracker every second
         const id = setInterval(() => {
-            if (document.hidden) return; // Battery: skip when backgrounded
+            // No document.hidden guard — keep badge state current so it
+            // doesn't flash off/on when returning from background.
             const isNmea = NmeaGpsProvider.isActive();
             const isPrecision = GpsPrecision.isPrecision();
             GpsPrecision.checkStaleness(); // Reset badge if no fresh samples in 30s

@@ -252,8 +252,26 @@ class LonelyHeartsServiceClass {
 
     async init(): Promise<void> {
         if (!supabase) return;
-        const { data: { user } } = await supabase.auth.getUser();
-        this.currentUserId = user?.id || null;
+        // Try getUser (network call) first, fall back to getSession (local cache)
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.id) {
+                this.currentUserId = user.id;
+                console.log('[CrewFinder] Auth via getUser:', user.id.slice(0, 8));
+                return;
+            }
+        } catch (e) {
+            console.warn('[CrewFinder] getUser failed, trying getSession:', e);
+        }
+        // Fallback: getSession uses locally cached token
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            this.currentUserId = session?.user?.id || null;
+            console.log('[CrewFinder] Auth via getSession:', this.currentUserId?.slice(0, 8) || 'null');
+        } catch (e) {
+            console.warn('[CrewFinder] getSession failed:', e);
+            this.currentUserId = null;
+        }
     }
 
     // ─── CREW PROFILES (Find Crew) ─────────────────

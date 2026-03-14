@@ -44,6 +44,19 @@ console.error = (...args: any[]) => {
 // Service Worker Registration for PWA/Offline Support
 const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator) {
+    // ── DEV MODE: Unregister stale SWs that intercept Vite HMR requests ──
+    // A production SW cached in the browser will intercept localhost:3000
+    // module requests and serve stale/failed responses, preventing code
+    // changes from ever reaching the app.
+    if (import.meta.env.DEV) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const reg of registrations) {
+        await reg.unregister();
+        console.warn('[SW] Unregistered stale service worker in dev mode');
+      }
+      return;
+    }
+
     // 1. Check for Secure Context (HTTPS or Localhost)
     // Service Workers throw errors if registered in an insecure context (e.g. LAN IP on HTTP)
     if (!window.isSecureContext) {

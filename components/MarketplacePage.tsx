@@ -33,13 +33,13 @@ import {
 import { ChatService } from '../services/ChatService';
 import { BgGeoManager } from '../services/BgGeoManager';
 import { SellerRatingService, SellerReputation } from '../services/SellerRatingService';
+import { Capacitor } from '@capacitor/core';
 import { t } from '../theme';
 import { SlideToAction } from './ui/SlideToAction';
 import { UndoToast } from './ui/UndoToast';
 import { triggerHaptic } from '../utils/system';
 import { useSwipeable } from '../hooks/useSwipeable';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
-import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
 
 // --- CONSTANTS ---
 const MAX_PHOTOS = 20; // Pro users get 20 photos
@@ -588,7 +588,55 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [locationWarning, setLocationWarning] = useState<string | null>(null);
     const autoFilledLocRef = useRef<{ lat: number; lon: number } | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
-    const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    // ── Keyboard height detection — same pattern as DiaryPage/AuthModal ──
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    useEffect(() => {
+        if (!isOpen) { setKeyboardHeight(0); return; }
+        let cleanup: (() => void) | undefined;
+
+        if (Capacitor.isNativePlatform()) {
+            import('@capacitor/keyboard').then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                    // Scroll focused input into view WITHIN the scroll container only
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement;
+                        const container = scrollRef.current;
+                        if (!focused || !container) return;
+                        if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
+                        // Calculate position of focused element relative to scroll container
+                        const focusRect = focused.getBoundingClientRect();
+                        const containerRect = container.getBoundingClientRect();
+                        const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
+                        // Scroll so the input sits roughly 1/3 from the top of the container
+                        const targetScroll = offsetInContainer - containerRect.height * 0.3;
+                        container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+                    }, 50);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+                cleanup = () => {
+                    showHandle.then(h => h.remove());
+                    hideHandle.then(h => h.remove());
+                };
+            }).catch(() => { /* Keyboard plugin not available */ });
+        } else {
+            const vp = window.visualViewport;
+            if (vp) {
+                const handleResize = () => {
+                    const kbHeight = window.innerHeight - vp.height;
+                    setKeyboardHeight(kbHeight > 50 ? kbHeight : 0);
+                };
+                vp.addEventListener('resize', handleResize);
+                cleanup = () => vp.removeEventListener('resize', handleResize);
+            }
+        }
+
+        return () => { cleanup?.(); setKeyboardHeight(0); };
+    }, [isOpen]);
 
     // ── Boat-specific state ──
     const [boatMake, setBoatMake] = useState('');
@@ -751,11 +799,18 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
     const CURRENCIES = ['AUD', 'USD', 'EUR', 'GBP', 'NZD'];
 
+    // Keyboard padding for scroll area — same as DiaryPage approach
+    // Don't move the modal, just shrink the scroll area
+    const scrollPadBottom = keyboardHeight > 0 ? `${keyboardHeight}px` : '0px';
+
     return (
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
-                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-t-3xl shadow-2xl flex flex-col"
-                style={{ maxHeight: 'calc(100dvh - 5rem - env(safe-area-inset-bottom, 0px))' }}
+                className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-3xl shadow-2xl flex flex-col"
+                style={{
+                    maxHeight: 'calc(100dvh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 8px)',
+                    marginBottom: 'calc(4rem + env(safe-area-inset-bottom, 0px) + 8px)',
+                }}
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header — sticky at top of modal */}
@@ -771,7 +826,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
                 </div>
 
-                <div ref={keyboardScrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5" style={{ paddingBottom: scrollPadBottom, WebkitOverflowScrolling: 'touch' as any }}>
                     {/* Error */}
                     {error && (
                         <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
@@ -803,7 +858,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <input
                             value={title}
                             onChange={e => setTitle(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
+
                             placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
                             maxLength={100}
                             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
@@ -816,7 +871,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <textarea
                             value={description}
                             onChange={e => setDescription(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
+
                             placeholder="Describe the item, any defects, model year, etc."
                             rows={3}
                             maxLength={1000}
@@ -831,12 +886,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Make</label>
-                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Beneteau" maxLength={60}
+                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} placeholder="Beneteau" maxLength={60}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Model</label>
-                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Oceanis 40.1" maxLength={60}
+                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} placeholder="Oceanis 40.1" maxLength={60}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -845,12 +900,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Year Built</label>
-                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} onFocus={scrollInputAboveKeyboard} placeholder="2019" inputMode="numeric"
+                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="2019" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Length (ft)</label>
-                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="40" inputMode="decimal"
+                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="40" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -859,12 +914,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Beam (ft)</label>
-                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="13" inputMode="decimal"
+                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="13" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Draft (ft)</label>
-                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="6.5" inputMode="decimal"
+                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="6.5" inputMode="decimal"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -897,17 +952,17 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
+                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                     <div className="w-20">
-                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="HP" inputMode="numeric"
+                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} placeholder="HP" inputMode="numeric"
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="Engine hours" inputMode="numeric"
+                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} placeholder="Engine hours" inputMode="numeric"
                                             className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                     </div>
                                     <div className="flex-1">
@@ -928,17 +983,17 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Berths</label>
-                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="6" inputMode="numeric"
+                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} placeholder="6" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Cabins</label>
-                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="3" inputMode="numeric"
+                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} placeholder="3" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Heads</label>
-                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} onFocus={scrollInputAboveKeyboard} placeholder="2" inputMode="numeric"
+                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} placeholder="2" inputMode="numeric"
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                             </div>
@@ -947,7 +1002,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <div className="flex gap-2 items-end">
                                 <div className="flex-1">
                                     <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Rego Number</label>
-                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} onFocus={scrollInputAboveKeyboard} placeholder="Optional" maxLength={30}
+                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} placeholder="Optional" maxLength={30}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
                                 </div>
                                 <button
@@ -1007,7 +1062,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <input
                                 value={price}
                                 onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                                onFocus={scrollInputAboveKeyboard}
+    
                                 placeholder="0.00"
                                 inputMode="decimal"
                                 className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
@@ -1034,21 +1089,21 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             <input
                                 value={locCountry}
                                 onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
-                                onFocus={scrollInputAboveKeyboard}
+    
                                 placeholder="Country"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locState}
                                 onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
-                                onFocus={scrollInputAboveKeyboard}
+    
                                 placeholder="State"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locSuburb}
                                 onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
-                                onFocus={scrollInputAboveKeyboard}
+    
                                 placeholder="Suburb"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
@@ -1088,7 +1143,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
                     </div>
 
-                    {/* Submit button (mobile) */}
+                    {/* Bottom spacer inside scroll area */}
+                    <div className="h-2" />
+                </div>
+
+                {/* Submit button — pinned outside scroll area */}
+                <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
@@ -1098,9 +1158,6 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     >
                         {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
                     </button>
-
-                    {/* Bottom spacing for iOS safe area */}
-                    <div style={{ height: 'max(2rem, env(safe-area-inset-bottom))' }} />
                 </div>
             </div>
         </div>

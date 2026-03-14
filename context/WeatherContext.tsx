@@ -11,6 +11,7 @@ import { EnvironmentService } from '../services/EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
+import { LocationStore } from '../stores/LocationStore';
 
 import { saveLargeData, saveLargeDataImmediate, loadLargeData, loadLargeDataSync, deleteLargeData, readCacheVersion, writeCacheVersion, DATA_CACHE_KEY, VOYAGE_CACHE_KEY, HISTORY_CACHE_KEY } from '../services/nativeStorage';
 
@@ -199,6 +200,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             console.info(`[WeatherContext] Instant display: ${syncCached.locationName}`);
             setWeatherData(syncCached);
             setLoading(false);
+
+            // Sync to LocationStore so the Map tab centers on the user's WX location
+            // instead of the hardcoded Brisbane default
+            const coords = syncCached.coordinates;
+            if (coords && (coords.lat !== 0 || coords.lon !== 0)) {
+                const locState = LocationStore.getState();
+                if (locState.source === 'initial') {
+                    LocationStore.setState({
+                        lat: coords.lat,
+                        lon: coords.lon,
+                        name: syncCached.locationName,
+                        source: 'search',
+                    });
+                }
+            }
         }
     }, []);
 
