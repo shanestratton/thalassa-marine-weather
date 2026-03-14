@@ -278,3 +278,9 @@ async function buildDirectRoute(
         ialaRegion: seamarks.metadata.ialaRegion,
     };
 }
+
+// ── Test helpers — export internal pure functions for unit testing ──
+export const _testableInternals = {
+    distNM,
+    classifyDepth,
+};
