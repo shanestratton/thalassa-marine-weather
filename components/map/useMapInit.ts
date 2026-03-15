@@ -699,7 +699,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             map.remove();
             mapRef.current = null;
         };
-    }, [mapboxToken, mapStyle, initialZoom, minimalLabels]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [mapboxToken, mapStyle, initialZoom, minimalLabels]);
 
     return { dropPin };
 }
